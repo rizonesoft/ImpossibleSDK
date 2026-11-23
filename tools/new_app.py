@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start a program's repository: python3 tools/new_app.py <folder> --label <name> [--window] --tier <n>
+"""Start a program's repository: python3 tools/new_app.py <folder> --label <name> --license <file> [--window] --tier <n>
 
 The folder's name is the program's name. It becomes a git repository pinned to
 this SDK's commit. With --kits <Conclave-SDK folder> --goal <sentence> it also gets the todo,
@@ -125,6 +125,8 @@ def main():
         parser.error("--kits and --goal go together")
     if args.kits and not (args.kits / "forge.py").is_file():
         parser.error(f"{args.kits} is not a Conclave-SDK checkout")
+    if not args.license.is_file():
+        parser.error(f"{args.license} is not a file")
     root = args.folder.resolve()
     name = root.name
     if not re.fullmatch(r"[A-Z][A-Za-z0-9]{1,39}", name):
