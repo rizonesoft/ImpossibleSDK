@@ -77,7 +77,7 @@ class ImportCheck(unittest.TestCase):
 @unittest.skipUnless(ON_WINDOWS, "needs Windows, directly or through WSL")
 class Samples(unittest.TestCase):
     def run_sample(self, name, *arguments):
-        with tempfile.TemporaryDirectory(dir=BUILD) as folder:
+        with tempfile.TemporaryDirectory() as folder:
             return subprocess.run([str(BUILD / f"{name}.exe"), *arguments], capture_output=True, timeout=60, cwd=folder)
 
     def test_console(self):

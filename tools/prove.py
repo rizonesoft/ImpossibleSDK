@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Prove a repository on Windows, from WSL: python3 tools/prove.py <repository folder>
 
-The repositories are worked on in WSL. Each has a copy on a Windows drive, its
-git remote "proof", which only this script changes. It sends the committed work
-of the repository and of Impossible SDK to their copies, then builds and tests
-the copy with Windows' own Python, as one call from WSL.
+Builds the committed work in WSL, then Windows' own Python runs the tests against
+those same programs where they are, on WSL's disk, as one call from WSL. A test
+that needs Windows' file system makes its folder with tempfile, which on Windows
+is a Windows disk.
 """
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,38 +22,36 @@ def git(folder, *arguments):
     return done.stdout.strip()
 
 
-def send(folder):
-    """Brings the copy to this repository's commit and says where it is."""
+def committed(folder):
     if git(folder, "status", "--porcelain"):
         raise SystemExit(f"error: {folder} has uncommitted changes, and a proof is of a commit")
-    copy = Path(git(folder, "remote", "get-url", "proof"))
-    git(folder, "push", "-q", "proof", "HEAD:main")
-    if git(copy, "rev-parse", "HEAD") != git(folder, "rev-parse", "HEAD") or git(copy, "status", "--porcelain"):
-        raise SystemExit(f"error: {copy} is not a clean copy of {folder}: someone edited it")
-    return copy
+    return git(folder, "rev-parse", "--short", "HEAD")
 
 
-def command(copy, sdk_copy):
-    """The Windows command, as one argument each."""
-    def there(path):
-        return subprocess.run(["wslpath", "-w", str(path)], capture_output=True, text=True, check=True, timeout=30).stdout.strip()
-
-    if copy == sdk_copy:
-        return ["python.exe", there(copy / "tools/build.py")]
-    return ["python.exe", there(sdk_copy / "tools/app_build.py"), there(copy)]
+def there(path):
+    """The Windows spelling of a path."""
+    return subprocess.run(["wslpath", "-w", str(path)], capture_output=True, text=True, check=True, timeout=30).stdout.strip()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("folder", type=Path)
-    args = parser.parse_args()
-    folder = args.folder.resolve()
-    sdk_copy = send(SDK)
-    copy = sdk_copy if folder == SDK else send(folder)
-    done = subprocess.run(command(copy, sdk_copy), cwd=copy, timeout=3600, stdin=subprocess.DEVNULL)
-    print(f"{'proved' if done.returncode == 0 else 'NOT proved'} on Windows: {folder.name} {git(folder, 'rev-parse', '--short', 'HEAD')}")
+    folder = parser.parse_args().folder.resolve()
+    commit = committed(folder)
+    builder = [str(SDK / "tools/build.py")] if folder == SDK else [str(SDK / "tools/app_build.py"), str(folder)]
+    subprocess.run([sys.executable, *builder, "--no-test"], check=True, timeout=1800)
+    env = {**os.environ, "IMPOSSIBLE_BUILD": there(folder / "build/linux"), "IMPOSSIBLE_SDK_DIR": there(SDK),
+           "PYTHONDONTWRITEBYTECODE": "1", "WSLENV": "IMPOSSIBLE_BUILD:IMPOSSIBLE_SDK_DIR:PYTHONDONTWRITEBYTECODE"}
+    done = subprocess.run(["python.exe", "-B", "-m", "unittest", "discover", "-s", there(folder / "tests"), "-v"],
+                          cwd="/mnt/c/Windows/Temp", env=env, timeout=3600, stdin=subprocess.DEVNULL)
+    if committed(folder) != commit:
+        raise SystemExit("error: the repository moved on during the proof")
+    print(f"{'proved' if done.returncode == 0 else 'NOT proved'} on Windows: {folder.name} {commit}")
     return done.returncode
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except subprocess.CalledProcessError as error:
+        sys.exit(error.returncode)
