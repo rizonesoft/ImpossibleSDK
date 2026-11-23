@@ -10,7 +10,7 @@ title: "TODO-01 -- Image Formats"
 
 > **Goal:** Programs and the OS share one set of image decoders that cannot be crashed by a file.
 
-> **Current state:** Measured 2026-11-23. No decoder exists. Photos needs them first.
+> **Current state:** **Groomed 2026-11-23:** §1 moved to phase 1, because every part needs it; §7 to §12 were missing. Measured 2026-11-23. No decoder exists. Photos needs them first.
 
 ## Inputs
 
@@ -38,12 +38,18 @@ title: "TODO-01 -- Image Formats"
 | 4 | §4 | JPEG decoder | §1 | [ ] |
 | 5 | §5 | BMP decoder | §1 | [ ] |
 | 6 | §6 | GIF decoder | §1 | [ ] |
+| 7 | §7 | WebP lossless decoder | §1 | [ ] |
+| 8 | §8 | WebP lossy decoder and alpha | §7 | [ ] |
+| 9 | §9 | Animated WebP and GIF playback | §6, §8 | [ ] |
+| 10 | §10 | JPEG writer | §4 | [ ] |
+| 11 | §11 | ICO and CUR, both ways | §3, §5, D06 T01 §10 | [ ] |
+| 12 | §12 | Picture orientation and facts | §3, §4, §8 | [ ] |
 
 ## 1. Part layout and image type
 
 Parts are separate folders with their own tests and dependency list, so Impossible OS can import one without the rest.
 
-**Phase:** 4
+**Phase:** 1
 **Needs:** none
 **Surface:** no
 
@@ -73,8 +79,8 @@ Deflate data sits inside PNG, so it comes first. Own code, because the OS part m
 2. Write CRC-32 and Adler-32 beside it. Done when: both equal Python's `zlib`.
 
 - [ ] Inflate stored, fixed and dynamic blocks into a bounded buffer in `parts/inflate/inflate.c`. Done when: 10,000 random inputs from Python's `zlib` at every level round trip. Cheaper substitute: dynamic blocks only.
-- [ ] Stop at a caller's output limit. Done when: a 1 GB bomb is refused after the limit without allocating more. Cheaper substitute: trusting the stated size.
-- [ ] Fuzz it. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
+- [ ] Stop at a caller's output limit in `parts/inflate/inflate.c`. Done when: a 1 GB bomb is refused after the limit without allocating more. Cheaper substitute: trusting the stated size.
+- [ ] Fuzz `parts/inflate/inflate.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
 - [ ] Commit: `parts: inflate and checksums`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the bomb test fails without the limit.
@@ -93,8 +99,8 @@ All colour types, bit depths, interlacing, palettes, transparency and gamma-free
 2. Add `tests/fixtures/png_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
 - [ ] Parse the header of PNG in `parts/png/png.c` with width, height and size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
-- [ ] Decode every variant the specification requires. Done when: all of PngSuite decodes to the pixels of a pinned reference decoder. Cheaper substitute: the common variant only.
-- [ ] Return a named error for truncated and damaged data with no partial picture. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
+- [ ] Decode every variant the specification requires in `parts/png/png.c`. Done when: all of PngSuite decodes to the pixels of a pinned reference decoder. Cheaper substitute: the common variant only.
+- [ ] Return a named error for truncated and damaged data with no partial picture in `parts/png/png.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
 - [ ] Fuzz `parts/png/png.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
 - [ ] Commit: `formats: PNG decoder`
 
@@ -114,8 +120,8 @@ Baseline and progressive, every subsampling, restart markers, grayscale and the 
 2. Add `tests/fixtures/jpeg_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
 - [ ] Parse the header of JPEG in `parts/jpeg/jpeg.c` with width, height and size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
-- [ ] Decode every variant the specification requires. Done when: a pinned corpus is within 1 per channel of the reference decoder in its integer mode. Cheaper substitute: the common variant only.
-- [ ] Return a named error for truncated and damaged data with no partial picture. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
+- [ ] Decode every variant the specification requires in `parts/jpeg/jpeg.c`. Done when: a pinned corpus is within 1 per channel of the reference decoder in its integer mode. Cheaper substitute: the common variant only.
+- [ ] Return a named error for truncated and damaged data with no partial picture in `parts/jpeg/jpeg.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
 - [ ] Fuzz `parts/jpeg/jpeg.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
 - [ ] Commit: `formats: JPEG decoder`
 
@@ -135,8 +141,8 @@ All header versions, 1 to 32 bits, RLE4, RLE8 and bit fields. The decoder takes 
 2. Add `tests/fixtures/bmp_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
 - [ ] Parse the header of BMP in `parts/bmp/bmp.c` with width, height and size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
-- [ ] Decode every variant the specification requires. Done when: all of the bmpsuite good files decode to the reference pixels. Cheaper substitute: the common variant only.
-- [ ] Return a named error for truncated and damaged data with no partial picture. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
+- [ ] Decode every variant the specification requires in `parts/bmp/bmp.c`. Done when: all of the bmpsuite good files decode to the reference pixels. Cheaper substitute: the common variant only.
+- [ ] Return a named error for truncated and damaged data with no partial picture in `parts/bmp/bmp.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
 - [ ] Fuzz `parts/bmp/bmp.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
 - [ ] Commit: `formats: BMP decoder`
 
@@ -156,12 +162,144 @@ Animation, local palettes, transparency and disposal. The decoder takes bytes an
 2. Add `tests/fixtures/gif_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
 - [ ] Parse the header of GIF in `parts/gif/gif.c` with width, height and size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
-- [ ] Decode every variant the specification requires. Done when: every frame of the pinned corpus equals the reference frames. Cheaper substitute: the common variant only.
-- [ ] Return a named error for truncated and damaged data with no partial picture. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
+- [ ] Decode every variant the specification requires in `parts/gif/gif.c`. Done when: every frame of the pinned corpus equals the reference frames. Cheaper substitute: the common variant only.
+- [ ] Return a named error for truncated and damaged data with no partial picture in `parts/gif/gif.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
 - [ ] Fuzz `parts/gif/gif.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
 - [ ] Commit: `formats: GIF decoder`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when the decoder is reverted.
+
+## 7. WebP lossless decoder
+
+The VP8L bitstream inside its RIFF container.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write `parts/webp/lossless.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Parse the header in `parts/webp/lossless.c` with size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
+- [ ] Read the container and its chunks with limits in `parts/webp/container.c`. Done when: chunks out of order, repeated or overlong are refused by name. Cheaper substitute: the first chunk.
+- [ ] Decode prefix codes, the colour cache and back references in `parts/webp/lossless.c`. Done when: the pinned corpus equals the reference decoder's pixels. Cheaper substitute: no colour cache.
+- [ ] Undo the four transforms in `parts/webp/lossless.c`. Done when: a file for each combination is equal. Cheaper substitute: predictor only.
+- [ ] Return a named error for truncated and damaged data in `parts/webp/lossless.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
+- [ ] Fuzz `parts/webp/lossless.c`. Done when: a native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
+- [ ] Commit: `formats: webp lossless decoder`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 8. WebP lossy decoder and alpha
+
+VP8 key frames with their alpha plane, in integers.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write `parts/webp/lossy.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Parse the header in `parts/webp/lossy.c` with size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
+- [ ] Decode the bool coder, coefficients and prediction in `parts/webp/lossy.c`. Done when: the published VP8 test vectors are equal. Cheaper substitute: one partition.
+- [ ] Filter edges both ways in `parts/webp/lossy.c`. Done when: the vectors with each filter are equal. Cheaper substitute: no filter.
+- [ ] Join the alpha plane and convert colours in `parts/webp/lossy.c`. Done when: the pinned corpus equals the reference decoder in its integer mode within 1. Cheaper substitute: opaque.
+- [ ] Return a named error for truncated and damaged data in `parts/webp/lossy.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
+- [ ] Fuzz `parts/webp/lossy.c`. Done when: a native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
+- [ ] Commit: `formats: webp lossy decoder and alpha`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 9. Animated WebP and GIF playback
+
+Frames with time, disposal and blending, from either format, through one reader.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write `parts/image/animation.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Read frames in order with bounded memory in `parts/image/animation.c`. Done when: every frame of both corpora equals the reference. Cheaper substitute: all frames at once.
+- [ ] Apply disposal and blending in `parts/image/animation.c`. Done when: a table of 24 combinations passes. Cheaper substitute: overwriting.
+- [ ] Seek and loop in `parts/image/animation.c`. Done when: any frame reached by seeking equals the one reached in order. Cheaper substitute: playing only.
+- [ ] Refuse an endless or huge animation by the caller's limits in `parts/image/animation.c`. Done when: planted files stop within fixed memory. Cheaper substitute: trusting counts.
+- [ ] Commit: `formats: animation`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 10. JPEG writer
+
+Baseline and progressive JPEG from a picture, in integers, for Paint and Photos.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write `parts/jpeg/write.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_parts.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Write baseline files with quality 1 to 100 in `parts/jpeg/write.c`. Done when: Windows and the reference decoder read each. Cheaper substitute: one quality.
+- [ ] Subsample colour by choice in `parts/jpeg/write.c`. Done when: 4:4:4, 4:2:2 and 4:2:0 read back within the reference encoder's error. Cheaper substitute: 4:2:0 only.
+- [ ] Build the best Huffman tables and progressive scans in `parts/jpeg/write.c`. Done when: files are no larger than the reference encoder's by more than 2 percent. Cheaper substitute: fixed tables.
+- [ ] Turn and flip without loss in `parts/jpeg/transform.c`. Done when: four turns give the first file's coefficients. Cheaper substitute: decode and encode.
+- [ ] Write the same bytes on every system in `tests/test_parts.py`. Done when: Windows and the portable build are equal. Cheaper substitute: close.
+- [ ] Commit: `formats: JPEG writer`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 11. ICO and CUR, both ways
+
+Icons and cursors with every size and depth, for Icon Editor and programs.
+
+**Phase:** 4
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Write `parts/ico/read.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Read every entry, PNG or bitmap with mask, in `parts/ico/read.c`. Done when: the icons of 50 Windows programs are equal to Windows' own drawing. Cheaper substitute: the largest entry.
+- [ ] Choose the entry for a size and scale in `parts/ico/read.c`. Done when: the choice equals Windows' for 100 sizes. Cheaper substitute: the nearest.
+- [ ] Write all entries with hot spots in `parts/ico/write.c`. Done when: Windows shows each size and cursor right. Cheaper substitute: PNG only.
+- [ ] Refuse entries that overlap or leave the file in `parts/ico/read.c`. Done when: a table of 40 planted files is refused. Cheaper substitute: trusting offsets.
+- [ ] Fuzz `parts/ico/read.c`. Done when: a native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
+- [ ] Commit: `formats: ICO and CUR`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 12. Picture orientation and facts
+
+EXIF orientation, size, date and camera facts, read safely and removable.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write `parts/exif/exif.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Read EXIF from JPEG, PNG and WebP in `parts/exif/exif.c`. Done when: a pinned corpus equals the reference reader. Cheaper substitute: JPEG only.
+- [ ] Apply all eight orientations in `parts/exif/exif.c`. Done when: each test picture stands upright. Cheaper substitute: rotation only.
+- [ ] Remove facts without touching pixels in `parts/exif/strip.c`. Done when: the pixel data's bytes are equal and no fact remains. Cheaper substitute: encoding again.
+- [ ] Fuzz `parts/exif/exif.c`. Done when: a native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
+- [ ] Commit: `formats: orientation and facts`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 
 ## Verification
 

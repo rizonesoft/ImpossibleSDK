@@ -10,13 +10,14 @@ title: "TODO-01 -- Interface Engine and First Controls"
 
 > **Goal:** Impossible UI draws and runs the first four Windows 11 controls from WinUI's own templates, in portable C that uses no floating point and calls no operating system function.
 
-> **Current state:** Measured 2026-11-23 at `237b2e9`. `ui/theme.c` resolves every WinUI brush and number for three themes, `ui/draw.c` draws rounded shapes, `ui/button.c` draws the standard, accent and subtle button directly, and `reference/` draws the same cases with real WinUI. 16 cases at 100 percent compare: straight edges within 1 of 255, standard corners within 3, accent corners within 27. There is no element tree, layout, text, input or animation.
+> **Current state:** **Groomed 2026-11-23:** `windows-host` was never met in WSL, so §1, §6 and §7 could not start; `todo/plan.json` now proves it with a probe. §8 to §18 were missing. Measured 2026-11-23 at `237b2e9`. `ui/theme.c` resolves every WinUI brush and number for three themes, `ui/draw.c` draws rounded shapes, `ui/button.c` draws the standard, accent and subtle button directly, and `reference/` draws the same cases with real WinUI. 16 cases at 100 percent compare: straight edges within 1 of 255, standard corners within 3, accent corners within 27. There is no element tree, layout, text, input or animation.
 
 ## Inputs
 
 - `docs/specs/2026-11-23-interface-and-apps-design.md`: the approved design.
 - `tools/winui/pin.json`: the WinUI commit (MIT) that every value and behaviour comes from.
 - `abi/tiers.json`: the only Windows functions the Windows layer may call.
+- `todo/01-interface/TODO-02-text.md`: the text engine beyond the first lines of §5.
 
 ## Outcome
 
@@ -37,7 +38,18 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | 4 | §4 | Visual states and animation | §3 | [ ] |
 | 5 | §5 | Text in fixed point | §1 | [ ] |
 | 6 | §6 | Input, focus and the Windows layer | §4, §5 | [ ] |
-| 7 | §7 | Button, toggle switch, text box and list view | §6 | [ ] |
+| 7 | §7 | Button, toggle switch, text box and list view | §6, §8, §9, §14, §17, T02 §2, T02 §5, T02 §6, D07 T01 §2 | [ ] |
+| 8 | §8 | Host callback table | §3 | [ ] |
+| 9 | §9 | Dirty rectangles and frame timing | §4, §8 | [ ] |
+| 10 | §10 | Clips, opacity and layers | §1 | [ ] |
+| 11 | §11 | Transforms and pictures | §10 | [ ] |
+| 12 | §12 | Shadows and materials | §8, §10 | [ ] |
+| 13 | §13 | Paths, arcs and gradients | §1 | [ ] |
+| 14 | §14 | Theme, accent and contrast changes while running | §4, §8 | [ ] |
+| 15 | §15 | Theme transitions | §4, §11 | [ ] |
+| 16 | §16 | Remaining panels | §3 | [ ] |
+| 17 | §17 | Reference program for any control | -- | [ ] |
+| 18 | §18 | Drawing speed budgets | §9, §10, §12 | [ ] |
 
 ## 1. Exact corner smoothing
 
@@ -73,7 +85,7 @@ WinUI's control templates hold the element tree, bindings, visual states and tim
 2. Emit C tables in `ui/template_data.c`. Done when: the portable build test passes.
 
 - [ ] Parse `ControlTemplate`, setters, visual states and storyboards in `tools/winui/templates.py`. Done when: each of the four templates round-trips to a listing that names every element and state. Cheaper substitute: hand-written C for each control.
-- [ ] Refuse an element, property or converter the engine does not know, naming file and line. Done when: a fixture template with an unknown property fails. Cheaper substitute: ignoring it.
+- [ ] Refuse an element, property or converter the engine does not know, naming file and line in `tools/winui/templates.py`. Done when: a fixture template with an unknown property fails. Cheaper substitute: ignoring it.
 - [ ] Add `--check` to the drift test in `tests/test_ui.py`. Done when: editing the generated file fails the test.
 - [ ] Commit: `ui: compile WinUI control templates`
 
@@ -84,7 +96,7 @@ WinUI's control templates hold the element tree, bindings, visual states and tim
 The engine that measures and arranges the compiled elements: Grid, StackPanel, Border, ContentPresenter, with layout rounding as WinUI does it.
 
 **Phase:** 1
-**Needs:** none
+**Needs:** windows-host
 **Surface:** no
 
 **Build order:**
@@ -124,7 +136,7 @@ States, transitions and storyboards run from a caller-supplied clock, so a frame
 Glyph outlines, hinting-free smoothing, shaping order for left-to-right text and line layout, with no floating point.
 
 **Phase:** 1
-**Needs:** none
+**Needs:** windows-host
 **Surface:** no
 
 **Build order:**
@@ -158,7 +170,7 @@ Pointer, keyboard, text input and focus move through the tree; `src/window.c` be
 
 - [ ] Hit-test, capture and route pointer events in `ui/input.c`. Done when: press, leave and release cancels a click. Cheaper substitute: per-control hit tests.
 - [ ] Tab, arrow and access-key movement in `ui/focus.c` ported from WinUI's focus rules. Done when: the order equals real WinUI for the gallery page. Cheaper substitute: creation order.
-- [ ] Draw the two-ring focus visual only for keyboard focus. Done when: the frame equals `reference/`. Cheaper substitute: a single outline.
+- [ ] Draw the two-ring focus visual only for keyboard focus in `ui/input.c`. Done when: the frame equals `reference/`. Cheaper substitute: a single outline.
 - [ ] Commit: `ui: input, focus and the Windows layer`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -184,8 +196,253 @@ The first four controls from compiled templates, with behaviour ported from the 
 - [ ] Build the toggle switch with drag in `ui/controls/toggle.c`. Done when: drag, click and Space give WinUI's results. Cheaper substitute: click only.
 - [ ] Build the text box with caret, selection, clipboard and undo in `ui/controls/textbox.c`. Done when: a recorded key script gives the same text and selection as WinUI. Cheaper substitute: append-only input.
 - [ ] Build the list view with selection modes and virtual rows in `ui/controls/listview.c`. Done when: 100,000 rows scroll with at most the visible rows drawn. Cheaper substitute: drawing all rows.
+- [ ] Build `ui/controls/*.c` in `cmake/ImpossibleSDK.cmake` and in the portable test of `tests/test_ui.py`, which read only `ui/*.c` today. Done when: a Windows call planted in `ui/controls/` fails the portable test. Cheaper substitute: one folder.
+- [ ] Open the text box's own menu with cut, copy, paste, undo and select all in `ui/controls/textbox.c`. Done when: each entry is enabled exactly when real WinUI enables it. Cheaper substitute: keys only.
+- [ ] Show the list view's hover, pressed, selected and focus states in `ui/controls/listview.c`. Done when: every state of the pinned ListViewItem template matches. Cheaper substitute: hover and selected.
 - [ ] Add the gallery page and its keyboard walk to `tests/test_ui.py`. Done when: the walk passes on Windows.
 - [ ] Commit: `ui: the first four controls`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 8. Host callback table
+
+The portable engine asks its host for everything the system owns: memory, time, clipboard, cursor, caret timing, input method, opening a link, sound, files and the screen reader. One table of callbacks, filled in by the Windows layer here and by the OS there.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write `ui/host.h` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/fixtures/test_host.c`. Done when: the checks fail on a planted fault.
+
+- [ ] Define the table, its version and its size field in `ui/host.h`. Done when: a host built for an older version is accepted and its missing callbacks are refused by name. Cheaper substitute: a global per service.
+- [ ] Give every callback a defined answer when it is absent in `ui/host.c`. Done when: the tests run every control path with an empty table without a crash. Cheaper substitute: requiring all callbacks.
+- [ ] Fill the memory, time and cursor callbacks in `src/host.c`. Done when: the window sample runs through the table only. Cheaper substitute: direct calls from `ui/`.
+- [ ] Write a recording host in `tests/fixtures/test_host.c`. Done when: a test reads back every call in order. Cheaper substitute: a mock per test.
+- [ ] Refuse a system call from `ui/` in `tests/test_ui.py`. Done when: a planted import fails the portable build test. Cheaper substitute: review.
+- [ ] Commit: `ui: the host callback table`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 9. Dirty rectangles and frame timing
+
+A frame redraws only what changed, and nothing runs when nothing changes.
+
+**Phase:** 1
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Write `ui/dirty.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Collect changed rectangles from the tree in `ui/dirty.c`. Done when: random changes drawn partially equal a full redraw, byte for byte, 10,000 times. Cheaper substitute: redrawing the window.
+- [ ] Merge rectangles under a fixed limit in `ui/dirty.c`. Done when: 1,000 changes give at most 16 rectangles that cover them all. Cheaper substitute: one bounding box.
+- [ ] Ask the host for the next frame only while an animation or change is pending, in `ui/frame.c`. Done when: an idle window makes no call for 10 seconds. Cheaper substitute: a steady timer.
+- [ ] Pass the rectangles to Windows in `src/window.c`. Done when: a hover over one button paints only its area, read from the update region. Cheaper substitute: painting everything.
+- [ ] Bring back a frame after the window is moved, covered or resized, in `src/window.c`. Done when: the pixels equal a fresh draw. Cheaper substitute: waiting for the next change.
+- [ ] Commit: `ui: dirty rectangles and frame timing`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 10. Clips, opacity and layers
+
+Rounded clips, opacity over a group and nested layers, as pop-ups, cards and disabled content need them.
+
+**Phase:** 1
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Write `ui/clip.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Clip drawing to rectangles and rounded rectangles in `ui/clip.c`. Done when: reference frames match at 100 to 300 percent. Cheaper substitute: rectangles only.
+- [ ] Draw a group with one opacity through a bounded layer in `ui/layer.c`. Done when: overlapping children do not show through each other. Cheaper substitute: opacity on each child.
+- [ ] Refuse a layer beyond the caller's memory limit and draw without it, in `ui/layer.c`. Done when: a planted allocation failure still draws every element. Cheaper substitute: a crash.
+- [ ] Nest clips and layers in `ui/layer.c`. Done when: a random tree of depth 32 equals a plain reference renderer. Cheaper substitute: one level.
+- [ ] Commit: `ui: clips, opacity and layers`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 11. Transforms and pictures
+
+Moving, scaling and turning elements, and drawing a picture held in memory.
+
+**Phase:** 1
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Write `ui/transform.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Apply translate, scale, rotate and skew in fixed point in `ui/transform.c`. Done when: points agree with exact arithmetic within 1/256 pixel. Cheaper substitute: translate only.
+- [ ] Draw shapes and text through a transform in `ui/draw.c`. Done when: a chevron turned 90 degrees equals the reference within the corner limit. Cheaper substitute: a second drawing.
+- [ ] Draw premultiplied pictures with the filter WinUI uses, in `ui/picture.c`. Done when: reference frames for none, fill, uniform and uniform-to-fill match within 2 of 255. Cheaper substitute: nearest pixel.
+- [ ] Cut nine-part pictures in `ui/picture.c`. Done when: corners keep their size at every scale. Cheaper substitute: stretching.
+- [ ] Map pointer positions back through transforms in `ui/input.c`. Done when: random transforms hit the element a plain inverse hits. Cheaper substitute: untransformed hit tests.
+- [ ] Commit: `ui: transforms and pictures`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 12. Shadows and materials
+
+Elevation shadows, and the solid or see-through grounds of windows, flyouts and menus. The layer behind the window draws Mica and Acrylic; the engine marks where and draws the fallback colour.
+
+**Phase:** 1
+**Needs:** windows-host, display-session
+**Surface:** no
+
+**Build order:**
+
+1. Write `ui/shadow.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Blur a rounded shape in integers in `ui/shadow.c`. Done when: shadows at elevations 2, 4, 8, 16, 32 and 128 match real WinUI within 3 of 255. Cheaper substitute: a dark outline.
+- [ ] Cache shadows by size, radius and elevation in `ui/shadow.c`. Done when: the second frame of a menu computes no blur. Cheaper substitute: blurring each frame.
+- [ ] Name the Mica, Mica Alt and Acrylic areas in the frame given to the host, in `ui/material.c`. Done when: the recording host receives each area with its tint and fallback. Cheaper substitute: a fixed colour.
+- [ ] Draw the fallback colours of the theme data in `ui/material.c`. Done when: contrast themes and transparency-off match real WinUI. Cheaper substitute: one colour.
+- [ ] Ask Windows for its backdrop where it has one, in `src/window.c`. Done when: Mica shows in the window sample and the fallback shows where the call fails. Cheaper substitute: no material.
+- [ ] Commit: `ui: shadows and materials`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 13. Paths, arcs and gradients
+
+Filled and stroked curves for check marks, rings, icons and charts of any kind, and the radial gradient.
+
+**Phase:** 1
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Write `ui/path.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Fill cubic and quadratic paths with both fill rules in `ui/path.c`. Done when: 1,000 random paths agree with a 16 times oversampled reference within 4 of 255. Cheaper substitute: straight lines.
+- [ ] Stroke with caps, joins and dashes in `ui/path.c`. Done when: WinUI Path frames match within the corner limit. Cheaper substitute: a polygon.
+- [ ] Draw arcs given in angles in `ui/path.c`. Done when: a quarter ring covers exactly 90 degrees at every size from 8 to 128 pixels. Cheaper substitute: line pieces.
+- [ ] Draw the linear and radial gradients of `controls/dev/RadialGradientBrush` in `ui/gradient.c`. Done when: reference frames match within 2 of 255. Cheaper substitute: one colour.
+- [ ] Read the path markup of WinUI templates in `tools/winui/templates.py`. Done when: every path in the pinned templates compiles and a malformed one is refused with file and line. Cheaper substitute: typed-in points.
+- [ ] Commit: `ui: paths, arcs and gradients`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 14. Theme, accent and contrast changes while running
+
+Light, dark, contrast and accent change at any moment, on the whole window or on one subtree.
+
+**Phase:** 1
+**Needs:** windows-host, display-session
+**Surface:** no
+
+**Build order:**
+
+1. Write `ui/resources.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Resolve theme resources per subtree in `ui/resources.c`. Done when: a light panel inside a dark window matches the reference. Cheaper substitute: one theme for the window.
+- [ ] Let a program override a named resource in `ui/resources.c`. Done when: the override changes every state that names it and nothing else. Cheaper substitute: editing the table.
+- [ ] Restyle the tree on change without rebuilding it, in `ui/resources.c`. Done when: focus, selection, scroll position and text stay. Cheaper substitute: a new tree.
+- [ ] Derive the six accent shades from one colour in `ui/accent.c`. Done when: 1,000 colours agree with the shades Windows gives, read by `reference/`. Cheaper substitute: fixed steps.
+- [ ] Honour contrast themes' system colours in `ui/resources.c`. Done when: the four built-in contrast themes match real WinUI. Cheaper substitute: one contrast theme.
+- [ ] Commit: `ui: themes change while running`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 15. Theme transitions
+
+The entrance, pop-in, add, delete, reposition, reorder, content and drill transitions that WinUI templates and lists name.
+
+**Phase:** 1
+**Needs:** windows-host, display-session
+**Surface:** no
+
+**Build order:**
+
+1. Write `tools/winui/templates.py` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Compile the named theme transitions of the pinned source in `tools/winui/templates.py`. Done when: each name used by a pinned template has a table and an unknown one is refused. Cheaper substitute: a fade.
+- [ ] Run them in `ui/transition.c`. Done when: positions and opacities at 10 instants agree with real WinUI within 1 unit. Cheaper substitute: linear steps.
+- [ ] Interrupt and reverse a running transition in `ui/transition.c`. Done when: a script of random interruptions never jumps more than one frame's distance. Cheaper substitute: waiting for the end.
+- [ ] Move straight to the end with reduced animation, in `ui/transition.c`. Done when: the first frame is the last. Cheaper substitute: shorter times.
+- [ ] Commit: `ui: theme transitions`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 16. Remaining panels
+
+Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid and the ItemsStackPanel and ItemsWrapGrid sizes that lists need.
+
+**Phase:** 1
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Write `ui/panels.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Port Canvas, Viewbox and UniformGrid layout to `ui/panels.c`. Done when: rectangles equal those dumped by `reference/` at five scales. Cheaper substitute: fixed offsets.
+- [ ] Port `controls/dev/WrapPanel` to `ui/panels.c`. Done when: the dumped rectangles of 200 random children are equal. Cheaper substitute: one row.
+- [ ] Port RelativePanel with its refusal of circular relations to `ui/panels.c`. Done when: a circular layout is refused by name and the others are equal to the dump. Cheaper substitute: ignoring relations.
+- [ ] Port VariableSizedWrapGrid spans to `ui/panels.c`. Done when: 200 random span lists are equal to the dump. Cheaper substitute: single cells.
+- [ ] Mirror every panel right to left in `ui/layout.c`. Done when: each mirrored dump is equal. Cheaper substitute: moving the text only.
+- [ ] Commit: `ui: the remaining panels`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 17. Reference program for any control
+
+`reference/` draws buttons without text at one scale. Every control section needs it to draw any control, read its layout and drive it.
+
+**Phase:** 1
+**Needs:** windows-host, display-session
+**Surface:** no
+
+**Build order:**
+
+1. Write `reference/cases/*.json` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Read cases from `reference/cases/*.json`: control, properties, state, theme, scale, flow direction. Done when: the present 16 cases come from a file with equal pixels. Cheaper substitute: C# per control.
+- [ ] Force a visual state by name and wait for its storyboard in `reference/App.xaml.cs`. Done when: a state that does not exist stops the run with its name. Cheaper substitute: timed delays.
+- [ ] Draw at 100, 150, 200 and 300 percent in `reference/App.xaml.cs`. Done when: frames and `cases.json` record the scale. Cheaper substitute: scaling one picture.
+- [ ] Dump element rectangles and the automation tree per case in `reference/Dump.cs`. Done when: `tests/test_ui.py` reads both for the button. Cheaper substitute: pixels only.
+- [ ] Play a recorded pointer, key and touch script and write the events and focus that follow, in `reference/Script.cs`. Done when: the script of a button gives the same log twice. Cheaper substitute: a person.
+- [ ] Mask text and icon pixels by rectangle in `tests/test_ui.py`. Done when: text differences do not fail and a moved rectangle does. Cheaper substitute: a loose limit for everything.
+- [ ] Store frames compressed with one index in `tests/reference/`. Done when: a missing, extra or stale frame fails the suite. Cheaper substitute: loose files.
+- [ ] Commit: `reference: any control, any state`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 18. Drawing speed budgets
+
+The engine has no floating point and no SIMD, so its speed is measured from the start.
+
+**Phase:** 1
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Write `tools/bench.py` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/fixtures/bench.c`. Done when: the checks fail on a planted fault.
+
+- [ ] Measure scenes in `tests/fixtures/bench.c`: a full window, a menu, scrolling text and 100 buttons. Done when: `tools/bench.py` prints cycles per pixel for each, stable within 5 percent. Cheaper substitute: a stopwatch.
+- [ ] Record budgets in `tests/budgets.json` and fail above them. Done when: a planted slow path fails the check. Cheaper substitute: a printed number.
+- [ ] Add fast paths for opaque and constant rows in `ui/draw.c`. Done when: the bytes are equal to the plain path on random scenes. Cheaper substitute: different rounding.
+- [ ] Add optional SIMD files in `ui/simd/` chosen by the host. Done when: the bytes are equal with and without, and the portable build leaves them out. Cheaper substitute: SSE in the portable files.
+- [ ] Scroll by moving pixels where nothing else changed, in `ui/dirty.c`. Done when: a scrolled list redraws only the new rows. Cheaper substitute: full redraw.
+- [ ] Commit: `ui: drawing speed budgets`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 

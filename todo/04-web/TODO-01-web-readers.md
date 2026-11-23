@@ -32,10 +32,10 @@ title: "TODO-01 -- Web Readers"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | HTML tokenizer | -- | [ ] |
+| 1 | §1 | HTML tokenizer | D02 T01 §1 | [ ] |
 | 2 | §2 | HTML tree builder | §1 | [ ] |
 | 3 | §3 | Safe subset | §2 | [ ] |
-| 4 | §4 | CSS syntax and selectors | -- | [ ] |
+| 4 | §4 | CSS syntax and selectors | D02 T01 §1 | [ ] |
 | 5 | §5 | Values and cascade | §4 | [ ] |
 
 ## 1. HTML tokenizer
@@ -52,8 +52,8 @@ The HTML Standard's tokenizer with every state, on text of any encoding already 
 2. Cover it in `tests/`. Done when: the checks fail on a planted fault.
 
 - [ ] Write every state in `parts/html/token.c`. Done when: all published tokenizer tests pass, split at every position. Cheaper substitute: well-formed HTML.
-- [ ] Keep positions in the source. Done when: each token's text is found back. Cheaper substitute: none.
-- [ ] Survive hostile text. Done when: every prefix of every sample is refused or whole, and a 120 second native fuzz run finds nothing. Cheaper substitute: a length limit.
+- [ ] Keep positions in the source in `parts/html/token.c`. Done when: each token's text is found back. Cheaper substitute: none.
+- [ ] Survive hostile text in `parts/html/token.c`. Done when: every prefix of every sample is refused or whole, and a 120 second native fuzz run finds nothing. Cheaper substitute: a length limit.
 - [ ] Commit: `web: html tokenizer`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -72,8 +72,8 @@ The standard's insertion modes as a machine that tells its user what to insert, 
 2. Cover it in `tests/`. Done when: the checks fail on a planted fault.
 
 - [ ] Write every mode in `parts/html/build.c` without recursion. Done when: all published tree construction tests pass. Cheaper substitute: a nesting stack.
-- [ ] Let the user pause, for scripts later. Done when: pausing after every token gives the same tree. Cheaper substitute: at the end.
-- [ ] Bound depth and size. Done when: documents made to be deep stop at the limit within fixed memory. Cheaper substitute: the stack.
+- [ ] Let the user pause, for scripts later in `parts/html/build.c`. Done when: pausing after every token gives the same tree. Cheaper substitute: at the end.
+- [ ] Bound depth and size in `parts/html/build.c`. Done when: documents made to be deep stop at the limit within fixed memory. Cheaper substitute: the stack.
 - [ ] Commit: `web: html tree builder`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -92,8 +92,8 @@ What Mail and News Reader may show: structure, text, tables and colours, and not
 2. Cover it in `tests/`. Done when: the checks fail on a planted fault.
 
 - [ ] Allow by list in `parts/html/safe.c`. Done when: a table of 300 hostile samples keeps no address, script, style or form that acts. Cheaper substitute: removing scripts.
-- [ ] Keep meaning: headings, lists, tables, quotes, links as text with their target. Done when: the table passes. Cheaper substitute: plain text.
-- [ ] Survive hostile text. Done when: every prefix of every sample is refused or whole, and a 120 second native fuzz run finds nothing. Cheaper substitute: a length limit.
+- [ ] Keep meaning: headings, lists, tables, quotes, links as text with their target in `parts/html/safe.c`. Done when: the table passes. Cheaper substitute: plain text.
+- [ ] Survive hostile text in `parts/html/safe.c`. Done when: every prefix of every sample is refused or whole, and a 120 second native fuzz run finds nothing. Cheaper substitute: a length limit.
 - [ ] Commit: `web: safe subset`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -113,7 +113,7 @@ Tokenizer, parser and selectors with the standard's error rules.
 
 - [ ] Tokenize and parse in `parts/css/syntax.c`. Done when: every prefix of every sample is refused or whole, and a 120 second native fuzz run finds nothing. Cheaper substitute: a subset.
 - [ ] Parse and weigh selectors in `parts/css/select.c`. Done when: the pinned selector tests pass. Cheaper substitute: classes.
-- [ ] Match through callbacks, so that each program keeps its own tree. Done when: random trees and selectors agree with a plain matcher. Cheaper substitute: one tree.
+- [ ] Match through callbacks, so that each program keeps its own tree in `parts/css/syntax.c`. Done when: random trees and selectors agree with a plain matcher. Cheaper substitute: one tree.
 - [ ] Commit: `web: css syntax and selectors`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -133,7 +133,7 @@ Property values in fixed point, shorthands, origins, importance, layers and inhe
 
 - [ ] Parse values from one table in `parts/css/values.c`. Done when: each property's valid and invalid tests pass. Cheaper substitute: by hand for each.
 - [ ] Cascade in `parts/css/cascade.c`. Done when: random sheets agree with a plain model. Cheaper substitute: order only.
-- [ ] Compute lengths and colours without floating point. Done when: the table passes to its stated error. Cheaper substitute: doubles.
+- [ ] Compute lengths and colours without floating point in `parts/css/cascade.c`. Done when: the table passes to its stated error. Cheaper substitute: doubles.
 - [ ] Commit: `web: values and cascade`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.

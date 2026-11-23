@@ -1,12 +1,22 @@
 {
   "title": "Impossible SDK implementation plan",
-  "acceptance": "Every WinUI control exists in portable C, matches real WinUI on Windows within the stated limits, and builds with the OS flags.",
+  "acceptance": "Every WinUI control that stands on its own exists in portable C, matches real WinUI on Windows within the stated limits and builds with the OS flags; every shared part, Windows service and tool the programs need works; and a program built with the SDK installs and prints.",
   "phases": {
     "0": "Repository and tooling",
     "1": "Interface engine",
     "2": "First controls",
     "3": "All controls",
     "4": "Formats and services",
+    "5": "Printing",
+    "6": "Parts and release",
     "99": "Manual, operator only"
+  },
+  "probes": {
+    "windows-host": [
+      "pwsh.exe",
+      "-NoProfile",
+      "-Command",
+      "exit 0"
+    ]
   }
 }

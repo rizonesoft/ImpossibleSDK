@@ -61,6 +61,9 @@ Legend: ✅ works · 🚧 in progress · 📋 planned
 | Picture formats, shared parts | 📋 | [Formats](todo/02-formats/TODO-01-image-formats.md) and [shared parts](todo/06-shared/TODO-01-shared-parts.md) |
 | Network: TLS, HTTP, kept secrets | 📋 | [Network](todo/03-network/TODO-01-network.md) |
 | Web readers: HTML and CSS | 📋 | [Web](todo/04-web/TODO-01-web-readers.md) |
+| Clipboard, input methods, screen readers, sound, settings | 📋 | [Windows services](todo/07-windows/TODO-01-windows-services.md) |
+| Printing | 📋 | [Printing](todo/07-windows/TODO-02-printing.md) |
+| Installer, API reference, first release | 📋 | [Parts and release](todo/08-release/TODO-01-parts-and-release.md) |
 
 ## Quick start
 
