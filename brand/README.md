@@ -1,6 +1,6 @@
 # The Impossible SDK identity
 
-A kit: a case with a window of controls rising out of it. The window has Windows 11's round corners, and the case carries code brackets round the Impossible OS logo's square, centred on it. In the wordmark, SDK stands on an accent button of Windows 11's look. Chosen by the owner on 2026-11-23.
+Three sheets stacked front to back, with Windows 11's round corners: programs climb tiers, from a console to the whole desktop. The front sheet carries code brackets round the Impossible OS logo's square, centred on it. In the wordmark, SDK stands on an accent button of Windows 11's look. Chosen by the owner on 2026-11-23.
 
 | File | Use |
 | --- | --- |
