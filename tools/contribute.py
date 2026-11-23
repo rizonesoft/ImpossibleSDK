@@ -11,7 +11,6 @@ very commit in a folder of its own, pushes it, pins the program in this folder t
 finish at a time; what does not pass or does not fit is not pushed.
 """
 import argparse
-import fcntl
 import json
 import os
 import subprocess
@@ -48,6 +47,7 @@ def start():
 
 
 def finish(folder, program, test):
+    import fcntl  # only where this runs, so that --help answers on Windows too
     pin = program / "sdk.json"
     if not pin.is_file():
         raise SystemExit(f"contribute: {program} is not a program's folder (it has no sdk.json)")

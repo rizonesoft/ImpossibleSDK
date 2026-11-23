@@ -11,12 +11,14 @@ on:
 permissions:
   contents: read
 
+# One at a time. A push that waits gives way to a newer one, which holds it too.
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest   # the tests that prove what works start Windows programs
     timeout-minutes: 30
     steps:

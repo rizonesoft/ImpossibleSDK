@@ -1,4 +1,4 @@
-<!-- page: group="Impossible UI" order=1 sources=ui/button.h,tests/test_ui.py,reference/App.xaml.cs,tests/reference/cases.json reviewed=2026-11-24 -->
+<!-- page: group="Impossible UI" order=1 sources=ui/button.h,tests/test_ui.py,reference/App.xaml.cs,tests/reference/cases.json,tests/fixtures/control_shots.c,tools/winui/resources.py reviewed=2026-11-24 -->
 # How a control is compared
 
 How do we know it looks like Windows 11? A small program draws the same control with real WinUI 3, and the tests compare the two pixel by pixel.
@@ -25,4 +25,4 @@ WinUI smooths its curves a little more softly than the exact area. Finding its r
 
 ## Where do the values come from?
 
-From WinUI's MIT source at a pinned commit, generated into [theme values](site:values.html). The build fails when the generated file is not what the pinned source gives. No Microsoft font, icon, picture, sound or wording is used.
+From WinUI's MIT source at a pinned commit, generated into [theme values](site:values.html). Where a copy of that source is at hand, the tests fail when the generated file is not what it gives. No Microsoft font, icon, picture, sound or wording is used.

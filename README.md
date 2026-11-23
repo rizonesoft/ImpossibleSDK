@@ -40,7 +40,11 @@ Impossible SDK is the C kit that the programs of [Impossible OS](https://github.
 
 ## Why another SDK?
 
+<!-- site:small -->
+
 - **Small.** The console sample is 3 KB and the window sample 7 KB, with nothing beside them to install.
+
+<!-- /site:small -->
 - **A list, not a promise.** Every function a program may call is in [`abi/tiers.json`](abi/tiers.json). The build reads the finished program's imports and fails on anything else.
 - **One source, two systems.** Windows first, Impossible OS next. A program never asks which one it is on.
 - **Windows 11's look, from its source.** Control values come from WinUI 3's MIT source at a pinned commit, and the drawing is compared with the real thing.
@@ -74,6 +78,8 @@ Legend: ✅ works · 🚧 in progress · 📋 planned
 
 Windows or WSL on 64-bit x86, with Python 3.12 or newer. In WSL the command is `python3`.
 
+<!-- site:start -->
+
 ```
 git clone https://github.com/rizonesoft/ImpossibleSDK.git
 cd ImpossibleSDK
@@ -81,9 +87,13 @@ python tools/bootstrap.py    # installs the pinned toolchain, once per machine
 python tools/build.py        # builds into build/<host> and runs the tests
 ```
 
+<!-- /site:start -->
+
 On plain Linux the programs build, and the tests that run them are skipped.
 
 ## A whole program
+
+<!-- site:hello -->
 
 ```c
 #include <impossible/base.h>
@@ -93,16 +103,23 @@ int im_main(void) {
 }
 ```
 
+<!-- /site:hello -->
+
+<!-- site:cmake -->
+
 ```cmake
+cmake_minimum_required(VERSION 4.0)
 project(Hello LANGUAGES C)
 include("${IMPOSSIBLE_SDK_DIR}/cmake/ImpossibleSDK.cmake")
 impossible_add_program(Hello CONSOLE TIER 0 SOURCES src/main.c)
 ```
 
+<!-- /site:cmake -->
+
 Start a program's own repository, pinned to this SDK's commit, with [`tools/new_app.py`](tools/new_app.py):
 
 ```
-python tools/new_app.py ../Hello --label Hello --tier 1 --window --license LICENSE
+python tools/new_app.py ../Hello --label Hello --tier 1 --window --license gpl-3.0.txt
 python tools/app_build.py ../Hello
 ```
 

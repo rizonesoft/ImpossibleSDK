@@ -12,13 +12,28 @@ permissions:
   contents: read
   actions: write
 
+env:
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   compare:
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
+      - name: Wait for a publish that is under way
+        shell: bash
+        run: |
+          for n in $(seq 60); do
+            busy=$(gh run list --workflow pages.yml --json status --jq '[.[] | select(.status != "completed")] | length')
+            [ "$busy" = 0 ] && exit 0
+            sleep 30
+          done
+          echo "a publish has been under way for half an hour"; exit 1
       - uses: actions/checkout@v7
         with:
+          ref: main
           fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
@@ -27,29 +42,21 @@ jobs:
         with:
           path: ~\AppData\Local\ImpossibleSDK
           key: tools-windows-latest-${{ hashFiles('toolchain.json') }}
-      - name: Wait for a publish that is under way
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for n in $(seq 40); do
-            busy=$(gh run list --workflow pages.yml --json status --jq '[.[] | select(.status != "completed")] | length')
-            [ "$busy" = 0 ] && exit 0
-            sleep 30
-          done
       - name: Build main
         run: |
           python tools/build.py --no-test
           python tools/site/build.py --out _site --outward outward.txt
-      - name: Compare
-        id: same
-        run: python tools/site/live.py same _site --wait 120
-      - name: Publish again
-        if: failure() && steps.same.conclusion == 'failure'
+      - name: Compare, and publish again when it differs
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run pages.yml
+        run: |
+          python tools/site/live.py same _site --wait 120 && exit 0
+          newest=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          busy=$(gh run list --workflow pages.yml --json status --jq '[.[] | select(.status != "completed")] | length')
+          if [ "$newest" != "$(git rev-parse HEAD)" ] || [ "$busy" != 0 ]; then
+            echo "main moved on meanwhile: its own publish compares itself"; exit 0
+          fi
+          gh workflow run pages.yml --ref main
+          exit 1
       - name: Links that leave the site
-        if: always()
+        if: always() && hashFiles('outward.txt') != ''
         run: python tools/site/live.py links outward.txt

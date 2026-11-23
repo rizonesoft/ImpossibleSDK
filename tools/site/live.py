@@ -24,15 +24,15 @@ SITE, REPO = PROJECT["site_url"], PROJECT["repo_url"]
 AGENT = {"User-Agent": "site-check/1.0", "Cache-Control": "no-cache"}
 
 
-def get(url):
+def get(url, method="GET"):
     """(status, body); status 0 when there was no answer."""
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=AGENT), timeout=30) as reply:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=AGENT, method=method), timeout=30) as reply:
                 return reply.status, reply.read()
         except urllib.error.HTTPError as error:
             if error.code not in (429, 500, 502, 503, 504):
-                return error.code, b""
+                return error.code, error.read()
             status = error.code
         except (OSError, ValueError):
             status = 0
@@ -42,11 +42,16 @@ def get(url):
 
 def differ(folder, base, mark):
     names = sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file())
-    names = [n for n in names if n not in ("CNAME", "404.html")]  # GitHub keeps the first, and answers with the second
+    for needed in ("index.html", "404.html", "docs/search.json"):
+        if needed not in names:
+            raise SystemExit(f"{folder} holds no built site: {needed} is missing")
+    names.remove("CNAME")  # GitHub keeps it
 
     def look(name):
-        status, body = get(f"{base}/{name.removesuffix('index.html')}?at={mark}")
-        return None if status == 200 and body == (folder / name).read_bytes() else f"{name}: {status or 'no answer'}{'' if status != 200 else ', other content'}"
+        missing = name == "404.html"
+        status, body = get(f"{base}/{f'nothing-is-here-{mark}' if missing else name.removesuffix('index.html')}?at={mark}")
+        right, same = status == (404 if missing else 200), body == (folder / name).read_bytes()
+        return None if right and same else f"{name}: {status or 'no answer'}{', other content' if right else ''}"
     with ThreadPoolExecutor(8) as pool:
         return [wrong for wrong in pool.map(look, names) if wrong], len(names)
 
@@ -65,6 +70,12 @@ def same(args):
     return 0
 
 
+def there(url):
+    """The status alone; a server that does not answer that is asked for the page, but not for an archive."""
+    status = get(url, "HEAD")[0]
+    return get(url)[0] if status in (403, 405, 501) and not url.endswith((".zip", ".xz")) else status
+
+
 def links(args):
     urls = [u for u in args.what.read_text(encoding="utf-8").split() if not u.startswith(("mailto:", SITE))]
     skip = ("https://fonts.googleapis.com", "https://fonts.gstatic.com")
@@ -74,7 +85,7 @@ def links(args):
     own = re.compile(re.escape(REPO) + "/(blob|tree)/main/")
     urls = [re.sub(r"^https://github\.com/([^/]+/[^/]+)/blob/", r"https://raw.githubusercontent.com/\1/", u) for u in urls if not own.match(u)]
     with ThreadPoolExecutor(6) as pool:
-        answers = list(zip(urls, pool.map(lambda u: get(u)[0], urls)))
+        answers = list(zip(urls, pool.map(lambda u: there(u), urls)))
     for url, status in answers:
         if status not in (200, 404, 410):
             print(f"not judged ({status or 'no answer'}): {url}")

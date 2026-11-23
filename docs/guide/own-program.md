@@ -16,6 +16,7 @@ int im_main(void) {
 ```
 
 ```cmake project=Hello
+cmake_minimum_required(VERSION 4.0)
 project(Hello LANGUAGES C)
 include("${IMPOSSIBLE_SDK_DIR}/cmake/ImpossibleSDK.cmake")
 impossible_add_program(Hello CONSOLE TIER 0 SOURCES src/main.c)
@@ -28,11 +29,11 @@ impossible_add_program(Hello CONSOLE TIER 0 SOURCES src/main.c)
 `new_app.py` makes the repository: the two files, an engine with its own tests, `sdk.json` with the commit of the SDK, and `app.json`.
 
 ```sh
-python tools/new_app.py ../Hello --label Hello --tier 1 --window --license LICENSE
+python tools/new_app.py ../Hello --label Hello --tier 1 --window --license gpl-3.0.txt
 python tools/app_build.py ../Hello
 ```
 
-Leave out `--window` for a console program. [Commands](site:commands.html) has every option.
+`--license` is the GPL-3.0 text to copy: programs of the Impossible OS project are GPL-3.0-only, and `new_app.py` writes that into the new repository. For a program of your own under another license, change the license and the README afterwards. Leave out `--window` for a console program. [Commands](site:commands.html) has every option.
 
 ## What is sdk.json?
 

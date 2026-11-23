@@ -22,6 +22,7 @@ import sys
 import tempfile
 import unittest
 import zlib
+from html.parser import HTMLParser
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -32,8 +33,7 @@ import bootstrap  # noqa: E402
 import headers  # noqa: E402
 from markdown_it import MarkdownIt  # noqa: E402
 
-API = [("base", "include/impossible/base.h"), ("text", "include/impossible/text.h"), ("file", "include/impossible/file.h"),
-       ("window", "include/impossible/window.h"), ("theme", "ui/theme.h"), ("draw", "ui/draw.h"), ("button", "ui/button.h")]
+FIRST = ["base", "text", "file", "window", "theme", "draw", "button"]  # the order to read them in; any other header follows
 COMMANDS = ["bootstrap", "build", "check_imports", "new_app", "app_build", "prove", "contribute"]
 GROUPS = ["Start here", "Guide", "Reference", "Impossible UI", "Project"]
 DIRECTIVE = re.compile(r"<!-- page: (.*?) -->\n")
@@ -45,6 +45,22 @@ class Drift(Exception):
 
 def clean(text):
     return html.escape(text, quote=False)
+
+
+class Marks(HTMLParser):
+    """The names and the links of a page, read as a browser reads them."""
+
+    def __init__(self, text):
+        super().__init__()
+        self.ids, self.hrefs = [], []
+        self.feed(text)
+
+    def handle_starttag(self, tag, attributes):
+        for name, value in attributes:
+            if name == "id":
+                self.ids.append(value or "")
+            elif name in ("href", "src"):
+                self.hrefs.append(value or "")
 
 
 def slug(text):
@@ -101,6 +117,9 @@ class Site:
         if len(self.project["tiers"]) != len(self.tiers):
             raise Drift("project.json: one line of `tiers` for each tier of abi/tiers.json")
         self.commit = self.git("rev-parse", "HEAD")
+        for row in self.status:
+            if set(row) not in ({"area", "get", "tests"}, {"area", "get", "todo"}) or not (row.get("tests") or row.get("todo")):
+                raise Drift(f"site/status.json: {row.get('area')}: a row has an area, what you get, and either tests or work lists")
 
     # Reading
 
@@ -152,9 +171,9 @@ class Site:
 
     def inline(self, text, where):
         def link(match):
-            target = match[2] if "://" in match[2] else self.repository_link(match[2], where)
-            return f'<a href="{target}">{match[1]}</a>'
-        text = re.sub(r"`([^`]+)`", lambda m: f"<code>{clean(m[1])}</code>", text)
+            target = self.target(html.unescape(match[2]), where, "")
+            return f'<a href="{html.escape(target)}">{match[1]}</a>'
+        text = re.sub(r"`([^`]+)`", r"<code>\1</code>", html.escape(text))
         return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", link, text)
 
     # Written pages
@@ -163,6 +182,8 @@ class Site:
         out, tokens = [], MarkdownIt("commonmark", {"html": False}).enable("table")
         parsed = tokens.parse(text)
         for index, token in enumerate(parsed):
+            if token.type == "code_block":
+                self.fault(f"{where}: indented code is not checked, use a fence: {token.content.strip().splitlines()[0]}")
             if token.type == "fence":
                 token.type, token.content = "html_block", self.fence(token, where)
                 token.tag, token.children = "", None
@@ -182,6 +203,13 @@ class Site:
         return "".join(out)
 
     def target(self, href, where, folder):
+        own = f"{self.project['repo_url']}/"
+        for kind in ("blob/main/", "tree/main/"):
+            if href.startswith(own + kind):
+                return self.repository_link(href.removeprefix(own + kind), where)
+        if ":" in href.split("/")[0] and not href.startswith(("https://", "http://", "mailto:", "site:")):
+            self.fault(f"{where}: no link a page may have: {href}")
+            return "#"
         if "://" in href or href.startswith(("#", "mailto:")):
             return href
         path, _, part = href.partition("#")
@@ -198,8 +226,13 @@ class Site:
         code = token.content
         name = options.get("name", {"sh": "Terminal"}.get(language, ""))
         if language in ("c", "cmake"):
+            if bad := [v for k in ("program", "project") if k in options and not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", v := options[k])]:
+                self.fault(f"{where}: not a name for an example: {bad[0]}")
+                return ""
             if "from" in options:
                 name = options["from"]
+                if name not in getattr(self, "describes", []):
+                    self.fault(f"{where}: quotes {name} and does not name it in sources")
                 source = self.read(name) if (self.root / name).is_file() else ""
                 if code.strip("\n") not in source:
                     self.fault(f"{where}: this part is not in {name}: {code.strip().splitlines()[0]}")
@@ -235,7 +268,7 @@ class Site:
             fields = dict(re.findall(r'(\w+)="?((?<=")[^"]*|[^\s"]+)"?', match[1]))
             if set(fields) != {"group", "order", "sources", "reviewed"} or fields["group"] not in GROUPS:
                 raise Drift(f"{where}: the first line gives group, order, sources and reviewed, and a known group")
-            sources = fields["sources"].split(",")
+            sources = self.describes = fields["sources"].split(",")
             for source in sources:
                 if not (self.root / source).exists():
                     self.fault(f"{where}: describes a file that is not there: {source}")
@@ -266,7 +299,12 @@ class Site:
             self.tiers_page(), ["abi/tiers.json", "project.json"])
         part = {p["name"]: p for p in bootstrap.components()}
         clang = bootstrap.home(part["llvm-mingw"]) / ("bin/clang.exe" if os.name == "nt" else "bin/clang")
-        for order, (name, path) in enumerate(API):
+        found = {p.stem: p.relative_to(self.root).as_posix() for folder in ("include", "ui") for p in sorted((self.root / folder).rglob("*.h"))
+                 if "Do not edit." not in p.read_text(encoding="utf-8")[:600]}  # what is generated has its own page
+        for order, name in enumerate([*FIRST, *sorted(set(found) - set(FIRST))]):
+            path = found.get(name)
+            if not path:
+                raise Drift(f"tools/site/build.py: no header is called {name}.h any more")
             try:
                 header = headers.read(clang, self.root, path, ["include", "ui"])
             except headers.Undocumented as error:
@@ -278,7 +316,7 @@ class Site:
             for entry in header.entries:
                 anchors = "".join(f'<span id="{n}"></span>' for n in entry.names[1:])
                 body += (f'<section class="fn"><h2 id="{entry.names[0]}">{" ".join(f"<code>{clean(n)}</code>" for n in entry.names)}</h2>{anchors}'
-                         f'<p>{self.inline(clean(entry.text), path)}</p>{code_block(entry.source, "c", f"{title}, line {entry.line}")}</section>\n')
+                         f'{"".join(f"<p>{(f"<code>{n}</code>: " if n else "")}{self.inline(x, path)}</p>" for n, x in entry.text)}{code_block(entry.source, "c", f"{title}, line {entry.line}")}</section>\n')
             lead = re.sub(r"^Impossible (SDK|UI): ", "", header.title)
             lead = lead[0].upper() + lead[1:]
             add(f"api-{name}", title, "Reference", order, clean(lead.replace(tag[0] + ".", "").strip() if tag else lead),
@@ -387,8 +425,12 @@ class Site:
             loose, projects = [], {}
             for where, language, options, code in self.fences:
                 if "project" in options:
-                    projects.setdefault(options["project"], {})[language] = (where, code)
+                    if language in projects.setdefault(options["project"], {}):
+                        self.fault(f"{where}: a second {language} block of the project {options['project']}")
+                    projects[options["project"]][language] = (where, code)
                 else:
+                    if options["program"] in [o["program"] for _, o, _ in loose]:
+                        self.fault(f"{where}: a second program called {options['program']}")
                     loose.append((where, options, code))
             for name, parts in projects.items():
                 if set(parts) != {"c", "cmake"}:
@@ -397,7 +439,7 @@ class Site:
                 home = Path(folder, name)
                 (home / "src").mkdir(parents=True)
                 (home / "src/main.c").write_text(parts["c"][1], encoding="utf-8")
-                (home / "CMakeLists.txt").write_text("cmake_minimum_required(VERSION 4.0)\n" + parts["cmake"][1], encoding="utf-8")
+                (home / "CMakeLists.txt").write_text(parts["cmake"][1], encoding="utf-8")
                 self.compile(build, home, parts["c"][0])
             if loose:
                 home = Path(folder, "loose")
@@ -454,7 +496,7 @@ class Site:
 
     def fill(self, name, **values):
         text = self.read(f"site/{name}")
-        for key, value in {**{k: v for k, v in self.project.items() if isinstance(v, str)}, "commit": self.commit[:7], "total": str(self.functions()), **values}.items():
+        for key, value in {**{k: html.escape(v) for k, v in self.project.items() if isinstance(v, str)}, "commit": self.commit[:7], "total": str(self.functions()), **values}.items():
             text = text.replace("{{" + key + "}}", value)
         left = re.search(r"\{\{\w+\}\}", text)
         if left:
@@ -496,10 +538,11 @@ class Site:
         if build_examples:
             self.examples()
         self.picture()
-        need = ("Hello", "window")
-        sizes = {n: self.sizes.get(n, 0) for n in need}
         sample = (self.built / "hello-window.exe").stat().st_size
-        home = home.replace("@@HELLO@@", self.size_row(sizes["Hello"], "this program")).replace("@@WINDOW@@", self.size_row(sample, "the window sample"))
+        hello = self.sizes.get("Hello", 0)
+        if build_examples and not hello and not self.faults:
+            raise Drift("the program of the first page was not built")
+        home = home.replace("@@HELLO@@", self.size_row(hello, "this program")).replace("@@WINDOW@@", self.size_row(sample, "the window sample"))
         self.files["index.html"] = home
         names = [p.name for p in self.pages]
         if len(set(names)) != len(names):
@@ -563,7 +606,11 @@ class Site:
         mark = {"Works": "✅", "Planned": "📋"}
         tiers = "| Tier | Name | Adds |\n| :-: | --- | --- |\n" + "".join(f"| {t['tier']} | {t['name']} | {a} |\n" for t, a in zip(self.tiers, self.project["tiers"]))
         status = "| Area | Status | What you get |\n| --- | :---: | --- |\n" + "".join(f"| {r['area']} | {mark.get(self.state(r), '🚧')} | {r['get']} |\n" for r in self.status)
-        return {"tiers": tiers, "status": status}
+        size = {n: -(-(self.built / f"hello-{n}.exe").stat().st_size // 1024) for n in ("console", "window")}
+        small = f"- **Small.** The console sample is {size['console']} KB and the window sample {size['window']} KB, with nothing beside them to install.\n"
+        block = lambda path, language: f"```{language if language != 'sh' else ''}\n{self.part(path, language)}```\n"  # noqa: E731
+        return {"tiers": tiers, "status": status, "small": small, "start": block("docs/guide/install.md", "sh"),
+                "hello": block("docs/guide/own-program.md", "c"), "cmake": block("docs/guide/own-program.md", "cmake")}
 
     def readme(self, write=False):
         text = old = self.read("README.md")
@@ -584,16 +631,15 @@ class Site:
             os.replace(temporary, self.root / "README.md")
 
     def links(self):
-        pages = {name: data for name, data in self.files.items() if name.endswith(".html")}
-        ids = {}
-        for name, data in pages.items():
-            found = re.findall(r'\bid="([^"]+)"', data)
-            ids[name] = set(found)
-            for twice in sorted({i for i in found if found.count(i) > 1}):
+        pages = {name: Marks(data) for name, data in self.files.items() if name.endswith(".html")}
+        ids = {name: set(page.ids) for name, page in pages.items()}
+        own = self.project["site_url"] + "/"
+        for name, page in pages.items():
+            for twice in sorted({i for i in page.ids if page.ids.count(i) > 1}):
                 self.fault(f"{name}: two things are called #{twice}")
-        for name, data in pages.items():
-            for href in re.findall(r'\b(?:href|src)="([^"]+)"', data):
-                href = html.unescape(href)
+            for href in page.hrefs:
+                if href == own[:-1] or href.startswith(own):
+                    href = "/" + href[len(own):]
                 if "://" in href or href.startswith("mailto:"):
                     self.outward.add(href.split("#")[0])
                     continue
@@ -642,6 +688,8 @@ def main():
     if not (args.check or args.sync or args.out):
         parser.error("say --check, --sync or --out")
     root = args.root.resolve()
+    if args.out and (args.no_run or args.no_examples) and root == ROOT:
+        parser.error("--no-run and --no-examples leave parts out, so there is no site to write")
     built = Path(os.environ.get("IMPOSSIBLE_BUILD", ROOT / "build" / bootstrap.host())).resolve()
     if not (built / "hello-window.exe").is_file():
         raise Drift(f"nothing is built in {built}: run python tools/build.py first")
@@ -656,8 +704,9 @@ def main():
     if site.faults:
         raise Drift("\n".join(site.faults))
     if args.out:
-        if args.out.exists() and any(args.out.iterdir()) and not (args.out / "CNAME").is_file():
-            raise Drift(f"{args.out} is not empty and holds no site")
+        made = args.out / "CNAME"
+        if args.out.exists() and any(args.out.iterdir()) and not ((args.out / "docs/search.json").is_file() and made.is_file() and made.read_text(encoding="utf-8") == site.files["CNAME"]):
+            raise Drift(f"{args.out} is not empty and holds no site that this made")
         shutil.rmtree(args.out, ignore_errors=True)
         for name, data in site.files.items():
             path = args.out / name
@@ -665,7 +714,8 @@ def main():
             path.write_bytes(data if isinstance(data, bytes) else data.encode("utf-8"))
     if args.outward:
         args.outward.write_text("\n".join(sorted(site.outward)) + "\n", encoding="utf-8", newline="\n")
-    print(f"{len(site.pages) + 3} pages, {len(site.files)} files, {len(site.fences)} examples: nothing has drifted")
+    print(f"{len(site.pages) + 3} pages, {len(site.files)} files, {len(site.fences)} examples: " + ("nothing has drifted" if not (args.no_run or args.no_examples) else "checked in part, without " + " and ".join(
+        [*(["starting programs"] if args.no_run else []), *(["building examples"] if args.no_examples else [])])))
     return 0
 
 

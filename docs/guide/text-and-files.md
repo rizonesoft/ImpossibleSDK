@@ -28,7 +28,7 @@ int im_main(void) {
     bool told = !said.failed && im_print(said.data);
     im_text_free(&said);
 
-    im_result kept = im_write(args[2], data, length, true, args[1]);
+    im_result kept = im_write(args[2], data, length, true, "copy");
     im_free(data);
     im_args_free(args);
     return told && kept == IM_OK ? 0 : 1;

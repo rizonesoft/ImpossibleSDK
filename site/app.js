@@ -24,7 +24,8 @@ $$('.copy').forEach(button => button.onclick = async () => {
 /* Search: every word has to be in the page's title, a heading or the text below it. */
 const box = $('#q'), list = $('#results');
 let entries, shown = [], at = -1;
-const close = () => { list.hidden = true; box.setAttribute('aria-expanded', 'false'); box.removeAttribute('aria-activedescendant'); at = -1; };
+let asked = 0;
+const close = () => { asked++; list.hidden = true; shown = []; box.setAttribute('aria-expanded', 'false'); box.removeAttribute('aria-activedescendant'); at = -1; };
 const pick = n => {
   at = n;
   shown.forEach((o, i) => o.setAttribute('aria-selected', i === n));
@@ -33,7 +34,9 @@ const pick = n => {
 async function find() {
   const words = box.value.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return close();
+  const mine = ++asked;
   try { entries ??= await (await fetch(base + 'docs/search.json')).json(); } catch { entries = undefined; }
+  if (mine !== asked) return; /* a newer search, or the list was closed */
   const score = e => words.reduce((sum, w) => {
     const h = e.h.toLowerCase(), t = e.t.toLowerCase(), x = e.x.toLowerCase();
     const s = h.startsWith(w) ? 9 : h.includes(w) ? 6 : t.includes(w) ? 4 : x.includes(w) ? 1 : 0;
@@ -58,6 +61,7 @@ async function find() {
     list.append(none);
   }
   list.hidden = false;
+  box.removeAttribute('aria-activedescendant');
   box.setAttribute('aria-expanded', 'true');
   at = -1;
 }

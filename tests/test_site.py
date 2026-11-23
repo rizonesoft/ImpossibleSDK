@@ -1,6 +1,7 @@
 """The site's own checks see what they are there to see."""
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,7 @@ class Site(unittest.TestCase):
         for name in KEEP:
             shutil.copytree(ROOT / name, cls.copy / name, ignore=skip)
         for path in ROOT.iterdir():
-            if path.is_file():
+            if path.is_file() and path.name != ".git":  # a worktree's .git leads to the real repository
                 shutil.copy2(path, cls.copy)
         cls.git("init", "-q")
         cls.git("config", "user.name", "test")
@@ -50,7 +51,18 @@ class Site(unittest.TestCase):
 
     def build(self, *more, examples=False):
         command = [sys.executable, "-B", str(ROOT / "tools/site/build.py"), "--root", str(self.copy), "--no-run", *(() if examples else ("--no-examples",)), *(more or ("--check",))]
-        return subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=600, env={**os.environ, "IMPOSSIBLE_BUILD": str(BUILD), "PYTHONIOENCODING": "utf-8"})
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", start_new_session=os.name != "nt",
+                                   env={**os.environ, "IMPOSSIBLE_BUILD": str(BUILD), "PYTHONIOENCODING": "utf-8"})
+        try:
+            out, err = process.communicate(timeout=600)
+        except subprocess.TimeoutExpired:  # the compiler it started goes too
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, timeout=60)
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+            raise
+        return subprocess.CompletedProcess(command, process.returncode, out, err)
 
     def change(self, path, old, new):
         file = self.copy / path
@@ -93,6 +105,68 @@ class Site(unittest.TestCase):
     def test_a_function_without_a_comment(self):
         self.change("include/impossible/file.h", "/* Deletes a file, not a folder. */\n", "")
         self.refused("im_delete has no comment above it")
+
+    def test_a_function_does_not_take_its_neighbours_comment(self):
+        self.change("include/impossible/file.h", "im_result im_delete(const char *path);", "im_result im_delete(const char *path);\nim_result im_delete_all(const char *path);")
+        self.refused("im_delete_all has no comment of its own")
+
+    def test_a_new_header_is_read(self):
+        path = self.copy / "include/impossible/extra.h"
+        self.addCleanup(path.unlink)
+        path.write_text("/* Impossible SDK: more. Tier 0. */\n#pragma once\n\nvoid im_more(void);\n", encoding="utf-8", newline="\n")
+        self.refused("im_more has no comment above it")
+
+    def test_a_value_without_a_comment(self):
+        self.change("include/impossible/file.h", "/* Deletes a file, not a folder. */", "#define IM_MOST 4\n\n/* Deletes a file, not a folder. */")
+        self.refused("IM_MOST has no comment above it")
+
+    def test_indented_code_is_refused(self):
+        self.change("docs/guide/adding.md", "## What does a change need?", "Text.\n\n    int wrong code\n\n## What does a change need?")
+        self.refused("indented code is not checked")
+
+    def test_an_example_twice_or_with_a_path_for_a_name(self):
+        self.change("docs/guide/drawing.md", "program=drawn_button", "program=first_window")
+        self.refused("a second program called first_window", examples=True)
+        self.change("docs/guide/text-and-files.md", "program=copy_file", "program=../copy_file")
+        self.refused("not a name for an example")
+
+    def test_a_quoted_file_is_named_as_a_source(self):
+        self.change("docs/guide/button.md", ",tests/fixtures/control_shots.c", "")
+        self.refused("quotes tests/fixtures/control_shots.c and does not name it")
+
+    def test_a_link_written_another_way(self):
+        self.change("site/home.html", '<a class="btn" href="docs/api-base.html">', "<a class='btn' href='docs/api-bases.html'>")
+        self.refused("leads nowhere: docs/api-bases.html")
+
+    def test_whole_addresses_of_our_own(self):
+        self.change("docs/guide/adding.md", "(site:contributing.html)", "(https://sdk.impossibleos.co/docs/contribute.html)")
+        self.refused("leads nowhere: /docs/contribute.html")
+        self.change("docs/guide/drawing.md", "(site:controls.html)", "(https://github.com/rizonesoft/ImpossibleSDK/blob/main/ui/none.h)")
+        self.refused("no such file: ui/none.h")
+
+    def test_a_link_that_runs_something(self):
+        self.change("site/status.json", "(include/impossible/window.h)", "(javascript:alert)")
+        self.refused("no link a page may have")
+
+    def test_a_row_without_a_proof(self):
+        self.change("site/status.json", '["tests.test_seed.Samples.test_console", "tests.test_seed.Samples.test_base"]', "[]")
+        self.refused("a row has an area, what you get, and either tests or work lists")
+
+    def test_the_readme_has_another_size_or_start(self):
+        self.change("README.md", "The console sample is 3 KB", "The console sample is 300 KB")
+        self.refused("README.md: the small part")
+        self.change("README.md", "cd ImpossibleSDK", "cd impossible")
+        self.refused("README.md: the start part")
+
+    def test_a_partial_site_is_not_written(self):
+        done = subprocess.run([sys.executable, "-B", str(ROOT / "tools/site/build.py"), "--no-run", "--out", str(Path(self.folder.name, "part"))],
+                              capture_output=True, text=True, encoding="utf-8", timeout=60)
+        self.assertEqual(done.returncode, 2)
+
+    def test_nothing_built_is_not_the_live_site(self):
+        done = subprocess.run([sys.executable, "-B", str(ROOT / "tools/site/live.py"), "same", str(Path(self.folder.name, "nowhere")), "--base", "http://127.0.0.1:9"],
+                              capture_output=True, text=True, encoding="utf-8", timeout=60)
+        self.assertIn("holds no built site", done.stderr)
 
     def test_a_new_function_reaches_its_page(self):
         self.change("include/impossible/file.h", "/* Deletes a file, not a folder. */", "/* Says hello. */\nvoid im_hello(void);\n\n/* Deletes a file, not a folder. */")
@@ -146,6 +220,7 @@ class Site(unittest.TestCase):
         out = Path(self.folder.name, "mine")
         out.mkdir()
         (out / "keep.txt").write_text("x")
+        (out / "CNAME").write_text("example.invalid\n")
         self.assertEqual(self.build("--out", str(out)).returncode, 1)
         self.assertTrue((out / "keep.txt").is_file())
 

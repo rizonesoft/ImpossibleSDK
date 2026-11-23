@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=4 sources=tools/prove.py,tools/build.py,tools/check_imports.py,tests/test_seed.py reviewed=2026-11-24 -->
+<!-- page: group="Guide" order=4 sources=tools/prove.py,tools/build.py,tools/check_imports.py,tests/test_seed.py,tests/test_ui.py reviewed=2026-11-24 -->
 # Testing on Windows
 
 How do you prove a program works? Build it in WSL or on Windows, and let Windows itself run the tests against the same files.
@@ -10,7 +10,7 @@ How do you prove a program works? Build it in WSL or on Windows, and let Windows
 | The program's imports fit its tier | Every program, after linking |
 | Warnings are errors | Every file |
 | `ui/` builds without floating point or system calls | With the SDK's tests |
-| Buttons equal real WinUI, pixel by pixel | With the SDK's tests |
+| Buttons match real WinUI within [stated limits](button.md), pixel by pixel | With the SDK's tests |
 
 ## How do you run the tests?
 

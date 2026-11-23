@@ -28,7 +28,8 @@ bool im_exists(const char *path);
 /* Calls each for every entry but . and .., until it gives false. */
 im_result im_list(const char *path, bool (*each)(void *user, const char *name, bool folder), void *user);
 
-/* All of standard input, or IM_TOO_LARGE. */
+/* All of standard input; IM_TOO_LARGE above most bytes, and IM_FAILED when it
+   cannot be read or there is no memory. */
 im_result im_read_input(size_t most, char **data, size_t *length);
 
 /* Microseconds since 1970, UTC. */
