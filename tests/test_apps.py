@@ -45,6 +45,14 @@ class Pin(unittest.TestCase):
         git(self.sdk, "commit", "-qam", "two")
         self.assertEqual((self.sdk_used() / "file").read_text(), "one")
 
+    def test_a_copy_that_was_changed_is_refused(self):
+        (self.sdk / "file").write_text("two")
+        for name in ("file", "extra"):
+            copy = self.sdk_used()
+            (copy / name).write_text("changed")
+            self.assertRaisesRegex(SystemExit, "is not the SDK at that commit", self.sdk_used)
+            (copy / name).write_text("one") if name == "file" else None
+
     def test_an_unknown_commit_a_short_or_a_missing_pin_is_refused(self):
         self.pin("0" * 40)
         self.assertRaisesRegex(SystemExit, "does not have the pinned commit", self.sdk_used)

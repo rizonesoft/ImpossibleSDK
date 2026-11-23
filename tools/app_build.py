@@ -58,6 +58,11 @@ def sdk_at(commit, sdk=SDK, cache=None):
             except OSError:
                 if not target.is_dir():  # otherwise another build copied it first
                     raise
+    with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
+        files = {m.name: bundle.extractfile(m).read() for m in bundle if m.isfile()}
+    there = {p.relative_to(target).as_posix(): p for p in target.rglob("*") if not p.is_dir()}
+    if set(there) != set(files) or any(there[name].read_bytes() != data for name, data in files.items()):
+        raise SystemExit(f"error: {target} is not the SDK at that commit: delete it and build again")
     return target
 
 
