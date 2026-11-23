@@ -522,7 +522,7 @@ Rows and cells, few of them live.
 - [ ] Draw every state from the theme data in `ui/controls/table_view_rows.c`, with its cases in `reference/cases/table_view_rows.json`. Done when: frames equal real WinUI at 100, 150, 200 and 300 percent in light, dark and contrast. Cheaper substitute: one theme.
 - [ ] Make only visible rows and cells in `ui/controls/table_view_rows.c`. Done when: 1,000,000 rows and 100 columns keep under 4,000 cells. Cheaper substitute: all.
 - [ ] Select none or one row as the pinned TableView does in `ui/controls/table_view_rows.c`. Done when: 100 scripts equal real WinUI or, where the package lacks it, the pinned source. Cheaper substitute: always one.
-- [ ] Add selection of many rows, and of cells by drag, as our own extension. Done when: a table of 60 expected results in `tests/table_selection.json` passes. Cheaper substitute: one row.
+- [ ] Add selection of many rows, and of cells by drag, as our own extension in `ui/controls/table_view_rows.c`. Done when: a table of 60 expected results in `tests/table_selection.json` passes. Cheaper substitute: one row.
 - [ ] Move the current cell, round the ends by Tab in `ui/controls/table_view_rows.c`. Done when: the log equals real WinUI. Cheaper substitute: rows.
 - [ ] Copy the selection as text and table in `ui/controls/table_view_rows.c`. Done when: another program keeps rows and columns. Cheaper substitute: text.
 - [ ] Keep selection and place while data changes in `ui/controls/table_view_rows.c`. Done when: 10,000 random edits agree. Cheaper substitute: by number.
