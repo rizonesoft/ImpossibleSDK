@@ -53,7 +53,11 @@ title: "TODO-01 -- Interface Engine and First Controls"
 
 ## 1. Exact corner smoothing
 
+> **Started:** 2026-11-23T23:55:00Z
+
 The accent button differs from real WinUI by up to 27 of 255 at corner pixels, while straight edges differ by at most 1. WinUI's outer radius is the corner plus half the border; its curve smoothing is softer than the exact area.
+
+**Corrected 2026-11-24:** `CGeometryBuilder` lives in `dxaml/xcp/core/core/elements/geometry.cpp` in the pinned WinUI checkout. `tests/fixtures/control_shots.c` and `tests/test_ui.py` must render and compare both the 16 button/accent cases (edge <= 1, corner <= 4) and the 9 radius probe frames (radii 4, 8, 16 at scales 1, 1.5, 2; every pixel <= 2), reading `scale`, `width`, `height`, and `radius` from `tests/reference/cases.json`.
 
 **Phase:** 1
 **Needs:** windows-host
@@ -61,12 +65,12 @@ The accent button differs from real WinUI by up to 27 of 255 at corner pixels, w
 
 **Build order:**
 
-1. Add radius probes (4, 8, 16, white on black, no border) to `reference/App.xaml.cs`. Done when: the probe frames are in `tests/reference/`.
-2. Change `ui/draw.c` to the measured rule. Done when: `tests/test_ui.py` passes with a corner limit of 4.
+1. Add radius probes (4, 8, 16, white on black, no border) to `reference/App.xaml.cs` at scales 1, 1.5, and 2, run `reference/run.py`, and compress the frames into `tests/reference/` with `cases.json` recording `scale` per case. Done when: the 9 probe `.bgra.z` frames and updated `cases.json` are in `tests/reference/`.
+2. Inspect `dxaml/xcp/core/core/elements/geometry.cpp` (`CGeometryBuilder`) and the 9 probe frames, document the measured curve/smoothing rule in `ui/draw.c`, and update `ui/draw.c` (and `ui/button.c` if outer/inner corner radii or border-under-background geometry require it). Done when: `tests/fixtures/control_shots.c` renders all button and probe cases and `tests/test_ui.py` passes with probe limit <= 2 and button/accent corner limit <= 4.
 
-- [ ] Draw the probe frames in `reference/App.xaml.cs` at scales 1, 1.5 and 2. Done when: the frames and `cases.json` record scale per case. Cheaper substitute: scaling one bitmap.
-- [ ] Find the rule from WinUI's `GeometryBuilder` and the probes and write it in a comment in `ui/draw.c`. Done when: the rule predicts every probe pixel within 2. Cheaper substitute: a per-control lookup table.
-- [ ] Lower the corner limit in `tests/test_ui.py` to 4 for every style. Done when: the suite passes and fails on the old curve. Cheaper substitute: excluding corner pixels.
+- [ ] Draw the probe frames (radii 4, 8, 16, white on black, no border) in `reference/App.xaml.cs` at scales 1, 1.5 and 2 and store compressed `.bgra.z` frames in `tests/reference/`. Done when: all 9 probe frames are in `tests/reference/` and `tests/reference/cases.json` records `scale`, `width`, `height`, and `radius` per case. Cheaper substitute: scaling one bitmap.
+- [ ] Find the rule from WinUI's `CGeometryBuilder` (`dxaml/xcp/core/core/elements/geometry.cpp`) and the probes, write it in a comment in `ui/draw.c`, and update `ui/draw.c` (and `tests/fixtures/control_shots.c` to render probes at their recorded scale). Done when: the rule predicts every probe pixel within 2 of 255 in `tests/test_ui.py`. Cheaper substitute: a per-control lookup table.
+- [ ] Lower the corner limit in `tests/test_ui.py` to 4 for every style and add probe verification (`<= 2`). Done when: `python3 tools/build.py` passes and fails when the old curve in `ui/draw.c` is restored. Cheaper substitute: excluding corner pixels.
 - [ ] Commit: `ui: corners match WinUI`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
