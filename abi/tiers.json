@@ -1,0 +1,174 @@
+{
+  "about": "Every Windows function a program may import. A tier includes the ones before it. Adding a function means Impossible OS has to implement it. Tier 5 is named when its first program is planned.",
+  "tiers": [
+    {
+      "tier": 0,
+      "name": "Console",
+      "functions": {
+        "kernel32.dll": [
+          "AcquireSRWLockExclusive",
+          "CloseHandle",
+          "CreateDirectoryW",
+          "CreateEventW",
+          "CreateFileW",
+          "CreateThread",
+          "DeleteFileW",
+          "ExitProcess",
+          "FindClose",
+          "FindFirstFileW",
+          "FindNextFileW",
+          "FlushFileBuffers",
+          "GetCommandLineW",
+          "GetConsoleMode",
+          "GetEnvironmentVariableW",
+          "GetFileAttributesW",
+          "GetFileSizeEx",
+          "GetLastError",
+          "GetModuleFileNameW",
+          "GetModuleHandleW",
+          "GetProcAddress",
+          "GetProcessHeap",
+          "GetStdHandle",
+          "GetSystemInfo",
+          "GetSystemTimeAsFileTime",
+          "HeapAlloc",
+          "HeapFree",
+          "HeapReAlloc",
+          "LoadLibraryW",
+          "MoveFileExW",
+          "QueryPerformanceCounter",
+          "QueryPerformanceFrequency",
+          "ReadConsoleW",
+          "ReadFile",
+          "ReleaseSRWLockExclusive",
+          "SetEndOfFile",
+          "SetEvent",
+          "SetFilePointerEx",
+          "Sleep",
+          "VirtualAlloc",
+          "VirtualFree",
+          "WaitForSingleObject",
+          "WriteConsoleW",
+          "WriteFile"
+        ]
+      }
+    },
+    {
+      "tier": 1,
+      "name": "Window",
+      "functions": {
+        "user32.dll": [
+          "BeginPaint",
+          "CreateWindowExW",
+          "DefWindowProcW",
+          "DestroyWindow",
+          "DispatchMessageW",
+          "EndPaint",
+          "GetClientRect",
+          "GetCursorPos",
+          "GetDpiForWindow",
+          "GetKeyState",
+          "GetMessageW",
+          "GetMonitorInfoW",
+          "GetSystemMetrics",
+          "GetWindowLongPtrW",
+          "GetWindowRect",
+          "InvalidateRect",
+          "KillTimer",
+          "LoadCursorW",
+          "MonitorFromWindow",
+          "PeekMessageW",
+          "PostMessageW",
+          "PostQuitMessage",
+          "RegisterClassExW",
+          "ReleaseCapture",
+          "ScreenToClient",
+          "SetCapture",
+          "SetCursor",
+          "SetTimer",
+          "SetWindowLongPtrW",
+          "SetWindowPos",
+          "SetWindowTextW",
+          "ShowWindow",
+          "TranslateMessage"
+        ],
+        "gdi32.dll": [
+          "SetDIBitsToDevice"
+        ]
+      }
+    },
+    {
+      "tier": 2,
+      "name": "Documents",
+      "functions": {
+        "user32.dll": [
+          "CloseClipboard",
+          "EmptyClipboard",
+          "GetClipboardData",
+          "OpenClipboard",
+          "SetClipboardData"
+        ],
+        "kernel32.dll": [
+          "CreateProcessW",
+          "GlobalAlloc",
+          "GlobalLock",
+          "GlobalUnlock",
+          "ReadDirectoryChangesW"
+        ],
+        "shell32.dll": [
+          "DragAcceptFiles",
+          "DragFinish",
+          "DragQueryFileW",
+          "ShellExecuteW"
+        ]
+      }
+    },
+    {
+      "tier": 3,
+      "name": "Media",
+      "functions": {
+        "winmm.dll": [
+          "waveInAddBuffer",
+          "waveInClose",
+          "waveInOpen",
+          "waveInPrepareHeader",
+          "waveInReset",
+          "waveInStart",
+          "waveInUnprepareHeader",
+          "waveOutClose",
+          "waveOutOpen",
+          "waveOutPrepareHeader",
+          "waveOutReset",
+          "waveOutUnprepareHeader",
+          "waveOutWrite"
+        ]
+      }
+    },
+    {
+      "tier": 4,
+      "name": "Network",
+      "functions": {
+        "ws2_32.dll": [
+          "WSACleanup",
+          "WSAGetLastError",
+          "WSAStartup",
+          "accept",
+          "bind",
+          "closesocket",
+          "connect",
+          "freeaddrinfo",
+          "getaddrinfo",
+          "ioctlsocket",
+          "listen",
+          "recv",
+          "recvfrom",
+          "select",
+          "send",
+          "sendto",
+          "setsockopt",
+          "socket"
+        ]
+      }
+    }
+  ]
+}
