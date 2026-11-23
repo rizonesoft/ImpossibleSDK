@@ -3,3 +3,9 @@
 *.ico binary
 *.ttf binary
 *.z binary
+
+# The agent kits are not this project's code: GitHub leaves them out of its statistics.
+scripts/** linguist-vendored
+.agents/** linguist-vendored
+.claude/** linguist-vendored
+.codex/** linguist-vendored
