@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -64,6 +65,57 @@ class Contribute(unittest.TestCase):
         self.assertEqual(self.git(self.root / "sdk", "status", "--porcelain"), "?? edited")
         self.git(self.root / "sdk", "cat-file", "-e", self.main())  # the pin can be built at once
 
+    def test_two_at_once_take_turns(self):
+        folders = [self.started("a", "a"), self.started("b", "b")]
+        slow = [sys.executable, "-c", "import time; time.sleep(0.5)"]
+        faults = []
+
+        def run(folder, name):
+            try:
+                contribute.finish(folder, self.root / name, slow)
+            except BaseException as error:
+                faults.append(error)
+
+        threads = [threading.Thread(target=run, args=pair) for pair in zip(folders, ("A", "B"))]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(60)
+        self.assertEqual(faults, [])
+        self.assertEqual(self.git(self.root / "remote.git", "ls-tree", "--name-only", "main").split(), ["a", "b", "one"])
+
+    def test_a_finish_that_stopped_after_the_push_goes_on(self):
+        folder = self.started("a", "a")
+        real, seen = contribute.git, []
+
+        def stops(where, *arguments):
+            seen.append(arguments[0])
+            if arguments[0] == "fetch" and "push" in seen:
+                raise SystemExit("contribute: git fetch: no network")
+            return real(where, *arguments)
+
+        with mock.patch.object(contribute, "git", stops):
+            with self.assertRaisesRegex(SystemExit, "no network"):
+                contribute.finish(folder, self.root / "A", PASS)
+        contribute.finish(folder, self.root / "A", FAIL)  # tested and pushed already
+        self.assertEqual(json.loads((self.root / "A/sdk.json").read_text())["commit"], self.main())
+
+    def test_a_commit_made_meanwhile_is_neither_pushed_nor_lost(self):
+        folder = self.started("a", "a")
+        late = [sys.executable, "-c", f"import subprocess; subprocess.run(['git', '-C', {str(folder)!r}, 'commit', '-q', '--allow-empty', '-m', 'late'], check=True)"]
+        with self.assertRaisesRegex(SystemExit, "has a newer commit"):
+            contribute.finish(folder, self.root / "A", late)
+        self.assertNotIn("late", self.git(self.root / "remote.git", "log", "--format=%s", "main"))
+        self.assertIn("late", self.git(folder, "log", "--format=%s"))
+
+    def test_a_merge_is_refused(self):
+        folder = self.started("a", "a")
+        mine = self.git(folder, "rev-parse", "HEAD")
+        self.git(folder, "checkout", "-q", "--detach", "HEAD~1")
+        self.git(folder, "commit", "-q", "--allow-empty", "-m", "b")
+        self.git(folder, "merge", "-q", "--no-ff", "-m", "merge", mine)
+        self.refused(folder, PASS, "make it plain commits")
+
     def refused(self, folder, test, words, program="A"):
         before, pin = self.main(), (self.root / "A/sdk.json").read_text()
         with self.assertRaisesRegex((SystemExit, subprocess.CalledProcessError), words):
@@ -79,7 +131,14 @@ class Contribute(unittest.TestCase):
         (third / "c").write_text("changed")
         self.refused(third, PASS, "not committed")
         self.git(third, "checkout", "-q", "c")
-        self.refused(third, [sys.executable, "-c", "open('made', 'w')"], "the build changed files")
+        self.git(third, "update-index", "--assume-unchanged", "c")
+        (third / "c").write_text("good")  # what is committed is what is tested
+        self.refused(third, [sys.executable, "-c", "raise SystemExit(open('c').read() != 'good')"], "non-zero exit")
+        other = self.root / "work/foreign"
+        self.git(self.root, "init", "-q", "other")
+        self.git(self.root / "other", "commit", "-q", "--allow-empty", "-m", "x")
+        self.git(self.root / "other", "worktree", "add", "-q", "--detach", str(other))
+        self.refused(other, PASS, "not a folder that start made")
         self.refused(self.root / "sdk", PASS, "not a folder that start made")
         self.refused(third, PASS, "is not a program's folder", program="home")
 
