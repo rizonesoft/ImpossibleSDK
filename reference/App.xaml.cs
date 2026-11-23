@@ -75,9 +75,19 @@ public partial class App : Application
                     if (!VisualStateManager.GoToState(control, state, false)) throw new InvalidOperationException($"{name}: no state {state}");
                     await Task.Delay(300);
                     var bitmap = new RenderTargetBitmap();
-                    await bitmap.RenderAsync(frame);
+                    byte[] pixels = [];
+                    // A transition runs for as long as a busy machine lets it: wait until the picture stays the same.
+                    for (int same = 0, tries = 0; same < 3; tries++)
+                    {
+                        if (tries == 100) throw new InvalidOperationException($"{name} {state} {theme}: the picture does not settle");
+                        await bitmap.RenderAsync(frame);
+                        var next = (await bitmap.GetPixelsAsync()).ToArray();
+                        same = next.AsSpan().SequenceEqual(pixels) ? same + 1 : 0;
+                        pixels = next;
+                        await Task.Delay(60);
+                    }
                     string file = $"{name}-{state}-{theme}.bgra";
-                    File.WriteAllBytes(Path.Combine(folder, file), (await bitmap.GetPixelsAsync()).ToArray());
+                    File.WriteAllBytes(Path.Combine(folder, file), pixels);
                     cases.Add(new { control = name, state, theme = theme.ToString(), file, width = bitmap.PixelWidth, height = bitmap.PixelHeight });
                 }
             }
