@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" data-base="../">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}} · {{name}}</title>
+<meta name="description" content="{{description}}">
+<link rel="canonical" href="{{site_url}}/{{path}}">
+<meta property="og:type" content="article"><meta property="og:site_name" content="{{name}}"><meta property="og:title" content="{{title}}"><meta property="og:description" content="{{description}}"><meta property="og:url" content="{{site_url}}/{{path}}"><meta property="og:image" content="{{site_url}}/social.png">
+<link rel="icon" href="../favicon.ico" sizes="any"><link rel="icon" href="../icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="../icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cascadia+Code:wght@400;600&amp;family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap">
+<link rel="stylesheet" href="../style.css">
+<script>try { const t = localStorage.getItem('im-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}</script>
+</head>
+<body>
+{{header}}
+<div class="layout"><nav class="side" aria-label="Documentation" tabindex="0">{{side}}</nav>
+<main class="doc" id="main" tabindex="-1"><p class="crumb">{{group}}</p><h1>{{title}}</h1><p class="lead">{{lead}}</p>
+{{body}}
+<div class="truth">{{truth}}<span>Published from <a href="{{repo_url}}/commit/{{commit}}"><code>{{commit}}</code></a></span></div></main>
+<aside class="toc" aria-label="On this page" tabindex="0">{{toc}}</aside></div>
+<script src="../app.js"></script>
+</body>
+</html>

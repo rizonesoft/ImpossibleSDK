@@ -2,20 +2,24 @@
 #pragma once
 #include <impossible/base.h>
 
+/* The pixels of a window while it is painted. */
 typedef struct im_canvas {
     uint32_t *pixels; /* 0x00RRGGBB, top row first, width pixels per row */
     int width, height;
     float scale; /* 1.0 at 96 DPI */
 } im_canvas;
 
+/* What the user did. */
 typedef enum im_event_kind { IM_POINTER_MOVE, IM_POINTER_DOWN, IM_POINTER_UP, IM_KEY_DOWN } im_event_kind;
 
+/* One thing the user did, where, or with which key. */
 typedef struct im_event {
     im_event_kind kind;
     int x, y; /* pixels */
     int key;  /* Windows virtual key, for IM_KEY_DOWN */
 } im_event;
 
+/* Fill in from title to event; the rest belongs to the kit and starts as zero. */
 typedef struct im_window {
     const wchar_t *title;
     int width, height; /* client size at 96 DPI, 1 to 32767 */

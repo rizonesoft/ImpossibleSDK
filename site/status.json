@@ -1,0 +1,15 @@
+[
+  {"area": "Start-up, memory, text, files, console", "get": "[`base.h`](include/impossible/base.h), [`text.h`](include/impossible/text.h), [`file.h`](include/impossible/file.h): UTF-8 everywhere, safe file replacement", "tests": ["tests.test_seed.Samples.test_console", "tests.test_seed.Samples.test_base"]},
+  {"area": "One window", "get": "[`window.h`](include/impossible/window.h): a canvas of pixels, pointer, keys and DPI", "tests": ["tests.test_seed.Samples.test_window_draws_a_frame", "tests.test_seed.Samples.test_a_window_can_be_opened_again"]},
+  {"area": "Import check", "get": "[`check_imports.py`](tools/check_imports.py), run on every program", "tests": ["tests.test_seed.ImportCheck.test_samples_fit_their_tier", "tests.test_seed.ImportCheck.test_a_function_outside_the_list_is_refused"]},
+  {"area": "Pinned toolchain", "get": "llvm-mingw, CMake and Ninja by version and hash, the same on Windows and WSL", "tests": ["tests.test_seed.Tools.test_another_program_in_a_tools_place_is_refused", "tests.test_seed.Tools.test_every_compiler_program_the_build_names_is_pinned"]},
+  {"area": "Impossible UI: drawing, theme, button", "get": "Light, dark and contrast values, smooth corners, the button, [compared with real WinUI](tests/test_ui.py)", "tests": ["tests.test_ui.Drawing.test_drawing", "tests.test_ui.Drawing.test_buttons_match_real_winui"]},
+  {"area": "Impossible UI: engine and text", "get": "[Interface engine](todo/01-interface/TODO-01-first-controls.md) and [text engine](todo/01-interface/TODO-02-text.md)", "todo": ["todo/01-interface/TODO-01-first-controls.md", "todo/01-interface/TODO-02-text.md"]},
+  {"area": "Impossible UI: controls and dialogs", "get": "[Controls](todo/05-controls/TODO-01-controls.md), [more controls](todo/05-controls/TODO-02-more-controls.md) and [dialogs](todo/05-controls/TODO-03-dialogs.md)", "todo": ["todo/05-controls/TODO-01-controls.md", "todo/05-controls/TODO-02-more-controls.md", "todo/05-controls/TODO-03-dialogs.md"]},
+  {"area": "Picture formats, shared parts", "get": "[Formats](todo/02-formats/TODO-01-image-formats.md) and [shared parts](todo/06-shared/TODO-01-shared-parts.md)", "todo": ["todo/02-formats/TODO-01-image-formats.md", "todo/06-shared/TODO-01-shared-parts.md"]},
+  {"area": "Network: TLS, HTTP, kept secrets", "get": "[Network](todo/03-network/TODO-01-network.md)", "todo": ["todo/03-network/TODO-01-network.md"]},
+  {"area": "Web readers: HTML and CSS", "get": "[Web](todo/04-web/TODO-01-web-readers.md)", "todo": ["todo/04-web/TODO-01-web-readers.md"]},
+  {"area": "Clipboard, input methods, screen readers, sound, settings", "get": "[Windows services](todo/07-windows/TODO-01-windows-services.md)", "todo": ["todo/07-windows/TODO-01-windows-services.md"]},
+  {"area": "Printing", "get": "[Printing](todo/07-windows/TODO-02-printing.md)", "todo": ["todo/07-windows/TODO-02-printing.md"]},
+  {"area": "Installer, first release", "get": "[Parts and release](todo/08-release/TODO-01-parts-and-release.md)", "todo": ["todo/08-release/TODO-01-parts-and-release.md"]}
+]

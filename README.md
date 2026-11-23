@@ -15,7 +15,7 @@
 [![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)](abi/tiers.json)
 [![For Impossible OS](https://img.shields.io/badge/for-Impossible%20OS-1B6FE0)](https://github.com/rizonesoft/impossible-os)
 
-[Impossible OS](https://github.com/rizonesoft/impossible-os) · [impossibleos.co](https://impossibleos.co/) · [Roadmap](todo/implementation-plan.md) · [Contributing](CONTRIBUTING.md) · [Discussions](https://github.com/rizonesoft/ImpossibleSDK/discussions)
+[Documentation](https://sdk.impossibleos.co/docs/) · [sdk.impossibleos.co](https://sdk.impossibleos.co/) · [Impossible OS](https://impossibleos.co/) · [Roadmap](todo/implementation-plan.md) · [Contributing](CONTRIBUTING.md) · [Discussions](https://github.com/rizonesoft/ImpossibleSDK/discussions)
 
 </div>
 
@@ -50,20 +50,25 @@ Impossible SDK is the C kit that the programs of [Impossible OS](https://github.
 
 Legend: ✅ works · 🚧 in progress · 📋 planned
 
+<!-- site:status -->
+
 | Area | Status | What you get |
 | --- | :---: | --- |
 | Start-up, memory, text, files, console | ✅ | [`base.h`](include/impossible/base.h), [`text.h`](include/impossible/text.h), [`file.h`](include/impossible/file.h): UTF-8 everywhere, safe file replacement |
 | One window | ✅ | [`window.h`](include/impossible/window.h): a canvas of pixels, pointer, keys and DPI |
 | Import check | ✅ | [`check_imports.py`](tools/check_imports.py), run on every program |
 | Pinned toolchain | ✅ | llvm-mingw, CMake and Ninja by version and hash, the same on Windows and WSL |
-| Impossible UI: drawing and theme | ✅ | Light, dark and contrast values, smooth corners, the button |
-| Impossible UI: layout, text, other controls | 📋 | [Interface](todo/01-interface/TODO-01-first-controls.md) and [controls](todo/05-controls/TODO-01-controls.md) |
+| Impossible UI: drawing, theme, button | ✅ | Light, dark and contrast values, smooth corners, the button, [compared with real WinUI](tests/test_ui.py) |
+| Impossible UI: engine and text | 📋 | [Interface engine](todo/01-interface/TODO-01-first-controls.md) and [text engine](todo/01-interface/TODO-02-text.md) |
+| Impossible UI: controls and dialogs | 📋 | [Controls](todo/05-controls/TODO-01-controls.md), [more controls](todo/05-controls/TODO-02-more-controls.md) and [dialogs](todo/05-controls/TODO-03-dialogs.md) |
 | Picture formats, shared parts | 📋 | [Formats](todo/02-formats/TODO-01-image-formats.md) and [shared parts](todo/06-shared/TODO-01-shared-parts.md) |
 | Network: TLS, HTTP, kept secrets | 📋 | [Network](todo/03-network/TODO-01-network.md) |
 | Web readers: HTML and CSS | 📋 | [Web](todo/04-web/TODO-01-web-readers.md) |
 | Clipboard, input methods, screen readers, sound, settings | 📋 | [Windows services](todo/07-windows/TODO-01-windows-services.md) |
 | Printing | 📋 | [Printing](todo/07-windows/TODO-02-printing.md) |
-| Installer, API reference, first release | 📋 | [Parts and release](todo/08-release/TODO-01-parts-and-release.md) |
+| Installer, first release | 📋 | [Parts and release](todo/08-release/TODO-01-parts-and-release.md) |
+
+<!-- /site:status -->
 
 ## Quick start
 
@@ -107,6 +112,8 @@ More in [`samples/`](samples).
 
 A program names the highest tier it needs; each tier includes the ones before it.
 
+<!-- site:tiers -->
+
 | Tier | Name | Adds |
 | :-: | --- | --- |
 | 0 | Console | Files, memory, time, threads |
@@ -115,6 +122,8 @@ A program names the highest tier it needs; each tier includes the ones before it
 | 3 | Media | Sound out and in |
 | 4 | Network | Sockets, secure random numbers, protected passwords |
 | 5 | Desktop | Seeing and driving other windows, and devices |
+
+<!-- /site:tiers -->
 
 Imports by ordinal, delay-loaded DLLs, bound imports and thread-local storage are refused. The list grows only on purpose: each new function becomes a section of the Impossible OS roadmap.
 
@@ -175,6 +184,7 @@ More programs are on the way, from Notepad and Calculator to a browser with its 
 | `samples/` | The smallest console and window programs |
 | `tools/` | Toolchain, build, import check, proof on Windows, new programs, [contributing from a program](tools/contribute.py) |
 | `reference/` | The WinUI program the drawing is compared with |
+| `site/`, `docs/guide/` | [sdk.impossibleos.co](https://sdk.impossibleos.co/): its frame and written pages; the rest is generated |
 | `tests/` | What must stay true |
 | `brand/` | The identity and its sources |
 | `todo/`, `docs/` | The work list, the [design](docs/specs/2026-11-23-interface-and-apps-design.md), and how it is worked on |

@@ -4,11 +4,14 @@
 #include <stdint.h>
 #include "theme_data.h"
 
-typedef int32_t im_fixed; /* 16.16 */
+/* A number in 16.16 fixed point; IM_ONE is 1. */
+typedef int32_t im_fixed;
 #define IM_ONE 65536
 
+/* Which set of values to draw with. */
 typedef enum im_theme { IM_DARK, IM_LIGHT, IM_CONTRAST } im_theme;
 
+/* How a brush gives its colour. */
 typedef enum im_brush_kind {
     IM_SOLID,
     IM_GRADIENT,          /* runs down from the top; end is in 96 DPI units */
@@ -17,12 +20,14 @@ typedef enum im_brush_kind {
     IM_GRADIENT_RELATIVE_FLIPPED
 } im_brush_kind;
 
+/* One brush of the theme data. */
 typedef struct im_brush {
     uint8_t kind, count;
     uint16_t first; /* in im_theme_stops */
     im_fixed end;
 } im_brush;
 
+/* One colour of a brush. */
 typedef struct im_stop {
     im_fixed offset;
     int32_t slot; /* an im_color_slot, or -1 for argb */
@@ -36,12 +41,13 @@ typedef struct im_palette {
     uint32_t slot[IM_SLOT_COUNT];
 } im_palette;
 
+/* The theme data, generated from WinUI. Use im_brush_over and im_value. */
 extern const im_brush im_theme_brushes[3][IM_BRUSH_COUNT];
 extern const im_stop im_theme_stops[];
 extern const int32_t im_theme_values[3][IM_VALUE_COUNT][4];
 
-/* The colour of a brush at a point: y and height in pixels, scale in 16.16 (1.0 at 96 DPI). */
-/* The colour at y pixels below the top of a shape; y and height are 16.16. */
+/* The colour of a brush at y pixels below the top of a shape; y and height are
+   16.16, and scale is 16.16 with 1.0 at 96 DPI. */
 uint32_t im_brush_over(const im_palette *palette, enum im_brush_id id, int64_t y, int64_t height, im_fixed scale);
 
 /* One number, or the left, top, right, bottom of a thickness or the four corners of a radius. */

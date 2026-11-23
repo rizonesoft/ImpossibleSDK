@@ -1,0 +1,91 @@
+name: Site
+
+# sdk.impossibleos.co is made from the code on every push to main and never kept
+# in git. The build refuses whatever has drifted; then the pages are audited,
+# published, read back and compared with what was built.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest   # the tests that prove what works start Windows programs
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # when each page and the files it describes last changed
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/cache@v6
+        with:
+          path: ~\AppData\Local\ImpossibleSDK
+          key: tools-windows-latest-${{ hashFiles('toolchain.json') }}
+      - name: Build the SDK
+        run: python tools/build.py --no-test
+      - name: Build the site and refuse drift
+        run: python tools/site/build.py --prove --out _site --outward outward.txt
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+      - uses: actions/upload-artifact@v7
+        with:
+          name: site
+          path: |
+            _site
+            outward.txt
+
+  audit:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Links that leave the site
+        run: python3 tools/site/live.py links outward.txt
+      - name: Accessibility, every page, desktop and phone, light and dark
+        run: |
+          npm ci --prefix tools/site/a11y --no-audit --no-fund
+          npx --prefix tools/site/a11y playwright-core install --with-deps chromium-headless-shell
+          node tools/site/a11y/audit.mjs _site
+
+  deploy:
+    needs: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+      - name: The live site is this build, byte for byte
+        run: python3 tools/site/live.py same _site --wait 600

@@ -17,6 +17,7 @@ Use Windows or WSL (there the command is `python3`). `python3 tools/prove.py .` 
 - No new Windows function, unless the change is about that function: each one in `abi/tiers.json` has to be built in [Impossible OS](https://github.com/rizonesoft/impossible-os) as well.
 - `ui/` stays portable: no system call, no floating point, no C library.
 - Values and behaviour of controls come from the pinned WinUI source or a measurement, never from memory. No Microsoft font, icon, picture, sound or wording.
+- A public function has a comment above it, and the [documentation](https://sdk.impossibleos.co/docs/) still says what the code does: `python tools/site/build.py --check` after a build.
 - New code of other projects comes with its license and the commit it was taken from.
 
 A feature that two programs need belongs here; one that only one program needs belongs in that program. The design is in [`docs/specs`](docs/specs/2026-11-23-interface-and-apps-design.md).

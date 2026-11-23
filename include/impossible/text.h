@@ -2,10 +2,12 @@
 #pragma once
 #include <impossible/base.h>
 
-/* New memory, zero ended; NULL without memory. A malformed unit becomes U+FFFD. */
+/* Between UTF-8 and Windows' UTF-16: new memory, zero ended; NULL without
+   memory. A malformed unit becomes U+FFFD. Free with im_free. */
 wchar_t *im_wide(const char *text);
 char *im_utf8(const wchar_t *text);
 
+/* The bytes before the zero, and whether two texts have the same bytes. */
 size_t im_length(const char *text);
 bool im_equal(const char *a, const char *b);
 
@@ -20,6 +22,8 @@ typedef struct im_text {
     size_t length, capacity;
     bool failed;
 } im_text;
+
+/* Adds text, bytes, or a number with at least so many digits; im_text_free gives the memory back. */
 void im_add(im_text *text, const char *more);
 void im_add_bytes(im_text *text, const void *more, size_t bytes);
 void im_add_number(im_text *text, uint64_t value, int least_digits);

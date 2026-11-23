@@ -10,7 +10,7 @@ title: "TODO-01 -- Parts, Packaging and Release"
 
 > **Goal:** Programs are packaged, installed, updated and removed on Windows, the SDK is documented and versioned, and a first release exists.
 
-> **Current state:** Measured 2026-11-23 at `e06ab3a`. `tools/new_app.py` makes a program repository and `tools/app_build.py` builds it. 41 repositories carry an `app.json` (Heliograph among them) and nothing reads `opens`. There is no version, installer, API reference or release.
+> **Current state:** **Corrected 2026-11-24:** §8 and §9 have a start: `tools/site/build.py` makes the API reference from the headers with the pinned clang, refuses a public name without a comment and a guide example that does not build, and publishes `docs/guide/` at sdk.impossibleos.co on every push (`.github/workflows/pages.yml`, `tests/test_site.py`). Open there: thread and failure for each function, and the guide's chapters for parts that do not exist yet. Measured 2026-11-23 at `e06ab3a`. `tools/new_app.py` makes a program repository and `tools/app_build.py` builds it. 41 repositories carry an `app.json` (Heliograph among them) and nothing reads `opens`. There is no version, installer, API reference or release.
 
 ## Inputs
 
@@ -212,12 +212,12 @@ Every public name explained, from the headers.
 **Build order:**
 
 1. Write `tools/api_docs.py` with its first item. Done when: the first item below passes.
-2. Cover it in `tests/test_docs.py`. Done when: the checks fail on a planted fault.
+2. Cover it in `tests/test_site.py`. Done when: the checks fail on a planted fault.
 
-- [ ] Read the headers with the pinned clang in `tools/api_docs.py`. Done when: every public type, function and value is in `docs/api/`. Cheaper substitute: by hand.
-- [ ] Refuse a public name without a comment in `tests/test_docs.py`. Done when: a planted bare function fails. Cheaper substitute: a warning.
+- [ ] Read the headers with the pinned clang in `tools/site/headers.py`. Done when: every public type, function and value is in the site's reference, new headers of `include/` and `ui/` included. Cheaper substitute: by hand.
+- [ ] Refuse a public name without a comment in `tests/test_site.py`. Done when: a planted bare function fails. Cheaper substitute: a warning.
 - [ ] State tier, thread and failure for each function in `include/impossible/`. Done when: the check names one that does not. Cheaper substitute: prose.
-- [ ] Build each example in the reference in `tests/test_docs.py`. Done when: a planted wrong example fails. Cheaper substitute: unbuilt text.
+- [ ] Build each example in the reference in `tools/site/build.py`. Done when: a planted wrong example fails. Cheaper substitute: unbuilt text.
 - [ ] Commit: `docs: API reference`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -233,9 +233,9 @@ From nothing to an installed program.
 **Build order:**
 
 1. Write `tools/guide_check.py` with its first item. Done when: the first item below passes.
-2. Cover it in `tests/test_docs.py`. Done when: the checks fail on a planted fault.
+2. Cover it in `tests/test_site.py`. Done when: the checks fail on a planted fault.
 
-- [ ] Write the guide in `docs/guide/`: first window, layout, controls, commands, text, files, settings, threads, printing, packaging. Done when: each chapter's program builds and runs in `tests/test_docs.py`. Cheaper substitute: an outline.
+- [ ] Write the guide in `docs/guide/`: first window, layout, controls, commands, text, files, settings, threads, printing, packaging. Done when: each chapter's program builds and runs in `tests/test_site.py`. Cheaper substitute: an outline.
 - [ ] Write the rules for keyboard, screen reader, contrast, scale and right-to-left in `docs/guide/`. Done when: each rule names its check. Cheaper substitute: advice.
 - [ ] Refresh `README.md` and its status table from the stamped sections. Done when: the table test fails when it disagrees with the plan. Cheaper substitute: by memory.
 - [ ] Follow the guide in a clean machine image in `tools/guide_check.py`. Done when: it ends with an installed program. Cheaper substitute: reading it.

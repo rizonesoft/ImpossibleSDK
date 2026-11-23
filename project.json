@@ -1,0 +1,17 @@
+{
+  "name": "Impossible SDK",
+  "tagline": "A small C kit for Windows programs that Impossible OS will run too.",
+  "repo_url": "https://github.com/rizonesoft/ImpossibleSDK",
+  "site_url": "https://sdk.impossibleos.co",
+  "os_url": "https://impossibleos.co",
+  "os_repo_url": "https://github.com/rizonesoft/impossible-os",
+  "license": "MIT",
+  "tiers": [
+    "Files, memory, time, threads",
+    "One window, input, and one call that shows a bitmap",
+    "Clipboard, drag and drop, file watching, starting programs",
+    "Sound out and in",
+    "Sockets, secure random numbers, protected passwords",
+    "Seeing and driving other windows, and devices"
+  ]
+}

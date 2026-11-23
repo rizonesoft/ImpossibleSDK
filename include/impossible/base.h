@@ -17,6 +17,7 @@ bool im_has_argument(const wchar_t *argument);
 /* Writes UTF-8 text to standard output; false when it could not all be written. */
 bool im_print(const char *text);
 
+/* The four memory routines, as C defines them. The compiler calls them too. */
 void *memcpy(void *restrict to, const void *restrict from, size_t bytes);
 void *memmove(void *to, const void *from, size_t bytes);
 void *memset(void *to, int value, size_t bytes);

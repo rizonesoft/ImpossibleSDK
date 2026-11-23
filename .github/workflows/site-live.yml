@@ -1,0 +1,55 @@
+name: Live site
+
+# Every six hours the published site is compared with a fresh build of main. A
+# failed publish nobody saw, or an old copy that came back, is published again,
+# and this run stays red as the report.
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  compare:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/cache@v6
+        with:
+          path: ~\AppData\Local\ImpossibleSDK
+          key: tools-windows-latest-${{ hashFiles('toolchain.json') }}
+      - name: Wait for a publish that is under way
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(seq 40); do
+            busy=$(gh run list --workflow pages.yml --json status --jq '[.[] | select(.status != "completed")] | length')
+            [ "$busy" = 0 ] && exit 0
+            sleep 30
+          done
+      - name: Build main
+        run: |
+          python tools/build.py --no-test
+          python tools/site/build.py --out _site --outward outward.txt
+      - name: Compare
+        id: same
+        run: python tools/site/live.py same _site --wait 120
+      - name: Publish again
+        if: failure() && steps.same.conclusion == 'failure'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml
+      - name: Links that leave the site
+        if: always()
+        run: python tools/site/live.py links outward.txt

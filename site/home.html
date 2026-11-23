@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" data-base="">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{name}}: {{tagline}}</title>
+<meta name="description" content="{{tagline}}">
+<link rel="canonical" href="{{site_url}}/">
+<meta property="og:type" content="website"><meta property="og:site_name" content="{{name}}"><meta property="og:title" content="{{name}}"><meta property="og:description" content="{{tagline}}"><meta property="og:url" content="{{site_url}}/"><meta property="og:image" content="{{site_url}}/social.png">
+<link rel="icon" href="favicon.ico" sizes="any"><link rel="icon" href="icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cascadia+Code:wght@400;600&amp;family=Inter:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script>try { const t = localStorage.getItem('im-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}</script>
+</head>
+<body>
+{{header}}
+<main id="main" tabindex="-1">
+<section class="hero"><div class="wrap hg"><div><h1>One C source.<br>Windows now,<br><em>Impossible OS</em> next.</h1><p class="lead">A small C kit for Windows programs. A program is an ordinary 64-bit <code>.exe</code> with no C runtime. It calls only the {{total}} Windows functions on one published list, and Impossible OS is building that same list.</p><p class="cta"><a class="btn acc" href="docs/first-window.html">Make your first window</a><a class="btn" href="docs/api-base.html">Read the API</a></p><p class="note">Early, no release yet. Programs run on Windows today.</p></div>
+<div class="win"><div class="wt"><img src="icon.svg" alt=""><span>Hello</span><span class="wb" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="tabs" role="tablist" aria-label="The two files of this program"><button role="tab" id="t1" aria-selected="true" aria-controls="p1" type="button">src/main.c</button><button role="tab" id="t2" aria-selected="false" aria-controls="p2" tabindex="-1" type="button">CMakeLists.txt</button></div><pre id="p1" role="tabpanel" aria-labelledby="t1" tabindex="0"><code>{{hello}}</code></pre><pre id="p2" role="tabpanel" aria-labelledby="t2" tabindex="0" hidden><code>{{cmake}}</code></pre>
+<div class="size">@@HELLO@@@@WINDOW@@<small>Each square is one 512 byte sector of the finished file.</small></div></div></div></section>
+<section class="band"><div class="wrap two"><div><h2>Start in four commands</h2><p>Windows or WSL on 64-bit x86, with Python 3.12 or newer. The compiler, CMake and Ninja are <a href="docs/toolchain.html">pinned by version and hash</a>, so Windows and WSL build with the same tools.</p></div>{{quick}}</div></section>
+<section><div class="wrap"><h2>Pick a tier, and that is all a program can call</h2><p class="sub">A program names the highest of {{tier_count}} tiers it needs. Each drawer includes the ones above it. The build reads the finished program and fails on anything else. <a href="docs/tiers.html">The whole list</a></p><div class="kit"><div class="case" role="group" aria-label="Tiers">{{drawers}}</div><div class="open" aria-live="polite"><div class="oh"><h3 id="tn"></h3><p id="td"></p></div><div id="tf" class="chips"></div><pre tabindex="0"><code id="tc"></code></pre></div></div><script type="application/json" id="tiers">{{tiers_json}}</script></div></section>
+<section class="band"><div class="wrap"><h2>Compared with the real thing, pixel by pixel</h2><p class="sub">Impossible UI draws Windows 11's controls in portable C: no system call, no floating point, no C library. Values come from WinUI 3's MIT source at a pinned commit. Drag to compare.</p><div class="lbs"><span>Impossible UI</span><span>Real WinUI 3</span></div><div class="cmp"><img class="pic real" src="img/winui.png" alt="Sixteen buttons drawn by real WinUI 3" width="640" height="256"><img class="pic ours" src="img/ours.png" alt="The same sixteen buttons drawn by Impossible UI" width="640" height="256"><input id="cmp" type="range" min="0" max="100" value="50" aria-label="Compare Impossible UI with real WinUI 3"></div><p class="cap">Standard and accent buttons at rest, hovered, pressed and disabled, dark and light, in the accent colour of the test machine. Straight edges and fills may differ by 1 of 255; <a href="docs/button.html">corners have their own limit</a>.</p></div></section>
+<section><div class="wrap"><h2>What works today</h2>{{status}}<p class="cap">Each row that works names the tests that prove it, and they pass before this page is published. <a href="docs/status.html">See the whole plan</a></p></div></section>
+<section class="band"><div class="wrap two"><div><h2>Made for Impossible OS, useful without it</h2><p>Every function on the list becomes a section of the operating system's roadmap. Programs and controls are imported there at a pinned commit, and changes come back as pull requests. Neither side waits for the other.</p><p class="cta"><a class="btn" href="{{os_url}}/"><img src="os.svg" alt="">Visit impossibleos.co</a><a class="btn" href="docs/impossible-os.html">How the two fit</a></p></div><ol class="flow"><li><b>The list</b><span>{{total}} functions in {{tier_count}} tiers</span></li><li><b>Your program</b><span>Runs on Windows today</span></li><li><b>Impossible OS</b><span>Imports it at a pinned commit</span></li></ol></div></section>
+</main>
+<footer><div class="wrap"><span><a href="{{os_url}}/">Impossible OS</a><a href="docs/">Docs</a><a href="docs/status.html">Status</a><a href="{{repo_url}}">GitHub</a><a href="{{repo_url}}/discussions">Discussions</a><a href="https://rizonetech.com">Rizonetech</a></span><span>{{license}}. Built by Rizonetech (Pty) Ltd. Published from <a href="{{repo_url}}/commit/{{commit}}"><code>{{commit}}</code></a></span></div></footer>
+<script src="app.js"></script>
+</body>
+</html>

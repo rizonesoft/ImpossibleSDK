@@ -5,14 +5,17 @@
 #include <stdint.h>
 #include "theme.h"
 
+/* A rectangle in pixels, 16.16 fixed point. */
 typedef struct im_rect {
     im_fixed left, top, right, bottom; /* pixels */
 } im_rect;
 
+/* The four corner radii of a shape. */
 typedef struct im_radii {
     im_fixed top_left, top_right, bottom_right, bottom_left;
 } im_radii;
 
+/* Where drawing goes, with the colours and scale to use. */
 typedef struct im_surface {
     uint32_t *pixels; /* 0x00RRGGBB, top row first */
     int width, height, stride;

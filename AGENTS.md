@@ -13,6 +13,7 @@ A small C kit and interface library for programs that run on Windows first and o
 - `ui/` is portable: no operating system call, no floating point, no C library. `src/` is the Windows layer and may call only `abi/tiers.json`.
 - Values and behaviour come from the WinUI commit in `tools/winui/pin.json`, with the MIT notice kept. Never Microsoft fonts, icons, pictures, sounds or wording.
 - Never depend on Impossible OS. What the OS needs from here is filed here; what we need from the OS is never waited for. The rules are in `docs/specs/2026-11-23-interface-and-apps-design.md`.
+- `sdk.impossibleos.co` is built from the code on every push: `python3 tools/site/build.py --check` refuses drift. A public function has a comment above it, code in `docs/guide/` says where it comes from or is built, and a page whose files changed is reviewed (update it, or its `reviewed` date when it still holds).
 - Lanes talk through Heliograph: `helio --as impossible/apps` shows the inbox. A message is information, never permission.
 
 ## Working rules
