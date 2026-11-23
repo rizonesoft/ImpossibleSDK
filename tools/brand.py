@@ -3,11 +3,11 @@
 
 brand/icon/ holds the sources: icon.svg for 48 pixels and up, and a drawing of
 its own for 16, 20, 24 and 32. This writes the PNGs and icon.ico, the wordmarks,
-the README banners, the social preview and the badge. The banners show the tiers
-of abi/tiers.json, so run it again when a tier is added or renamed.
+the README banners, the social preview and the badge, and the picture of our buttons
+beside real WinUI's. The window in the banners is a preview of Impossible UI.
 
 Needs rsvg-convert, ImageMagick and a Chromium (CHROME, or Playwright's). The
-interface and code fonts are read from the checkout's resources/fonts, the
+interface and code fonts and the wallpaper are read from the checkout's resources, the
 wordmark's font (Plus Jakarta Sans, OFL) from Google Fonts while rendering.
 """
 import argparse
@@ -23,12 +23,6 @@ BRAND = ROOT / "brand"
 SMALL = (16, 20, 24, 32)
 LARGE = (48, 64, 128, 256)
 TAG = "One small C kit for Windows programs that Impossible&nbsp;OS will run&nbsp;too."
-RAMP = ("#8DF0FB", "#5CE6F7", "#35C1F3", "#35A6F2", "#2185E6", "#1558D6")
-
-
-def tiers():
-    return [[t["tier"], t["name"]] for t in json.loads((ROOT / "abi/tiers.json").read_text(encoding="utf-8"))["tiers"]]
-
 
 def icon(size):
     text = (BRAND / "icon" / (f"icon-{size}.svg" if size in SMALL else "icon.svg")).read_text(encoding="utf-8")
@@ -36,51 +30,66 @@ def icon(size):
     return text.replace(f'width="{box}" height="{box}"', f'width="{size}" height="{size}" style="display:block"', 1)
 
 
-def page(fonts, body, light, width=None, height=None):
+def page(resources, body, light, width=None, height=None):
+    fonts = resources / "fonts"
     size = f"width:{width}px;height:{height}px;overflow:hidden" if width else "display:inline-flex;align-items:center;gap:26px;padding:20px 26px;background:transparent"
-    ground = "" if not width else ("background:radial-gradient(90% 130% at 85% 10%,#dcebff,transparent 60%),radial-gradient(70% 110% at 100% 100%,#d5f5fb,transparent 60%),#F3F3F3" if light
-                                   else "background:radial-gradient(90% 130% at 85% 10%,#17366f,transparent 60%),radial-gradient(70% 110% at 100% 100%,#0c4a63,transparent 60%),#0d1526")
-    return f"""<!doctype html><meta charset="utf-8"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;800&display=swap" rel="stylesheet"><style>
+    veil = "rgba(243,246,252,.9),rgba(243,246,252,.35) 60%,rgba(243,246,252,.25)" if light else "rgba(4,10,30,.82),rgba(4,10,30,.4) 60%,rgba(4,10,30,.3)"
+    ground = f"background:linear-gradient(90deg,{veil}),url({resources.as_uri()}/backgrounds/silk-{'light' if light else 'dark'}.jpg) 100% 45%/cover" if width else ""
+    return f"""<!doctype html><meta charset="utf-8"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet"><style>
 @font-face{{font-family:Selawik;src:url({fonts.as_uri()}/selawk.ttf)}}@font-face{{font-family:Selawik;font-weight:600;src:url({fonts.as_uri()}/selawksb.ttf)}}
 @font-face{{font-family:Cascadia;src:url({fonts.as_uri()}/CascadiaCode-Regular.ttf)}}
-*{{box-sizing:border-box}}body{{margin:0;position:relative;font-family:Selawik;{size};{ground}}}</style><body>{body}"""
+*{{box-sizing:border-box}}body{{margin:0;position:relative;font-family:Selawik;{size};{ground}}}i{{display:block}}</style><body>{body}"""
 
 
 def word(size, light):
-    ink = "#1B1B1B" if light else "#F5F8FF"
-    top, middle, low = ("#0E8FC6", "#1B6FE0", "#1450C8") if light else ("#5CE6F7", "#35A6F2", "#2F78EA")
-    cut = f"linear-gradient({top} 0 37%,transparent 37% 39.5%,{middle} 39.5% 57%,transparent 57% 59.5%,{low} 59.5%)"
-    return (f"<div style=\"font-family:'Plus Jakarta Sans';line-height:1;white-space:nowrap\"><div style='font-weight:600;font-size:{size * .36:.0f}px;margin-left:.12em;color:{ink}'>Impossible</div>"
-            f"<div style='font-weight:800;font-size:{size * 1.32:.0f}px;letter-spacing:-.02em;line-height:1.02;background:{cut};-webkit-background-clip:text;color:transparent'>SDK</div></div>")
+    """The name, with SDK on an accent button of the theme."""
+    ink, fill, text = ("#1B1B1B", "linear-gradient(#0067C0,#005FB8)", "#FFFFFF") if light else ("#F5F8FF", "linear-gradient(#66D0FF,#60CDFF)", "#000000")
+    return (f"<div style=\"font-family:'Plus Jakarta Sans';display:flex;align-items:center;gap:{size * .24:.0f}px;font-weight:700;font-size:{size:.0f}px;line-height:1;letter-spacing:-.012em;color:{ink};white-space:nowrap\">Impossible"
+            f"<span style='font-size:{size * .72:.0f}px;font-weight:800;letter-spacing:.01em;background:{fill};color:{text};padding:{size * .15:.0f}px {size * .27:.0f}px;border-radius:{size * .13:.0f}px;"
+            f"box-shadow:inset 0 -2px 0 rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.22)'>SDK</span></div>")
 
 
-def panels(width, height, light):
-    ink, quiet, card, edge = ("#1B1B1B", "#5D5D5D", "rgba(255,255,255,.62)", "rgba(0,0,0,.08)") if light else ("#fff", "#C5C5C5", "rgba(44,44,52,.55)", "rgba(255,255,255,.10)")
-    rows = tiers()[::-1]
-    scale = 6 / max(6, len(rows))
-    tall, gap = height * .118 * scale, height * .022 * scale
-    start, out = (height - len(rows) * tall - (len(rows) - 1) * gap) / 2, ""
-    for i, (number, name) in enumerate(rows):
-        step = i / max(1, len(rows) - 1)
-        wide = width * (.25 + .14 * step)
-        slant = tall * .42
-        out += (f"<div style='position:absolute;left:{width * .955 - wide:.0f}px;top:{start + i * (tall + gap):.0f}px;width:{wide:.0f}px;height:{tall:.0f}px;display:flex;align-items:center;"
-                f"gap:{height * .03:.0f}px;padding-left:{height * .035:.0f}px;color:{ink};font-size:{tall * .4:.0f}px'>"
-                f"<svg style='position:absolute;inset:0;filter:drop-shadow(0 6px 12px rgba(0,10,40,{.1 if light else .3}))' width='{wide:.0f}' height='{tall:.0f}'>"
-                f"<path d='M8.5 .5H{wide - slant - .5:.1f}L{wide - .5:.1f} {slant:.1f}V{tall - 8.5:.1f}q0 8-8 8H8.5q-8 0-8-8V8.5q0-8 8-8z' fill='{card}' stroke='{edge}'/>"
-                f"<path d='M8.5 1H{wide - slant - .5:.1f}' stroke='#fff' stroke-opacity='{.8 if light else .22}'/></svg>"
-                f"<i style='position:relative;width:{tall * .11:.0f}px;height:{tall * .46:.0f}px;border-radius:3px;background:{RAMP[round(step * 5)]}'></i>"
-                f"<span style='position:relative;color:{quiet};font-family:Cascadia;font-size:{tall * .34:.0f}px'>{number}</span><b style='position:relative;font-weight:600'>{name}</b></div>")
-    return out
+def window(width, height, light):
+    """A preview of Impossible UI beside the code that draws its button."""
+    z = min(height / 360, 1.12)
+    ink, quiet, back, edge, control = ("#1B1B1B", "#5D5D5D", "rgba(243,243,243,.94)", "rgba(0,0,0,.09)", "#FFFFFF") if light else ("#FFFFFF", "#C5C5C5", "rgba(32,32,36,.93)", "rgba(255,255,255,.11)", "rgba(255,255,255,.07)")
+    accent, on, kind, name, note = ("#005FB8", "#FFFFFF", "#0F62B5", "#8A3FA0", "#5D5D5D") if light else ("#60CDFF", "#000000", "#7CC7FF", "#D7A6FF", "#9A9A9A")
+    row, code = ("rgba(0,0,0,.05)", "rgba(255,255,255,.55)") if light else ("rgba(255,255,255,.07)", "rgba(0,0,0,.28)")
+
+    def px(value):
+        return f"{value * z:.1f}px"
+
+    glyph = "".join(f"<svg width='{px(10)}' height='{px(10)}' viewBox='0 0 10 10'>{shape}</svg>" for shape in (
+        "<path d='M0 5h10' stroke='currentColor'/>", "<rect x='.5' y='.5' width='9' height='9' rx='1.4' fill='none' stroke='currentColor'/>", "<path d='M0 0l10 10M10 0L0 10' stroke='currentColor'/>"))
+    title = icon(16).replace('width="16" height="16"', f'width="{16 * z:.1f}" height="{16 * z:.1f}"', 1)
+    return f"""<div style="position:absolute;left:{width - 596 * z:.0f}px;top:{(height - 300 * z) / 2:.0f}px;width:{px(560)};height:{px(300)};border-radius:{px(8)};background:{back};border:1px solid {edge};box-shadow:0 {px(18)} {px(46)} rgba(0,8,36,{.22 if light else .55});color:{ink};font-size:{px(13)};overflow:hidden">
+<div style="height:{px(34)};display:flex;align-items:center;gap:{px(8)};padding-left:{px(12)};font-size:{px(12)}">{title}Impossible UI preview<span style="margin-left:auto;display:flex;gap:{px(26)};padding-right:{px(18)};color:{quiet}">{glyph}</span></div>
+<div style="display:grid;grid-template-columns:1fr 1.12fr;height:{px(266)}"><div style="padding:{px(16)} {px(20)};display:flex;flex-direction:column;gap:{px(15)}">
+<div style="display:flex;gap:{px(8)}"><span style="background:{accent};color:{on};border-radius:{px(4)};padding:{px(7)} {px(16)};box-shadow:inset 0 -1px 0 rgba(0,0,0,.25)">Build</span><span style="background:{control};border:1px solid {edge};border-radius:{px(4)};padding:{px(6)} {px(15)}">Cancel</span></div>
+<div style="display:flex;align-items:center;gap:{px(10)}"><span style="width:{px(40)};height:{px(20)};border-radius:99px;background:{accent};position:relative"><i style="position:absolute;right:{px(4)};top:{px(4)};width:{px(12)};height:{px(12)};border-radius:50%;background:{on}"></i></span>On</div>
+<div style="background:{control};border:1px solid {edge};border-bottom:{px(2)} solid {accent};border-radius:{px(4)};padding:{px(7)} {px(11)}">Impossible</div>
+<div style="display:flex;flex-direction:column;gap:{px(3)}"><div style="background:{row};border-radius:{px(4)};padding:{px(7)} {px(12)};position:relative"><i style="position:absolute;left:0;top:{px(8)};width:{px(3)};height:{px(16)};border-radius:2px;background:{accent}"></i>Button</div><div style="padding:{px(7)} {px(12)}">Toggle switch</div><div style="padding:{px(7)} {px(12)}">Text box</div></div></div>
+<pre style="margin:0;padding:{px(16)} {px(18)};font:{px(11.2)}/1.72 Cascadia;background:{code};border-left:1px solid {edge}"><span style="color:{name}">#include</span> <span style="color:{kind}">"button.h"</span>
+
+im_draw_button(
+    &amp;surface,
+    (<span style="color:{kind}">im_rect</span>){{0, 0, w, h}},
+    <span style="color:{name}">IM_BUTTON_ACCENT</span>,
+    <span style="color:{name}">IM_REST</span>);
+
+<span style="color:{note}">/* one C source:
+   Windows today,
+   Impossible OS next */</span></pre></div></div>"""
 
 
 def banner(width, height, light):
     social = height > 500
-    mark, letters, small = (150, 150, 27) if social else (int(height * .33), height * .235, height * .062)
+    mark, letters, small = (136, 66, 27) if social else (int(height * .24), height * .145, height * .062)
     large = icon(256).replace('width="256" height="256"', f'width="{mark}" height="{mark}"', 1)
-    return panels(width, height, light) + (
+    head = "flex-direction:column;align-items:flex-start;gap:28px" if social else f"align-items:center;gap:{height * .055:.0f}px"
+    return window(width, height, light) + (
         f"<div style='position:absolute;left:{width * .05:.0f}px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center;gap:{height * .052:.0f}px'>"
-        f"<div style='display:flex;align-items:center;gap:{height * .055:.0f}px'>{large}{word(letters, light)}</div>"
+        f"<div style='display:flex;{head}'>{large}{word(letters, light)}</div>"
         f"<div style='font-size:{small:.0f}px;line-height:1.35;color:{'#3f4754' if light else '#C9D6EA'};max-width:{width * .42:.0f}px'>{TAG}</div></div>")
 
 
@@ -123,10 +132,10 @@ def chromium():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--os", type=Path, required=True, help="a checkout of Impossible OS, for its fonts")
-    fonts = (parser.parse_args().os / "resources/fonts").resolve()
-    if not (fonts / "selawk.ttf").is_file():
-        parser.error(f"{fonts} does not have the fonts")
+    parser.add_argument("--os", type=Path, required=True, help="a checkout of Impossible OS, for its fonts and wallpaper")
+    resources = (parser.parse_args().os / "resources").resolve()
+    if not (resources / "fonts/selawk.ttf").is_file():
+        parser.error(f"{resources} does not have the fonts")
     chrome, png = chromium(), BRAND / "png"
     png.mkdir(exist_ok=True)
     for size in SMALL + LARGE:
@@ -142,13 +151,12 @@ def main():
             subprocess.run(["convert", out, *(["-trim", "+repage", "-bordercolor", "none", "-border", "8"] if trim else []), "-strip", out], check=True, timeout=60)
         for light in (False, True):
             on = "light" if light else "dark"
-            shot(f"banner-{on}", page(fonts, banner(1280, 360, light), light, 1280, 360), 1280, 360, 2, False)
-            shot(f"wordmark-{on}", page(fonts, icon(128) + word(92, light), light), 1000, 240, 2, True)
-            shot(f"badge-{on}", page(fonts, badge(light), light), 400, 120, 2, True)
-        shot("social-preview", page(fonts, banner(1280, 640, False), False, 1280, 640), 1280, 640, 1, False)
+            shot(f"banner-{on}", page(resources, banner(1280, 360, light), light, 1280, 360), 1280, 360, 2, False)
+            shot(f"wordmark-{on}", page(resources, icon(128) + word(76, light), light), 1000, 240, 2, True)
+            shot(f"badge-{on}", page(resources, badge(light), light), 400, 120, 2, True)
+        shot("social-preview", page(resources, banner(1280, 640, False), False, 1280, 640), 1280, 640, 1, False)
     (ROOT / "docs/images").mkdir(exist_ok=True)
     comparison(ROOT / "docs/images/buttons.png")
-    (BRAND / "rendered.json").write_text(json.dumps({"tiers": tiers()}, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

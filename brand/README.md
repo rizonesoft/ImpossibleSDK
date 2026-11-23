@@ -1,6 +1,6 @@
 # The Impossible SDK identity
 
-Three sheets stacked front to back, each with the slanted corner of the Impossible OS logo's ribbons: programs climb tiers, from a console to the whole desktop. Chosen by the owner on 2026-11-23.
+A kit: a case with a window of controls rising out of it. The window has the slanted corner of the Impossible OS logo's ribbons, and the case carries code brackets round the logo's square. In the wordmark, SDK stands on an accent button of Windows 11's look. Chosen by the owner on 2026-11-23.
 
 | File | Use |
 | --- | --- |
@@ -13,4 +13,4 @@ Three sheets stacked front to back, each with the slanted corner of the Impossib
 | `social-preview.png` | GitHub, Settings, Social preview |
 | `badge-dark.png`, `badge-light.png` | Programs built with the SDK |
 
-The rules are those of Impossible OS: a 48 grid, seen from the front, lit from above, no outlines, the logo's blues. The wordmark is set in Plus Jakarta Sans, the banner in Selawik and Cascadia Code (all OFL). `tools/brand.py` renders everything but the sources; the banners follow `abi/tiers.json`.
+The rules are those of Impossible OS: a 48 grid, seen from the front, lit from above, no outlines, the logo's blues. The wordmark is set in Plus Jakarta Sans, the banner in Selawik and Cascadia Code (all OFL). `tools/brand.py` renders everything but the sources. The window in the banners is a preview of Impossible UI: today its button is built.

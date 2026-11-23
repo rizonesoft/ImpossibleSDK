@@ -1,5 +1,4 @@
-"""The images are drawn from their sources and show the tiers there are."""
-import json
+"""The icons are what Windows and Impossible OS can use."""
 import re
 import struct
 import sys
@@ -13,14 +12,12 @@ import brand
 
 
 class Brand(unittest.TestCase):
-    def test_the_banners_show_the_tiers_there_are(self):
-        shown = json.loads((brand.BRAND / "rendered.json").read_text(encoding="utf-8"))["tiers"]
-        self.assertEqual(shown, brand.tiers(), "run: python3 tools/brand.py --os <Impossible OS checkout>")
-
     def test_the_icons_use_only_what_the_os_renders(self):
         """The system SVG profile of Impossible OS: no mask, filter, text or CSS, and every gradient is there."""
-        allowed = {"svg", "defs", "linearGradient", "stop", "path", "rect"}
-        for path in sorted((brand.BRAND / "icon").glob("*.svg")):
+        allowed = {"svg", "defs", "linearGradient", "stop", "path", "rect", "circle"}
+        icons = sorted((brand.BRAND / "icon").glob("*.svg"))
+        self.assertEqual(len(icons), 2 + len(brand.SMALL))
+        for path in icons:
             text = path.read_text(encoding="utf-8")
             self.assertEqual({e.tag.split("}")[1] for e in ET.fromstring(text).iter()} - allowed, set(), path.name)
             self.assertEqual(set(re.findall(r"url\(#([^)]+)\)", text)) - set(re.findall(r'id="([^"]+)"', text)), set(), path.name)

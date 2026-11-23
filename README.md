@@ -3,7 +3,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="brand/banner-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="brand/banner-light.png">
-  <img alt="Impossible SDK: one small C kit for Windows programs that Impossible OS will run too. Its tiers are Console, Window, Documents, Media, Network and Desktop." src="brand/banner-light.png" width="100%">
+  <img alt="Impossible SDK: one small C kit for Windows programs that Impossible OS will run too. Beside the name, a preview of Impossible UI and the code that draws its button." src="brand/banner-light.png" width="100%">
 </picture>
 
 <br>
