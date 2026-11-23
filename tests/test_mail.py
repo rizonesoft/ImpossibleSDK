@@ -63,6 +63,24 @@ class Mail(unittest.TestCase):
         self.assertEqual(len(result.stdout.splitlines()), 1)
         self.assertIn("damaged", result.stderr)
 
+    def test_a_worktree_uses_the_main_checkouts_mail_folder(self):
+        def git(*arguments):
+            subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.invalid", "-c", "core.hooksPath=", *arguments],
+                           check=True, capture_output=True, timeout=60)
+        base = Path(self.temp.name).resolve()
+        main, tree = base / "home/sdk", base / "elsewhere/tree"
+        (main / "tools").mkdir(parents=True)
+        (main / "tools/mail.py").write_bytes(MAIL.read_bytes())
+        git("init", "-q", str(main))
+        git("-C", str(main), "add", "-A")
+        git("-C", str(main), "commit", "-qm", "x")
+        git("-C", str(main), "worktree", "add", "-q", "--detach", str(tree))
+        env = {k: v for k, v in os.environ.items() if k != "IMPOSSIBLE_MAIL"}
+        for where in (main, tree):
+            subprocess.run([sys.executable, str(where / "tools/mail.py"), "send", "main", "--from", "apps", "--subject", "s"],
+                           input="b", text=True, check=True, capture_output=True, timeout=60, env=env)
+        self.assertEqual(len(list((base / "home/mail/messages").glob("*.json"))), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
