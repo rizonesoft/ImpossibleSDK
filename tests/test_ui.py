@@ -19,6 +19,7 @@ EXE = ".exe" if os.name == "nt" else ""
 WINUI = Path(os.environ.get("IMPOSSIBLE_WINUI", Path.home() / ".cache/impossible-sdk/winui"))
 
 
+@unittest.skipUnless((LLVM / f"clang{EXE}").is_file(), "the pinned compiler is not installed here: the build in WSL runs this")
 class Portable(unittest.TestCase):
     def test_it_builds_as_the_os_builds_and_calls_nothing(self):
         allowed = {"memcpy", "memmove", "memset", "memcmp"}
@@ -35,7 +36,7 @@ class Portable(unittest.TestCase):
                 words = line.split()
                 if len(words) == 2 and words[0] == "U":
                     wanted.add(words[1])
-                elif len(words) == 3:
+                elif len(words) == 3 and words[1].isupper():  # a small letter is local to its own object
                     defined.add(words[2])
             self.assertEqual(wanted - defined - allowed, set())
 

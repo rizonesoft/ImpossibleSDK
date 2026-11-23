@@ -1,4 +1,5 @@
 """The samples run on Windows, and the import check refuses what it must."""
+import hashlib
 import os
 import platform
 import struct
@@ -7,10 +8,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = Path(os.environ.get("IMPOSSIBLE_BUILD", ROOT / "build" / ("windows" if os.name == "nt" else "linux")))
 sys.path.insert(0, str(ROOT / "tools"))
+import bootstrap
 import check_imports
 
 ON_WINDOWS = os.name == "nt" or "microsoft" in platform.release().lower()
@@ -38,6 +41,15 @@ class ImportCheck(unittest.TestCase):
         lookup = struct.unpack_from("<I", image.memory, table)[0]
         struct.pack_into("<Q", data, self.in_file(data, lookup), 1 << 63 | 7)
         self.assertIn("kernel32.dll: imported by ordinal", check_imports.problems(bytes(data), 0))
+
+    def test_a_dll_that_is_loaded_for_nothing_is_refused(self):
+        data = bytearray(program("hello-console"))
+        image = check_imports.Image(data)
+        table = image.rva(check_imports.IMPORT)
+        for field in (0, 4):  # the lookup table and the address table
+            start = struct.unpack_from("<I", image.memory, table + 4 * field)[0]
+            struct.pack_into("<Q", data, self.in_file(data, start), 0)
+        self.assertEqual(check_imports.problems(bytes(data), 0), ["kernel32.dll: is loaded for nothing"])
 
     def test_bound_imports_are_refused(self):
         data = bytearray(program("hello-console"))
@@ -92,6 +104,19 @@ class Samples(unittest.TestCase):
 
     def test_window_draws_a_frame(self):
         self.assertEqual(self.run_sample("hello-window", "--one-frame").returncode, 0)
+
+
+class Tools(unittest.TestCase):
+    def test_another_program_in_a_tools_place_is_refused(self):
+        part = {"name": "demo", "version": "1", "sha256": "0" * 64, "probe": "demo", "probe_sha256": hashlib.sha256(b"pinned").hexdigest()}
+        with tempfile.TemporaryDirectory() as folder, mock.patch.dict(os.environ, {"IMPOSSIBLE_TOOLS": folder}):
+            self.assertFalse(bootstrap.installed(part))
+            home = bootstrap.home(part)
+            home.mkdir()
+            (home / "demo").write_bytes(b"pinned")
+            self.assertTrue(bootstrap.installed(part))
+            (home / "demo").write_bytes(b"other")
+            self.assertRaisesRegex(ValueError, "is not the pinned demo", bootstrap.installed, part)
 
 
 if __name__ == "__main__":

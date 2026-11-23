@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 
 SDK = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SDK / "tools"))
+import app_build
 
 
 def git(folder, *arguments):
@@ -40,7 +42,8 @@ def main():
     commit = committed(folder)
     builder = [str(SDK / "tools/build.py")] if folder == SDK else [str(SDK / "tools/app_build.py"), str(folder)]
     subprocess.run([sys.executable, *builder, "--no-test"], check=True, timeout=1800)
-    env = {**os.environ, "IMPOSSIBLE_BUILD": there(folder / "build/linux"), "IMPOSSIBLE_SDK_DIR": there(SDK),
+    sdk = SDK if folder == SDK else app_build.sdk_at(app_build.pinned(folder))  # what the program was built with
+    env = {**os.environ, "IMPOSSIBLE_BUILD": there(folder / "build/linux"), "IMPOSSIBLE_SDK_DIR": there(sdk),
            "PYTHONDONTWRITEBYTECODE": "1", "WSLENV": "IMPOSSIBLE_BUILD:IMPOSSIBLE_SDK_DIR:PYTHONDONTWRITEBYTECODE"}
     done = subprocess.run(["python.exe", "-B", "-m", "unittest", "discover", "-s", there(folder / "tests"), "-v"],
                           cwd="/mnt/c/Windows/Temp", env=env, timeout=3600, stdin=subprocess.DEVNULL)

@@ -37,13 +37,11 @@ def pinned(program):
 
 
 def sdk_at(commit, sdk=SDK, cache=None):
-    """A folder that holds the SDK at that commit: this checkout, or a copy from its history."""
+    """A folder that holds the SDK at that commit: a copy from its history, compared file by file."""
     def git(*arguments, **more):
         return subprocess.run(["git", "-C", str(sdk), *arguments], capture_output=True, check=True, **more).stdout
 
     try:
-        if git("rev-parse", "HEAD").decode().strip() == commit and not git("status", "--porcelain").strip():
-            return sdk
         archive = git("archive", "--format=tar", commit)
     except (OSError, subprocess.CalledProcessError):
         raise SystemExit(f"error: {sdk} does not have the pinned commit {commit}: fetch it first") from None

@@ -15,15 +15,15 @@ static uint32_t mix(uint32_t a, uint32_t b, im_fixed part) {
     return out;
 }
 
-uint32_t im_brush_at(const im_palette *palette, enum im_brush_id id, im_fixed y, int height, im_fixed scale) {
+uint32_t im_brush_at(const im_palette *palette, enum im_brush_id id, int64_t y, int64_t height, im_fixed scale) {
     const im_brush *brush = &im_theme_brushes[palette->theme][id];
     const im_stop *stop = &im_theme_stops[brush->first];
     if (brush->kind == IM_SOLID || brush->count == 1) return stop_color(palette, stop);
     bool relative = brush->kind == IM_GRADIENT_RELATIVE || brush->kind == IM_GRADIENT_RELATIVE_FLIPPED;
-    if (brush->kind == IM_GRADIENT_FLIPPED || brush->kind == IM_GRADIENT_RELATIVE_FLIPPED) y = height * IM_ONE - y;
-    int64_t length = relative ? (int64_t)brush->end * height : (int64_t)brush->end * scale >> 16;
+    if (brush->kind == IM_GRADIENT_FLIPPED || brush->kind == IM_GRADIENT_RELATIVE_FLIPPED) y = height - y;
+    int64_t length = relative ? ((int64_t)brush->end * height) >> 16 : ((int64_t)brush->end * scale) >> 16;
     if (length <= 0) return stop_color(palette, stop + brush->count - 1);
-    int64_t place = (int64_t)y * IM_ONE / length;
+    int64_t place = y * IM_ONE / length;
     if (place <= stop[0].offset) return stop_color(palette, stop);
     for (int i = 1; i < brush->count; i++) {
         if (place > stop[i].offset) continue;

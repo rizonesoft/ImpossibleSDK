@@ -8,7 +8,7 @@ static const struct {
 } styles[] = {
     [IM_BUTTON] = {STATES(ButtonBackground), STATES(ButtonBorderBrush), false},
     [IM_BUTTON_ACCENT] = {STATES(AccentButtonBackground), STATES(AccentButtonBorderBrush), true},
-    [IM_BUTTON_SUBTLE] = {STATES(SubtleButtonBackground), STATES(SubtleButtonBorderBrush), true},
+    [IM_BUTTON_SUBTLE] = {STATES(SubtleButtonBackground), STATES(SubtleButtonBorderBrush), false},
 };
 
 static im_fixed scaled(im_fixed value, im_fixed scale) {
@@ -26,7 +26,6 @@ void im_draw_button(im_surface *surface, im_rect bounds, im_button_style style, 
     im_radii corners = {scaled(corner[0], surface->scale), scaled(corner[1], surface->scale), scaled(corner[2], surface->scale), scaled(corner[3], surface->scale)};
     bool under = styles[style].under_border;
     im_fixed in = under ? 0 : thickness;
-    im_rect fill = {bounds.left + in, bounds.top + in, bounds.right - in, bounds.bottom - in};
-    im_fill(surface, fill, im_grow(corners, under ? thickness / 2 : -thickness / 2), styles[style].background[state]);
+    im_fill(surface, im_inset(bounds, in), im_grow(corners, under ? thickness / 2 : -thickness / 2), styles[style].background[state]);
     im_stroke(surface, bounds, corners, thickness, styles[style].border[state]);
 }

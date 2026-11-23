@@ -1,13 +1,13 @@
 {
   "about": "The pinned toolchain, the only place a version, URL or hash is written. tools/bootstrap.py installs it once per machine. Pins and hashes match RasterFold's of 2026-09-29.",
   "windows": [
-    {"name": "llvm-mingw", "version": "20260922", "probe": "bin/clang.exe", "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20260922/llvm-mingw-20260922-ucrt-x86_64.zip", "sha256": "e3ad77d117a4bea19a7a3b333341824d79a5a371004a10e25b8504e7b3047666"},
-    {"name": "cmake", "version": "4.5.0", "probe": "bin/cmake.exe", "url": "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-windows-x86_64.zip", "sha256": "301b1728317ccd84e984b02e366a8293735bc5ac618757d3d8f58b578f062411"},
-    {"name": "ninja", "version": "1.13.2", "probe": "ninja.exe", "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip", "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65"}
+    {"name": "llvm-mingw", "version": "20260922", "probe": "bin/clang.exe", "probe_sha256": "20ba1856942744291a6aaaf9f2c94f6d0cd7cac5aa9557fce96471dc7ef25d6f", "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20260922/llvm-mingw-20260922-ucrt-x86_64.zip", "sha256": "e3ad77d117a4bea19a7a3b333341824d79a5a371004a10e25b8504e7b3047666"},
+    {"name": "cmake", "version": "4.5.0", "probe": "bin/cmake.exe", "probe_sha256": "c89a6846728928b703cf93db6028965087b1671e308ebaf3bc267cb6da7ef9f7", "url": "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-windows-x86_64.zip", "sha256": "301b1728317ccd84e984b02e366a8293735bc5ac618757d3d8f58b578f062411"},
+    {"name": "ninja", "version": "1.13.2", "probe": "ninja.exe", "probe_sha256": "e52a7ad9538d9618c67a0bd777964e2eec8a30f68b810a2f6adce1f2daf847b8", "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip", "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65"}
   ],
   "linux": [
-    {"name": "llvm-mingw", "version": "20260922", "probe": "bin/clang", "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20260922/llvm-mingw-20260922-ucrt-ubuntu-22.04-x86_64.tar.xz", "sha256": "bb7bb7654b33d5aa8712acb837c963b2e0c56352560c76105270a3268c665c21"},
-    {"name": "cmake", "version": "4.5.0", "probe": "bin/cmake", "url": "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-linux-x86_64.tar.gz", "sha256": "81f0d5b0960fb6adc8197030ffc827fba937640d51e73e39e0e9e40d88c66f6f"},
-    {"name": "ninja", "version": "1.13.2", "probe": "ninja", "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip", "sha256": "5749cbc4e668273514150a80e387a957f933c6ed3f5f11e03fb30955e2bbead6"}
+    {"name": "llvm-mingw", "version": "20260922", "probe": "bin/clang", "probe_sha256": "bab7f174d7e136ae093ad232d5a894ee00f0a8f9051bcff4eb6a70c132898248", "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20260922/llvm-mingw-20260922-ucrt-ubuntu-22.04-x86_64.tar.xz", "sha256": "bb7bb7654b33d5aa8712acb837c963b2e0c56352560c76105270a3268c665c21"},
+    {"name": "cmake", "version": "4.5.0", "probe": "bin/cmake", "probe_sha256": "04a55a063e59825a56a96ce0ffc74b41b5e6b0f086676b398ddfd947791371de", "url": "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-linux-x86_64.tar.gz", "sha256": "81f0d5b0960fb6adc8197030ffc827fba937640d51e73e39e0e9e40d88c66f6f"},
+    {"name": "ninja", "version": "1.13.2", "probe": "ninja", "probe_sha256": "607e668f90dd6cd82e1a42ae572647ad1b1fd43063964295b9547836d8c15d99", "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip", "sha256": "5749cbc4e668273514150a80e387a957f933c6ed3f5f11e03fb30955e2bbead6"}
   ]
 }

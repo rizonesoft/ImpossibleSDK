@@ -36,8 +36,10 @@ class Pin(unittest.TestCase):
     def sdk_used(self):
         return app_build.sdk_at(app_build.pinned(self.program), self.sdk, Path(self.temp.name, "cache"))
 
-    def test_the_checkout_itself_is_used_at_the_pinned_commit(self):
-        self.assertEqual(self.sdk_used(), self.sdk)
+    def test_an_edit_git_was_told_not_to_see_is_not_used(self):
+        git(self.sdk, "update-index", "--assume-unchanged", "file")
+        (self.sdk / "file").write_text("two")
+        self.assertEqual((self.sdk_used() / "file").read_text(), "one")
 
     def test_the_pinned_commit_is_used_after_the_sdk_moves_on_or_is_edited(self):
         (self.sdk / "file").write_text("two")

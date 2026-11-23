@@ -40,13 +40,19 @@ def home(part):
     return tools_root() / f"{part['name']}-{part['version']}-{part['sha256'][:8]}"
 
 
-def installed(part):
-    return (home(part) / part["probe"]).is_file()
-
-
 def sha256(path):
     with open(path, "rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def installed(part):
+    """Whether the pinned program is there: another one in its place is an error, never used."""
+    probe = home(part) / part["probe"]
+    if not probe.is_file():
+        return False
+    if sha256(probe) != part["probe_sha256"]:
+        raise ValueError(f"{probe} is not the pinned {part['name']} {part['version']}: delete {home(part)} and run this again")
+    return True
 
 
 def fetch(part, work, archives):

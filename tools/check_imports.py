@@ -8,7 +8,7 @@ from pathlib import Path
 
 TIERS = Path(__file__).resolve().parents[1] / "abi" / "tiers.json"
 IMPORT, TLS, BOUND_IMPORT, DELAY_IMPORT = 1, 9, 11, 13
-ORDINAL, BOUND = "imported by ordinal", "has bound imports"
+ORDINAL, BOUND, NOTHING = "imported by ordinal", "has bound imports", "is loaded for nothing"
 
 
 def allowed(tier):
@@ -61,7 +61,7 @@ class Image:
         return self.directory[index][0] if index < len(self.directory) else 0
 
     def imports(self):
-        """Yield (dll, name) pairs; the name is ORDINAL or BOUND when it is not a plain import by name."""
+        """Yield (dll, name) pairs; the name is ORDINAL, BOUND or NOTHING when it is not a plain import by name."""
         table = self.rva(IMPORT)
         while table:
             lookup, bound, _, name, address = struct.unpack_from("<IIIII", self.memory, table)
@@ -71,6 +71,8 @@ class Image:
             if bound:
                 yield dll, BOUND
             entry = lookup or address
+            if not struct.unpack_from("<Q", self.memory, entry)[0]:
+                yield dll, NOTHING  # Windows loads it all the same
             while True:
                 value = struct.unpack_from("<Q", self.memory, entry)[0]
                 if not value:
@@ -83,7 +85,7 @@ class Image:
 def problems(data, tier):
     image, table, found = Image(data), allowed(tier), []
     for dll, name in image.imports():
-        if name in (ORDINAL, BOUND):
+        if name in (ORDINAL, BOUND, NOTHING):
             found.append(f"{dll}: {name}")
         elif name not in table.get(dll, ()):
             found.append(f"{dll}: {name} is not in tier {tier}")

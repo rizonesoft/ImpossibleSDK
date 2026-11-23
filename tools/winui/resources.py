@@ -10,10 +10,13 @@ contrast colours are chosen by the user, so they stay references ("slots").
 """
 import argparse
 import fnmatch
+import io
 import json
 import re
 import subprocess
 import sys
+import tarfile
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -242,7 +245,12 @@ def main():
     head = subprocess.run(["git", "-C", str(args.checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     if head != PIN["commit"]:
         raise SystemExit(f"error: the checkout is at {head}, the pin is {PIN['commit']}")
-    brushes, values, left = collect(load(args.checkout))
+    with tempfile.TemporaryDirectory() as folder:  # the commit's own files, whatever lies in the checkout
+        archive = subprocess.run(["git", "-C", str(args.checkout), "archive", "--format=tar", PIN["commit"], "--", PIN["base"], PIN["controls"].split("*")[0].rstrip("/")],
+                                 capture_output=True, check=True).stdout
+        with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
+            bundle.extractall(folder, filter="data")
+        brushes, values, left = collect(load(Path(folder)))
     print(f"{len(brushes)} brushes, {len(values)} numbers, {len(left)} other resources")
     if args.left:
         for key, why in left.items():

@@ -127,6 +127,9 @@ def main():
         parser.error(f"{args.kits} is not a Conclave-SDK checkout")
     if not args.license.is_file():
         parser.error(f"{args.license} is not a file")
+    tiers = [t["tier"] for t in json.loads((SDK / "abi/tiers.json").read_text(encoding="utf-8"))["tiers"]]
+    if args.tier not in tiers:
+        parser.error(f"the tier is one of {', '.join(map(str, tiers))}")
     root = args.folder.resolve()
     name = root.name
     if not re.fullmatch(r"[A-Z][A-Za-z0-9]{1,39}", name):
