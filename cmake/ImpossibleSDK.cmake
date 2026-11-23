@@ -22,7 +22,7 @@ endfunction()
 if(NOT TARGET ImpossibleSDK)
     add_library(ImpossibleSDK STATIC
         "${IMPOSSIBLE_SDK_DIR}/src/start.c" "${IMPOSSIBLE_SDK_DIR}/src/mem.c" "${IMPOSSIBLE_SDK_DIR}/src/chkstk.S"
-        "${IMPOSSIBLE_SDK_DIR}/src/console.c" "${IMPOSSIBLE_SDK_DIR}/src/window.c")
+        "${IMPOSSIBLE_SDK_DIR}/src/console.c" "${IMPOSSIBLE_SDK_DIR}/src/text.c" "${IMPOSSIBLE_SDK_DIR}/src/file.c" "${IMPOSSIBLE_SDK_DIR}/src/window.c")
     target_include_directories(ImpossibleSDK PUBLIC "${IMPOSSIBLE_SDK_DIR}/include")
     _impossible_compile(ImpossibleSDK)
     # These functions are the library routines the compiler would otherwise call.

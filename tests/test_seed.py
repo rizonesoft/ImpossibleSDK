@@ -4,6 +4,7 @@ import platform
 import struct
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -76,7 +77,8 @@ class ImportCheck(unittest.TestCase):
 @unittest.skipUnless(ON_WINDOWS, "needs Windows, directly or through WSL")
 class Samples(unittest.TestCase):
     def run_sample(self, name, *arguments):
-        return subprocess.run([str(BUILD / f"{name}.exe"), *arguments], capture_output=True, timeout=60)
+        with tempfile.TemporaryDirectory(dir=BUILD) as folder:
+            return subprocess.run([str(BUILD / f"{name}.exe"), *arguments], capture_output=True, timeout=60, cwd=folder)
 
     def test_console(self):
         result = self.run_sample("hello-console")
