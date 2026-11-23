@@ -1,6 +1,6 @@
 # The interface and the apps outside the OS repository
 
-Status: waiting for approval. Facts about Impossible OS were measured at `d4a124206`, facts about WinUI in `microsoft/microsoft-ui-xaml` on 2026-11-23.
+Status: approved 2026-11-23. Facts about Impossible OS were measured at `d4a124206`, facts about WinUI in `microsoft/microsoft-ui-xaml` on 2026-11-23.
 
 ## Why are we doing this?
 
@@ -31,7 +31,7 @@ The interface is Phase 8 of the OS plan and the plan's next open rows are in Pha
 - First a thin slice (button, text box, toggle, list view), **and the apps start at the same time**.
 - The planned apps move to `D:\ImpossibleOS`; their roadmap files keep the import.
 - A repository leaves `repos.md` when it is created or moved.
-- Nothing goes to GitHub until the owner asks.
+- Publish from the start: Impossible SDK and the four first apps get public GitHub repositories when each has a first working version.
 
 ## What is the shape?
 
@@ -118,7 +118,7 @@ Each repository builds, tests and releases alone. Three files connect them.
 5. **Newest is not automatic.** `imports.py --outdated` lists what is behind. Updating is ordinary work.
 6. **The OS cannot drop an import silently:** removing a row needs a reason in `todo/answers.md`.
 
-Public and private: the OS repository is public. It names an external repository only by name and commit until that repository is public too. An import into the public OS repository publishes that source, so the owner is asked before the first one.
+Public and private: the OS repository is public. It names an external repository only by name and commit until that repository is public too. An import into the public OS repository publishes that source, so an import comes only from a repository that is already public.
 
 ## In what order?
 
