@@ -22,7 +22,7 @@ python3 scripts/unattended-run.py start --ships 3
 
 `--agent` starts the run on one of the profile's runners, with that runner's model and effort; the preflight then checks that agent's own CLI, version and Stop hook. `--ships N` ends the run once it has shipped N sections; the heartbeat enforces it, so a bounded run needs its heartbeat, and a resume keeps the run's own bound.
 
-`start` runs the preflight first (one PASS or FAIL line per precondition) and starts nothing on a FAIL. When the run's tmux session is gone but its marker is still there (a crash), `start` resumes that agent session; after a `stop` it starts a fresh one.
+`start` runs the preflight first (one PASS or FAIL line per precondition, shown as it comes) and starts nothing on a FAIL. A `RUN` line says a profile check, such as a build, has started and how long it may take: wait for its PASS or FAIL, and the agent's screen follows about ten seconds after the last one. When the run's tmux session is gone but its marker is still there (a crash), `start` resumes that agent session; after a `stop` it starts a fresh one.
 
 ### Shortcuts
 

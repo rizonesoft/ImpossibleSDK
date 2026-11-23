@@ -509,7 +509,7 @@ class ProfileCommandsTest(Fixture):
     def check(self, *checks):
         report = self.report()
         pre.check_profile_commands(self.root, {**PROFILE, "preflight": list(checks)}, report)
-        return self.lines(report)
+        return [line for line in self.lines(report) if not line.startswith("RUN ")]
 
     def test_each_outcome_is_one_line(self):
         lines = self.check(
@@ -520,6 +520,17 @@ class ProfileCommandsTest(Fixture):
         self.assertEqual(lines[:3], ["PASS check ok: exit 0: all good", "FAIL check bad: exit 3: broken",
                                      "PASS check quiet: exit 0: no output"])
         self.assertTrue(lines[3].startswith("FAIL check absent: exit 127: could not start /no/such/program"), lines)
+
+    def test_a_check_is_announced_before_it_runs(self):
+        # 2026-11-24: a build check runs for a minute with nothing to say; its start is said, with its limit.
+        report = self.report()
+        seen = []
+        with unittest.mock.patch.object(pre, "run_check", lambda *a: seen.extend(self.lines(report)) or (0, "done")):
+            pre.check_profile_commands(self.root, {**PROFILE, "preflight": [
+                {"name": "build", "command": ["true"], "timeout_seconds": 900}]}, report)
+        self.assertEqual(seen, ["RUN check build: up to 900s"])
+        self.assertEqual(self.lines(report), ["RUN check build: up to 900s", "PASS check build: exit 0: done"])
+        self.assertFalse(report.failed)
 
     def test_a_check_runs_from_the_root_with_its_arguments_as_listed(self):
         lines = self.check({"name": "where", "command": self.command(
@@ -592,7 +603,7 @@ class ProfileCommandsTest(Fixture):
                 pre.run_check({"name": "slow", "command": self.command(script), "timeout_seconds": 60}, self.root)
         self.assertTrue(wait_gone(int(pid_file.read_text())), "an interrupted check's child outlived it")
 
-    def test_a_ready_fixture_prints_only_pass_lines_and_exits_0(self):
+    def test_a_ready_fixture_prints_no_fail_line_and_exits_0(self):
         self.seed(".claude/settings.json")
         self.write_profile(preflight=[{"name": "true", "command": ["true"], "timeout_seconds": 30}])
         git(self.root, "add", "-A")
@@ -604,7 +615,7 @@ class ProfileCommandsTest(Fixture):
                 unittest.mock.patch.object(pre, "disk_free_gb", return_value=500.0):
             code, lines = self.run_preflight()
         self.assertEqual(code, 0, lines)
-        self.assertTrue(lines and all(line.startswith("PASS ") for line in lines), lines)
+        self.assertTrue(lines and all(line.startswith(("PASS ", "RUN ")) for line in lines), lines)
         names = self.names(lines)
         for name in ("PASS profile", "PASS git-clean", "PASS campaign-guard", "PASS tool tmux", "PASS stop-hook",
                      "PASS guard-self-test", "PASS disk", "PASS memory", "PASS check true"):

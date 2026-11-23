@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Refuse an unattended run that cannot work: one PASS or FAIL line per precondition, exit 1 on any FAIL.
+"""Refuse an unattended run that cannot work: one PASS or FAIL line per precondition, exit 1 on any FAIL. A profile
+check, which may take minutes, is announced by a RUN line first, and every line is written as it comes.
 
     python3 scripts/unattended-preflight.py [--root DIR] [--resume-session ID]
 
@@ -63,6 +64,9 @@ class Report:
     def line(self, ok: bool, name: str, detail: str) -> None:
         self.failed |= not ok
         print(f"{'PASS' if ok else 'FAIL'} {name}: {detail}", file=self.out, flush=True)
+
+    def running(self, name: str, detail: str) -> None:
+        print(f"RUN {name}: {detail}", file=self.out, flush=True)
 
 
 def _last_line(text: str) -> str:
@@ -325,6 +329,7 @@ def run_check(check: dict, root: Path) -> tuple[int, str]:
 
 def check_profile_commands(root: Path, profile: dict, report: Report) -> None:
     for check in profile["preflight"]:
+        report.running(f"check {check['name']}", f"up to {check['timeout_seconds']}s")
         code, last = run_check(check, root)
         detail = f"exit {code}" + (f" after {check['timeout_seconds']}s" if code == TIMED_OUT else "")
         report.line(code == 0, f"check {check['name']}", f"{detail}: {last or 'no output'}")
