@@ -46,12 +46,13 @@ def sha256(path):
 
 
 def installed(part):
-    """Whether the pinned program is there: another one in its place is an error, never used."""
-    probe = home(part) / part["probe"]
-    if not probe.is_file():
+    """Whether the pinned programs are there: another one in a place the build runs is an error, never used."""
+    if not (home(part) / part["probe"]).is_file():
         return False
-    if sha256(probe) != part["probe_sha256"]:
-        raise ValueError(f"{probe} is not the pinned {part['name']} {part['version']}: delete {home(part)} and run this again")
+    for name, pinned in part["runs"].items():
+        path = home(part) / name
+        if not path.is_file() or sha256(path) != pinned:
+            raise ValueError(f"{path} is not the pinned {part['name']} {part['version']}: delete {home(part)} and run this again")
     return True
 
 

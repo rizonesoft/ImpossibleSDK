@@ -98,7 +98,7 @@ static void shade(im_surface *surface, im_rect outer, im_radii outer_radii, cons
             if (!extent(outer, &outer_radii, at, &left[row], &right[row])) left[row] = right[row] = 0;
             if (!hole || !extent(*hole, &hole_radii, at, &hole_left[row], &hole_right[row])) hole_left[row] = hole_right[row] = 0;
         }
-        uint32_t color = im_brush_at(&surface->palette, brush, (int64_t)y * IM_ONE + IM_ONE / 2 - outer.top, height, surface->scale);
+        uint32_t color = im_brush_over(&surface->palette, brush, (int64_t)y * IM_ONE + IM_ONE / 2 - outer.top, height, surface->scale);
         if (!(color >> 24)) continue;
         uint32_t *line = surface->pixels + (size_t)y * (size_t)surface->stride;
         for (int x = from; x < to; x++) {

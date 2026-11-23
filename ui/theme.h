@@ -41,7 +41,8 @@ extern const im_stop im_theme_stops[];
 extern const int32_t im_theme_values[3][IM_VALUE_COUNT][4];
 
 /* The colour of a brush at a point: y and height in pixels, scale in 16.16 (1.0 at 96 DPI). */
-uint32_t im_brush_at(const im_palette *palette, enum im_brush_id id, int64_t y, int64_t height, im_fixed scale);
+/* The colour at y pixels below the top of a shape; y and height are 16.16. */
+uint32_t im_brush_over(const im_palette *palette, enum im_brush_id id, int64_t y, int64_t height, im_fixed scale);
 
 /* One number, or the left, top, right, bottom of a thickness or the four corners of a radius. */
 static inline const im_fixed *im_value(const im_palette *palette, enum im_value_id id) {

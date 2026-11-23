@@ -1,7 +1,9 @@
 """The samples run on Windows, and the import check refuses what it must."""
 import hashlib
+import json
 import os
 import platform
+import re
 import struct
 import subprocess
 import sys
@@ -108,15 +110,26 @@ class Samples(unittest.TestCase):
 
 class Tools(unittest.TestCase):
     def test_another_program_in_a_tools_place_is_refused(self):
-        part = {"name": "demo", "version": "1", "sha256": "0" * 64, "probe": "demo", "probe_sha256": hashlib.sha256(b"pinned").hexdigest()}
+        part = {"name": "demo", "version": "1", "sha256": "0" * 64, "probe": "demo", "runs": {n: hashlib.sha256(b"pinned").hexdigest() for n in ("demo", "wrapper")}}
         with tempfile.TemporaryDirectory() as folder, mock.patch.dict(os.environ, {"IMPOSSIBLE_TOOLS": folder}):
             self.assertFalse(bootstrap.installed(part))
             home = bootstrap.home(part)
             home.mkdir()
-            (home / "demo").write_bytes(b"pinned")
+            for name in part["runs"]:
+                (home / name).write_bytes(b"pinned")
             self.assertTrue(bootstrap.installed(part))
-            (home / "demo").write_bytes(b"other")
-            self.assertRaisesRegex(ValueError, "is not the pinned demo", bootstrap.installed, part)
+            for name in part["runs"]:
+                (home / name).write_bytes(b"other")
+                self.assertRaisesRegex(ValueError, "is not the pinned demo", bootstrap.installed, part)
+                (home / name).write_bytes(b"pinned")
+
+    def test_every_compiler_program_the_build_names_is_pinned(self):
+        text = (ROOT / "cmake/toolchain.cmake").read_text(encoding="utf-8")
+        named = set(re.findall(r"/bin/([a-z0-9_-]+)", text))
+        self.assertGreater(len(named), 3)
+        for part in json.loads((ROOT / "toolchain.json").read_text(encoding="utf-8"))["linux"]:
+            if part["name"] == "llvm-mingw":
+                self.assertEqual(named - {Path(n).name for n in part["runs"]}, set())
 
 
 if __name__ == "__main__":

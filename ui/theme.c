@@ -15,7 +15,7 @@ static uint32_t mix(uint32_t a, uint32_t b, im_fixed part) {
     return out;
 }
 
-uint32_t im_brush_at(const im_palette *palette, enum im_brush_id id, int64_t y, int64_t height, im_fixed scale) {
+uint32_t im_brush_over(const im_palette *palette, enum im_brush_id id, int64_t y, int64_t height, im_fixed scale) {
     const im_brush *brush = &im_theme_brushes[palette->theme][id];
     const im_stop *stop = &im_theme_stops[brush->first];
     if (brush->kind == IM_SOLID || brush->count == 1) return stop_color(palette, stop);
