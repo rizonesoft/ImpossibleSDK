@@ -1,0 +1,22 @@
+name: A Windows function for a tier
+description: A program needs a function that is not in abi/tiers.json
+labels: [enhancement]
+body:
+  - type: input
+    id: function
+    attributes:
+      label: Function and DLL
+      placeholder: waveOutGetPosition, winmm.dll
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What needs it, and why will nothing in the tiers do?
+    validations:
+      required: true
+  - type: textarea
+    id: under
+    attributes:
+      label: What does Impossible OS need underneath?
+      description: A driver, a protocol or an engine, if you know

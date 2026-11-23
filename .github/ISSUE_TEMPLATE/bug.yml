@@ -1,0 +1,24 @@
+name: Bug
+description: Something does not do what it says
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens, and what should happen?
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: How can it be made to happen?
+      description: The smallest program or command that shows it
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Commit and system
+      placeholder: 214902a, Windows 11 26H2 (or WSL, Ubuntu 26.04)
+    validations:
+      required: true

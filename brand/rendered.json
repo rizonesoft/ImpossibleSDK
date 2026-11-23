@@ -1,0 +1,28 @@
+{
+  "tiers": [
+    [
+      0,
+      "Console"
+    ],
+    [
+      1,
+      "Window"
+    ],
+    [
+      2,
+      "Documents"
+    ],
+    [
+      3,
+      "Media"
+    ],
+    [
+      4,
+      "Network"
+    ],
+    [
+      5,
+      "Desktop"
+    ]
+  ]
+}

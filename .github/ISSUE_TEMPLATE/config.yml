@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/rizonesoft/ImpossibleSDK/discussions
+    about: Ask, or talk an idea through, in Discussions
+  - name: The operating system
+    url: https://github.com/rizonesoft/impossible-os/issues
+    about: A problem of Impossible OS itself belongs there
+  - name: Security
+    url: https://github.com/rizonesoft/ImpossibleSDK/security/advisories/new
+    about: Report a security problem privately
