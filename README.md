@@ -2,7 +2,7 @@
 
 The small C kit that Impossible OS side programs are built on. A program is an ordinary 64-bit Windows executable with no C runtime, paints its own pixels, and calls only the Windows functions on one published list. Impossible OS is to implement that list, so that the same program runs on both; today it runs on Windows only.
 
-Status: seed. Start-up, memory, console output, one window, the import check and the build exist. Drawing, text, controls and accessibility are planned in the plan beside the repositories.
+Status: early. Start-up, memory, text, files, console, one window, the import check and the build work. Impossible UI (`ui/`) has WinUI's theme values and a drawing core whose buttons are compared with real WinUI; layout, text, the other controls and accessibility are planned in `todo/`. No release yet.
 
 ## Build
 
@@ -13,7 +13,7 @@ python tools/bootstrap.py    # installs the pinned toolchain once per machine
 python tools/build.py        # builds into build/<host> and runs the tests
 ```
 
-In WSL the command is `python3`. Both hosts produce the same bytes. On plain Linux the programs build but the tests that run them are skipped.
+The repositories are written in WSL; `python3 tools/prove.py <folder>` lets Windows run the tests. In WSL the command is `python3`. Both hosts produce the same bytes. On plain Linux the programs build but the tests that run them are skipped.
 
 ## Which Windows functions may a program call?
 
