@@ -29,6 +29,10 @@ impossible_add_program(MyProgram WINDOW TIER 1 SOURCES src/main.c)
 
 A program defines `im_main()`. Configure it with `sdk/cmake/toolchain.cmake` as the toolchain file and `IMPOSSIBLE_LLVM` set to the llvm-mingw folder, as `tools/build.py` does. See [`samples/`](samples/).
 
+## WSL cannot start a Windows program sometimes?
+
+`UtilAcceptVsock ... accept4 failed` means the Linux kernel found no unbroken 512 KB of memory for the connection (`dmesg` shows `page allocation failure: order:7`). Set `vm.min_free_kbytes = 262144` and `vm.compaction_proactiveness = 60` in `/etc/sysctl.d/`. The tests report it and do not hide it.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
