@@ -15,7 +15,7 @@ The interface is Phase 8 of the OS plan and the plan's next open rows are in Pha
 
 **Not goals:** running WinUI apps (that is an OS compatibility tier), shipping Microsoft code as a framework, moving the shell.
 
-**It has failed if** a feature exists in two repositories, a roadmap item disappears in the move, the OS needs a special case for one app, or a repository cannot be built alone.
+**It has failed if** a feature exists in two repositories, a roadmap item disappears in the move, the OS needs a special case for one app, a repository cannot be built alone, or either side has to wait for the other.
 
 ## Which approaches were considered?
 
@@ -31,6 +31,7 @@ The interface is Phase 8 of the OS plan and the plan's next open rows are in Pha
 - First a thin slice (button, text box, toggle, list view), **and the apps start at the same time**.
 - The planned apps move to `D:\ImpossibleOS`; their roadmap files keep the import.
 - A repository leaves `repos.md` when it is created or moved.
+- Neither side waits for the other: the repositories here do not need Impossible OS, and Impossible OS does not wait for them.
 - Publish from the start: Impossible SDK and the four first apps get public GitHub repositories when each has a first working version.
 
 ## What is the shape?
@@ -97,7 +98,13 @@ Photos as the example:
 | Reading `app.json` and registering types on Impossible OS, the Open With list | Impossible OS |
 | Thumbnails in Explorer | Decoder in Impossible SDK, the Explorer part in Impossible OS |
 
-When an app needs something from another repository, the item is filed **there**, and the app's own item names it on a `**Needs:**` line and waits. An app never works around a missing SDK or OS feature. An OS need found by an app becomes an item in the OS import file of that app.
+## How does neither side wait?
+
+- **A repository here is finished when it works on Windows.** It never depends on an Impossible OS item, and no OS state can fail its build, tests or release.
+- **An OS need found by an app is filed, not waited for.** It goes into the app's `needs` and the OS import file of that app. The app carries on.
+- **An import is never a blocker.** When the OS plan reaches an import section, it takes the newest proven commit. If the part is not ready, or ready only in part, the section imports what exists, stays open as `[/]` with what is missing, and the plan goes on to the next section that can be built. The check lists it every time until it is done.
+- **When the OS cannot go on without a part**, the session that meets this builds the part in its own repository, proves it on Windows, publishes it and imports it. It neither waits for someone else nor writes a second copy in the OS.
+- **An SDK feature an app needs** is built in the SDK by whoever needs it first, then the app moves its pin. Nobody waits for another repository's schedule.
 
 ## How are the repositories connected but separate?
 
@@ -112,11 +119,20 @@ Each repository builds, tests and releases alone. Three files connect them.
 ## How does nothing get forgotten?
 
 1. **Nothing moves by deletion.** `imports.json` carries a ledger row for every moved section: its old address, the new repository and item, and a hash of the old text. A section moves only when the new item exists.
-2. **An import section stays.** Each moved file keeps its address and one or more import sections in the implementation plan, at the stage where the OS needs it. Other sections that depended on the old one depend on the import section, so the OS plan cannot pass that stage without it.
+2. **An import section stays.** Each moved file keeps its address and one or more import sections in the implementation plan, at the stage where the OS needs it. Sections that depended on the old one now depend on the import section for the parts they use. Everything else in the OS plan carries on.
 3. **A check in the OS** (`scripts/imports.py --check`, run by lint) fails when a ledger row has no import section, an import section has no row, a moved section has no new item, or the copied source differs from its pinned commit. When the external checkout is not on the machine, it checks the recorded hashes and says so.
 4. **Imports are copies at a pinned commit** under `src/libs/impossible-ui/` and `src/apps/<name>/`, never edited in place and never downloaded during a build. Every import is reviewed, as the OS rule of 2026-11-23 says.
 5. **Newest is not automatic.** `imports.py --outdated` lists what is behind. Updating is ordinary work.
 6. **The OS cannot drop an import silently:** removing a row needs a reason in `todo/answers.md`.
+
+## How do we know early what the OS will need?
+
+Everything is proven on Windows first, and the OS imports only the parts it needs, when it needs them (owner, 2026-11-23).
+
+- **Parts, not the whole.** Impossible SDK is a set of parts (`base`, `draw`, `text`, `ui`, `png` and so on), each with its own folder, tests and dependency list in `parts.json`. The OS imports one part at a pinned commit without the rest.
+- **A forecast.** The tier of each program is measured from its imports. What imports cannot show (file types, notifications, printing, a sound device) the app declares in `app.json` under `needs`, written when the app is designed and not when it is finished.
+- **The OS reads it.** `scripts/imports.py --needs` lists every declared need with the OS section that provides it. A need with no section is reported, and gets one.
+- **When something is missing**, the rule under "Where does a todo item go?" decides its home. The app ships without that feature on the OS until it is there; it never carries its own copy.
 
 Public and private: the OS repository is public. It names an external repository only by name and commit until that repository is public too. An import into the public OS repository publishes that source, so an import comes only from a repository that is already public.
 
@@ -149,7 +165,7 @@ Tracks A, B and C run side by side.
 4. The control and engine files.
 5. The first import of Impossible UI, when the OS reaches that stage.
 
-Until C1 exists nothing is taken out of the OS roadmap. The OS run must not build an app or control that has started here, so C1 to C4 come before the OS reaches Phase 8.
+Until C1 exists nothing is taken out of the OS roadmap. Tracks A and B do not wait for C. The only thing C protects is work done twice, and the OS is far from Phase 8.
 
 ## What can go wrong?
 
