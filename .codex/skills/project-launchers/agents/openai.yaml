@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project launchers"
+  short_description: "Configure, write, inspect, or remove Windows desktop shortcuts for this project, following docs/launchers.md."
+  default_prompt: "Use project-launchers and docs/launchers.md to check .conclave/launchers.json, write or remove shortcuts in pwsh, and read them back without launching."

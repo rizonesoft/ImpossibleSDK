@@ -1,0 +1,12 @@
+{
+  "title": "Impossible SDK implementation plan",
+  "acceptance": "Every WinUI control exists in portable C, matches real WinUI on Windows within the stated limits, and builds with the OS flags.",
+  "phases": {
+    "0": "Repository and tooling",
+    "1": "Interface engine",
+    "2": "First controls",
+    "3": "All controls",
+    "4": "Formats and services",
+    "99": "Manual, operator only"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "title": null,
+  "icon": null,
+  "agents": ["claude"],
+  "skip_permissions": false,
+  "links": []
+}
