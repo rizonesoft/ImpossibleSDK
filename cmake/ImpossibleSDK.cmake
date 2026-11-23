@@ -54,7 +54,7 @@ function(impossible_add_program name)
     _impossible_compile(${name})
     target_link_options(${name} PRIVATE -nostdlib -Wl,--entry=impossible_start -Wl,--subsystem,${subsystem}
         -Wl,--gc-sections -Wl,--no-insert-timestamp -Wl,--dynamicbase -Wl,--nxcompat -Wl,--high-entropy-va -s)
-    target_link_libraries(${name} PRIVATE ImpossibleUI ImpossibleSDK kernel32 user32 gdi32 shell32 winmm ws2_32)
+    target_link_libraries(${name} PRIVATE ImpossibleUI ImpossibleSDK kernel32 user32 gdi32 shell32 winmm ws2_32 bcrypt crypt32 dwmapi)
     if(NOT arg_UNCHECKED)
         if(NOT DEFINED arg_TIER)
             message(FATAL_ERROR "${name}: say which TIER it needs")

@@ -17,7 +17,7 @@ The repositories are written in WSL; `python3 tools/prove.py <folder>` lets Wind
 
 ## Which Windows functions may a program call?
 
-Those in [`abi/tiers.json`](abi/tiers.json), up to the program's tier: 44 functions for a console program, 78 for a windowed one. `tools/check_imports.py` reads every finished program and fails the build on anything else, on imports by ordinal, delay-loaded DLLs and thread-local storage.
+Those in [`abi/tiers.json`](abi/tiers.json), up to the program's tier: 44 functions for a console program, 78 for a windowed one, 153 for one that sees and drives the desktop. `tools/check_imports.py` reads every finished program and fails the build on anything else, on imports by ordinal, delay-loaded DLLs and thread-local storage.
 
 ## Use it in a program
 

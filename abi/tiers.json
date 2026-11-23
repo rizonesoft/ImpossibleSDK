@@ -1,5 +1,5 @@
 {
-  "about": "Every Windows function a program may import. A tier includes the ones before it. Adding a function means Impossible OS has to implement it. Tier 5 is named when its first program is planned.",
+  "about": "Every Windows function a program may import. A tier includes the ones before it. Adding a function means Impossible OS has to implement it.",
   "tiers": [
     {
       "tier": 0,
@@ -166,7 +166,57 @@
           "send",
           "sendto",
           "setsockopt",
+          "shutdown",
           "socket"
+        ],
+        "bcrypt.dll": [
+          "BCryptGenRandom"
+        ],
+        "crypt32.dll": [
+          "CryptProtectData",
+          "CryptUnprotectData"
+        ],
+        "kernel32.dll": [
+          "LocalFree"
+        ]
+      }
+    },
+    {
+      "tier": 5,
+      "name": "Desktop",
+      "functions": {
+        "user32.dll": [
+          "EnumDisplayMonitors",
+          "EnumWindows",
+          "GetDC",
+          "GetForegroundWindow",
+          "GetKeyboardLayout",
+          "GetWindowTextW",
+          "GetWindowThreadProcessId",
+          "IsWindowVisible",
+          "MapVirtualKeyExW",
+          "PrintWindow",
+          "RegisterHotKey",
+          "ReleaseDC",
+          "SendInput",
+          "SetLayeredWindowAttributes",
+          "SetWindowDisplayAffinity",
+          "ToUnicodeEx",
+          "UnregisterHotKey"
+        ],
+        "gdi32.dll": [
+          "BitBlt",
+          "CreateCompatibleDC",
+          "CreateDIBSection",
+          "DeleteDC",
+          "DeleteObject",
+          "SelectObject"
+        ],
+        "dwmapi.dll": [
+          "DwmGetWindowAttribute"
+        ],
+        "kernel32.dll": [
+          "DeviceIoControl"
         ]
       }
     }
