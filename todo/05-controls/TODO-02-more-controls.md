@@ -742,10 +742,10 @@ The gallery, the matrix, the screen reader and the speed budgets over everything
 2. Cover it in `tests/test_gallery.py`. Done when: the checks fail on a planted fault.
 
 - [ ] Find a gallery page and a passing matrix row for every carried control in `tests/test_gallery.py`. Done when: `docs/winui-coverage.json` has no control without both. Cheaper substitute: the common ones.
-- [ ] Walk every page by keyboard, by touch and by a Windows screen reader client in `tests/test_gallery.py`. Done when: three scripts finish and their logs equal the recorded ones. Cheaper substitute: pointer.
+- [ ] Walk every page and every dialog by keyboard, by touch and by a Windows screen reader client in `tests/test_gallery.py`. Done when: three scripts finish and their logs equal the recorded ones. Cheaper substitute: pointer.
 - [ ] Run the matrix with right to left, text at 225 percent and each contrast theme in `tests/test_state_matrix.py`. Done when: every cell passes. Cheaper substitute: light at 100 percent.
 - [ ] Measure opening a menu and scrolling a list of 100,000 rows in `tests/fixtures/bench_controls.c`. Done when: both stay in the budgets of `tests/budgets.json`. Cheaper substitute: primitives only.
-- [ ] Find no item of `docs/os-roadmap/` without an answer by `tools/check_roadmap.py`. Done when: it exits 0. Cheaper substitute: a summary.
+- [ ] Find no item of the `docs/os-roadmap/08-graphics-ui` files without an answer by `tools/check_roadmap.py`. Done when: it exits 0. Cheaper substitute: a summary.
 - [ ] Commit: `controls: all accepted`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.

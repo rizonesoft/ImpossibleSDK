@@ -52,7 +52,7 @@ The HTML Standard's tokenizer with every state, on text of any encoding already 
 2. Cover it in `tests/`. Done when: the checks fail on a planted fault.
 
 - [ ] Write every state in `parts/html/token.c`. Done when: all published tokenizer tests pass, split at every position. Cheaper substitute: well-formed HTML.
-- [ ] Keep positions in the source in `parts/html/token.c`. Done when: each token's text is found back. Cheaper substitute: none.
+- [ ] Keep each token's span in the decoded input in `parts/html/token.c`. Done when: reading that span again gives the token, with character references, CRLF and NUL in it. Cheaper substitute: searching for its text.
 - [ ] Survive hostile text in `parts/html/token.c`. Done when: every prefix of every sample is refused or whole, and a 120 second native fuzz run finds nothing. Cheaper substitute: a length limit.
 - [ ] Commit: `web: html tokenizer`
 
@@ -60,7 +60,7 @@ The HTML Standard's tokenizer with every state, on text of any encoding already 
 
 ## 2. HTML tree builder
 
-The standard's insertion modes as a machine that tells its user what to insert, so that each program keeps its own tree.
+The standard's insertion modes as a machine that tells its user what to make, insert, insert before, move and remove, so that each program keeps its own tree.
 
 **Phase:** 4
 **Needs:** none
@@ -72,6 +72,7 @@ The standard's insertion modes as a machine that tells its user what to insert, 
 2. Cover it in `tests/`. Done when: the checks fail on a planted fault.
 
 - [ ] Write every mode in `parts/html/build.c` without recursion. Done when: all published tree construction tests pass. Cheaper substitute: a nesting stack.
+- [ ] Give the calls to move nodes and to insert before a table in `parts/html/build.h`. Done when: the misnested formatting and table-text cases pass through a caller's own tree. Cheaper substitute: making and appending.
 - [ ] Let the user pause, for scripts later in `parts/html/build.c`. Done when: pausing after every token gives the same tree. Cheaper substitute: at the end.
 - [ ] Bound depth and size in `parts/html/build.c`. Done when: documents made to be deep stop at the limit within fixed memory. Cheaper substitute: the stack.
 - [ ] Commit: `web: html tree builder`

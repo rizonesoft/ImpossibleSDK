@@ -33,7 +33,7 @@ title: "TODO-03 -- Dialogs"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Message box | T01 §15 | [ ] |
 | 2 | §2 | Text input dialog | T01 §15, T01 §9, T01 §37 | [ ] |
-| 3 | §3 | Files and places model | T01 §4, D01 T01 §8 | [ ] |
+| 3 | §3 | Files and places model | T01 §4, D01 T01 §8, D07 T01 §11 | [ ] |
 | 4 | §4 | Open file dialog | §3, T01 §47, T01 §50, T01 §21 | [ ] |
 | 5 | §5 | Save file dialog | §4, §1 | [ ] |
 | 6 | §6 | Folder dialog | §4 | [ ] |
@@ -63,7 +63,7 @@ A question or message with icon and up to three buttons.
 - [ ] Wrap and scroll long text, and let it be copied in `ui/dialogs/message.c`. Done when: 10,000 characters can be read. Cheaper substitute: cutting.
 - [ ] Keep to the owner, or stand alone without one in `ui/dialogs/message.c`. Done when: both are modal to the right window. Cheaper substitute: always alone.
 - [ ] Refuse Escape where no button cancels, as Windows does in `ui/dialogs/message.c`. Done when: the script agrees. Cheaper substitute: closing.
-- [ ] Work by keyboard, touch and screen reader alone in `ui/dialogs/message.c`. Done when: three scripts finish the task. Cheaper substitute: pointer.
+- [ ] Work by keyboard alone, by touch alone and through the automation peers alone in `ui/dialogs/message.c`. Done when: three scripts finish the task; the Windows client of D05 T02 §22 repeats the last. Cheaper substitute: pointer.
 - [ ] Add the page `samples/gallery/message.c` and its rows in `tests/state_matrix.json`. Done when: light, dark, contrast, right to left and 100 to 300 percent pass. Cheaper substitute: light.
 - [ ] Answer each item of §8 of `docs/os-roadmap/08-graphics-ui-TODO-06-widget-dialogs.md` in `docs/os-roadmap-answers.md`. Done when: each has a test, a declared need or a reason. Cheaper substitute: a summary.
 - [ ] Commit: `dialogs: message box`
@@ -91,7 +91,7 @@ One question with a text answer.
 - [ ] Check while typing and say why it cannot be accepted in `ui/dialogs/input.c`. Done when: OK follows the check. Cheaper substitute: at OK.
 - [ ] Take a hidden answer too in `ui/dialogs/input.c`. Done when: copy is refused, the peer gives no value and the bytes are seen zero after closing, all through the dialog. Cheaper substitute: plain.
 - [ ] Return cancel apart from an empty answer in `ui/dialogs/input.c`. Done when: the two are told apart. Cheaper substitute: empty.
-- [ ] Work by keyboard, touch and screen reader alone in `ui/dialogs/input.c`. Done when: three scripts finish the task. Cheaper substitute: pointer.
+- [ ] Work by keyboard alone, by touch alone and through the automation peers alone in `ui/dialogs/input.c`. Done when: three scripts finish the task; the Windows client of D05 T02 §22 repeats the last. Cheaper substitute: pointer.
 - [ ] Add the page `samples/gallery/input.c` and its rows in `tests/state_matrix.json`. Done when: light, dark, contrast, right to left and 100 to 300 percent pass. Cheaper substitute: light.
 - [ ] Answer each item of §8 of `docs/os-roadmap/08-graphics-ui-TODO-06-widget-dialogs.md` in `docs/os-roadmap-answers.md`. Done when: each has a test, a declared need or a reason. Cheaper substitute: a summary.
 - [ ] Commit: `dialogs: text input dialog`
@@ -123,7 +123,7 @@ What the file dialogs show, from the host, without drawing.
 - [ ] Parse what the user types: names, paths, wildcards, several names in quotes in `ui/dialogs/files.c`. Done when: a table of 80 equals Windows' dialog. Cheaper substitute: a name.
 - [ ] Refuse reserved and too long names by name in `ui/dialogs/files.c`. Done when: a table of 40 passes. Cheaper substitute: at saving.
 - [ ] Fill the callbacks for Windows in `src/files.c`. Done when: places, drives and libraries equal Explorer's. Cheaper substitute: drives.
-- [ ] Work by keyboard, touch and screen reader alone in `ui/dialogs/files.c`. Done when: three scripts finish the task. Cheaper substitute: pointer.
+- [ ] Work by keyboard alone, by touch alone and through the automation peers alone in `ui/dialogs/files.c`. Done when: three scripts finish the task; the Windows client of D05 T02 §22 repeats the last. Cheaper substitute: pointer.
 - [ ] Add the page `samples/gallery/files.c` and its rows in `tests/state_matrix.json`. Done when: light, dark, contrast, right to left and 100 to 300 percent pass. Cheaper substitute: light.
 - [ ] Commit: `dialogs: files and places model`
 
@@ -153,7 +153,7 @@ Choosing one or more files.
 - [ ] Search in the folder while listing goes on in `ui/dialogs/open.c`. Done when: the window draws all the time. Cheaper substitute: waiting.
 - [ ] Show a preview the program draws in `ui/dialogs/open.c`. Done when: a picture shows. Cheaper substitute: none.
 - [ ] Refuse a missing file or wrong type with a message in `ui/dialogs/open.c`. Done when: nothing is returned. Cheaper substitute: returning it.
-- [ ] Work by keyboard, touch and screen reader alone in `ui/dialogs/open.c`. Done when: three scripts finish the task. Cheaper substitute: pointer.
+- [ ] Work by keyboard alone, by touch alone and through the automation peers alone in `ui/dialogs/open.c`. Done when: three scripts finish the task; the Windows client of D05 T02 §22 repeats the last. Cheaper substitute: pointer.
 - [ ] Add the page `samples/gallery/open.c` and its rows in `tests/state_matrix.json`. Done when: light, dark, contrast, right to left and 100 to 300 percent pass. Cheaper substitute: light.
 - [ ] Answer each item of §8 of `docs/os-roadmap/08-graphics-ui-TODO-06-widget-dialogs.md` in `docs/os-roadmap-answers.md`. Done when: each has a test, a declared need or a reason. Cheaper substitute: a summary.
 - [ ] Commit: `dialogs: open file dialog`
@@ -182,7 +182,7 @@ Choosing where a file goes.
 - [ ] Change the ending with the type in `ui/dialogs/save.c`. Done when: names follow. Cheaper substitute: fixed.
 - [ ] Make a folder and name it in `ui/dialogs/save.c`. Done when: it is made and entered. Cheaper substitute: Explorer.
 - [ ] Refuse a place that cannot be written, with the reason in `ui/dialogs/save.c`. Done when: nothing is returned. Cheaper substitute: at saving.
-- [ ] Work by keyboard, touch and screen reader alone in `ui/dialogs/save.c`. Done when: three scripts finish the task. Cheaper substitute: pointer.
+- [ ] Work by keyboard alone, by touch alone and through the automation peers alone in `ui/dialogs/save.c`. Done when: three scripts finish the task; the Windows client of D05 T02 §22 repeats the last. Cheaper substitute: pointer.
 - [ ] Add the page `samples/gallery/save.c` and its rows in `tests/state_matrix.json`. Done when: light, dark, contrast, right to left and 100 to 300 percent pass. Cheaper substitute: light.
 - [ ] Answer each item of §8 of `docs/os-roadmap/08-graphics-ui-TODO-06-widget-dialogs.md` in `docs/os-roadmap-answers.md`. Done when: each has a test, a declared need or a reason. Cheaper substitute: a summary.
 - [ ] Commit: `dialogs: save file dialog`
@@ -210,7 +210,7 @@ Choosing a folder.
 - [ ] Make, name and rename a folder in `ui/dialogs/folder.c`. Done when: each is done on the made-up and real file system. Cheaper substitute: none.
 - [ ] Choose several when asked in `ui/dialogs/folder.c`. Done when: the list is returned. Cheaper substitute: one.
 - [ ] Return the folder shown when nothing is selected in `ui/dialogs/folder.c`. Done when: the script agrees with Windows. Cheaper substitute: nothing.
-- [ ] Work by keyboard, touch and screen reader alone in `ui/dialogs/folder.c`. Done when: three scripts finish the task. Cheaper substitute: pointer.
+- [ ] Work by keyboard alone, by touch alone and through the automation peers alone in `ui/dialogs/folder.c`. Done when: three scripts finish the task; the Windows client of D05 T02 §22 repeats the last. Cheaper substitute: pointer.
 - [ ] Add the page `samples/gallery/folder.c` and its rows in `tests/state_matrix.json`. Done when: light, dark, contrast, right to left and 100 to 300 percent pass. Cheaper substitute: light.
 - [ ] Commit: `dialogs: folder dialog`
 
@@ -236,7 +236,7 @@ The colour picker in the frame.
 - [ ] Show the picker, the program's palette and own colours in `ui/dialogs/color.c`. Done when: a chosen colour returns exactly. Cheaper substitute: the picker.
 - [ ] Keep own colours through the program in `ui/dialogs/color.c`. Done when: they are there next time when it gives them. Cheaper substitute: lost.
 - [ ] Tell each change for a live preview, and return the old on cancel in `ui/dialogs/color.c`. Done when: the program's view returns. Cheaper substitute: at OK.
-- [ ] Work by keyboard, touch and screen reader alone in `ui/dialogs/color.c`. Done when: three scripts finish the task. Cheaper substitute: pointer.
+- [ ] Work by keyboard alone, by touch alone and through the automation peers alone in `ui/dialogs/color.c`. Done when: three scripts finish the task; the Windows client of D05 T02 §22 repeats the last. Cheaper substitute: pointer.
 - [ ] Add the page `samples/gallery/color.c` and its rows in `tests/state_matrix.json`. Done when: light, dark, contrast, right to left and 100 to 300 percent pass. Cheaper substitute: light.
 - [ ] Answer each item of §8 of `docs/os-roadmap/08-graphics-ui-TODO-06-widget-dialogs.md` in `docs/os-roadmap-answers.md`. Done when: each has a test, a declared need or a reason. Cheaper substitute: a summary.
 - [ ] Commit: `dialogs: colour dialog`
@@ -264,7 +264,7 @@ Choosing a font, style and size.
 - [ ] Show only fixed-width, or only with a script, when asked in `ui/dialogs/font.c`. Done when: the lists equal Windows'. Cheaper substitute: all.
 - [ ] Show the sample with the chosen style, size, colour and lines in `ui/dialogs/font.c`. Done when: frames match the text engine. Cheaper substitute: a fixed text.
 - [ ] Return a font that is missing here by name in `ui/dialogs/font.c`. Done when: it is kept and marked. Cheaper substitute: replaced.
-- [ ] Work by keyboard, touch and screen reader alone in `ui/dialogs/font.c`. Done when: three scripts finish the task. Cheaper substitute: pointer.
+- [ ] Work by keyboard alone, by touch alone and through the automation peers alone in `ui/dialogs/font.c`. Done when: three scripts finish the task; the Windows client of D05 T02 §22 repeats the last. Cheaper substitute: pointer.
 - [ ] Add the page `samples/gallery/font.c` and its rows in `tests/state_matrix.json`. Done when: light, dark, contrast, right to left and 100 to 300 percent pass. Cheaper substitute: light.
 - [ ] Commit: `dialogs: font dialog`
 
@@ -293,7 +293,7 @@ Pages with OK, Cancel and Apply, and steps with Back and Next.
 - [ ] Step forward and back by rules, and skip in `ui/dialogs/property_sheet.c`. Done when: a script follows three ways. Cheaper substitute: in order.
 - [ ] Refuse leaving a step, and confirm cancelling in `ui/dialogs/property_sheet.c`. Done when: nothing half done stays. Cheaper substitute: closing.
 - [ ] Move by Ctrl-Tab and Ctrl-Page keys in `ui/dialogs/property_sheet.c`. Done when: the script agrees with Windows. Cheaper substitute: Tab.
-- [ ] Work by keyboard, touch and screen reader alone in `ui/dialogs/property_sheet.c`. Done when: three scripts finish the task. Cheaper substitute: pointer.
+- [ ] Work by keyboard alone, by touch alone and through the automation peers alone in `ui/dialogs/property_sheet.c`. Done when: three scripts finish the task; the Windows client of D05 T02 §22 repeats the last. Cheaper substitute: pointer.
 - [ ] Add the page `samples/gallery/property_sheet.c` and its rows in `tests/state_matrix.json`. Done when: light, dark, contrast, right to left and 100 to 300 percent pass. Cheaper substitute: light.
 - [ ] Answer each item of §24 of `docs/os-roadmap/08-graphics-ui-TODO-19-fluent-component-library.md` in `docs/os-roadmap-answers.md`. Done when: each has a test, a declared need or a reason. Cheaper substitute: a summary.
 - [ ] Commit: `dialogs: property sheet and wizard`

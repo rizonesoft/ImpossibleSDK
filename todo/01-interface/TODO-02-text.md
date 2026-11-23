@@ -84,7 +84,7 @@ Glyphs are drawn once per size and position step and kept within a limit.
 - [ ] Cache coverage by face with its resolved axis values, size, glyph and quarter-pixel step in `ui/glyphs.c`. Done when: cached and uncached frames are equal byte for byte, with two sets of axis values drawn in turn. Cheaper substitute: face and size.
 - [ ] Keep to a byte limit by least recent use in `ui/glyphs.c`. Done when: a million random requests stay under the limit and are right. Cheaper substitute: growing without end.
 - [ ] Draw through clips, layers and transforms in `ui/glyphs.c`. Done when: frames equal the uncached draw. Cheaper substitute: no clip.
-- [ ] Measure hits in `tests/budgets.json`. Done when: scrolling a page of text draws fewer than 1 percent new glyphs. Cheaper substitute: a guess.
+- [ ] Measure hits for a fixed workload in `tests/budgets.json`: `tests/fixtures/scroll.txt`, a 4 MB cache, one pass to warm it, then 1,000 lines down and back. Done when: under 1 percent of the glyphs drawn in the second pass are new. Cheaper substitute: any page.
 - [ ] Commit: `ui: glyph cache`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -102,8 +102,8 @@ Where a line may break, where a word ends and what counts as one character.
 1. Write `ui/breaks.c` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
-- [ ] Break lines by UAX 14 in `ui/breaks.c`. Done when: the published LineBreakTest passes. Cheaper substitute: spaces only.
-- [ ] Break words and graphemes by UAX 29 in `ui/breaks.c`. Done when: the published tests pass. Cheaper substitute: code points.
+- [ ] Use the standard breaks of `parts/unicode/` in `ui/breaks.c`. Done when: no break table or rule of UAX 14 or 29 is in `ui/`, checked by `tests/test_text.py`. Cheaper substitute: a second copy.
+- [ ] Move by word and grapheme through them in `ui/breaks.c`. Done when: 200 recorded key scripts equal real WinUI. Cheaper substitute: code points.
 - [ ] Match WinUI where it differs, with each difference named in `ui/breaks.c`. Done when: 500 paragraphs break at the words of a WinUI TextBlock with the same font. Cheaper substitute: the standard alone.
 - [ ] Break text longer than memory allows in pieces in `ui/breaks.c`. Done when: cut text gives the same breaks as whole text. Cheaper substitute: one buffer.
 - [ ] Commit: `ui: line, word and grapheme breaking`
@@ -233,7 +233,7 @@ UAX 9 order for drawing, the caret and selection.
 1. Write `ui/bidi.c` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
-- [ ] Resolve levels in `ui/bidi.c`. Done when: BidiTest and BidiCharacterTest pass. Cheaper substitute: reversing strings.
+- [ ] Use the levels of `parts/unicode/` in `ui/bidi.c`. Done when: 200 mixed paragraphs equal real WinUI's order. Cheaper substitute: a second copy of UAX 9.
 - [ ] Order runs and mirror brackets per line in `ui/bidi.c`. Done when: lines equal real WinUI's order. Cheaper substitute: once per paragraph.
 - [ ] Move and hit-test the caret at direction changes in `ui/caret.c`. Done when: key scripts equal real WinUI. Cheaper substitute: logical order only.
 - [ ] Give selection as several rectangles in `ui/caret.c`. Done when: they equal real WinUI's. Cheaper substitute: one box.

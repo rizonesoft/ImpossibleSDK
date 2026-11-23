@@ -34,14 +34,14 @@ title: "TODO-01 -- Shared Parts"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | A host's own engine | D01 T01 §7 | [ ] |
 | 2 | §2 | Deflate | D02 T01 §2 | [ ] |
-| 3 | §3 | Hashes and checksums | D02 T01 §1 | [ ] |
+| 3 | §3 | Hashes | D02 T01 §2 | [ ] |
 | 4 | §4 | Text buffer | D02 T01 §1 | [ ] |
 | 5 | §5 | Unicode data | D02 T01 §1 | [ ] |
 | 6 | §6 | Time zones and recurrence | D02 T01 §1 | [ ] |
 | 7 | §7 | Lossless sound | §3 | [ ] |
 | 8 | §8 | Lossy sound | D02 T01 §1 | [ ] |
 | 9 | §9 | SSH transport | D02 T01 §1, D03 T01 §3 | [ ] |
-| 10 | §10 | PNG and BMP writers | §2 | [ ] |
+| 10 | §10 | PNG and BMP writers | §2, D02 T01 §3, D02 T01 §5 | [ ] |
 | 11 | §11 | Picture scaler | D02 T01 §1 | [ ] |
 
 ## 1. A host's own engine
@@ -85,9 +85,9 @@ Deflate and the zlib and gzip wrappers. Zip, Paint, Stillframe, Icon Editor, the
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 
-## 3. Hashes and checksums
+## 3. Hashes
 
-CRC-32, Adler, MD5, SHA-1, SHA-2, SHA-3 and BLAKE3, moved from Command's hash tool with its tests.
+MD5, SHA-1, SHA-2, SHA-3 and BLAKE3, moved from Command's hash tool with its tests. CRC-32 and Adler-32 are `parts/checksum/` of D02 T01 §2, and Command uses them from there.
 
 **Phase:** 4
 **Needs:** none
@@ -139,7 +139,7 @@ Categories, breaks, widths, case, normal forms and names from one pinned Unicode
 2. Cover it in `tests/`. Done when: the checks fail on a planted fault.
 
 - [ ] Generate tables by `tools/gen_unicode.py` from the pinned version. Done when: a rebuild gives the same bytes. Cheaper substitute: hand-typed.
-- [ ] Break lines, words, graphemes and order directions in `parts/unicode/unicode.c`. Done when: the published test sets pass. Cheaper substitute: spaces.
+- [ ] Break lines, words and graphemes and resolve directions by the standard alone in `parts/unicode/unicode.c`, the only place these are written. Done when: LineBreakTest, WordBreakTest, GraphemeBreakTest, BidiTest and BidiCharacterTest pass. Cheaper substitute: spaces.
 - [ ] Normalise and fold case in `parts/unicode/unicode.c`. Done when: the published tests pass. Cheaper substitute: ASCII.
 - [ ] Commit: `parts: unicode`
 
@@ -209,18 +209,21 @@ MP3 with Layer II, and Ogg Vorbis, in fixed point, for Music, Media Player and o
 
 ## 9. SSH transport
 
-The SSH transport, signing in and channels of the SSH program, as a part that Remote Desktop uses too.
+The SSH transport, signing in and channels, written here first. The SSH program and Remote Desktop move to it; `../SSH/engine` holds no transport today.
 
 **Phase:** 4
-**Needs:** none
+**Needs:** windows-host
 **Surface:** no
 
 **Build order:**
 
-1. Write `parts/ssh/ssh.c`. Done when: SSH's tests pass on it
+1. Write `parts/ssh/transport.c`. Done when: a local OpenSSH server completes the key exchange
 2. Cover it in `tests/`. Done when: the checks fail on a planted fault.
 
-- [ ] Move the SSH program's engine and its tests when they pass there in `parts/ssh/ssh.c`. Done when: the SSH program builds on the part. Cheaper substitute: a copy.
+- [ ] Exchange keys and check the host key with current algorithms in `parts/ssh/transport.c`. Done when: a local OpenSSH server accepts it, and a changed host key is refused. Cheaper substitute: one algorithm.
+- [ ] Sign in by password, key and keyboard questions in `parts/ssh/auth.c`. Done when: each works with the local server and a wrong one is named. Cheaper substitute: password.
+- [ ] Run several channels with flow control in `parts/ssh/channel.c`. Done when: 10 channels carry 1 GB each way whole. Cheaper substitute: one.
+- [ ] Refuse damaged and hostile packets in `parts/ssh/transport.c`. Done when: a 120 second native fuzz run finds nothing. Cheaper substitute: well-formed packets.
 - [ ] Open a forwarded connection without a terminal in `parts/ssh/ssh.c`. Done when: a local server's script passes. Cheaper substitute: the whole program.
 - [ ] Clear every secret after its use in `parts/ssh/ssh.c`. Done when: the cleared bytes are seen zero in the built program. Cheaper substitute: at exit.
 - [ ] Commit: `parts: ssh`

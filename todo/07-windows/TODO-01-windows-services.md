@@ -45,6 +45,7 @@ title: "TODO-01 -- Windows Services"
 | 13 | §13 | Sound recording | §12 | [ ] |
 | 14 | §14 | Program settings | D03 T01 §5 | [ ] |
 | 15 | §15 | Starting programs and opening links | D01 T01 §8 | [ ] |
+| 16 | §16 | Pictures on the clipboard and in drags | §2, §6, §7, D02 T01 §3, D02 T01 §5, D06 T01 §10 | [ ] |
 
 ## 1. Several windows and pop-up windows
 
@@ -72,7 +73,7 @@ Menus, tooltips and dialogs leave their window, so the layer runs more than one.
 
 ## 2. Clipboard
 
-Text, pictures, file lists and private formats, safely.
+Text, file lists and private formats, safely. Pictures are §16.
 
 **Phase:** 2
 **Needs:** windows-host, display-session
@@ -84,7 +85,7 @@ Text, pictures, file lists and private formats, safely.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
 - [ ] Read and write Unicode text in `src/clipboard.c`. Done when: text of 0 to 10 million characters round trips with another program. Cheaper substitute: one size.
-- [ ] Read and write pictures as PNG and bitmap in `src/clipboard.c`. Done when: a picture with transparency round trips. Cheaper substitute: a bitmap only.
+- [ ] Keep every format another program offers readable by name and size in `src/clipboard.c`. Done when: the list equals the one Windows gives. Cheaper substitute: known formats.
 - [ ] Read and write file lists in `src/clipboard.c`. Done when: files copied in Explorer arrive with their paths. Cheaper substitute: text paths.
 - [ ] Offer a private format with a plain-text form beside it in `src/clipboard.c`. Done when: a program that knows neither receives the text. Cheaper substitute: one format.
 - [ ] Add its functions to tier 2 in `abi/tiers.json` with what the OS must give. Done when: the import check passes and a lower tier is refused. Cheaper substitute: an unchecked call.
@@ -178,7 +179,7 @@ Files and text dropped from other programs, with the effect shown while dragging
 
 - [ ] Accept dropped files in `src/drop.c`. Done when: 1,000 files with long names arrive whole. Cheaper substitute: the first file.
 - [ ] Add the OLE start, drop target and data functions to tier 2 in `abi/tiers.json` with what the OS must give. Done when: a tier 1 program that uses one is refused. Cheaper substitute: an unchecked call.
-- [ ] Accept dropped text and pictures through an OLE drop target written in C in `src/drop.c`. Done when: text from another program arrives. Cheaper substitute: files only.
+- [ ] Accept dropped text through an OLE drop target written in C in `src/drop.c`. Done when: text from another program arrives. Cheaper substitute: files only.
 - [ ] Route enter, over, leave and drop to elements in `ui/drop.c`. Done when: the element under the pointer decides the effect. Cheaper substitute: the window decides.
 - [ ] Refuse what no element accepts in `ui/drop.c`. Done when: the pointer shows it and nothing changes. Cheaper substitute: ignoring it later.
 - [ ] Scroll lists while dragging at their edge in `ui/drop.c`. Done when: a script reaches the last row. Cheaper substitute: no scrolling.
@@ -201,7 +202,7 @@ Dragging elements inside a program and out to others.
 
 - [ ] Start a drag after the system distance in `ui/drag.c`. Done when: smaller moves stay clicks. Cheaper substitute: any move.
 - [ ] Draw the dragged element and its effect text in `ui/drag.c`. Done when: frames match real WinUI's drag visual. Cheaper substitute: a cursor.
-- [ ] Offer files, text and pictures through an OLE data object written in C in `src/drag.c`. Done when: Explorer and Notepad receive them. Cheaper substitute: inside only.
+- [ ] Offer files and text through an OLE data object written in C in `src/drag.c`. Done when: Explorer and Notepad receive them. Cheaper substitute: inside only.
 - [ ] Render the data when it is asked for in `src/drag.c`. Done when: a file of 1 GB is not read before the drop. Cheaper substitute: reading first.
 - [ ] Cancel with Escape and on a lost window in `src/drag.c`. Done when: nothing is moved and no object stays. Cheaper substitute: a half move.
 - [ ] Add the OLE drag source functions to `abi/tiers.json` at tier 2 with what the OS must give. Done when: a tier 1 program that uses one is refused. Cheaper substitute: an unchecked call.
@@ -259,8 +260,8 @@ Reading, moving and selecting in text by screen reader.
 
 Work off the window thread, with results posted back and a clean stop.
 
-**Phase:** 4
-**Needs:** none
+**Phase:** 3
+**Needs:** windows-host
 **Surface:** no
 
 **Build order:**
@@ -282,7 +283,7 @@ Work off the window thread, with results posted back and a clean stop.
 
 Know when a file or folder changes.
 
-**Phase:** 4
+**Phase:** 3
 **Needs:** windows-host
 **Surface:** no
 
@@ -388,6 +389,28 @@ Open a file, a folder or a link with the user's own program, and start a program
 - [ ] Read its output and end, with a time limit, in `src/launch.c`. Done when: a program that never ends is stopped with its children. Cheaper substitute: waiting.
 - [ ] Give the opened file to a running copy of the program in `src/instance.c`. Done when: opening a second file shows it in the first window. Cheaper substitute: a second copy always.
 - [ ] Commit: `windows: starting programs and links`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 16. Pictures on the clipboard and in drags
+
+Pictures between programs, through the SDK's own readers and writers.
+
+**Phase:** 4
+**Needs:** windows-host, display-session
+**Surface:** no
+
+**Build order:**
+
+1. Write `src/clipboard_picture.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Write PNG and bitmap forms in `src/clipboard_picture.c`. Done when: Paint and a browser receive the pixels, transparency where they keep it. Cheaper substitute: a bitmap.
+- [ ] Read PNG and every bitmap form Windows gives in `src/clipboard_picture.c`. Done when: 40 recorded blocks give the right pixels. Cheaper substitute: one.
+- [ ] Refuse a picture beyond the caller's limit or with wrong sizes in `src/clipboard_picture.c`. Done when: planted blocks are refused before any allocation. Cheaper substitute: trusting the header.
+- [ ] Take and give pictures in drags in `src/drag_picture.c`. Done when: another program receives one and gives one. Cheaper substitute: the clipboard only.
+- [ ] Make the bytes only when they are asked for in `src/clipboard_picture.c`. Done when: copying a 100 megapixel picture returns at once. Cheaper substitute: at copying.
+- [ ] Commit: `windows: pictures on the clipboard and in drags`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 

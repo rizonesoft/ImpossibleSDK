@@ -34,17 +34,17 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Exact corner smoothing | -- | [ ] |
 | 2 | §2 | Template compiler | -- | [ ] |
-| 3 | §3 | Element tree and layout | §2 | [ ] |
+| 3 | §3 | Element tree and layout | §2, §17 | [ ] |
 | 4 | §4 | Visual states and animation | §3 | [ ] |
-| 5 | §5 | Text in fixed point | §1 | [ ] |
+| 5 | §5 | Text in fixed point | §1, §17 | [ ] |
 | 6 | §6 | Input, focus and the Windows layer | §4, §5 | [ ] |
 | 7 | §7 | Button, toggle switch, text box and list view | §6, §8, §9, §14, §17, T02 §2, T02 §5, T02 §6, D07 T01 §2 | [ ] |
 | 8 | §8 | Host callback table | §3 | [ ] |
 | 9 | §9 | Dirty rectangles and frame timing | §4, §8 | [ ] |
-| 10 | §10 | Clips, opacity and layers | §1 | [ ] |
+| 10 | §10 | Clips, opacity and layers | §1, §17 | [ ] |
 | 11 | §11 | Transforms and pictures | §10 | [ ] |
 | 12 | §12 | Shadows and materials | §8, §10 | [ ] |
-| 13 | §13 | Paths, arcs and gradients | §1 | [ ] |
+| 13 | §13 | Paths, arcs and gradients | §1, §17 | [ ] |
 | 14 | §14 | Theme, accent and contrast changes while running | §4, §8 | [ ] |
 | 15 | §15 | Theme transitions | §4, §11 | [ ] |
 | 16 | §16 | Remaining panels | §3 | [ ] |
@@ -196,7 +196,7 @@ The first four controls from compiled templates, with behaviour ported from the 
 - [ ] Build the toggle switch with drag in `ui/controls/toggle.c`. Done when: drag, click and Space give WinUI's results. Cheaper substitute: click only.
 - [ ] Build the text box with caret, selection, clipboard and undo in `ui/controls/textbox.c`. Done when: a recorded key script gives the same text and selection as WinUI. Cheaper substitute: append-only input.
 - [ ] Build the list view with selection modes and virtual rows in `ui/controls/listview.c`. Done when: 100,000 rows scroll with at most the visible rows drawn. Cheaper substitute: drawing all rows.
-- [ ] Build every `.c` below `ui/` from one list that `cmake/ImpossibleSDK.cmake` and the portable test of `tests/test_ui.py` both read; both read only `ui/*.c` today. Done when: a Windows call planted in `ui/controls/` and one in `ui/dialogs/` each fail the portable test. Cheaper substitute: a folder at a time.
+- [ ] Name every `.c` below `ui/` in `ui/sources.json` as portable or optional, read by `cmake/ImpossibleSDK.cmake` and the portable test of `tests/test_ui.py`; both read only `ui/*.c` today. Done when: an unnamed file is refused, optional files stay out of the portable build, a Windows call planted in `ui/controls/` and one in `ui/dialogs/` each fail the portable test. Cheaper substitute: a folder at a time.
 - [ ] Show the list view's hover, pressed, selected and focus states in `ui/controls/listview.c`. Done when: every state of the pinned ListViewItem template matches. Cheaper substitute: hover and selected.
 - [ ] Add the gallery page and its keyboard walk to `tests/test_ui.py`. Done when: the walk passes on Windows.
 - [ ] Commit: `ui: the first four controls`
@@ -441,7 +441,7 @@ The engine has no floating point and no SIMD, so its speed is measured from the 
 - [ ] Measure scenes in `tests/fixtures/bench.c`: fills, rounded shapes, shadows, layers and 100 buttons. Done when: `tools/bench.py` prints cycles per pixel for each, stable within 5 percent. Cheaper substitute: a stopwatch.
 - [ ] Record budgets in `tests/budgets.json` and fail above them. Done when: a planted slow path fails the check. Cheaper substitute: a printed number.
 - [ ] Add fast paths for opaque and constant rows in `ui/draw.c`. Done when: the bytes are equal to the plain path on random scenes. Cheaper substitute: different rounding.
-- [ ] Add optional SIMD files in `ui/simd/` chosen by the host. Done when: the bytes are equal with and without, and the portable build leaves them out. Cheaper substitute: SSE in the portable files.
+- [ ] Add optional SIMD files in `ui/simd/` chosen by the host. Done when: the bytes are equal with and without, and `ui/sources.json` names them optional. Cheaper substitute: SSE in the portable files.
 - [ ] Scroll by moving pixels where nothing else changed, in `ui/dirty.c`. Done when: a moved area of a made-up tree redraws only the new strip. Cheaper substitute: full redraw.
 - [ ] Commit: `ui: drawing speed budgets`
 

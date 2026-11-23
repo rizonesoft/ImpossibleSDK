@@ -35,7 +35,7 @@ title: "TODO-01 -- Network"
 | 1 | §1 | Random numbers and kept secrets | D02 T01 §1 | [ ] |
 | 2 | §2 | Connections | §1 | [ ] |
 | 3 | §3 | TLS | §2 | [ ] |
-| 4 | §4 | HTTP | §3 | [ ] |
+| 4 | §4 | HTTP | §3, D02 T01 §2 | [ ] |
 | 5 | §5 | JSON | D02 T01 §1 | [ ] |
 
 ## 1. Random numbers and kept secrets
@@ -72,6 +72,8 @@ Names, connecting with both address families, waiting, stopping and time limits,
 2. Cover it in `tests/`. Done when: the checks fail on a planted fault.
 
 - [ ] Connect with both families in `src/connect.c`. Done when: a dead first address costs no more than its wait. Cheaper substitute: one family.
+- [ ] Add `GetAddrInfoExW`, `GetAddrInfoExCancel`, `GetAddrInfoExOverlappedResult` and `FreeAddrInfoExW` to tier 4 in `abi/tiers.json`, with who owns a pending answer. Done when: the import check passes at tier 4 and refuses tier 3. Cheaper substitute: `getaddrinfo` on a thread.
+- [ ] Resolve names so that they can be cancelled in `src/connect.c`. Done when: 100 stops during a stalled answer return in under a second and leave nothing. Cheaper substitute: leaving the thread behind.
 - [ ] Stop at any moment in `src/connect.c`. Done when: 100 stops at random moments leave no thread or socket. Cheaper substitute: waiting.
 - [ ] Listen on this machine only, for signing in in `src/connect.c`. Done when: another address is not bound. Cheaper substitute: any address.
 - [ ] Commit: `network: connections`
@@ -113,7 +115,8 @@ HTTP/1.1 as a stream: limits, redirects, ranges, validators, chunks and compress
 
 - [ ] Read answers in `parts/http/http.c`. Done when: every prefix of every sample is refused or whole, and a 120 second native fuzz run finds nothing. Cheaper substitute: well-formed answers.
 - [ ] Refuse what reads two ways in `parts/http/http.c`. Done when: a table of 60 ambiguous answers is refused. Cheaper substitute: the first reading.
-- [ ] Follow redirects without carrying secrets to another host in `parts/http/http.c`. Done when: the local servers see none. Cheaper substitute: carrying them.
+- [ ] Follow redirects without carrying secrets to another scheme, host or port in `parts/http/http.c`. Done when: local servers on another port and without TLS receive none. Cheaper substitute: another host only.
+- [ ] Pass the caller's limit through to decompression in `parts/http/http.c`. Done when: a compressed answer that opens to 1 GB stops at the limit within fixed memory. Cheaper substitute: limiting the received bytes.
 - [ ] Commit: `network: http`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -134,6 +137,8 @@ A safe reader and writer of JSON without recursion or floating point.
 - [ ] Read in `parts/json/json.c`. Done when: every prefix of every sample is refused or whole, and a 120 second native fuzz run finds nothing. Cheaper substitute: well-formed JSON.
 - [ ] Pass the published parsing tests in `parts/json/json.c`. Done when: all must-pass and must-fail files agree. Cheaper substitute: some.
 - [ ] Keep numbers as text with exact conversions in `parts/json/json.c`. Done when: the table passes at every limit. Cheaper substitute: rounding.
+- [ ] Write in `parts/json/write.c` with exact escapes and numbers. Done when: 100,000 random values read back equal, in our reader and in Python's. Cheaper substitute: joining text.
+- [ ] Report a failed output and a wrong order of calls in `parts/json/write.c`. Done when: a planted full output and each wrong call give a named error. Cheaper substitute: ignoring them.
 - [ ] Commit: `network: json`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.

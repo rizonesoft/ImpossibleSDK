@@ -1283,7 +1283,7 @@ Text that is hidden and wiped.
 - [ ] Draw every state from the theme data in `ui/controls/password_box.c`, with its cases in `reference/cases/password_box.json`. Done when: frames equal real WinUI at 100, 150, 200 and 300 percent in light, dark and contrast. Cheaper substitute: one theme.
 - [ ] Draw one dot per character and nothing else in `ui/controls/password_box.c`. Done when: no glyph of the text is drawn unless shown. Cheaper substitute: drawing both.
 - [ ] Show while the button is held, by mode in `ui/controls/password_box.c`. Done when: scripts equal real WinUI. Cheaper substitute: a toggle.
-- [ ] Refuse copy, cut and drag in `ui/controls/password_box.c`. Done when: the clipboard stays as it was. Cheaper substitute: allowing.
+- [ ] Refuse copy, cut and drag in `ui/controls/password_box.c`. Done when: the clipboard stays as it was, and a drop target receives no data object. Cheaper substitute: the clipboard only.
 - [ ] Wipe the buffer on change, clear and close in `ui/controls/password_box.c`. Done when: the bytes are seen zero in the built program. Cheaper substitute: freeing.
 - [ ] Turn off the input method and say that Caps Lock is on in `ui/controls/password_box.c`. Done when: both are seen. Cheaper substitute: neither.
 - [ ] Handle the editing keys without copy and cut in `ui/controls/password_box.c`. Done when: the script `reference/scripts/password_box.json` gives the events and focus real WinUI gives. Cheaper substitute: pointer only.
@@ -1350,7 +1350,8 @@ Wrong words underlined, with suggestions, from a speller the host gives.
 - [ ] Ask the host for wrong ranges off the window's work in `ui/spelling.c`. Done when: typing 10,000 words never waits. Cheaper substitute: at once.
 - [ ] Draw the marks in `ui/spelling.c`. Done when: frames match real WinUI. Cheaper substitute: a line.
 - [ ] Offer suggestions, ignore and add in the text menu in `ui/spelling.c`. Done when: each changes the text or the list. Cheaper substitute: replace.
-- [ ] Use Windows' speller in `src/spell.c`. Done when: marks equal a WinUI text box's for 500 sentences. Cheaper substitute: none.
+- [ ] Add the COM functions Windows' speller needs to tier 2 in `abi/tiers.json`, with what the OS must give. Done when: the import check passes at tier 2 and refuses tier 1. Cheaper substitute: an unchecked call.
+- [ ] Fill the speller callback from Windows in `src/spell.c`. Done when: marks equal a WinUI text box's for 500 sentences, and a correction, an ignored and an added word each work through the text menu. Cheaper substitute: none.
 - [ ] Work without a speller in `ui/spelling.c`. Done when: nothing is marked and no menu entry shows. Cheaper substitute: a crash.
 - [ ] Give marks to the screen reader in `ui/spelling.c`. Done when: the text annotations equal real WinUI's. Cheaper substitute: drawing.
 - [ ] Commit: `controls: spelling marks`

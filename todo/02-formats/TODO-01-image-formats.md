@@ -76,7 +76,7 @@ Deflate data sits inside PNG, so it comes first. Own code, because the OS part m
 **Build order:**
 
 1. Write `parts/inflate/inflate.c`. Done when: zlib's own test vectors pass.
-2. Write CRC-32 and Adler-32 beside it. Done when: both equal Python's `zlib`.
+2. Write CRC-32 and Adler-32 in `parts/checksum/`, the only place they are written. Done when: both equal Python's `zlib`.
 
 - [ ] Inflate stored, fixed and dynamic blocks into a bounded buffer in `parts/inflate/inflate.c`. Done when: 10,000 random inputs from Python's `zlib` at every level round trip. Cheaper substitute: dynamic blocks only.
 - [ ] Take input and give output in any pieces in `parts/inflate/inflate.c`. Done when: input cut at every byte, inside a block too, gives equal output with one fixed window of memory. Cheaper substitute: whole buffers.
@@ -100,7 +100,7 @@ All colour types, bit depths, interlacing, palettes, transparency and gamma-free
 2. Add `tests/fixtures/png_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
 - [ ] Parse the header of PNG in `parts/png/png.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
-- [ ] Decode every variant the specification requires in `parts/png/png.c`. Done when: all of PngSuite decodes to the pixels of a pinned reference decoder. Cheaper substitute: the common variant only.
+- [ ] Decode every variant the specification requires in `parts/png/png.c`. Done when: every valid file of PngSuite gives the pixels of a pinned reference decoder, and every invalid one its named error. Cheaper substitute: the common variant only.
 - [ ] Return a named error for truncated and damaged data with no partial picture in `parts/png/png.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
 - [ ] Fuzz `parts/png/png.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
 - [ ] Commit: `formats: PNG decoder`
@@ -242,7 +242,7 @@ Frames with time, disposal and blending, from either format, through one reader.
 Baseline and progressive JPEG from a picture, in integers, for Paint and Photos.
 
 **Phase:** 4
-**Needs:** none
+**Needs:** windows-host
 **Surface:** no
 
 **Build order:**
@@ -253,7 +253,7 @@ Baseline and progressive JPEG from a picture, in integers, for Paint and Photos.
 - [ ] Write baseline files with quality 1 to 100 in `parts/jpeg/write.c`. Done when: Windows and the reference decoder read each. Cheaper substitute: one quality.
 - [ ] Subsample colour by choice in `parts/jpeg/write.c`. Done when: 4:4:4, 4:2:2 and 4:2:0 read back within the reference encoder's error. Cheaper substitute: 4:2:0 only.
 - [ ] Build the best Huffman tables and progressive scans in `parts/jpeg/write.c`. Done when: files are no larger than the reference encoder's by more than 2 percent. Cheaper substitute: fixed tables.
-- [ ] Turn and flip without loss in `parts/jpeg/transform.c`. Done when: four turns give the first file's coefficients. Cheaper substitute: decode and encode.
+- [ ] Turn and flip without loss in `parts/jpeg/transform.c`. Done when: one turn and each flip of an asymmetric picture give the size and the coefficient places worked out by hand, partial edge blocks included. Cheaper substitute: four turns giving the first picture.
 - [ ] Write the same bytes on every system in `tests/test_parts.py`. Done when: Windows and the portable build are equal. Cheaper substitute: close.
 - [ ] Commit: `formats: JPEG writer`
 

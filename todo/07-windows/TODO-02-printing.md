@@ -143,8 +143,8 @@ What the user sees while printing.
 - [ ] Run the job on a worker in `src/print.c`. Done when: the window draws during 500 pages. Cheaper substitute: blocking.
 - [ ] Tell the page being printed and cancel at any moment in `src/print.c`. Done when: random cancels leave no job and no thread. Cheaper substitute: after the page.
 - [ ] Name each error and what was already sent in `src/print.c`. Done when: a table of planted failures passes. Cheaper substitute: one error.
-- [ ] Print the whole document again after a failed job, saying when pages may already have come out, in `src/print.c`. Done when: a job aborted at page 60 of 100 is followed by one of 100 pages. Cheaper substitute: only the unsent pages.
-- [ ] Print from a fixed copy of the pages or a page source kept alive until the job ends, in `include/impossible/print.h`. Done when: editing and closing the document at random moments prints the first pages and frees everything. Cheaper substitute: the live document.
+- [ ] Report a failed job as ended, with what may have come out, and print again only when the program asks, in `src/print.c`. Done when: a job aborted at page 60 of 100 ends; dismissing the message makes no second job, and asking makes one of 100 pages. Cheaper substitute: a retry by itself.
+- [ ] Print from a snapshot or an unchanging revision kept until the job ends, in `include/impossible/print.h`. Done when: editing page 80 while page 10 prints, or closing the document, prints page 80 as it was when the job was sent, and everything is freed. Cheaper substitute: a page source that can change.
 - [ ] Commit: `printing: progress, cancelling and errors`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -168,7 +168,7 @@ The pages as they will print.
 
 - [ ] Draw pages through the print layout in `ui/controls/print_preview.c`. Done when: each preview page equals the PDF's page scaled down, within 4 of 255. Cheaper substitute: a second layout.
 - [ ] Show one, two or many pages with zoom in `ui/controls/print_preview.c`. Done when: a recorded script reads back page and zoom. Cheaper substitute: one page.
-- [ ] Draw only visible pages in `ui/controls/print_preview.c`. Done when: 1,000 pages keep under 10 page pictures. Cheaper substitute: all pages.
+- [ ] Keep previews within a byte limit in `ui/controls/print_preview.c`. Done when: 1,000 pages at 1200 DPI and each zoom stay under 96 MB at their peak. Cheaper substitute: counting pictures.
 - [ ] Move by Page Up, Page Down, Home, End and a page number in `ui/controls/print_preview.c`. Done when: the key script passes. Cheaper substitute: the scroll bar.
 - [ ] Name pages to the screen reader in `ui/controls/print_preview.c`. Done when: the peer gives page and count. Cheaper substitute: a picture.
 - [ ] Commit: `printing: preview`

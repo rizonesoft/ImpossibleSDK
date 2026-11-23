@@ -36,11 +36,11 @@ title: "TODO-01 -- Parts, Packaging and Release"
 | 4 | §4 | Installer | §3, D06 T01 §2 | [ ] |
 | 5 | §5 | File types | §4, D07 T01 §15 | [ ] |
 | 6 | §6 | Update and removal | §4, §5 | [ ] |
-| 7 | §7 | Program template on Impossible UI | D05 T01 §30, D05 T03 §4, D07 T01 §14 | [ ] |
+| 7 | §7 | Program template on Impossible UI | D05 T01 §30, D05 T03 §5, D07 T01 §14 | [ ] |
 | 8 | §8 | API reference | §1 | [ ] |
 | 9 | §9 | Programming guide | §7, §8 | [ ] |
 | 10 | §10 | Versions and compatibility | §8 | [ ] |
-| 11 | §11 | Whole-program proof | §6, §7, D05 T02 §22, D07 T01 §5, D07 T01 §7, D07 T01 §9, D07 T01 §12, D07 T02 §7 | [ ] |
+| 11 | §11 | Whole-program proof | §6, §7, D05 T02 §22, D07 T01 §5, D07 T01 §7, D07 T01 §9, D07 T01 §12, D07 T01 §16, D07 T02 §7 | [ ] |
 | 12 | §12 | Release archive | §9, §10, §11 | [ ] |
 | 13 | §13 | First public release | §12 | [ ] |
 
@@ -79,10 +79,10 @@ One checked format for what every program says about itself.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
 - [ ] Write the rules in `docs/app-json.md` and `tools/app_json.py`: name, label, version, tier, `opens`, `needs`, icon, publisher. Done when: a table of 60 good and bad files is judged right. Cheaper substitute: a sample.
-- [ ] Check the 41 existing files with `tools/app_json.py`. Done when: `python3 tools/app_json.py --all ..` names every fault with file and field. Cheaper substitute: new ones only.
+- [ ] Check fixed copies of every kind of `app.json` in `tests/fixtures/apps/`. Done when: they pass or fail as listed, in a clone with nothing beside it. Cheaper substitute: the sibling folders.
 - [ ] Measure that the tier equals the program's imports in `tools/app_build.py`. Done when: a program above or below its tier is named. Cheaper substitute: trusting it.
 - [ ] Read `needs` as `tools/new_app.py` documents it, `id` and `what`, with an optional `fallback`, in `tools/app_json.py`. Done when: an existing declaration passes the package builder unchanged and a wrong id is refused. Cheaper substitute: a new format.
-- [ ] Correct each file that fails, in its own repository. Done when: `python3 tools/app_json.py --all ..` exits 0. Cheaper substitute: a list of faults.
+- [ ] Report on the programs of a named folder by `tools/app_json.py --all <folder>`, as a tool and not a test. Done when: each fault is named with file and field, and none changes this repository's result. Cheaper substitute: a build step.
 - [ ] Commit: `tools: the app.json format`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -128,6 +128,8 @@ Installs for the current user without administrator rights.
 - [ ] Write the setup program in `tools/installer/main.c` with its own list `abi/installer.json`, since it is for Windows only. Done when: a function outside the list fails its build. Cheaper substitute: an unchecked program.
 - [ ] Copy to a new version folder and switch in one step in `tools/installer/install.c`. Done when: killing it at any moment leaves the old or the new program whole. Cheaper substitute: overwriting.
 - [ ] Refuse a damaged or changed package in `tools/installer/install.c`. Done when: every flipped byte is refused before anything is written. Cheaper substitute: at the first use.
+- [ ] Check the signature and its publisher before anything is written in `tools/installer/trust.c`. Done when: a wrong, removed or foreign signature on a signed program is refused. Cheaper substitute: a checksum.
+- [ ] Say plainly that an unsigned package has no known publisher, and refuse one as the update of a signed program, in `tools/installer/trust.c`. Done when: both are tested. Cheaper substitute: installing silently.
 - [ ] Refuse paths that leave the program's folder in `tools/installer/install.c`. Done when: a table of 40 hostile names writes nothing. Cheaper substitute: trusting names.
 - [ ] Add Start entries and the Windows list of installed programs in `tools/installer/register.c`. Done when: both show name, version, icon and publisher. Cheaper substitute: files only.
 - [ ] Show progress and errors with Impossible UI, and run without a window on request, in `tools/installer/main.c`. Done when: both ways give the same result and code. Cheaper substitute: a console.
@@ -256,7 +258,7 @@ A version that means something.
 
 - [ ] Keep one version in `VERSION` and build it in. Done when: `im_version()` and the package agree. Cheaper substitute: several places.
 - [ ] Compare the public API with the last release in `tools/api_diff.py`. Done when: a removed or changed name without a major version fails. Cheaper substitute: review.
-- [ ] Build every pinned program against the new commit in `tools/check_apps.py`. Done when: a program that breaks is named. Cheaper substitute: the samples.
+- [ ] Build the fixture programs of `tests/fixtures/apps/`, and on request the programs named with their revisions in a file, by `tools/check_apps.py`. Done when: a clone with nothing beside it passes, and a program that breaks is named. Cheaper substitute: the folders beside it.
 - [ ] Write `CHANGELOG.md` entries per change that a program can see. Done when: the check refuses an API change without one. Cheaper substitute: commit titles.
 - [ ] Commit: `release: versions and compatibility`
 
@@ -279,6 +281,7 @@ One program that uses everything, as a user would.
 - [ ] Run it for an hour of random use in `tools/soak.py`. Done when: memory, handles and windows return to the start. Cheaper substitute: a minute.
 - [ ] Package, install, open a file, print, update and remove it in `tests/test_whole.py`. Done when: each step reads back its result. Cheaper substitute: by hand.
 - [ ] Compile its portable part with the OS flags in `tests/test_whole.py`. Done when: no undefined symbol beyond the four memory routines. Cheaper substitute: Windows only.
+- [ ] Find no item of any `docs/os-roadmap/` file without an answer by `tools/check_roadmap.py --all`. Done when: it exits 0. Cheaper substitute: the graphics files.
 - [ ] Commit: `release: the whole-program proof`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -297,7 +300,8 @@ Everything a release needs, built by one command.
 2. Cover it in `tests/test_release.py`. Done when: the checks fail on a planted fault.
 
 - [ ] Build the archive of headers, sources, libraries, tools, guide and notices in `tools/release.py`. Done when: two machines give equal bytes. Cheaper substitute: a ZIP by hand.
-- [ ] Refuse a dirty tree, a failing test, a wrong version or any open section of phases 1 to 6 in `tools/release.py`. Done when: each planted fault stops it. Cheaper substitute: a warning.
+- [ ] Refuse a dirty tree, a failing test or a wrong version in `tools/release.py`. Done when: each planted fault stops the build. Cheaper substitute: a warning.
+- [ ] Refuse to mark an archive for publication while any section of phases 1 to 6 but this one is open, in `tools/release.py --publishable`. Done when: an open section is named, and building for the proof below still works. Cheaper substitute: one switch for both.
 - [ ] Write hashes and a list of contents in `tools/release.py`. Done when: `tools/release.py --check` verifies them. Cheaper substitute: none.
 - [ ] Build a program from the archive alone in `tests/test_release.py`. Done when: it runs on Windows. Cheaper substitute: from the repository.
 - [ ] Commit: `release: the archive`

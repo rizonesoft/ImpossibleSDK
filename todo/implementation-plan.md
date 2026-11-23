@@ -14,6 +14,7 @@ Sections: 25 | Checklist items: 136
 | ------ | ----------- | ------------------------------------------------ | ----------------------------- | ----- |
 | [ ]    | D01 T01 §1  | Exact corner smoothing                           | windows-host                  | 4     |
 | [ ]    | D01 T01 §2  | Template compiler                                | none                          | 4     |
+| [ ]    | D01 T01 §17 | Reference program for any control                | windows-host, display-session | 10    |
 | [ ]    | D01 T01 §3  | Element tree and layout                          | windows-host                  | 4     |
 | [ ]    | D01 T01 §4  | Visual states and animation                      | none                          | 4     |
 | [ ]    | D01 T01 §5  | Text in fixed point                              | windows-host                  | 4     |
@@ -27,7 +28,6 @@ Sections: 25 | Checklist items: 136
 | [ ]    | D01 T01 §14 | Theme, accent and contrast changes while running | windows-host, display-session | 6     |
 | [ ]    | D01 T01 §15 | Theme transitions                                | windows-host, display-session | 5     |
 | [ ]    | D01 T01 §16 | Remaining panels                                 | windows-host                  | 6     |
-| [ ]    | D01 T01 §17 | Reference program for any control                | windows-host, display-session | 10    |
 | [ ]    | D01 T01 §18 | Drawing speed budgets                            | windows-host                  | 6     |
 | [ ]    | D01 T02 §1  | Bundled fonts and font lookup                    | windows-host                  | 6     |
 | [ ]    | D01 T02 §2  | Glyph cache                                      | none                          | 5     |
@@ -53,7 +53,7 @@ Sections: 6 | Checklist items: 42
 
 ### Phase 3: All controls
 
-Sections: 99 | Checklist items: 1048
+Sections: 101 | Checklist items: 1062
 
 | Status | Reference   | Deliverable                                | Needs                         | Items |
 | ------ | ----------- | ------------------------------------------ | ----------------------------- | ----- |
@@ -99,7 +99,7 @@ Sections: 99 | Checklist items: 1048
 | [ ]    | D05 T01 §36 | Progress ring                              | windows-host, display-session | 11    |
 | [ ]    | D05 T01 §37 | Password box                               | windows-host, display-session | 13    |
 | [ ]    | D05 T01 §38 | Rich edit box                              | windows-host, display-session | 14    |
-| [ ]    | D05 T01 §39 | Spelling marks                             | windows-host, display-session | 7     |
+| [ ]    | D05 T01 §39 | Spelling marks                             | windows-host, display-session | 8     |
 | [ ]    | D05 T01 §40 | Auto-suggest and search box                | windows-host, display-session | 13    |
 | [ ]    | D05 T01 §41 | Menu bar                                   | windows-host, display-session | 12    |
 | [ ]    | D05 T01 §42 | Command bar flyout                         | windows-host, display-session | 12    |
@@ -138,7 +138,6 @@ Sections: 99 | Checklist items: 1048
 | [ ]    | D05 T02 §21 | Layout panel and monochrome overlay        | windows-host, display-session | 5     |
 | [ ]    | D05 T03 §1  | Message box                                | windows-host, display-session | 9     |
 | [ ]    | D05 T03 §2  | Text input dialog                          | windows-host, display-session | 8     |
-| [ ]    | D05 T03 §3  | Files and places model                     | windows-host, display-session | 11    |
 | [ ]    | D05 T03 §7  | Colour dialog                              | windows-host, display-session | 7     |
 | [ ]    | D05 T03 §8  | Font dialog                                | windows-host, display-session | 7     |
 | [ ]    | D07 T01 §5  | Input methods                              | windows-host, display-session | 7     |
@@ -149,56 +148,58 @@ Sections: 99 | Checklist items: 1048
 | [ ]    | D05 T01 §49 | Grid view                                  | windows-host, display-session | 13    |
 | [ ]    | D05 T01 §50 | List view groups, reorder and columns      | windows-host, display-session | 14    |
 | [ ]    | D05 T01 §51 | Semantic zoom                              | windows-host, display-session | 11    |
-| [ ]    | D05 T03 §4  | Open file dialog                           | windows-host, display-session | 11    |
-| [ ]    | D05 T03 §5  | Save file dialog                           | windows-host, display-session | 9     |
-| [ ]    | D05 T03 §6  | Folder dialog                              | windows-host, display-session | 7     |
 | [ ]    | D05 T03 §9  | Property sheet and wizard                  | windows-host, display-session | 10    |
 | [ ]    | D07 T01 §8  | Screen reader bridge                       | windows-host, display-session | 8     |
 | [ ]    | D07 T01 §9  | Screen reader text                         | windows-host, display-session | 6     |
+| [ ]    | D07 T01 §10 | Worker threads                             | windows-host                  | 7     |
+| [ ]    | D07 T01 §11 | Watching files                             | windows-host                  | 6     |
+| [ ]    | D05 T03 §3  | Files and places model                     | windows-host, display-session | 11    |
+| [ ]    | D05 T03 §4  | Open file dialog                           | windows-host, display-session | 11    |
+| [ ]    | D05 T03 §5  | Save file dialog                           | windows-host, display-session | 9     |
+| [ ]    | D05 T03 §6  | Folder dialog                              | windows-host, display-session | 7     |
 | [ ]    | D05 T02 §22 | All controls accepted                      | windows-host, display-session | 6     |
 
 ### Phase 4: Formats and services
 
-Sections: 36 | Checklist items: 182
+Sections: 35 | Checklist items: 184
 
-| Status | Reference   | Deliverable                         | Needs                         | Items |
-| ------ | ----------- | ----------------------------------- | ----------------------------- | ----- |
-| [ ]    | D02 T01 §2  | Inflate and checksums               | none                          | 5     |
-| [ ]    | D02 T01 §3  | PNG decoder                         | none                          | 5     |
-| [ ]    | D02 T01 §4  | JPEG decoder                        | none                          | 5     |
-| [ ]    | D02 T01 §5  | BMP decoder                         | none                          | 5     |
-| [ ]    | D02 T01 §6  | GIF decoder                         | none                          | 5     |
-| [ ]    | D02 T01 §7  | WebP lossless decoder               | none                          | 7     |
-| [ ]    | D02 T01 §8  | WebP lossy decoder and alpha        | none                          | 7     |
-| [ ]    | D02 T01 §9  | Animated WebP and GIF playback      | none                          | 5     |
-| [ ]    | D02 T01 §10 | JPEG writer                         | none                          | 6     |
-| [ ]    | D02 T01 §12 | Picture orientation and facts       | none                          | 5     |
-| [ ]    | D03 T01 §1  | Random numbers and kept secrets     | windows-host                  | 4     |
-| [ ]    | D03 T01 §2  | Connections                         | windows-host                  | 4     |
-| [ ]    | D03 T01 §3  | TLS                                 | windows-host                  | 4     |
-| [ ]    | D03 T01 §4  | HTTP                                | none                          | 4     |
-| [ ]    | D03 T01 §5  | JSON                                | none                          | 4     |
-| [ ]    | D04 T01 §1  | HTML tokenizer                      | none                          | 4     |
-| [ ]    | D04 T01 §2  | HTML tree builder                   | none                          | 4     |
-| [ ]    | D04 T01 §3  | Safe subset                         | none                          | 4     |
-| [ ]    | D04 T01 §4  | CSS syntax and selectors            | none                          | 4     |
-| [ ]    | D04 T01 §5  | Values and cascade                  | none                          | 4     |
-| [ ]    | D06 T01 §2  | Deflate                             | none                          | 5     |
-| [ ]    | D06 T01 §3  | Hashes and checksums                | none                          | 4     |
-| [ ]    | D06 T01 §4  | Text buffer                         | none                          | 4     |
-| [ ]    | D06 T01 §6  | Time zones and recurrence           | none                          | 4     |
-| [ ]    | D06 T01 §7  | Lossless sound                      | none                          | 5     |
-| [ ]    | D06 T01 §8  | Lossy sound                         | none                          | 5     |
-| [ ]    | D06 T01 §9  | SSH transport                       | none                          | 4     |
-| [ ]    | D06 T01 §10 | PNG and BMP writers                 | windows-host                  | 5     |
-| [ ]    | D02 T01 §11 | ICO and CUR, both ways              | windows-host                  | 6     |
-| [ ]    | D06 T01 §11 | Picture scaler                      | none                          | 5     |
-| [ ]    | D07 T01 §10 | Worker threads                      | none                          | 7     |
-| [ ]    | D07 T01 §11 | Watching files                      | windows-host                  | 6     |
-| [ ]    | D07 T01 §12 | Sound playback                      | windows-host                  | 8     |
-| [ ]    | D07 T01 §13 | Sound recording                     | windows-host, display-session | 5     |
-| [ ]    | D07 T01 §14 | Program settings                    | windows-host                  | 7     |
-| [ ]    | D07 T01 §15 | Starting programs and opening links | windows-host                  | 7     |
+| Status | Reference   | Deliverable                            | Needs                         | Items |
+| ------ | ----------- | -------------------------------------- | ----------------------------- | ----- |
+| [ ]    | D02 T01 §2  | Inflate and checksums                  | none                          | 5     |
+| [ ]    | D02 T01 §3  | PNG decoder                            | none                          | 5     |
+| [ ]    | D02 T01 §4  | JPEG decoder                           | none                          | 5     |
+| [ ]    | D02 T01 §5  | BMP decoder                            | none                          | 5     |
+| [ ]    | D02 T01 §6  | GIF decoder                            | none                          | 5     |
+| [ ]    | D02 T01 §7  | WebP lossless decoder                  | none                          | 7     |
+| [ ]    | D02 T01 §8  | WebP lossy decoder and alpha           | none                          | 7     |
+| [ ]    | D02 T01 §9  | Animated WebP and GIF playback         | none                          | 5     |
+| [ ]    | D02 T01 §10 | JPEG writer                            | windows-host                  | 6     |
+| [ ]    | D02 T01 §12 | Picture orientation and facts          | none                          | 5     |
+| [ ]    | D03 T01 §1  | Random numbers and kept secrets        | windows-host                  | 4     |
+| [ ]    | D03 T01 §2  | Connections                            | windows-host                  | 6     |
+| [ ]    | D03 T01 §3  | TLS                                    | windows-host                  | 4     |
+| [ ]    | D03 T01 §4  | HTTP                                   | none                          | 5     |
+| [ ]    | D03 T01 §5  | JSON                                   | none                          | 6     |
+| [ ]    | D04 T01 §1  | HTML tokenizer                         | none                          | 4     |
+| [ ]    | D04 T01 §2  | HTML tree builder                      | none                          | 5     |
+| [ ]    | D04 T01 §3  | Safe subset                            | none                          | 4     |
+| [ ]    | D04 T01 §4  | CSS syntax and selectors               | none                          | 4     |
+| [ ]    | D04 T01 §5  | Values and cascade                     | none                          | 4     |
+| [ ]    | D06 T01 §2  | Deflate                                | none                          | 5     |
+| [ ]    | D06 T01 §3  | Hashes                                 | none                          | 4     |
+| [ ]    | D06 T01 §4  | Text buffer                            | none                          | 4     |
+| [ ]    | D06 T01 §6  | Time zones and recurrence              | none                          | 4     |
+| [ ]    | D06 T01 §7  | Lossless sound                         | none                          | 5     |
+| [ ]    | D06 T01 §8  | Lossy sound                            | none                          | 5     |
+| [ ]    | D06 T01 §9  | SSH transport                          | windows-host                  | 7     |
+| [ ]    | D06 T01 §10 | PNG and BMP writers                    | windows-host                  | 5     |
+| [ ]    | D02 T01 §11 | ICO and CUR, both ways                 | windows-host                  | 6     |
+| [ ]    | D06 T01 §11 | Picture scaler                         | none                          | 5     |
+| [ ]    | D07 T01 §12 | Sound playback                         | windows-host                  | 8     |
+| [ ]    | D07 T01 §13 | Sound recording                        | windows-host, display-session | 5     |
+| [ ]    | D07 T01 §14 | Program settings                       | windows-host                  | 7     |
+| [ ]    | D07 T01 §15 | Starting programs and opening links    | windows-host                  | 7     |
+| [ ]    | D07 T01 §16 | Pictures on the clipboard and in drags | windows-host, display-session | 6     |
 
 ### Phase 5: Printing
 
@@ -216,22 +217,22 @@ Sections: 7 | Checklist items: 43
 
 ### Phase 6: Parts and release
 
-Sections: 12 | Checklist items: 64
+Sections: 12 | Checklist items: 68
 
 | Status | Reference   | Deliverable                          | Needs                         | Items |
 | ------ | ----------- | ------------------------------------ | ----------------------------- | ----- |
 | [ ]    | D08 T01 §1  | Parts for drawing, text and controls | none                          | 5     |
 | [ ]    | D08 T01 §2  | The `app.json` format                | none                          | 6     |
 | [ ]    | D08 T01 §3  | Package builder                      | windows-host                  | 5     |
-| [ ]    | D08 T01 §4  | Installer                            | windows-host, display-session | 7     |
+| [ ]    | D08 T01 §4  | Installer                            | windows-host, display-session | 9     |
 | [ ]    | D08 T01 §5  | File types                           | windows-host, display-session | 5     |
 | [ ]    | D08 T01 §6  | Update and removal                   | windows-host, display-session | 6     |
 | [ ]    | D08 T01 §7  | Program template on Impossible UI    | windows-host, display-session | 5     |
 | [ ]    | D08 T01 §8  | API reference                        | none                          | 5     |
 | [ ]    | D08 T01 §9  | Programming guide                    | windows-host                  | 5     |
 | [ ]    | D08 T01 §10 | Versions and compatibility           | none                          | 5     |
-| [ ]    | D08 T01 §11 | Whole-program proof                  | windows-host, display-session | 5     |
-| [ ]    | D08 T01 §12 | Release archive                      | windows-host                  | 5     |
+| [ ]    | D08 T01 §11 | Whole-program proof                  | windows-host, display-session | 6     |
+| [ ]    | D08 T01 §12 | Release archive                      | windows-host                  | 6     |
 
 ### Phase 99: Manual, operator only
 
@@ -241,6 +242,6 @@ Sections: 1 | Checklist items: 3
 | ------ | ----------- | -------------------- | -------- | ----- |
 | [ ]    | D08 T01 §13 | First public release | operator | 3     |
 
-Progress: 0/186 verified sections, 6 ready to run now.
+Progress: 0/187 verified sections, 6 ready to run now.
 
-Checklist: 0/1518 items completed (includes Commit items).
+Checklist: 0/1538 items completed (includes Commit items).
