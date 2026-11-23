@@ -1,10 +1,12 @@
 """Impossible UI draws what it should, and stays something the OS can take."""
+import json
 import os
 import platform
 import subprocess
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +52,27 @@ class Generated(unittest.TestCase):
 class Drawing(unittest.TestCase):
     def test_drawing(self):
         self.assertEqual(subprocess.run([str(BUILD / "ui-tests.exe")], timeout=60).returncode, 0)
+
+    def test_buttons_match_real_winui(self):
+        """Straight edges and fills may differ by rounding only; corners have their own limit."""
+        folder = ROOT / "tests/reference"
+        cases = json.loads((folder / "cases.json").read_text(encoding="utf-8"))["cases"]
+        ours = subprocess.run([str(BUILD / "control-shots.exe")], capture_output=True, timeout=60, check=True).stdout
+        size = 160 * 64 * 4
+        self.assertEqual(len(ours), size * len(cases))
+        for index, case in enumerate(cases):
+            mine, real = ours[index * size:(index + 1) * size], zlib.decompress((folder / f"{case['file']}.z").read_bytes())
+            edge = corner = 0
+            for p in range(160 * 64):
+                x, y = p % 160, p // 160
+                off = max(abs(mine[p * 4 + k] - real[p * 4 + k]) for k in range(3))
+                if (x < 25 or x >= 135) and (y < 21 or y >= 43):
+                    corner = max(corner, off)
+                else:
+                    edge = max(edge, off)
+            name = f"{case['control']} {case['state']} {case['theme']}"
+            self.assertLessEqual(edge, 1, name)
+            self.assertLessEqual(corner, 27 if case["control"] == "accent" else 3, name)
 
 
 if __name__ == "__main__":

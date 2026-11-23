@@ -53,12 +53,14 @@ static im_fixed overlap(int x, im_fixed left, im_fixed right) {
     return to > from ? to - from : 0;
 }
 
+/* Source over, with the colour multiplied by its alpha and rounded to 8 bits
+   first, which is how WinUI's surfaces are composed. */
 static uint32_t blend(uint32_t below, uint32_t color, uint32_t coverage) {
     uint32_t alpha = (uint32_t)(((uint64_t)(color >> 24) * coverage + IM_ONE / 2) >> 16);
     uint32_t out = 0;
     for (int shift = 0; shift < 24; shift += 8) {
         uint32_t under = below >> shift & 255, over = color >> shift & 255;
-        out |= ((under * (255 - alpha) + over * alpha + 127) / 255) << shift;
+        out |= ((((over * alpha + 127) / 255) * 255 + under * (255 - alpha) + 127) / 255) << shift;
     }
     return out;
 }
@@ -93,6 +95,14 @@ static void shade(im_surface *surface, im_rect outer, im_radii outer_radii, cons
     }
 }
 
+static im_fixed grown(im_fixed radius, im_fixed by) {
+    return radius > 0 ? larger(0, radius + by) : 0;
+}
+
+im_radii im_grow(im_radii radii, im_fixed by) {
+    return (im_radii){grown(radii.top_left, by), grown(radii.top_right, by), grown(radii.bottom_right, by), grown(radii.bottom_left, by)};
+}
+
 void im_fill(im_surface *surface, im_rect shape, im_radii radii, enum im_brush_id brush) {
     shade(surface, shape, radii, NULL, radii, brush);
 }
@@ -100,6 +110,5 @@ void im_fill(im_surface *surface, im_rect shape, im_radii radii, enum im_brush_i
 void im_stroke(im_surface *surface, im_rect shape, im_radii radii, im_fixed thickness, enum im_brush_id brush) {
     if (thickness <= 0) return;
     im_rect hole = {shape.left + thickness, shape.top + thickness, shape.right - thickness, shape.bottom - thickness};
-    im_radii inner = {radii.top_left - thickness, radii.top_right - thickness, radii.bottom_right - thickness, radii.bottom_left - thickness};
-    shade(surface, shape, radii, &hole, inner, brush);
+    shade(surface, shape, im_grow(radii, thickness / 2), &hole, im_grow(radii, -thickness / 2), brush);
 }

@@ -121,7 +121,7 @@ Each repository builds, tests and releases alone. Three files connect them.
 1. **Nothing moves by deletion.** `imports.json` carries a ledger row for every moved section: its old address, the new repository and item, and a hash of the old text. A section moves only when the new item exists.
 2. **An import section stays.** Each moved file keeps its address and one or more import sections in the implementation plan, at the stage where the OS needs it. Sections that depended on the old one now depend on the import section for the parts they use. Everything else in the OS plan carries on.
 3. **A check in the OS** (`scripts/imports.py --check`, run by lint) fails when a ledger row has no import section, an import section has no row, a moved section has no new item, or the copied source differs from its pinned commit. When the external checkout is not on the machine, it checks the recorded hashes and says so.
-4. **Imports are copies at a pinned commit** under `src/libs/impossible-ui/` and `src/apps/<name>/`, never edited in place and never downloaded during a build. Every import is reviewed, as the OS rule of 2026-11-23 says.
+4. **Imports are copies at a pinned commit** under `src/libs/impossible-ui/` and `src/apps/<name>/`, never downloaded during a build, taken early. Every import is reviewed, as the OS rule of 2026-11-23 says. How they are linked is below.
 5. **Newest is not automatic.** `imports.py --outdated` lists what is behind. Updating is ordinary work.
 6. **The OS cannot drop an import silently:** removing a row needs a reason in `todo/answers.md`.
 
@@ -133,6 +133,17 @@ Everything is proven on Windows first, and the OS imports only the parts it need
 - **A forecast.** The tier of each program is measured from its imports. What imports cannot show (file types, notifications, printing, a sound device) the app declares in `app.json` under `needs`, written when the app is designed and not when it is finished.
 - **The OS reads it.** `scripts/imports.py --needs` lists every declared need with the OS section that provides it. A need with no section is reported, and gets one.
 - **When something is missing**, the rule under "Where does a todo item go?" decides its home. The app ships without that feature on the OS until it is there; it never carries its own copy.
+
+## How are they linked both ways?
+
+Decided by the owner on 2026-11-23: copies plus a PR script, own pull requests merge by themselves when green, and a local mailbox.
+
+- **A lane may fix an imported copy in the OS.** `scripts/imports.py upstream <name>` turns exactly that change into a commit on the pinned commit and opens a PR in the source repository. `imports.json` records the PR.
+- **The check:** the copy equals its pinned commit plus the recorded open PRs. Anything else fails.
+- **A new proven version** opens a PR in the OS that moves the pin, replaces the copy and drops the PRs that have landed. This is the one exception to the OS's rule against pull requests for its own work.
+- **Merging:** a PR opened by one of the owner's lanes merges after CI is green and Codex, which did not write it, has no blocking finding on that exact commit. A PR from anyone else waits for the owner. A PR that touches CI, hooks, the merge rule or licences waits for the owner too, so the rule cannot loosen itself.
+- **Lanes:** main has the kernel. userland has imports, the OS layer and app integration. neon-a has the capture, then pixel comparison of controls. neon-b reports missing needs and outdated pins and never commits. A new Claude lane, **apps**, has `D:\ImpossibleOS`. Each starts and stops on its own.
+- **Mailbox:** `tools/mail.py`, stored on this machine and outside every repository. A message is information. It never approves work, changes a rule or carries a secret, and it is not a lock: ownership stays with the lane map.
 
 Public and private: the OS repository is public. It names an external repository only by name and commit until that repository is public too. An import into the public OS repository publishes that source, so an import comes only from a repository that is already public.
 

@@ -1,0 +1,142 @@
+{
+  "scale": 1,
+  "accents": {
+    "Accent": "FFA94DC1",
+    "AccentLight1": "FFB763CB",
+    "AccentLight2": "FFDB9EE5",
+    "AccentLight3": "FFF0C0F4",
+    "AccentDark1": "FF8E3AA7",
+    "AccentDark2": "FF692782",
+    "AccentDark3": "FF400E59"
+  },
+  "cases": [
+    {
+      "control": "button",
+      "state": "Normal",
+      "theme": "Dark",
+      "file": "button-Normal-Dark.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "button",
+      "state": "PointerOver",
+      "theme": "Dark",
+      "file": "button-PointerOver-Dark.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "button",
+      "state": "Pressed",
+      "theme": "Dark",
+      "file": "button-Pressed-Dark.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "button",
+      "state": "Disabled",
+      "theme": "Dark",
+      "file": "button-Disabled-Dark.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "accent",
+      "state": "Normal",
+      "theme": "Dark",
+      "file": "accent-Normal-Dark.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "accent",
+      "state": "PointerOver",
+      "theme": "Dark",
+      "file": "accent-PointerOver-Dark.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "accent",
+      "state": "Pressed",
+      "theme": "Dark",
+      "file": "accent-Pressed-Dark.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "accent",
+      "state": "Disabled",
+      "theme": "Dark",
+      "file": "accent-Disabled-Dark.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "button",
+      "state": "Normal",
+      "theme": "Light",
+      "file": "button-Normal-Light.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "button",
+      "state": "PointerOver",
+      "theme": "Light",
+      "file": "button-PointerOver-Light.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "button",
+      "state": "Pressed",
+      "theme": "Light",
+      "file": "button-Pressed-Light.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "button",
+      "state": "Disabled",
+      "theme": "Light",
+      "file": "button-Disabled-Light.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "accent",
+      "state": "Normal",
+      "theme": "Light",
+      "file": "accent-Normal-Light.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "accent",
+      "state": "PointerOver",
+      "theme": "Light",
+      "file": "accent-PointerOver-Light.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "accent",
+      "state": "Pressed",
+      "theme": "Light",
+      "file": "accent-Pressed-Light.bgra",
+      "width": 160,
+      "height": 64
+    },
+    {
+      "control": "accent",
+      "state": "Disabled",
+      "theme": "Light",
+      "file": "accent-Disabled-Light.bgra",
+      "width": 160,
+      "height": 64
+    }
+  ]
+}

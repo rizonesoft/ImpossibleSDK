@@ -23,6 +23,10 @@ typedef struct im_surface {
 /* Edges are smoothed. A radius larger than half the shape is reduced to fit. */
 void im_fill(im_surface *surface, im_rect shape, im_radii radii, enum im_brush_id brush);
 
-/* The ring between a shape and the same shape inset by the thickness. The
-   gradient of a border brush runs over the outer shape. */
+/* The ring between a shape and the same shape inset by the thickness. The radii
+   are those of the line's middle, as WinUI's CornerRadius is: half a thickness
+   more outside, half less inside. A gradient runs over the outer shape. */
 void im_stroke(im_surface *surface, im_rect shape, im_radii radii, im_fixed thickness, enum im_brush_id brush);
+
+/* A corner radius moved out (or in, when negative) by a distance; square corners stay square. */
+im_radii im_grow(im_radii radii, im_fixed by);
