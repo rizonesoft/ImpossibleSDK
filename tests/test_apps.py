@@ -33,25 +33,25 @@ class Pin(unittest.TestCase):
     def pin(self, commit):
         (self.program / "sdk.json").write_text(json.dumps({"commit": commit}))
 
-    def problem(self):
-        return app_build.sdk_problem(self.program, self.sdk)
+    def sdk_used(self):
+        return app_build.sdk_at(app_build.pinned(self.program), self.sdk, Path(self.temp.name, "cache"))
 
-    def test_the_pinned_commit_is_accepted(self):
-        self.assertIsNone(self.problem())
+    def test_the_checkout_itself_is_used_at_the_pinned_commit(self):
+        self.assertEqual(self.sdk_used(), self.sdk)
 
-    def test_another_commit_is_refused(self):
-        self.pin("0" * 40)
-        self.assertIn("pins Impossible SDK 000000000000", self.problem())
-
-    def test_local_changes_are_refused(self):
+    def test_the_pinned_commit_is_used_after_the_sdk_moves_on_or_is_edited(self):
         (self.sdk / "file").write_text("two")
-        self.assertIn("has local changes", self.problem())
+        self.assertEqual((self.sdk_used() / "file").read_text(), "one")
+        git(self.sdk, "commit", "-qam", "two")
+        self.assertEqual((self.sdk_used() / "file").read_text(), "one")
 
-    def test_a_short_or_missing_pin_is_refused(self):
+    def test_an_unknown_commit_a_short_or_a_missing_pin_is_refused(self):
+        self.pin("0" * 40)
+        self.assertRaisesRegex(SystemExit, "does not have the pinned commit", self.sdk_used)
         self.pin("abc")
-        self.assertIn("not a full hash", self.problem())
+        self.assertRaisesRegex(SystemExit, "not a full hash", self.sdk_used)
         (self.program / "sdk.json").unlink()
-        self.assertIn("does not name a commit", self.problem())
+        self.assertRaisesRegex(SystemExit, "does not name a commit", self.sdk_used)
 
 
 if __name__ == "__main__":

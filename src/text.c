@@ -151,11 +151,13 @@ void im_add_bytes(im_text *text, const void *more, size_t bytes) {
             return;
         }
         if (text->data) memcpy(data, text->data, text->length);
+        memcpy(data + text->length, more, bytes); /* before the old memory goes: more may be in it */
         im_free(text->data);
         text->data = data;
         text->capacity = capacity;
+    } else {
+        memmove(text->data + text->length, more, bytes);
     }
-    memcpy(text->data + text->length, more, bytes);
     text->length += bytes;
     text->data[text->length] = 0;
 }
@@ -167,8 +169,8 @@ void im_add(im_text *text, const char *more) {
 void im_add_number(im_text *text, uint64_t value, int least_digits) {
     char digits[24];
     int at = sizeof digits;
-    do digits[--at] = (char)('0' + value % 10), value /= 10, least_digits--;
-    while ((value || least_digits > 0) && at);
+    do digits[--at] = (char)('0' + value % 10), value /= 10;
+    while ((value || (int)sizeof digits - at < least_digits) && at);
     im_add_bytes(text, digits + at, sizeof digits - (size_t)at);
 }
 

@@ -35,6 +35,7 @@ static im_result take_all(HANDLE file, size_t most, char **data, size_t *length)
             return IM_TOO_LARGE;
         }
         im_add_bytes(&text, part, got);
+        if (text.failed) break;
     }
     if (!text.data) im_add_bytes(&text, "", 0);
     if (text.failed) {
@@ -112,7 +113,10 @@ im_result im_make_folder(const char *path) {
     wchar_t *wide = im_wide(path);
     if (!wide) return IM_FAILED;
     im_result result = CreateDirectoryW(wide, NULL) ? IM_OK : why(GetLastError());
-    if (result == IM_EXISTS) result = GetFileAttributesW(wide) & FILE_ATTRIBUTE_DIRECTORY ? IM_OK : IM_FAILED;
+    if (result == IM_EXISTS) {
+        DWORD kind = GetFileAttributesW(wide);
+        result = kind != INVALID_FILE_ATTRIBUTES && kind & FILE_ATTRIBUTE_DIRECTORY ? IM_OK : IM_FAILED;
+    }
     im_free(wide);
     return result;
 }

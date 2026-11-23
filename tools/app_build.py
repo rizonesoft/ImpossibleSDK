@@ -3,16 +3,20 @@
 
     python <sdk>/tools/app_build.py <program folder> [--no-test] [--any-sdk]
 
-The program's sdk.json names the SDK commit it is built with, and this refuses
-an SDK at another commit or with local changes. --any-sdk is for working on
-both at once; it never satisfies a release.
+The program's sdk.json names the SDK commit it is built with. When this checkout
+is at another commit or has local changes, that commit is copied out of its
+history once and used instead, so a program and the SDK can move separately.
+--any-sdk builds with this checkout as it is, for working on both at once.
 """
 import argparse
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tarfile
+import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -22,28 +26,39 @@ from build import build
 SDK = Path(__file__).resolve().parents[1]
 
 
-def sdk_problem(program, sdk=SDK):
-    """Why this SDK is not the one the program pins, or None."""
+def pinned(program):
     try:
         wanted = json.loads((program / "sdk.json").read_text(encoding="utf-8"))["commit"]
     except (OSError, ValueError, KeyError, TypeError) as error:
-        return f"{program / 'sdk.json'} does not name a commit ({type(error).__name__})"
+        raise SystemExit(f"error: {program / 'sdk.json'} does not name a commit ({type(error).__name__})") from None
     if not isinstance(wanted, str) or not re.fullmatch(r"[0-9a-f]{40}", wanted):
-        return f"{program / 'sdk.json'}: the commit is not a full hash"
+        raise SystemExit(f"error: {program / 'sdk.json'}: the commit is not a full hash")
+    return wanted
 
-    def git(*arguments):
-        return subprocess.run(["git", "-C", str(sdk), *arguments], capture_output=True, text=True, check=True).stdout.strip()
+
+def sdk_at(commit, sdk=SDK, cache=None):
+    """A folder that holds the SDK at that commit: this checkout, or a copy from its history."""
+    def git(*arguments, **more):
+        return subprocess.run(["git", "-C", str(sdk), *arguments], capture_output=True, check=True, **more).stdout
 
     try:
-        head = git("rev-parse", "HEAD")
-        dirty = git("status", "--porcelain")
+        if git("rev-parse", "HEAD").decode().strip() == commit and not git("status", "--porcelain").strip():
+            return sdk
+        archive = git("archive", "--format=tar", commit)
     except (OSError, subprocess.CalledProcessError):
-        return f"{sdk} is not a git checkout, so its commit is unknown"
-    if head != wanted:
-        return f"the program pins Impossible SDK {wanted[:12]} and {sdk} is at {head[:12]}"
-    if dirty:
-        return f"{sdk} has local changes"
-    return None
+        raise SystemExit(f"error: {sdk} does not have the pinned commit {commit}: fetch it first") from None
+    target = (cache or bootstrap.tools_root()) / f"sdk-{commit}"
+    if not target.is_dir():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=target.parent) as temp:
+            with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
+                bundle.extractall(Path(temp, "sdk"), filter="data")
+            try:
+                Path(temp, "sdk").rename(target)
+            except OSError:
+                if not target.is_dir():  # otherwise another build copied it first
+                    raise
+    return target
 
 
 def main():
@@ -54,13 +69,14 @@ def main():
     parser.add_argument("--out", type=Path, help="build folder (default <program>/build/<host>)")
     args = parser.parse_args()
     program = args.program.resolve()
-    problem = sdk_problem(program)
-    if problem:
-        if not args.any_sdk:
-            raise SystemExit(f"error: {problem} (--any-sdk builds anyway)")
-        print(f"warning: {problem}", file=sys.stderr)
-    build(program, (args.out or program / "build" / bootstrap.host()).resolve(), test=not args.no_test,
-          definitions={"IMPOSSIBLE_SDK_DIR": SDK})
+    out = (args.out or program / "build" / bootstrap.host()).resolve()
+    sdk = SDK if args.any_sdk else sdk_at(pinned(program))
+    if sdk != SDK:
+        print(f"Impossible SDK {sdk.name}", flush=True)
+        subprocess.run([sys.executable, str(sdk / "tools/app_build.py"), str(program), "--any-sdk", "--out", str(out),
+                        *(["--no-test"] if args.no_test else [])], check=True)
+        return
+    build(program, out, test=not args.no_test, definitions={"IMPOSSIBLE_SDK_DIR": SDK})
 
 
 if __name__ == "__main__":

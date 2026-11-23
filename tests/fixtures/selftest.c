@@ -48,6 +48,14 @@ int im_main(void) {
     if (!im_equal(text.data, "007-18446744073709551615")) return 13;
     im_text_free(&text);
 
+    im_add(&text, "0123456789");
+    for (int i = 0; i < 6; i++) im_add(&text, text.data); /* from itself, through several growths */
+    if (text.failed || text.length != 640 || text.data[639] != '9' || text.data[320] != '0') return 22;
+    im_text_free(&text);
+    im_add_number(&text, 5, -2147483647 - 1);
+    if (!im_equal(text.data, "5")) return 23;
+    im_text_free(&text);
+
     im_text folder = {0};
     im_add(&folder, "im-selftest-"), im_add_number(&folder, im_now(), 0);
     im_text file = {0};
