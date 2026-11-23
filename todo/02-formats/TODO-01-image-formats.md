@@ -79,6 +79,7 @@ Deflate data sits inside PNG, so it comes first. Own code, because the OS part m
 2. Write CRC-32 and Adler-32 beside it. Done when: both equal Python's `zlib`.
 
 - [ ] Inflate stored, fixed and dynamic blocks into a bounded buffer in `parts/inflate/inflate.c`. Done when: 10,000 random inputs from Python's `zlib` at every level round trip. Cheaper substitute: dynamic blocks only.
+- [ ] Take input and give output in any pieces in `parts/inflate/inflate.c`. Done when: input cut at every byte, inside a block too, gives equal output with one fixed window of memory. Cheaper substitute: whole buffers.
 - [ ] Stop at a caller's output limit in `parts/inflate/inflate.c`. Done when: a 1 GB bomb is refused after the limit without allocating more. Cheaper substitute: trusting the stated size.
 - [ ] Fuzz `parts/inflate/inflate.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
 - [ ] Commit: `parts: inflate and checksums`
@@ -98,7 +99,7 @@ All colour types, bit depths, interlacing, palettes, transparency and gamma-free
 1. Write `parts/png/png.c` with `png.h`. Done when: every file of the corpus decodes to the same pixels as the reference library.
 2. Add `tests/fixtures/png_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
-- [ ] Parse the header of PNG in `parts/png/png.c` with width, height and size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
+- [ ] Parse the header of PNG in `parts/png/png.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
 - [ ] Decode every variant the specification requires in `parts/png/png.c`. Done when: all of PngSuite decodes to the pixels of a pinned reference decoder. Cheaper substitute: the common variant only.
 - [ ] Return a named error for truncated and damaged data with no partial picture in `parts/png/png.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
 - [ ] Fuzz `parts/png/png.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
@@ -119,7 +120,7 @@ Baseline and progressive, every subsampling, restart markers, grayscale and the 
 1. Write `parts/jpeg/jpeg.c` with `jpeg.h`. Done when: every file of the corpus decodes to the same pixels as the reference library.
 2. Add `tests/fixtures/jpeg_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
-- [ ] Parse the header of JPEG in `parts/jpeg/jpeg.c` with width, height and size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
+- [ ] Parse the header of JPEG in `parts/jpeg/jpeg.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
 - [ ] Decode every variant the specification requires in `parts/jpeg/jpeg.c`. Done when: a pinned corpus is within 1 per channel of the reference decoder in its integer mode. Cheaper substitute: the common variant only.
 - [ ] Return a named error for truncated and damaged data with no partial picture in `parts/jpeg/jpeg.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
 - [ ] Fuzz `parts/jpeg/jpeg.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
@@ -140,7 +141,7 @@ All header versions, 1 to 32 bits, RLE4, RLE8 and bit fields. The decoder takes 
 1. Write `parts/bmp/bmp.c` with `bmp.h`. Done when: every file of the corpus decodes to the same pixels as the reference library.
 2. Add `tests/fixtures/bmp_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
-- [ ] Parse the header of BMP in `parts/bmp/bmp.c` with width, height and size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
+- [ ] Parse the header of BMP in `parts/bmp/bmp.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
 - [ ] Decode every variant the specification requires in `parts/bmp/bmp.c`. Done when: all of the bmpsuite good files decode to the reference pixels. Cheaper substitute: the common variant only.
 - [ ] Return a named error for truncated and damaged data with no partial picture in `parts/bmp/bmp.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
 - [ ] Fuzz `parts/bmp/bmp.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
@@ -161,7 +162,7 @@ Animation, local palettes, transparency and disposal. The decoder takes bytes an
 1. Write `parts/gif/gif.c` with `gif.h`. Done when: every file of the corpus decodes to the same pixels as the reference library.
 2. Add `tests/fixtures/gif_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
-- [ ] Parse the header of GIF in `parts/gif/gif.c` with width, height and size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
+- [ ] Parse the header of GIF in `parts/gif/gif.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
 - [ ] Decode every variant the specification requires in `parts/gif/gif.c`. Done when: every frame of the pinned corpus equals the reference frames. Cheaper substitute: the common variant only.
 - [ ] Return a named error for truncated and damaged data with no partial picture in `parts/gif/gif.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
 - [ ] Fuzz `parts/gif/gif.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
@@ -182,8 +183,8 @@ The VP8L bitstream inside its RIFF container.
 1. Write `parts/webp/lossless.c` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
-- [ ] Parse the header in `parts/webp/lossless.c` with size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
-- [ ] Read the container and its chunks with limits in `parts/webp/container.c`. Done when: chunks out of order, repeated or overlong are refused by name. Cheaper substitute: the first chunk.
+- [ ] Parse the header in `parts/webp/lossless.c` with size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` before any allocation. Cheaper substitute: allocating and failing.
+- [ ] Read the container with the order and number each chunk kind allows in `parts/webp/container.c`. Done when: two `ANMF` frames are read, and a second `VP8X`, a chunk out of order and an overlong one are refused by name. Cheaper substitute: the first chunk.
 - [ ] Decode prefix codes, the colour cache and back references in `parts/webp/lossless.c`. Done when: the pinned corpus equals the reference decoder's pixels. Cheaper substitute: no colour cache.
 - [ ] Undo the four transforms in `parts/webp/lossless.c`. Done when: a file for each combination is equal. Cheaper substitute: predictor only.
 - [ ] Return a named error for truncated and damaged data in `parts/webp/lossless.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
@@ -205,7 +206,7 @@ VP8 key frames with their alpha plane, in integers.
 1. Write `parts/webp/lossy.c` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
-- [ ] Parse the header in `parts/webp/lossy.c` with size limits checked before any allocation. Done when: a header asking for 1 TB is refused with `IM_IMAGE_TOO_LARGE`. Cheaper substitute: allocating and failing.
+- [ ] Parse the header in `parts/webp/lossy.c` with size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` before any allocation. Cheaper substitute: allocating and failing.
 - [ ] Decode the bool coder, coefficients and prediction in `parts/webp/lossy.c`. Done when: the published VP8 test vectors are equal. Cheaper substitute: one partition.
 - [ ] Filter edges both ways in `parts/webp/lossy.c`. Done when: the vectors with each filter are equal. Cheaper substitute: no filter.
 - [ ] Join the alpha plane and convert colours in `parts/webp/lossy.c`. Done when: the pinned corpus equals the reference decoder in its integer mode within 1. Cheaper substitute: opaque.

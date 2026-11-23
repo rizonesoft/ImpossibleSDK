@@ -49,6 +49,8 @@ title: "TODO-02 -- More Controls"
 | 18 | §18 | Ink canvas | D01 T01 §13, D07 T01 §4 | [ ] |
 | 19 | §19 | Ink tool bar | §18, T01 §13, T01 §8 | [ ] |
 | 20 | §20 | Resize gripper and backdrop element | T01 §5, D01 T01 §12 | [ ] |
+| 21 | §21 | Layout panel and monochrome overlay | T01 §20, D01 T01 §10 | [ ] |
+| 22 | §22 | All controls accepted | §1, §2, §4, §5, §6, §7, §8, §9, §10, §11, §12, §13, §16, §17, §19, §20, §21, T03 §2, T03 §5, T03 §6, T03 §7, T03 §8, T03 §9, T01 §7, T01 §10, T01 §14, T01 §16, T01 §18, T01 §19, T01 §21, T01 §22, T01 §24, T01 §25, T01 §26, T01 §27, T01 §28, T01 §29, T01 §30, T01 §31, T01 §32, T01 §33, T01 §34, T01 §35, T01 §36, T01 §38, T01 §39, T01 §40, T01 §41, T01 §42, T01 §43, T01 §45, T01 §46, T01 §48, T01 §50, T01 §51, T01 §52, T01 §53, T01 §54, D07 T01 §3, D07 T01 §8, D07 T01 §9, D01 T01 §16, D01 T01 §18, D01 T02 §7, D01 T02 §12, D01 T02 §13 | [ ] |
 
 ## 1. Text block, rich text block and links
 
@@ -68,7 +70,7 @@ Text that is read: styles, runs, links, overflow and selection.
 2. Add states, behaviour and the peer in `ui/controls/text_block.c`. Done when: the recorded script and the automation dump are equal.
 3. Show it in `samples/gallery/text_block.c`. Done when: the state matrix row passes.
 
-- [ ] Compile into `ui/template_data.c` the TextBlock and RichTextBlock styles of `controls/dev/CommonStyles/TextBlock_themeresources.xaml`. Done when: the listing names every state and part, and an unknown property is refused. Cheaper substitute: drawing by hand.
+- [ ] Compile into `ui/template_data.c` the TextBlock styles of `controls/dev/CommonStyles/TextBlock_themeresources.xaml` and `BaseRichTextBlockStyle` with those based on it in `dxaml/xcp/dxaml/themes/generic.xaml`. Done when: the listing names every state and part, and an unknown property is refused. Cheaper substitute: drawing by hand.
 - [ ] Draw every state from the theme data in `ui/controls/text_block.c`, with its cases in `reference/cases/text_block.json`. Done when: frames equal real WinUI at 100, 150, 200 and 300 percent in light, dark and contrast. Cheaper substitute: one theme.
 - [ ] Apply the named type styles and any run's own in `ui/controls/text_block.c`. Done when: frames and line boxes match. Cheaper substitute: one size.
 - [ ] Wrap, trim, limit lines and set line height in `ui/controls/text_block.c`. Done when: 100 widths equal real WinUI. Cheaper substitute: wrapping.
@@ -519,7 +521,8 @@ Rows and cells, few of them live.
 - [ ] Compile into `ui/template_data.c` the template `TableViewRow` of `controls/dev/TableView/TableView.xaml` (19 states in the groups CommonStates 13, RowExpansionStates 2, RowExpandabilityStates 2, RowHierarchyStates 2). Done when: the listing names every state and part, and an unknown property is refused. Cheaper substitute: drawing by hand.
 - [ ] Draw every state from the theme data in `ui/controls/table_view_rows.c`, with its cases in `reference/cases/table_view_rows.json`. Done when: frames equal real WinUI at 100, 150, 200 and 300 percent in light, dark and contrast. Cheaper substitute: one theme.
 - [ ] Make only visible rows and cells in `ui/controls/table_view_rows.c`. Done when: 1,000,000 rows and 100 columns keep under 4,000 cells. Cheaper substitute: all.
-- [ ] Select rows or cells, single, many and by drag in `ui/controls/table_view_rows.c`. Done when: 100 scripts equal real WinUI. Cheaper substitute: rows.
+- [ ] Select none or one row as the pinned TableView does in `ui/controls/table_view_rows.c`. Done when: 100 scripts equal real WinUI or, where the package lacks it, the pinned source. Cheaper substitute: always one.
+- [ ] Add selection of many rows, and of cells by drag, as our own extension. Done when: a table of 60 expected results in `tests/table_selection.json` passes. Cheaper substitute: one row.
 - [ ] Move the current cell, round the ends by Tab in `ui/controls/table_view_rows.c`. Done when: the log equals real WinUI. Cheaper substitute: rows.
 - [ ] Copy the selection as text and table in `ui/controls/table_view_rows.c`. Done when: another program keeps rows and columns. Cheaper substitute: text.
 - [ ] Keep selection and place while data changes in `ui/controls/table_view_rows.c`. Done when: 10,000 random edits agree. Cheaper substitute: by number.
@@ -693,6 +696,57 @@ A corner or edge that sizes, and a part of the page with the window ground.
 - [ ] Mirror right to left, keep a 40 unit touch target and honour reduced animation in `ui/controls/resize_gripper.c`. Done when: `tools/check_control.py resize_gripper` passes every point of the contract. Cheaper substitute: left to right only.
 - [ ] Add the page `samples/gallery/resize_gripper.c` and its row in `tests/state_matrix.json`. Done when: the page shows each state and the row passes. Cheaper substitute: a screenshot.
 - [ ] Commit: `controls: resize gripper and backdrop element`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 21. Layout panel and monochrome overlay
+
+A panel whose layout is given to it, and an overlay that draws an element in one colour.
+
+**Phase:** 3
+**Needs:** windows-host, display-session
+**Surface:** yes
+**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Job:** the program arranges and recolours parts of a page.
+**Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
+**Chrome:** none of its own; the gallery window hosts it.
+
+**Build order:**
+
+1. Write `ui/controls/layout_panel.c` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/state_matrix.json`. Done when: the checks fail on a planted fault.
+
+- [ ] Take a layout object and its context in `ui/controls/layout_panel.c`, from `controls/dev/LayoutPanel`. Done when: the repeater's layouts give the same rectangles in it. Cheaper substitute: a stack.
+- [ ] Draw another element through two replacement colours in `ui/controls/monochrome_overlay.c`, from `controls/dev/MonochromaticOverlayPresenter`. Done when: frames match or, where the package lacks it, equal the pinned shader's results within 2. Cheaper substitute: one tint.
+- [ ] Follow changes of the source element in `ui/controls/monochrome_overlay.c`. Done when: its next frame follows. Cheaper substitute: a copy.
+- [ ] Add pages in `samples/gallery/layout_panel.c` and rows in `tests/state_matrix.json`. Done when: light, dark and contrast pass. Cheaper substitute: light.
+- [ ] Commit: `controls: layout panel and monochrome overlay`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 22. All controls accepted
+
+The gallery, the matrix, the screen reader and the speed budgets over everything at once.
+
+**Phase:** 3
+**Needs:** windows-host, display-session
+**Surface:** yes
+**Fidelity:** each control has its own; this section reads all of their results.
+**Job:** the user meets one complete set of controls.
+**Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
+**Chrome:** none of its own; the gallery window hosts it.
+
+**Build order:**
+
+1. Write `tools/check_roadmap.py` with its first item. Done when: the first item below passes.
+2. Cover it in `tests/test_gallery.py`. Done when: the checks fail on a planted fault.
+
+- [ ] Find a gallery page and a passing matrix row for every carried control in `tests/test_gallery.py`. Done when: `docs/winui-coverage.json` has no control without both. Cheaper substitute: the common ones.
+- [ ] Walk every page by keyboard, by touch and by a Windows screen reader client in `tests/test_gallery.py`. Done when: three scripts finish and their logs equal the recorded ones. Cheaper substitute: pointer.
+- [ ] Run the matrix with right to left, text at 225 percent and each contrast theme in `tests/test_state_matrix.py`. Done when: every cell passes. Cheaper substitute: light at 100 percent.
+- [ ] Measure opening a menu and scrolling a list of 100,000 rows in `tests/fixtures/bench_controls.c`. Done when: both stay in the budgets of `tests/budgets.json`. Cheaper substitute: primitives only.
+- [ ] Find no item of `docs/os-roadmap/` without an answer by `tools/check_roadmap.py`. Done when: it exits 0. Cheaper substitute: a summary.
+- [ ] Commit: `controls: all accepted`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 

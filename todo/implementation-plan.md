@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 1: Interface engine
 
-Sections: 25 | Checklist items: 134
+Sections: 25 | Checklist items: 136
 
 | Status | Reference   | Deliverable                                      | Needs                         | Items |
 | ------ | ----------- | ------------------------------------------------ | ----------------------------- | ----- |
@@ -27,7 +27,7 @@ Sections: 25 | Checklist items: 134
 | [ ]    | D01 T01 §14 | Theme, accent and contrast changes while running | windows-host, display-session | 6     |
 | [ ]    | D01 T01 §15 | Theme transitions                                | windows-host, display-session | 5     |
 | [ ]    | D01 T01 §16 | Remaining panels                                 | windows-host                  | 6     |
-| [ ]    | D01 T01 §17 | Reference program for any control                | windows-host, display-session | 8     |
+| [ ]    | D01 T01 §17 | Reference program for any control                | windows-host, display-session | 10    |
 | [ ]    | D01 T01 §18 | Drawing speed budgets                            | windows-host                  | 6     |
 | [ ]    | D01 T02 §1  | Bundled fonts and font lookup                    | windows-host                  | 6     |
 | [ ]    | D01 T02 §2  | Glyph cache                                      | none                          | 5     |
@@ -40,20 +40,20 @@ Sections: 25 | Checklist items: 134
 
 ### Phase 2: First controls
 
-Sections: 6 | Checklist items: 40
+Sections: 6 | Checklist items: 42
 
 | Status | Reference  | Deliverable                                   | Needs                         | Items |
 | ------ | ---------- | --------------------------------------------- | ----------------------------- | ----- |
-| [ ]    | D07 T01 §1 | Several windows and pop-up windows            | windows-host, display-session | 7     |
-| [ ]    | D07 T01 §2 | Clipboard                                     | windows-host, display-session | 7     |
-| [ ]    | D01 T01 §7 | Button, toggle switch, text box and list view | windows-host, display-session | 9     |
+| [ ]    | D07 T01 §1 | Several windows and pop-up windows            | windows-host, display-session | 8     |
+| [ ]    | D07 T01 §2 | Clipboard                                     | windows-host, display-session | 8     |
+| [ ]    | D01 T01 §7 | Button, toggle switch, text box and list view | windows-host, display-session | 8     |
 | [ ]    | D06 T01 §1 | A host's own engine                           | none                          | 4     |
 | [ ]    | D07 T01 §3 | System appearance and user settings           | windows-host, display-session | 6     |
-| [ ]    | D07 T01 §4 | Touch, pen and touchpad                       | windows-host, display-session | 7     |
+| [ ]    | D07 T01 §4 | Touch, pen and touchpad                       | windows-host, display-session | 8     |
 
 ### Phase 3: All controls
 
-Sections: 97 | Checklist items: 1034
+Sections: 99 | Checklist items: 1048
 
 | Status | Reference   | Deliverable                                | Needs                         | Items |
 | ------ | ----------- | ------------------------------------------ | ----------------------------- | ----- |
@@ -72,10 +72,10 @@ Sections: 97 | Checklist items: 1034
 | [ ]    | D05 T01 §3  | Pop-ups, flyouts and light dismissal       | windows-host, display-session | 9     |
 | [ ]    | D05 T01 §6  | Repeat, toggle and hyperlink buttons       | windows-host, display-session | 14    |
 | [ ]    | D05 T01 §7  | Check box                                  | windows-host, display-session | 12    |
-| [ ]    | D05 T01 §9  | Text box fields and multi-line text        | windows-host, display-session | 16    |
+| [ ]    | D05 T01 §12 | Menu flyout and context menu               | windows-host, display-session | 15    |
+| [ ]    | D05 T01 §9  | Text box fields and multi-line text        | windows-host, display-session | 17    |
 | [ ]    | D05 T01 §10 | Number box                                 | windows-host, display-session | 13    |
 | [ ]    | D05 T01 §11 | Combo box                                  | windows-host, display-session | 14    |
-| [ ]    | D05 T01 §12 | Menu flyout and context menu               | windows-host, display-session | 15    |
 | [ ]    | D05 T01 §13 | Command bar and tool bar                   | windows-host, display-session | 13    |
 | [ ]    | D05 T01 §14 | Tooltips                                   | windows-host, display-session | 12    |
 | [ ]    | D05 T01 §8  | Slider                                     | windows-host, display-session | 12    |
@@ -129,19 +129,20 @@ Sections: 97 | Checklist items: 1034
 | [ ]    | D05 T02 §12 | List box                                   | windows-host, display-session | 10    |
 | [ ]    | D05 T02 §13 | Frame and page navigation                  | windows-host, display-session | 13    |
 | [ ]    | D05 T02 §14 | Table view columns and header              | windows-host, display-session | 12    |
-| [ ]    | D05 T02 §15 | Table view rows and selection              | windows-host, display-session | 12    |
+| [ ]    | D05 T02 §15 | Table view rows and selection              | windows-host, display-session | 13    |
 | [ ]    | D05 T02 §16 | Table view groups and nested rows          | windows-host, display-session | 11    |
 | [ ]    | D05 T02 §17 | Table view editing                         | windows-host, display-session | 13    |
 | [ ]    | D05 T02 §18 | Ink canvas                                 | windows-host, display-session | 14    |
 | [ ]    | D05 T02 §19 | Ink tool bar                               | windows-host, display-session | 11    |
 | [ ]    | D05 T02 §20 | Resize gripper and backdrop element        | windows-host, display-session | 11    |
+| [ ]    | D05 T02 §21 | Layout panel and monochrome overlay        | windows-host, display-session | 5     |
 | [ ]    | D05 T03 §1  | Message box                                | windows-host, display-session | 9     |
 | [ ]    | D05 T03 §2  | Text input dialog                          | windows-host, display-session | 8     |
 | [ ]    | D05 T03 §3  | Files and places model                     | windows-host, display-session | 11    |
 | [ ]    | D05 T03 §7  | Colour dialog                              | windows-host, display-session | 7     |
 | [ ]    | D05 T03 §8  | Font dialog                                | windows-host, display-session | 7     |
 | [ ]    | D07 T01 §5  | Input methods                              | windows-host, display-session | 7     |
-| [ ]    | D07 T01 §6  | Dropping into a window                     | windows-host, display-session | 6     |
+| [ ]    | D07 T01 §6  | Dropping into a window                     | windows-host, display-session | 7     |
 | [ ]    | D07 T01 §7  | Dragging out of a window                   | windows-host, display-session | 7     |
 | [ ]    | D05 T01 §17 | Tab view                                   | windows-host, display-session | 15    |
 | [ ]    | D05 T01 §21 | Tree view                                  | windows-host, display-session | 13    |
@@ -154,14 +155,15 @@ Sections: 97 | Checklist items: 1034
 | [ ]    | D05 T03 §9  | Property sheet and wizard                  | windows-host, display-session | 10    |
 | [ ]    | D07 T01 §8  | Screen reader bridge                       | windows-host, display-session | 8     |
 | [ ]    | D07 T01 §9  | Screen reader text                         | windows-host, display-session | 6     |
+| [ ]    | D05 T02 §22 | All controls accepted                      | windows-host, display-session | 6     |
 
 ### Phase 4: Formats and services
 
-Sections: 36 | Checklist items: 177
+Sections: 36 | Checklist items: 182
 
 | Status | Reference   | Deliverable                         | Needs                         | Items |
 | ------ | ----------- | ----------------------------------- | ----------------------------- | ----- |
-| [ ]    | D02 T01 §2  | Inflate and checksums               | none                          | 4     |
+| [ ]    | D02 T01 §2  | Inflate and checksums               | none                          | 5     |
 | [ ]    | D02 T01 §3  | PNG decoder                         | none                          | 5     |
 | [ ]    | D02 T01 §4  | JPEG decoder                        | none                          | 5     |
 | [ ]    | D02 T01 §5  | BMP decoder                         | none                          | 5     |
@@ -191,16 +193,16 @@ Sections: 36 | Checklist items: 177
 | [ ]    | D06 T01 §10 | PNG and BMP writers                 | windows-host                  | 5     |
 | [ ]    | D02 T01 §11 | ICO and CUR, both ways              | windows-host                  | 6     |
 | [ ]    | D06 T01 §11 | Picture scaler                      | none                          | 5     |
-| [ ]    | D07 T01 §10 | Worker threads                      | none                          | 6     |
-| [ ]    | D07 T01 §11 | Watching files                      | windows-host                  | 5     |
-| [ ]    | D07 T01 §12 | Sound playback                      | windows-host                  | 7     |
+| [ ]    | D07 T01 §10 | Worker threads                      | none                          | 7     |
+| [ ]    | D07 T01 §11 | Watching files                      | windows-host                  | 6     |
+| [ ]    | D07 T01 §12 | Sound playback                      | windows-host                  | 8     |
 | [ ]    | D07 T01 §13 | Sound recording                     | windows-host, display-session | 5     |
 | [ ]    | D07 T01 §14 | Program settings                    | windows-host                  | 7     |
-| [ ]    | D07 T01 §15 | Starting programs and opening links | windows-host                  | 6     |
+| [ ]    | D07 T01 §15 | Starting programs and opening links | windows-host                  | 7     |
 
 ### Phase 5: Printing
 
-Sections: 7 | Checklist items: 42
+Sections: 7 | Checklist items: 43
 
 | Status | Reference  | Deliverable                      | Needs                         | Items |
 | ------ | ---------- | -------------------------------- | ----------------------------- | ----- |
@@ -208,18 +210,18 @@ Sections: 7 | Checklist items: 42
 | [ ]    | D07 T02 §2 | Printers and what they can do    | windows-host                  | 6     |
 | [ ]    | D07 T02 §3 | Jobs and pages                   | windows-host                  | 6     |
 | [ ]    | D07 T02 §4 | Laying out pages                 | windows-host                  | 7     |
-| [ ]    | D07 T02 §5 | Progress, cancelling and errors  | windows-host                  | 5     |
+| [ ]    | D07 T02 §5 | Progress, cancelling and errors  | windows-host                  | 6     |
 | [ ]    | D07 T02 §6 | Print preview                    | windows-host, display-session | 6     |
 | [ ]    | D07 T02 §7 | Print dialog                     | windows-host, display-session | 7     |
 
 ### Phase 6: Parts and release
 
-Sections: 12 | Checklist items: 63
+Sections: 12 | Checklist items: 64
 
 | Status | Reference   | Deliverable                          | Needs                         | Items |
 | ------ | ----------- | ------------------------------------ | ----------------------------- | ----- |
 | [ ]    | D08 T01 §1  | Parts for drawing, text and controls | none                          | 5     |
-| [ ]    | D08 T01 §2  | The `app.json` format                | none                          | 5     |
+| [ ]    | D08 T01 §2  | The `app.json` format                | none                          | 6     |
 | [ ]    | D08 T01 §3  | Package builder                      | windows-host                  | 5     |
 | [ ]    | D08 T01 §4  | Installer                            | windows-host, display-session | 7     |
 | [ ]    | D08 T01 §5  | File types                           | windows-host, display-session | 5     |
@@ -239,6 +241,6 @@ Sections: 1 | Checklist items: 3
 | ------ | ----------- | -------------------- | -------- | ----- |
 | [ ]    | D08 T01 §13 | First public release | operator | 3     |
 
-Progress: 0/184 verified sections, 6 ready to run now.
+Progress: 0/186 verified sections, 6 ready to run now.
 
-Checklist: 0/1493 items completed (includes Commit items).
+Checklist: 0/1518 items completed (includes Commit items).

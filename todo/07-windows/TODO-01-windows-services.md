@@ -61,6 +61,7 @@ Menus, tooltips and dialogs leave their window, so the layer runs more than one.
 
 - [ ] Run any number of windows on one thread in `src/window.c`. Done when: opening and closing 100 windows leaves none behind. Cheaper substitute: one window.
 - [ ] Open an owned pop-up without taking focus in `src/popup.c`. Done when: the owner stays drawn active and the pop-up is above it. Cheaper substitute: a child area.
+- [ ] Add its functions to tier 1 in `abi/tiers.json` with what the OS must give. Done when: the import check passes and a lower tier is refused. Cheaper substitute: an unchecked call.
 - [ ] Place it by monitor work area and scale in `src/popup.c`. Done when: a pop-up at each edge of two monitors with different scales is whole. Cheaper substitute: the first monitor.
 - [ ] Close pop-ups when the owner moves, loses focus or closes, in `src/popup.c`. Done when: a recorded script leaves none. Cheaper substitute: a timer.
 - [ ] Report a window that could not be made in `include/impossible/window.h`. Done when: a planted failure reaches the program by name. Cheaper substitute: a silent return.
@@ -86,6 +87,7 @@ Text, pictures, file lists and private formats, safely.
 - [ ] Read and write pictures as PNG and bitmap in `src/clipboard.c`. Done when: a picture with transparency round trips. Cheaper substitute: a bitmap only.
 - [ ] Read and write file lists in `src/clipboard.c`. Done when: files copied in Explorer arrive with their paths. Cheaper substitute: text paths.
 - [ ] Offer a private format with a plain-text form beside it in `src/clipboard.c`. Done when: a program that knows neither receives the text. Cheaper substitute: one format.
+- [ ] Add its functions to tier 2 in `abi/tiers.json` with what the OS must give. Done when: the import check passes and a lower tier is refused. Cheaper substitute: an unchecked call.
 - [ ] Wait a bounded time for a busy clipboard in `src/clipboard.c`. Done when: a program holding it open gives a named error in under a second. Cheaper substitute: an endless loop.
 - [ ] Refuse sizes and offsets that do not fit in `src/clipboard.c`. Done when: a table of 40 planted bad blocks is refused. Cheaper substitute: trusting the block.
 - [ ] Commit: `windows: clipboard`
@@ -124,9 +126,10 @@ Contacts, pressure and precise scrolling reach the engine as one kind of event.
 
 **Build order:**
 
-1. Write `src/pointer.c` with its first item. Done when: the first item below passes.
+1. Write `abi/tiers.json` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
+- [ ] Add its functions to tier 1 in `abi/tiers.json` with what the OS must give. Done when: the import check passes and a lower tier is refused. Cheaper substitute: an unchecked call.
 - [ ] Receive pointer messages for touch and pen in `src/pointer.c`. Done when: a recorded two-finger script gives the events real WinUI gives. Cheaper substitute: mouse messages.
 - [ ] Carry contact id, pressure, tilt and eraser in `include/impossible/window.h`. Done when: a planted pen script reads back equal. Cheaper substitute: position only.
 - [ ] Read high-resolution wheel and touchpad distances in `src/pointer.c`. Done when: small steps add up to the same distance. Cheaper substitute: whole lines.
@@ -174,6 +177,7 @@ Files and text dropped from other programs, with the effect shown while dragging
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
 - [ ] Accept dropped files in `src/drop.c`. Done when: 1,000 files with long names arrive whole. Cheaper substitute: the first file.
+- [ ] Add the OLE start, drop target and data functions to tier 2 in `abi/tiers.json` with what the OS must give. Done when: a tier 1 program that uses one is refused. Cheaper substitute: an unchecked call.
 - [ ] Accept dropped text and pictures through an OLE drop target written in C in `src/drop.c`. Done when: text from another program arrives. Cheaper substitute: files only.
 - [ ] Route enter, over, leave and drop to elements in `ui/drop.c`. Done when: the element under the pointer decides the effect. Cheaper substitute: the window decides.
 - [ ] Refuse what no element accepts in `ui/drop.c`. Done when: the pointer shows it and nothing changes. Cheaper substitute: ignoring it later.
@@ -200,7 +204,7 @@ Dragging elements inside a program and out to others.
 - [ ] Offer files, text and pictures through an OLE data object written in C in `src/drag.c`. Done when: Explorer and Notepad receive them. Cheaper substitute: inside only.
 - [ ] Render the data when it is asked for in `src/drag.c`. Done when: a file of 1 GB is not read before the drop. Cheaper substitute: reading first.
 - [ ] Cancel with Escape and on a lost window in `src/drag.c`. Done when: nothing is moved and no object stays. Cheaper substitute: a half move.
-- [ ] Add the OLE functions to `abi/tiers.json` at tier 2 with what the OS must give. Done when: a tier 1 program that uses one is refused. Cheaper substitute: an unchecked call.
+- [ ] Add the OLE drag source functions to `abi/tiers.json` at tier 2 with what the OS must give. Done when: a tier 1 program that uses one is refused. Cheaper substitute: an unchecked call.
 - [ ] Commit: `windows: dragging out of a window`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -220,7 +224,7 @@ UI Automation providers, written in C over the engine's own automation peers, so
 
 - [ ] Return the window's root provider in `src/uia.c`. Done when: Inspect shows the tree of the gallery. Cheaper substitute: a title.
 - [ ] Give fragments, rectangles, hit tests and focus in `src/uia_fragment.c`. Done when: the dump equals the peers' tree. Cheaper substitute: a flat list.
-- [ ] Give the Invoke, Toggle, Value, RangeValue, ExpandCollapse, Selection, SelectionItem, Scroll, ScrollItem, Grid, Table, Window and Transform patterns in `src/uia_patterns.c`. Done when: a client script works every gallery control. Cheaper substitute: Invoke only.
+- [ ] Give the Invoke, Toggle, Value, RangeValue, ExpandCollapse, Selection, SelectionItem, Scroll, ScrollItem, Grid, GridItem, Table, TableItem, ItemContainer, VirtualizedItem, Drag, DropTarget, Window and Transform patterns in `src/uia_patterns.c`. Done when: a Windows client works a fixture of every pattern, a table cell's row, column and header among them. Cheaper substitute: Invoke only.
 - [ ] Raise property, structure, focus and notification events in `src/uia_events.c`. Done when: a listening client receives each exactly once. Cheaper substitute: none.
 - [ ] Survive a client that keeps an element after its window closes, in `src/uia.c`. Done when: 1,000 random closings give the documented error and no crash. Cheaper substitute: freeing at once.
 - [ ] Cost nothing while no client listens, in `src/uia.c`. Done when: the idle program makes no provider. Cheaper substitute: always.
@@ -261,9 +265,10 @@ Work off the window thread, with results posted back and a clean stop.
 
 **Build order:**
 
-1. Write `src/worker.c` with its first item. Done when: the first item below passes.
+1. Write `abi/tiers.json` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_worker.py`. Done when: the checks fail on a planted fault.
 
+- [ ] Add its functions to tier 1 in `abi/tiers.json` with what the OS must give. Done when: the import check passes and a lower tier is refused. Cheaper substitute: an unchecked call.
 - [ ] Start, stop and wait for workers in `src/worker.c`. Done when: 1,000 starts and stops leave no thread. Cheaper substitute: a thread per call.
 - [ ] Post a result to the window's thread in order in `src/worker.c`. Done when: 100,000 posts from eight threads arrive once each. Cheaper substitute: a shared variable.
 - [ ] Cancel at any moment in `src/worker.c`. Done when: random cancels leave no lock, memory or thread. Cheaper substitute: waiting for the end.
@@ -283,9 +288,10 @@ Know when a file or folder changes.
 
 **Build order:**
 
-1. Write `src/watch.c` with its first item. Done when: the first item below passes.
+1. Write `abi/tiers.json` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
+- [ ] Add its functions to tier 2 in `abi/tiers.json` with what the OS must give. Done when: the import check passes and a lower tier is refused. Cheaper substitute: an unchecked call.
 - [ ] Watch a folder with and without its children in `src/watch.c`. Done when: 10,000 random changes are all told or an overflow is told. Cheaper substitute: a timer.
 - [ ] Join rapid changes in `src/watch.c`. Done when: one save by each of five editors gives one change. Cheaper substitute: every event.
 - [ ] Recover when the folder goes away and returns in `src/watch.c`. Done when: removing a drive gives a named state. Cheaper substitute: silence.
@@ -304,9 +310,10 @@ Sound out through tier 3 with steady buffers.
 
 **Build order:**
 
-1. Write `src/sound_out.c` with its first item. Done when: the first item below passes.
+1. Write `abi/tiers.json` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
+- [ ] Add its functions to tier 3 in `abi/tiers.json` with what the OS must give. Done when: the import check passes and a lower tier is refused. Cheaper substitute: an unchecked call.
 - [ ] Open a device and format, or name why not, in `src/sound_out.c`. Done when: no device, a busy one and a bad format are told apart. Cheaper substitute: one error.
 - [ ] Feed buffers from a callback in `src/sound_out.c`. Done when: a 10 minute sine recorded through a loop has no gap. Cheaper substitute: blocking writes.
 - [ ] Pause, resume, stop and seek in `src/sound_out.c`. Done when: positions stay within 10 ms of the clock. Cheaper substitute: restarting.
@@ -377,6 +384,7 @@ Open a file, a folder or a link with the user's own program, and start a program
 - [ ] Open `https`, `mailto` and files by the user's choice in `src/launch.c`. Done when: each opens and a refused scheme is named. Cheaper substitute: any text.
 - [ ] Refuse schemes outside the program's list in `src/launch.c`. Done when: a table of 40 hostile links starts nothing. Cheaper substitute: passing it on.
 - [ ] Start a program with arguments quoted exactly in `src/launch.c`. Done when: 10,000 random argument lists arrive equal. Cheaper substitute: joining with spaces.
+- [ ] Add its functions to tier 2 in `abi/tiers.json` with what the OS must give. Done when: the import check passes and a lower tier is refused. Cheaper substitute: an unchecked call.
 - [ ] Read its output and end, with a time limit, in `src/launch.c`. Done when: a program that never ends is stopped with its children. Cheaper substitute: waiting.
 - [ ] Give the opened file to a running copy of the program in `src/instance.c`. Done when: opening a second file shows it in the first window. Cheaper substitute: a second copy always.
 - [ ] Commit: `windows: starting programs and links`

@@ -196,8 +196,7 @@ The first four controls from compiled templates, with behaviour ported from the 
 - [ ] Build the toggle switch with drag in `ui/controls/toggle.c`. Done when: drag, click and Space give WinUI's results. Cheaper substitute: click only.
 - [ ] Build the text box with caret, selection, clipboard and undo in `ui/controls/textbox.c`. Done when: a recorded key script gives the same text and selection as WinUI. Cheaper substitute: append-only input.
 - [ ] Build the list view with selection modes and virtual rows in `ui/controls/listview.c`. Done when: 100,000 rows scroll with at most the visible rows drawn. Cheaper substitute: drawing all rows.
-- [ ] Build `ui/controls/*.c` in `cmake/ImpossibleSDK.cmake` and in the portable test of `tests/test_ui.py`, which read only `ui/*.c` today. Done when: a Windows call planted in `ui/controls/` fails the portable test. Cheaper substitute: one folder.
-- [ ] Open the text box's own menu with cut, copy, paste, undo and select all in `ui/controls/textbox.c`. Done when: each entry is enabled exactly when real WinUI enables it. Cheaper substitute: keys only.
+- [ ] Build every `.c` below `ui/` from one list that `cmake/ImpossibleSDK.cmake` and the portable test of `tests/test_ui.py` both read; both read only `ui/*.c` today. Done when: a Windows call planted in `ui/controls/` and one in `ui/dialogs/` each fail the portable test. Cheaper substitute: a folder at a time.
 - [ ] Show the list view's hover, pressed, selected and focus states in `ui/controls/listview.c`. Done when: every state of the pinned ListViewItem template matches. Cheaper substitute: hover and selected.
 - [ ] Add the gallery page and its keyboard walk to `tests/test_ui.py`. Done when: the walk passes on Windows.
 - [ ] Commit: `ui: the first four controls`
@@ -410,7 +409,7 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 **Build order:**
 
-1. Write `reference/cases/*.json` with its first item. Done when: the first item below passes.
+1. Write `tools/winui/pin.json` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
 - [ ] Read cases from `reference/cases/*.json`: control, properties, state, theme, scale, flow direction. Done when: the present 16 cases come from a file with equal pixels. Cheaper substitute: C# per control.
@@ -419,6 +418,8 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 - [ ] Dump element rectangles and the automation tree per case in `reference/Dump.cs`. Done when: `tests/test_ui.py` reads both for the button. Cheaper substitute: pixels only.
 - [ ] Play a recorded pointer, key and touch script and write the events and focus that follow, in `reference/Script.cs`. Done when: the script of a button gives the same log twice. Cheaper substitute: a person.
 - [ ] Mask text and icon pixels by rectangle in `tests/test_ui.py`. Done when: text differences do not fail and a moved rectangle does. Cheaper substitute: a loose limit for everything.
+- [ ] Record which source commit the Windows App SDK package of `reference/Reference.csproj` was built from, and every template that differs from `tools/winui/pin.json`, in `reference/package.json`. Done when: moving either without the other fails `tests/test_ui.py`. Cheaper substitute: one version number.
+- [ ] Name the controls the package lacks in `reference/package.json`. Done when: their cases are checked against the compiled template's own values and say so. Cheaper substitute: leaving them out.
 - [ ] Store frames compressed with one index in `tests/reference/`. Done when: a missing, extra or stale frame fails the suite. Cheaper substitute: loose files.
 - [ ] Commit: `reference: any control, any state`
 
@@ -437,11 +438,11 @@ The engine has no floating point and no SIMD, so its speed is measured from the 
 1. Write `tools/bench.py` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/fixtures/bench.c`. Done when: the checks fail on a planted fault.
 
-- [ ] Measure scenes in `tests/fixtures/bench.c`: a full window, a menu, scrolling text and 100 buttons. Done when: `tools/bench.py` prints cycles per pixel for each, stable within 5 percent. Cheaper substitute: a stopwatch.
+- [ ] Measure scenes in `tests/fixtures/bench.c`: fills, rounded shapes, shadows, layers and 100 buttons. Done when: `tools/bench.py` prints cycles per pixel for each, stable within 5 percent. Cheaper substitute: a stopwatch.
 - [ ] Record budgets in `tests/budgets.json` and fail above them. Done when: a planted slow path fails the check. Cheaper substitute: a printed number.
 - [ ] Add fast paths for opaque and constant rows in `ui/draw.c`. Done when: the bytes are equal to the plain path on random scenes. Cheaper substitute: different rounding.
 - [ ] Add optional SIMD files in `ui/simd/` chosen by the host. Done when: the bytes are equal with and without, and the portable build leaves them out. Cheaper substitute: SSE in the portable files.
-- [ ] Scroll by moving pixels where nothing else changed, in `ui/dirty.c`. Done when: a scrolled list redraws only the new rows. Cheaper substitute: full redraw.
+- [ ] Scroll by moving pixels where nothing else changed, in `ui/dirty.c`. Done when: a moved area of a made-up tree redraws only the new strip. Cheaper substitute: full redraw.
 - [ ] Commit: `ui: drawing speed budgets`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.

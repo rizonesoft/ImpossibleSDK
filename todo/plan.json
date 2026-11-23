@@ -13,10 +13,8 @@
   },
   "probes": {
     "windows-host": [
-      "pwsh.exe",
-      "-NoProfile",
-      "-Command",
-      "exit 0"
+      "python3",
+      "tools/windows_host.py"
     ]
   }
 }

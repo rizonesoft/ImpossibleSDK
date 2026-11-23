@@ -32,7 +32,7 @@ title: "TODO-03 -- Dialogs"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Message box | T01 §15 | [ ] |
-| 2 | §2 | Text input dialog | T01 §15, T01 §9 | [ ] |
+| 2 | §2 | Text input dialog | T01 §15, T01 §9, T01 §37 | [ ] |
 | 3 | §3 | Files and places model | T01 §4, D01 T01 §8 | [ ] |
 | 4 | §4 | Open file dialog | §3, T01 §47, T01 §50, T01 §21 | [ ] |
 | 5 | §5 | Save file dialog | §4, §1 | [ ] |
@@ -48,7 +48,7 @@ A question or message with icon and up to three buttons.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the dialog records of the pinned inventory and the Windows dialogs for behaviour; the content dialog for the look.
 **Job:** the user answers a question.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** the content dialog frame, or its own window when there is no owner.
@@ -77,7 +77,7 @@ One question with a text answer.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the dialog records of the pinned inventory and the Windows dialogs for behaviour; the content dialog for the look.
 **Job:** the user gives a name.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** the content dialog frame, or its own window when there is no owner.
@@ -89,7 +89,7 @@ One question with a text answer.
 
 - [ ] Show label, text and the default answer selected in `ui/dialogs/input.c`. Done when: typing replaces it. Cheaper substitute: an empty box.
 - [ ] Check while typing and say why it cannot be accepted in `ui/dialogs/input.c`. Done when: OK follows the check. Cheaper substitute: at OK.
-- [ ] Take a hidden answer too in `ui/dialogs/input.c`. Done when: the password rules of T01 §37 hold. Cheaper substitute: plain.
+- [ ] Take a hidden answer too in `ui/dialogs/input.c`. Done when: copy is refused, the peer gives no value and the bytes are seen zero after closing, all through the dialog. Cheaper substitute: plain.
 - [ ] Return cancel apart from an empty answer in `ui/dialogs/input.c`. Done when: the two are told apart. Cheaper substitute: empty.
 - [ ] Work by keyboard, touch and screen reader alone in `ui/dialogs/input.c`. Done when: three scripts finish the task. Cheaper substitute: pointer.
 - [ ] Add the page `samples/gallery/input.c` and its rows in `tests/state_matrix.json`. Done when: light, dark, contrast, right to left and 100 to 300 percent pass. Cheaper substitute: light.
@@ -105,7 +105,7 @@ What the file dialogs show, from the host, without drawing.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the dialog records of the pinned inventory and the Windows dialogs for behaviour; the content dialog for the look.
 **Job:** the user finds a file.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** the content dialog frame, or its own window when there is no owner.
@@ -136,7 +136,7 @@ Choosing one or more files.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the dialog records of the pinned inventory and the Windows dialogs for behaviour; the content dialog for the look.
 **Job:** the user opens a file.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** the content dialog frame, or its own window when there is no owner.
@@ -167,7 +167,7 @@ Choosing where a file goes.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the dialog records of the pinned inventory and the Windows dialogs for behaviour; the content dialog for the look.
 **Job:** the user saves a file.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** the content dialog frame, or its own window when there is no owner.
@@ -196,7 +196,7 @@ Choosing a folder.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the dialog records of the pinned inventory and the Windows dialogs for behaviour; the content dialog for the look.
 **Job:** the user chooses a folder.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** the content dialog frame, or its own window when there is no owner.
@@ -223,7 +223,7 @@ The colour picker in the frame.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the dialog records of the pinned inventory and the Windows dialogs for behaviour; the content dialog for the look.
 **Job:** the user chooses a colour.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** the content dialog frame, or its own window when there is no owner.
@@ -250,7 +250,7 @@ Choosing a font, style and size.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the dialog records of the pinned inventory and the Windows dialogs for behaviour; the content dialog for the look.
 **Job:** the user chooses a font.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** the content dialog frame, or its own window when there is no owner.
@@ -277,7 +277,7 @@ Pages with OK, Cancel and Apply, and steps with Back and Next.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the dialog records of the pinned inventory and the Windows dialogs for behaviour; the content dialog for the look.
 **Job:** the user changes properties or follows steps.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** the content dialog frame, or its own window when there is no owner.

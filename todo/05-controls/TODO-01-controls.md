@@ -40,7 +40,7 @@ title: "TODO-01 -- Controls"
 | 6 | §6 | Repeat, toggle and hyperlink buttons | §4, §5 | [ ] |
 | 7 | §7 | Check box | §5, D01 T01 §13 | [ ] |
 | 8 | §8 | Slider | §5, §14 | [ ] |
-| 9 | §9 | Text box fields and multi-line text | §2, §3, §4, §5, D01 T02 §4 | [ ] |
+| 9 | §9 | Text box fields and multi-line text | §2, §12, §4, §5, D01 T02 §4 | [ ] |
 | 10 | §10 | Number box | §9 | [ ] |
 | 11 | §11 | Combo box | §2, §3, §9 | [ ] |
 | 12 | §12 | Menu flyout and context menu | §2, §3, §4 | [ ] |
@@ -102,7 +102,7 @@ One contract for every control, one list that names where each WinUI control is 
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
 - [ ] Copy the inventory's control records, states, metrics and motions, `controls.md` and `tokens.json` at the commit in `inventory.json` with `tools/inventory.py`. Done when: a changed byte is refused. Cheaper substitute: a copy by hand.
-- [ ] Write `docs/control-contract.md`: template, states, keyboard, pointer, touch, pen, automation, mirroring, density, themes, text size, gallery page, matrix row. Done when: each point names its check. Cheaper substitute: a list.
+- [ ] Write `docs/control-contract.md`, with the rule that a control the reference package lacks is checked against its compiled template, and: template, states, keyboard, pointer, touch, pen, automation, mirroring, density, themes, text size, gallery page, matrix row. Done when: each point names its check. Cheaper substitute: a list.
 - [ ] Check the mechanical points in `tools/check_control.py`. Done when: removing any one from a fixture control names it. Cheaper substitute: review.
 - [ ] Add a new control's files and stubs with `tools/new_control.py`. Done when: the made control passes the contract's structure and fails its first test. Cheaper substitute: copying another.
 - [ ] Name every folder of `controls/dev` and every template of `generic.xaml` with its section here, or the reason it is left out, in `docs/winui-coverage.json`. Done when: a template added by a pin move fails the check. Cheaper substitute: memory.
@@ -192,7 +192,7 @@ One command behind a button, menu item, key and access key; and lists that tell 
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
 - [ ] Define a command with label, icon, keys, enabled and checked state in `ui/command.c`. Done when: changing it changes every place that shows it. Cheaper substitute: a callback per place.
-- [ ] Add the standard commands (cut, copy, paste, select all, delete, undo, redo, open, save, close, share and the rest of StandardUICommandKind) in `ui/command.c`. Done when: labels, icons and keys equal WinUI's. Cheaper substitute: three.
+- [ ] Add the standard commands (cut, copy, paste, select all, delete, undo, redo, open, save, close, share and the rest of StandardUICommandKind) in `ui/command.c`. Done when: keys and icon rectangles equal WinUI's, and every icon and label is from our own `icons/` and `ui/strings/`. Cheaper substitute: Microsoft's icons and wording.
 - [ ] Resolve keyboard accelerators by scope in `ui/accelerator.c`. Done when: 200 recorded presses run the command real WinUI runs. Cheaper substitute: the window only.
 - [ ] Show and resolve access keys in `ui/access_key.c`. Done when: an Alt script equals real WinUI's. Cheaper substitute: underlines only.
 - [ ] Define an observable list with insert, remove, move, replace and reset in `ui/list.c`. Done when: random edits replayed from events give the same list. Cheaper substitute: reset always.
@@ -355,6 +355,7 @@ The text box of the first controls, completed.
 - [ ] Undo and redo in the steps real WinUI makes in `ui/controls/text_box.c`. Done when: a script of 200 edits agrees at every step. Cheaper substitute: each key.
 - [ ] Move selected text by drag and take dropped text in `ui/controls/text_box.c`. Done when: the ends equal real WinUI's. Cheaper substitute: refusing.
 - [ ] Show composition from the input method through `ui/host.h`. Done when: a composition played by the recording host draws, changes and commits as recorded. Cheaper substitute: committed text.
+- [ ] Open its own menu with cut, copy, paste, undo, redo and select all in `ui/controls/text_box.c`. Done when: each entry is enabled exactly when real WinUI enables it. Cheaper substitute: keys only.
 - [ ] Be read-only, and tell the keyboard what kind of text is wanted in `ui/controls/text_box.c`. Done when: the recording host sees the scope. Cheaper substitute: text always.
 - [ ] Handle the whole editing key table of the inventory in `ui/controls/text_box.c`. Done when: the script `reference/scripts/text_box.json` gives the events and focus real WinUI gives. Cheaper substitute: pointer only.
 - [ ] Give the automation peer in `ui/controls/text_box.c`: Edit with Value and Text, with name, state and inventory id. Done when: the dump equals real WinUI's. Cheaper substitute: a name.
@@ -1021,7 +1022,7 @@ Up-down, IP address, hot key, header, rebar and animation controls that older pr
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the classic controls on Windows for behaviour, and the pinned inventory for the look.
 **Job:** the user of an older program meets the same look.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** none of its own; the gallery window hosts it.
@@ -1051,7 +1052,7 @@ A program that shows every control, for people and for tests.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** each shown control has its own; the frame is the navigation view of §18.
 **Job:** the user sees and tries every control.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** none of its own; the gallery window hosts it.
@@ -1061,12 +1062,12 @@ A program that shows every control, for people and for tests.
 1. Write `samples/gallery/main.c` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_gallery.py`. Done when: the checks fail on a planted fault.
 
-- [ ] Build the navigation, search and one page per control in `samples/gallery/main.c`. Done when: `docs/winui-coverage.json` finds a page for each carried control. Cheaper substitute: a list.
+- [ ] Build the navigation, search and page register in `samples/gallery/main.c`. Done when: every page file made so far is found, shown and searched. Cheaper substitute: a list.
 - [ ] Switch disabled, right-to-left, theme, accent, contrast, text size and scale per page in `samples/gallery/options.c`. Done when: each switch changes the page at once. Cheaper substitute: the window.
 - [ ] Hold each state still in a strip in `samples/gallery/strip.c`. Done when: the matrix reads every state without input. Cheaper substitute: live only.
 - [ ] Open a page and state from the command line in `samples/gallery/main.c`. Done when: `gallery button/pressed` shows it. Cheaper substitute: by hand.
 - [ ] Show the source that makes each example in `samples/gallery/source.c`. Done when: the text equals the compiled file. Cheaper substitute: typed again.
-- [ ] Work by keyboard, touch and screen reader alone in `tests/test_gallery.py`. Done when: three scripts visit every page. Cheaper substitute: pointer.
+- [ ] Work by keyboard and by touch alone in `tests/test_gallery.py`. Done when: two scripts visit every page made so far. Cheaper substitute: pointer.
 - [ ] Answer each item of §25 of `docs/os-roadmap/08-graphics-ui-TODO-19-fluent-component-library.md` in `docs/os-roadmap-answers.md`. Done when: each has a test, a declared need or a reason. Cheaper substitute: a summary.
 - [ ] Commit: `controls: the gallery`
 
@@ -1178,7 +1179,7 @@ Grouping by a heading and card, and by a line. WinUI has neither; the OS design 
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the design page and tokens of the pinned inventory.
 **Job:** the user sees what belongs together.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** none of its own; the gallery window hosts it.
@@ -1626,7 +1627,7 @@ The row every settings page is made of. WinUI has none; the Windows Community To
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the Settings records and metrics of the pinned inventory.
 **Job:** the user changes one setting.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** none of its own; the gallery window hosts it.
@@ -1823,7 +1824,7 @@ Panes along the bottom. WinUI has none; the OS design page gives the look.
 **Phase:** 3
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the design page and tokens of the pinned inventory.
 **Job:** the user sees the state of the document.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** none of its own; the gallery window hosts it.

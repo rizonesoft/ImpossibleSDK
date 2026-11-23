@@ -59,7 +59,7 @@ Impossible OS keeps its own element tree, layout, states, input and automation e
 
 - [ ] Write the interface in `ui/engine.h` and move the controls to it. Done when: no control includes an engine's own header. Cheaper substitute: two copies.
 - [ ] Write a small second engine for the tests in `ui/engine.h`. Done when: the first controls pass on both. Cheaper substitute: a mock.
-- [ ] Declare what the OS's engine needs beyond it in `abi/engine.json`. Done when: the OS's check names each. Cheaper substitute: a note.
+- [ ] Declare what the OS's engine needs beyond it in `abi/engine.json`. Done when: `tests/test_ui.py` builds both engines from the declaration and a missing or extra call fails. The OS reads it when it imports. Cheaper substitute: a note.
 - [ ] Commit: `ui: the engine interface`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.

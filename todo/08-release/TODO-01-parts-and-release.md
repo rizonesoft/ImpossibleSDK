@@ -30,17 +30,17 @@ title: "TODO-01 -- Parts, Packaging and Release"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Parts for drawing, text and controls | D02 T01 §1, D05 T01 §55, D06 T01 §1 | [ ] |
+| 1 | §1 | Parts for drawing, text and controls | D02 T01 §1, D05 T02 §22, D06 T01 §1 | [ ] |
 | 2 | §2 | The `app.json` format | -- | [ ] |
-| 3 | §3 | Package builder | §2 | [ ] |
+| 3 | §3 | Package builder | §2, D06 T01 §2 | [ ] |
 | 4 | §4 | Installer | §3, D06 T01 §2 | [ ] |
-| 5 | §5 | File types | §4 | [ ] |
+| 5 | §5 | File types | §4, D07 T01 §15 | [ ] |
 | 6 | §6 | Update and removal | §4, §5 | [ ] |
 | 7 | §7 | Program template on Impossible UI | D05 T01 §30, D05 T03 §4, D07 T01 §14 | [ ] |
 | 8 | §8 | API reference | §1 | [ ] |
 | 9 | §9 | Programming guide | §7, §8 | [ ] |
 | 10 | §10 | Versions and compatibility | §8 | [ ] |
-| 11 | §11 | Whole-program proof | §6, §7, D05 T01 §55, D07 T01 §5, D07 T01 §7, D07 T01 §9, D07 T01 §12, D07 T02 §7 | [ ] |
+| 11 | §11 | Whole-program proof | §6, §7, D05 T02 §22, D07 T01 §5, D07 T01 §7, D07 T01 §9, D07 T01 §12, D07 T02 §7 | [ ] |
 | 12 | §12 | Release archive | §9, §10, §11 | [ ] |
 | 13 | §13 | First public release | §12 | [ ] |
 
@@ -79,9 +79,10 @@ One checked format for what every program says about itself.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
 - [ ] Write the rules in `docs/app-json.md` and `tools/app_json.py`: name, label, version, tier, `opens`, `needs`, icon, publisher. Done when: a table of 60 good and bad files is judged right. Cheaper substitute: a sample.
-- [ ] Check the 41 existing files with `tools/app_json.py`. Done when: `python3 tools/app_json.py --all ..` passes or names each fault. Cheaper substitute: new ones only.
+- [ ] Check the 41 existing files with `tools/app_json.py`. Done when: `python3 tools/app_json.py --all ..` names every fault with file and field. Cheaper substitute: new ones only.
 - [ ] Measure that the tier equals the program's imports in `tools/app_build.py`. Done when: a program above or below its tier is named. Cheaper substitute: trusting it.
-- [ ] Name every `needs` entry's id, text and fallback in `tools/app_json.py`. Done when: one without a fallback is refused. Cheaper substitute: free text.
+- [ ] Read `needs` as `tools/new_app.py` documents it, `id` and `what`, with an optional `fallback`, in `tools/app_json.py`. Done when: an existing declaration passes the package builder unchanged and a wrong id is refused. Cheaper substitute: a new format.
+- [ ] Correct each file that fails, in its own repository. Done when: `python3 tools/app_json.py --all ..` exits 0. Cheaper substitute: a list of faults.
 - [ ] Commit: `tools: the app.json format`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -114,7 +115,7 @@ Installs for the current user without administrator rights.
 **Phase:** 6
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the content dialog of `todo/05-controls/TODO-01-controls.md` §15; its state matrix rows are the reference.
 **Job:** the user installs a program in one step.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** a content dialog of its own.
@@ -296,7 +297,7 @@ Everything a release needs, built by one command.
 2. Cover it in `tests/test_release.py`. Done when: the checks fail on a planted fault.
 
 - [ ] Build the archive of headers, sources, libraries, tools, guide and notices in `tools/release.py`. Done when: two machines give equal bytes. Cheaper substitute: a ZIP by hand.
-- [ ] Refuse a dirty tree, a failing test, an open acceptance item or a wrong version in `tools/release.py`. Done when: each planted fault stops it. Cheaper substitute: a warning.
+- [ ] Refuse a dirty tree, a failing test, a wrong version or any open section of phases 1 to 6 in `tools/release.py`. Done when: each planted fault stops it. Cheaper substitute: a warning.
 - [ ] Write hashes and a list of contents in `tools/release.py`. Done when: `tools/release.py --check` verifies them. Cheaper substitute: none.
 - [ ] Build a program from the archive alone in `tests/test_release.py`. Done when: it runs on Windows. Cheaper substitute: from the repository.
 - [ ] Commit: `release: the archive`

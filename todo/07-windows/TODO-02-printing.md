@@ -143,7 +143,8 @@ What the user sees while printing.
 - [ ] Run the job on a worker in `src/print.c`. Done when: the window draws during 500 pages. Cheaper substitute: blocking.
 - [ ] Tell the page being printed and cancel at any moment in `src/print.c`. Done when: random cancels leave no job and no thread. Cheaper substitute: after the page.
 - [ ] Name each error and what was already sent in `src/print.c`. Done when: a table of planted failures passes. Cheaper substitute: one error.
-- [ ] Try again from the first unsent page in `src/print.c`. Done when: the second job holds only the missing pages. Cheaper substitute: from the start.
+- [ ] Print the whole document again after a failed job, saying when pages may already have come out, in `src/print.c`. Done when: a job aborted at page 60 of 100 is followed by one of 100 pages. Cheaper substitute: only the unsent pages.
+- [ ] Print from a fixed copy of the pages or a page source kept alive until the job ends, in `include/impossible/print.h`. Done when: editing and closing the document at random moments prints the first pages and frees everything. Cheaper substitute: the live document.
 - [ ] Commit: `printing: progress, cancelling and errors`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
@@ -155,7 +156,7 @@ The pages as they will print.
 **Phase:** 5
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the pages of the printed PDF are the reference for content; the Windows print dialog, captured on Windows, for how it is used.
 **Job:** the user sees exactly what will come out of the printer.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** none of its own; the gallery window hosts it.
@@ -181,7 +182,7 @@ Printer, copies, pages, sides, colour, paper, direction and scale beside the pre
 **Phase:** 5
 **Needs:** windows-host, display-session
 **Surface:** yes
-**Fidelity:** real WinUI at the commit in `tools/winui/pin.json`, drawn by `reference/`; the limits are in `tests/test_ui.py`.
+**Fidelity:** the Windows print dialog, captured on Windows, for choices and keys; the content dialog frame for the look.
 **Job:** the user chooses a printer and settings and prints.
 **Treatment:** WinUI's own states, sizes, timings and focus visual; Selawik or Segoe text in the same rectangle.
 **Chrome:** none of its own; the gallery window hosts it.

@@ -32,7 +32,7 @@ title: "TODO-02 -- Text Engine"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Bundled fonts and font lookup | T01 §5, T01 §8 | [ ] |
-| 2 | §2 | Glyph cache | §1 | [ ] |
+| 2 | §2 | Glyph cache | §1, T01 §10, T01 §11 | [ ] |
 | 3 | §3 | Line, word and grapheme breaking | T01 §5, D06 T01 §5 | [ ] |
 | 4 | §4 | Paragraph layout | §1, §3 | [ ] |
 | 5 | §5 | Caret, hit testing and selection | §4 | [ ] |
@@ -81,7 +81,7 @@ Glyphs are drawn once per size and position step and kept within a limit.
 1. Write `ui/glyphs.c` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/budgets.json`. Done when: the checks fail on a planted fault.
 
-- [ ] Cache coverage by face, size, glyph and quarter-pixel step in `ui/glyphs.c`. Done when: cached and uncached frames are equal byte for byte. Cheaper substitute: one position.
+- [ ] Cache coverage by face with its resolved axis values, size, glyph and quarter-pixel step in `ui/glyphs.c`. Done when: cached and uncached frames are equal byte for byte, with two sets of axis values drawn in turn. Cheaper substitute: face and size.
 - [ ] Keep to a byte limit by least recent use in `ui/glyphs.c`. Done when: a million random requests stay under the limit and are right. Cheaper substitute: growing without end.
 - [ ] Draw through clips, layers and transforms in `ui/glyphs.c`. Done when: frames equal the uncached draw. Cheaper substitute: no clip.
 - [ ] Measure hits in `tests/budgets.json`. Done when: scrolling a page of text draws fewer than 1 percent new glyphs. Cheaper substitute: a guess.
@@ -128,7 +128,7 @@ Runs of different fonts and sizes become lines with alignment, trimming, tabs an
 - [ ] Trim by character and word with an ellipsis and a line limit in `ui/paragraph.c`. Done when: the visible text equals real WinUI's at 100 widths. Cheaper substitute: cutting pixels.
 - [ ] Keep, collapse and wrap white space, and place tab stops, in `ui/paragraph.c`. Done when: a table of 60 cases passes. Cheaper substitute: collapsing always.
 - [ ] Draw underline, strikethrough and highlight in `ui/paragraph.c`. Done when: their rectangles equal the font's metrics. Cheaper substitute: fixed offsets.
-- [ ] Lay out again only what an edit changed, in `ui/paragraph.c`. Done when: random edits equal a full layout. Cheaper substitute: full layout.
+- [ ] Lay out again only what an edit changed, in `ui/paragraph.c`. Done when: random edits equal a full layout, and the counted lines measured stay under 10 for an edit at the end of 10,000. Cheaper substitute: full layout.
 - [ ] Commit: `ui: paragraph layout`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
