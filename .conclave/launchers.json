@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "title": null,
-  "icon": null,
+  "title": "Impossible SDK",
+  "icon": "brand/png/icon-256.png",
   "agents": ["claude"],
   "skip_permissions": false,
   "links": []
