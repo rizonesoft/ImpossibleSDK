@@ -2,7 +2,7 @@
 
 The small C kit that Impossible OS side programs are built on. A program is an ordinary 64-bit Windows executable with no C runtime, paints its own pixels, and calls only the Windows functions on one published list. Impossible OS is to implement that list, so that the same program runs on both; today it runs on Windows only.
 
-Status: seed. Start-up, memory, console output, one window, the import check and the build exist. Drawing, text, controls and accessibility are planned in `D:\ImpossibleOS\plan.md`.
+Status: seed. Start-up, memory, console output, one window, the import check and the build exist. Drawing, text, controls and accessibility are planned in the plan beside the repositories.
 
 ## Build
 
