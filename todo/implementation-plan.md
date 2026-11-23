@@ -27,9 +27,46 @@ Sections: 1 | Checklist items: 6
 | ------ | ---------- | --------------------------------------------- | ----------------------------- | ----- |
 | [ ]    | D01 T01 §7 | Button, toggle switch, text box and list view | windows-host, display-session | 6     |
 
+### Phase 3: All controls
+
+Sections: 30 | Checklist items: 149
+
+| Status | Reference   | Deliverable                                                           | Needs | Items |
+| ------ | ----------- | --------------------------------------------------------------------- | ----- | ----- |
+| [ ]    | D05 T01 §1  | Inventory and authoring contract                                      | none  | 4     |
+| [ ]    | D05 T01 §2  | Scrolling and scroll bars                                             | none  | 5     |
+| [ ]    | D05 T01 §3  | Pop-ups, flyouts and light dismissal                                  | none  | 5     |
+| [ ]    | D05 T01 §4  | Commands and data lists                                               | none  | 5     |
+| [ ]    | D05 T01 §5  | Automation peers and inventory ids                                    | none  | 5     |
+| [ ]    | D05 T01 §6  | Button family: repeat, split, drop-down, hyperlink and toggle buttons | none  | 5     |
+| [ ]    | D05 T01 §7  | Check box, radio buttons and group box                                | none  | 5     |
+| [ ]    | D05 T01 §8  | Slider and progress bar and ring                                      | none  | 5     |
+| [ ]    | D05 T01 §9  | Text box family: password, rich edit and spelling marks               | none  | 5     |
+| [ ]    | D05 T01 §10 | Number box and auto-suggest box                                       | none  | 5     |
+| [ ]    | D05 T01 §11 | Combo box                                                             | none  | 5     |
+| [ ]    | D05 T01 §12 | Menus, menu bar and context menus                                     | none  | 5     |
+| [ ]    | D05 T01 §13 | Tool bar, command bar and command bar flyout                          | none  | 5     |
+| [ ]    | D05 T01 §14 | Tooltips and teaching tips                                            | none  | 5     |
+| [ ]    | D05 T01 §15 | Content dialogs and message boxes                                     | none  | 5     |
+| [ ]    | D05 T01 §16 | Info bar, info badge and person picture                               | none  | 5     |
+| [ ]    | D05 T01 §17 | Tabs, tab view and selector bar                                       | none  | 5     |
+| [ ]    | D05 T01 §18 | Navigation view and breadcrumb bar                                    | none  | 5     |
+| [ ]    | D05 T01 §19 | Expander and settings cards                                           | none  | 5     |
+| [ ]    | D05 T01 §20 | List, grid and items views                                            | none  | 5     |
+| [ ]    | D05 T01 §21 | Tree view                                                             | none  | 5     |
+| [ ]    | D05 T01 §22 | Flip view, pips and semantic zoom                                     | none  | 5     |
+| [ ]    | D05 T01 §23 | Split view and two-pane view                                          | none  | 5     |
+| [ ]    | D05 T01 §24 | Date, time and calendar pickers                                       | none  | 5     |
+| [ ]    | D05 T01 §25 | Colour picker                                                         | none  | 5     |
+| [ ]    | D05 T01 §26 | Rating control                                                        | none  | 5     |
+| [ ]    | D05 T01 §27 | Title bar and status bar                                              | none  | 5     |
+| [ ]    | D05 T01 §28 | Media transport controls                                              | none  | 5     |
+| [ ]    | D05 T01 §29 | Classic look of old controls                                          | none  | 5     |
+| [ ]    | D05 T01 §30 | Gallery and the state matrix                                          | none  | 5     |
+
 ### Phase 4: Formats and services
 
-Sections: 16 | Checklist items: 68
+Sections: 25 | Checklist items: 104
 
 | Status | Reference  | Deliverable                     | Needs | Items |
 | ------ | ---------- | ------------------------------- | ----- | ----- |
@@ -49,7 +86,16 @@ Sections: 16 | Checklist items: 68
 | [ ]    | D04 T01 §3 | Safe subset                     | none  | 4     |
 | [ ]    | D04 T01 §4 | CSS syntax and selectors        | none  | 4     |
 | [ ]    | D04 T01 §5 | Values and cascade              | none  | 4     |
+| [ ]    | D06 T01 §1 | A host's own engine             | none  | 4     |
+| [ ]    | D06 T01 §2 | Deflate and picture writers     | none  | 4     |
+| [ ]    | D06 T01 §3 | Hashes and checksums            | none  | 4     |
+| [ ]    | D06 T01 §4 | Text buffer                     | none  | 4     |
+| [ ]    | D06 T01 §5 | Unicode data                    | none  | 4     |
+| [ ]    | D06 T01 §6 | Time zones and recurrence       | none  | 4     |
+| [ ]    | D06 T01 §7 | Lossless sound                  | none  | 4     |
+| [ ]    | D06 T01 §8 | Lossy sound                     | none  | 4     |
+| [ ]    | D06 T01 §9 | SSH transport                   | none  | 4     |
 
-Progress: 0/23 verified sections, 7 ready to run now.
+Progress: 0/62 verified sections, 16 ready to run now.
 
-Checklist: 0/98 items completed (includes Commit items).
+Checklist: 0/283 items completed (includes Commit items).
