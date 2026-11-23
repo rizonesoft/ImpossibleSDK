@@ -31,6 +31,7 @@ const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-prac
 const faults = [];
 const browser = await chromium.launch();
 const check = (page, part = 'html') => page.evaluate(async ([t, part]) => (await axe.run(part, {runOnly: t})).violations.map(v => `${v.id}: ${v.nodes.slice(0, 3).map(n => n.target.join(' ')).join(' | ')}`), [tags, part]);
+const sideways = page => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
 try {
   const control = await browser.newPage();
@@ -53,9 +54,30 @@ try {
         await page.evaluate(() => document.fonts.ready.then(() => 0));
         await page.addScriptTag({content: axe});
         for (const fault of await check(page)) faults.push(`${path}, ${name}, ${colorScheme}: ${fault}`);
-        const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        const wide = await sideways(page);
         if (wide > 0) faults.push(`${path}, ${name}: the page scrolls sideways by ${wide}`);
       }
+      // The header is impossibleos.co's, so that nothing moves between the two sites: 69 high, its mark's artwork 36 square, 24 in and 16 down.
+      await page.goto(`${base}/index.html`);
+      await page.evaluate(() => document.fonts.ready.then(() => 0));
+      const look = () => page.evaluate(() => {
+        const at = s => document.querySelector(s).getBoundingClientRect(), mark = at('.brand img'), row = at('.top .wrap');
+        const space = mark.width / 12; // the icon's own, on each side of its artwork
+        return [at('.top').height, mark.x + space - row.x, mark.y + space, mark.width - 2 * space, mark.height - 2 * space].map(Math.round);
+      });
+      const places = await look();
+      if (String(places) !== '69,24,16,36,36') faults.push(`${name}, ${colorScheme}: the header is not impossibleos.co's: ${places}`);
+      const across = page.locator('.links a[href="https://impossibleos.co/"]');
+      if (name === 'phone') {
+        await page.click('#menu');
+        if (String((await look()).slice(1)) !== String(places.slice(1))) faults.push(`the menu moves the mark: ${await look()}`);
+        await page.addScriptTag({content: axe});
+        for (const fault of await check(page, '.top')) faults.push(`menu open, ${colorScheme}: ${fault}`);
+        if (await sideways(page)) faults.push(`menu open: the page scrolls sideways by ${await sideways(page)}`);
+      }
+      if (!await across.isVisible()) faults.push(`${name}: no link to impossibleos.co in the header`);
+      await page.keyboard.press('Escape');
+      if (name === 'phone' && await across.isVisible()) faults.push('phone: Escape does not close the menu');
       await page.goto(`${base}/docs/install.html`);
       await page.keyboard.press('Tab');
       if (await page.evaluate(() => document.activeElement.className) !== 'skip') faults.push(`${name}: the first stop is not the way to the content`);
@@ -64,6 +86,11 @@ try {
       await page.waitForSelector('#results [role=option]');
       await page.keyboard.press('ArrowDown');
       await page.addScriptTag({content: axe});
+      for (const width of name === 'desktop' ? [1440, 800, 769] : [390, 320]) {
+        await page.setViewportSize({...viewport, width});
+        if (await sideways(page)) faults.push(`search open, ${width} wide: the page scrolls sideways by ${await sideways(page)}`);
+      }
+      await page.setViewportSize(viewport);
       for (const fault of await check(page, '.search')) faults.push(`search open, ${name}, ${colorScheme}: ${fault}`);
       const active = () => page.evaluate(() => [document.activeElement.getAttribute('aria-activedescendant'), document.querySelector('#results').hidden]);
       await page.keyboard.type('x');

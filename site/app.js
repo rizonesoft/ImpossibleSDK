@@ -21,6 +21,16 @@ $$('.copy').forEach(button => button.onclick = async () => {
   setTimeout(() => button.textContent = 'Copy', 1500);
 });
 
+/* The menu of a narrow screen. */
+const menu = $('#menu'), tools = $('#tools');
+const unfold = on => { tools.classList.toggle('unfold', on); menu.setAttribute('aria-expanded', on); };
+menu.onclick = () => unfold(!tools.classList.contains('unfold'));
+addEventListener('keydown', e => { /* one Escape closes one thing, wherever the focus is */
+  if (e.key !== 'Escape') return;
+  if (!list.hidden) close();
+  else if (tools.classList.contains('unfold')) { unfold(false); menu.focus(); }
+});
+
 /* Search: every word has to be in the page's title, a heading or the text below it. */
 const box = $('#q'), list = $('#results');
 let entries, shown = [], at = -1;
@@ -70,11 +80,10 @@ box.onkeydown = e => {
   if (e.key === 'ArrowDown' && shown.length) { e.preventDefault(); pick((at + 1) % shown.length); }
   else if (e.key === 'ArrowUp' && shown.length) { e.preventDefault(); pick((at + shown.length) % shown.length - (at < 1 ? 0 : 1)); }
   else if (e.key === 'Enter' && shown.length && !list.hidden) location.href = shown[Math.max(at, 0)].dataset.url;
-  else if (e.key === 'Escape') { close(); }
 };
 addEventListener('click', e => { if (!e.target.closest('.search')) close(); });
 addEventListener('keydown', e => {
-  if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); box.focus(); }
+  if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); if (menu.offsetParent) unfold(true); box.focus(); }
 });
 
 /* The first page: the two files, the case of tiers, and the comparison. */
