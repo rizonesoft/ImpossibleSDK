@@ -27,6 +27,19 @@ Sections: 1 | Checklist items: 6
 | ------ | ---------- | --------------------------------------------- | ----------------------------- | ----- |
 | [ ]    | D01 T01 §7 | Button, toggle switch, text box and list view | windows-host, display-session | 6     |
 
-Progress: 0/7 verified sections, 2 ready to run now.
+### Phase 4: Formats and services
 
-Checklist: 0/30 items completed (includes Commit items).
+Sections: 6 | Checklist items: 28
+
+| Status | Reference  | Deliverable                | Needs | Items |
+| ------ | ---------- | -------------------------- | ----- | ----- |
+| [ ]    | D02 T01 §1 | Part layout and image type | none  | 4     |
+| [ ]    | D02 T01 §2 | Inflate and checksums      | none  | 4     |
+| [ ]    | D02 T01 §3 | PNG decoder                | none  | 5     |
+| [ ]    | D02 T01 §4 | JPEG decoder               | none  | 5     |
+| [ ]    | D02 T01 §5 | BMP decoder                | none  | 5     |
+| [ ]    | D02 T01 §6 | GIF decoder                | none  | 5     |
+
+Progress: 0/13 verified sections, 3 ready to run now.
+
+Checklist: 0/58 items completed (includes Commit items).
