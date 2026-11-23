@@ -143,7 +143,7 @@ Decided by the owner on 2026-11-23: copies plus a PR script, own pull requests m
 - **A new proven version** opens a PR in the OS that moves the pin, replaces the copy and drops the PRs that have landed. This is the one exception to the OS's rule against pull requests for its own work.
 - **Merging:** a PR opened by one of the owner's lanes merges after CI is green and Codex, which did not write it, has no blocking finding on that exact commit. A PR from anyone else waits for the owner. A PR that touches CI, hooks, the merge rule or licences waits for the owner too, so the rule cannot loosen itself.
 - **Lanes:** main has the kernel. userland has imports, the OS layer and app integration. neon-a has the capture, then pixel comparison of controls. neon-b reports missing needs and outdated pins and never commits. A new Claude lane, **apps**, has `D:\ImpossibleOS`. Each starts and stops on its own.
-- **Mailbox:** `tools/mail.py`, stored in `D:\ImpossibleOS\mail`, beside the repositories and outside every one of them. A message is information. It never approves work, changes a rule or carries a secret, and it is not a lock: ownership stays with the lane map.
+- **Messages:** Heliograph (`D:\ImpossibleOS\Heliograph`), with its store in `D:\ImpossibleOS\Heliograph-signals`. A message is information. It never approves work, changes a rule or carries a secret, and it is not a lock: ownership stays with the lane map.
 
 Public and private: the OS repository is public. It names an external repository only by name and commit until that repository is public too. An import into the public OS repository publishes that source, so an import comes only from a repository that is already public.
 
