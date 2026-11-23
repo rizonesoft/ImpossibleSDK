@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Start a program's repository: python3 tools/new_app.py <folder> --label <name> --goal <sentence> [--window] --tier <n>
+"""Start a program's repository: python3 tools/new_app.py <folder> --label <name> [--window] --tier <n>
 
 The folder's name is the program's name. It becomes a git repository pinned to
-this SDK's commit. With --kits <Conclave-SDK folder> it also gets the todo,
+this SDK's commit. With --kits <Conclave-SDK folder> --goal <sentence> it also gets the todo,
 reviewer and unattended kits and the Heliograph hook. Nothing is sent anywhere.
 """
 import argparse
@@ -118,9 +118,13 @@ def main():
     parser.add_argument("--tier", type=int, required=True)
     parser.add_argument("--window", action="store_true")
     parser.add_argument("--license", type=Path, required=True, help="a GPL-3.0 LICENSE file to copy")
-    parser.add_argument("--goal", required=True)
+    parser.add_argument("--goal", help="one sentence for AGENTS.md, with --kits")
     parser.add_argument("--kits", type=Path, help="a Conclave-SDK checkout")
     args = parser.parse_args()
+    if bool(args.kits) != bool(args.goal):
+        parser.error("--kits and --goal go together")
+    if args.kits and not (args.kits / "forge.py").is_file():
+        parser.error(f"{args.kits} is not a Conclave-SDK checkout")
     root = args.folder.resolve()
     name = root.name
     if not re.fullmatch(r"[A-Z][A-Za-z0-9]{1,39}", name):
