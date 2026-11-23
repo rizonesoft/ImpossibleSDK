@@ -166,7 +166,7 @@ Tracks A, B and C run side by side.
 | Calculator | Exact arithmetic, parser, programmer mode, units | Button, text, list |
 | Photos | Image decoders (in the SDK), folder model, zoom and crop | List view, command bar |
 | Notepad | Text buffer, encodings, find, undo | Text box, tabs, menus |
-| Tackle | Whole programs: console tools | Nothing |
+| Command | Whole programs: console tools | Nothing |
 
 **C. The OS connection**
 
