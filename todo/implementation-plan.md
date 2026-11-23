@@ -29,7 +29,7 @@ Sections: 1 | Checklist items: 6
 
 ### Phase 4: Formats and services
 
-Sections: 11 | Checklist items: 48
+Sections: 16 | Checklist items: 68
 
 | Status | Reference  | Deliverable                     | Needs | Items |
 | ------ | ---------- | ------------------------------- | ----- | ----- |
@@ -44,7 +44,12 @@ Sections: 11 | Checklist items: 48
 | [ ]    | D03 T01 §3 | TLS                             | none  | 4     |
 | [ ]    | D03 T01 §4 | HTTP                            | none  | 4     |
 | [ ]    | D03 T01 §5 | JSON                            | none  | 4     |
+| [ ]    | D04 T01 §1 | HTML tokenizer                  | none  | 4     |
+| [ ]    | D04 T01 §2 | HTML tree builder               | none  | 4     |
+| [ ]    | D04 T01 §3 | Safe subset                     | none  | 4     |
+| [ ]    | D04 T01 §4 | CSS syntax and selectors        | none  | 4     |
+| [ ]    | D04 T01 §5 | Values and cascade              | none  | 4     |
 
-Progress: 0/18 verified sections, 5 ready to run now.
+Progress: 0/23 verified sections, 7 ready to run now.
 
-Checklist: 0/78 items completed (includes Commit items).
+Checklist: 0/98 items completed (includes Commit items).
