@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/microsoft/microsoft-ui-xaml.git",
+  "commit": "5417e89b32818cfd85f757e9d1290203dc3cfecb",
+  "license": "MIT",
+  "base": "dxaml/xcp/dxaml/themes/generic.xaml",
+  "controls": "controls/dev/CommonStyles/*_themeresources*.xaml",
+  "skip": ["perf2026", "Deprecated_themeresources", "TextBlock_themeresources_v2.5", "InkToolbar"]
+}
