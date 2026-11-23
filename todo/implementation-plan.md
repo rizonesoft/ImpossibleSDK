@@ -29,17 +29,22 @@ Sections: 1 | Checklist items: 6
 
 ### Phase 4: Formats and services
 
-Sections: 6 | Checklist items: 28
+Sections: 11 | Checklist items: 48
 
-| Status | Reference  | Deliverable                | Needs | Items |
-| ------ | ---------- | -------------------------- | ----- | ----- |
-| [ ]    | D02 T01 §1 | Part layout and image type | none  | 4     |
-| [ ]    | D02 T01 §2 | Inflate and checksums      | none  | 4     |
-| [ ]    | D02 T01 §3 | PNG decoder                | none  | 5     |
-| [ ]    | D02 T01 §4 | JPEG decoder               | none  | 5     |
-| [ ]    | D02 T01 §5 | BMP decoder                | none  | 5     |
-| [ ]    | D02 T01 §6 | GIF decoder                | none  | 5     |
+| Status | Reference  | Deliverable                     | Needs | Items |
+| ------ | ---------- | ------------------------------- | ----- | ----- |
+| [ ]    | D02 T01 §1 | Part layout and image type      | none  | 4     |
+| [ ]    | D02 T01 §2 | Inflate and checksums           | none  | 4     |
+| [ ]    | D02 T01 §3 | PNG decoder                     | none  | 5     |
+| [ ]    | D02 T01 §4 | JPEG decoder                    | none  | 5     |
+| [ ]    | D02 T01 §5 | BMP decoder                     | none  | 5     |
+| [ ]    | D02 T01 §6 | GIF decoder                     | none  | 5     |
+| [ ]    | D03 T01 §1 | Random numbers and kept secrets | none  | 4     |
+| [ ]    | D03 T01 §2 | Connections                     | none  | 4     |
+| [ ]    | D03 T01 §3 | TLS                             | none  | 4     |
+| [ ]    | D03 T01 §4 | HTTP                            | none  | 4     |
+| [ ]    | D03 T01 §5 | JSON                            | none  | 4     |
 
-Progress: 0/13 verified sections, 3 ready to run now.
+Progress: 0/18 verified sections, 5 ready to run now.
 
-Checklist: 0/58 items completed (includes Commit items).
+Checklist: 0/78 items completed (includes Commit items).
