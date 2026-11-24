@@ -29,7 +29,7 @@ Sections: 26 | Checklist items: 139
 | [ ]    | D01 T01 §15 | Theme transitions                                | windows-host, display-session | 5     |
 | [ ]    | D01 T01 §16 | Remaining panels                                 | windows-host                  | 6     |
 | [ ]    | D01 T01 §18 | Drawing speed budgets                            | windows-host                  | 6     |
-| [ ]    | D01 T01 §19 | Corner smoothing doc polish                      | none                          | 2     |
+| [x]    | D01 T01 §19 | Corner smoothing doc polish                      | none                          | 2     |
 | [ ]    | D01 T02 §1  | Bundled fonts and font lookup                    | windows-host                  | 6     |
 | [ ]    | D01 T02 §2  | Glyph cache                                      | none                          | 5     |
 | [ ]    | D01 T02 §6  | Icon set                                         | windows-host, display-session | 7     |
@@ -243,6 +243,6 @@ Sections: 1 | Checklist items: 3
 | ------ | ----------- | -------------------- | -------- | ----- |
 | [ ]    | D08 T01 §13 | First public release | operator | 3     |
 
-Progress: 2/188 verified sections, 5 ready to run now.
+Progress: 3/188 verified sections, 4 ready to run now.
 
-Checklist: 10/1541 items completed (includes Commit items).
+Checklist: 11/1541 items completed (includes Commit items).

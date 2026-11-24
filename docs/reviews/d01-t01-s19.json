@@ -1,0 +1,89 @@
+{
+  "ref": "D01 T01 \u00a719",
+  "title": "Corner smoothing doc polish",
+  "implementation_sha": "dd4d4e93a440d5b385372242c67e7cb0afb22abd",
+  "date": "2026-11-24",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-interface/D01-T01-s19.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python3 tools/build.py -> Ran 81 tests in 94.081s, OK",
+    "python3 tools/site/build.py --check -> 29 pages, 42 files, 5 examples: nothing has drifted",
+    "python3 -m unittest tests.test_ui -v -> Ran 17 tests in 10.850s, OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-interface/D01-T01-s19.md",
+    "verdict": "reconciled",
+    "candidate": "dd4d4e93a440d5b385372242c67e7cb0afb22abd",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-interface/D01-T01-s19.md",
+    "candidate": "d854ac553bf703ec4fdd692e5ad10dbd34761cbe",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "d854ac553bf703ec4fdd692e5ad10dbd34761cbe",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "lenses": {
+      "thread-safety": "Which state is reached from two threads (UI, worker, callback, timer) without one lock or atomic owning it, and which lock order, wait, cancellation or teardown can deadlock or run after its owner is gone?",
+      "memory-safety": "Which pointer, reference, view, handle or iterator can outlive what it refers to, and which size, index or cast is trusted unchecked?"
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}
