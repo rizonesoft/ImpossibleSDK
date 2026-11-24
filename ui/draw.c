@@ -8,19 +8,19 @@
 
    Corner coverage is inferred from measured WinUI 3 frames (probe-r4/r8/r16 at
    scales 1, 1.5 and 2, plus the button captures): each 90-degree corner arc is
-   approximated by N = 2^k equal-angle inscribed chords (SIN16 table) using radius
-   buckets chosen to match Direct2D's 0.25 px flattening step-ups (N=2 for r<=3,
-   N=4 for r<=11, N=8 for r<=46, N=16 for r<=185, and exact quarter-ellipse above
-   185 px). We integrate 16-row horizontal coverage over those chords, preserving
-   4-way (left-right and top-bottom reflection) symmetry without reproducing GPU
-   per-primitive AA triangle asymmetry across corners. */
+   approximated as a standard quarter-ellipse cubic Bezier (kappa = 4*(sqrt(2)-1)/3)
+   and flattened into N = 2^k chords by Wang's formula at Direct2D's default
+   flattening tolerance of 0.25 px (N^2 >= 3 * M / 1 px, where M is the maximum
+   second difference of the cubic control polygon). We integrate 16-row horizontal
+   coverage over those flattened chords, preserving 4-way (left-right and top-bottom
+   reflection) symmetry without reproducing GPU per-primitive AA triangle asymmetry
+   across corners. */
 enum { ROWS = 16 };
 
-/* sin(pi * i / 32) in 0..65536 (16.16 fixed point) for i = 0..16. */
-static const uint32_t SIN16[17] = {
-    0, 6424, 12785, 19024, 25080, 30893, 36410, 41575,
-    46341, 50660, 54491, 57798, 60547, 62714, 64277, 65220, 65536
-};
+/* Quarter-circle cubic Bezier handle length: round(4*(sqrt(2)-1)/3 * 65536). */
+enum { BEZ_KAPPA = 36195 };
+/* Control-polygon second-difference weights: (1 - kappa) and (2*kappa - 1) in Q16. */
+enum { WANG_A = 29341, WANG_B = 6853 };
 
 static int64_t root(int64_t value) {
     if (value <= 0) return 0;
@@ -96,40 +96,67 @@ static fitted_radii fit(im_rect shape, im_radii radii) {
     return out;
 }
 
-/* How far a corner pushes the edge in on this row, using D2D's chord flattening. */
+/* Normalized cubic Bezier y(t) for quarter-circle from (1,0) to (0,1), t in [0..IM_ONE]. */
+static uint32_t bezier_coord(uint32_t t) {
+    uint64_t mt = (uint64_t)IM_ONE - t;
+    uint64_t t2 = ((uint64_t)t * t + IM_ONE / 2) >> 16;
+    uint64_t mt2 = (mt * mt + IM_ONE / 2) >> 16;
+    uint64_t c1 = (3 * mt2 * t + IM_ONE / 2) >> 16;
+    uint64_t y1 = (c1 * BEZ_KAPPA + IM_ONE / 2) >> 16;
+    uint64_t y2 = (3 * mt * t2 + IM_ONE / 2) >> 16;
+    uint64_t y3 = (t2 * t + IM_ONE / 2) >> 16;
+    uint64_t sum = y1 + y2 + y3;
+    return sum > IM_ONE ? IM_ONE : (uint32_t)sum;
+}
+
+/* Power-of-two chord count N from Wang's formula for a quarter-ellipse cubic at tol = 0.25 px. */
+static uint32_t wang_segments(int64_t rx, int64_t ry) {
+    int shift = 0;
+    uint64_t ux = (uint64_t)rx, uy = (uint64_t)ry;
+    while (ux > 0x3FFFFFFFULL || uy > 0x3FFFFFFFULL) {
+        ux >>= 1;
+        uy >>= 1;
+        shift++;
+    }
+    int64_t ax = (int64_t)((ux * WANG_A) >> 16);
+    int64_t ay = (int64_t)((uy * WANG_B) >> 16);
+    int64_t bx = (int64_t)((ux * WANG_B) >> 16);
+    int64_t by = (int64_t)((uy * WANG_A) >> 16);
+    int64_t m1 = root(ax * ax + ay * ay);
+    int64_t m2 = root(bx * bx + by * by);
+    uint64_t m = (uint64_t)larger64(m1, m2);
+    /* Wang's formula at tol = 0.25 px (IM_ONE / 4): N^2 >= (3/4) * M / 0.25 = 3 * M / IM_ONE. */
+    uint64_t need = 3 * m;
+    if (shift > 0) need = (shift >= 40) ? (1ULL << 40) : (need << shift);
+    uint32_t n = 2;
+    while (n < 1024 && (uint64_t)n * n * IM_ONE < need) n <<= 1;
+    return n;
+}
+
+/* How far a corner pushes the edge in on this row, using Wang-formula cubic Bezier flattening. */
 static int64_t inset(int64_t rx, int64_t ry, int64_t distance) {
     if (rx <= 0 || ry <= 0 || distance >= ry) return 0;
     int64_t up = ry - distance;
-    int64_t rmax = larger64(rx, ry);
-    int step = 0;
-    if (rmax <= 3 * IM_ONE) step = 8;                    /* N = 2 */
-    else if (rmax <= 11 * IM_ONE) step = 4;              /* N = 4 */
-    else if (rmax <= 46 * IM_ONE) step = 2;              /* N = 8 */
-    else if (rmax <= 185 * IM_ONE) step = 1;             /* N = 16 */
-
-    if (step > 0) {
-        uint64_t u = (uint64_t)up, d = (uint64_t)ry;
-        while (u > 0xFFFFFFFFULL || d > 0xFFFFFFFFULL) { u >>= 1; d >>= 1; }
-        uint32_t v = d ? (uint32_t)((u * IM_ONE) / d) : IM_ONE;
-        uint32_t cx = 0;
-        for (int i = 0; i < 16; i += step) {
-            uint32_t y0 = SIN16[i], y1 = SIN16[i + step];
-            if (v <= y1) {
-                uint32_t x0 = SIN16[16 - i], x1 = SIN16[16 - i - step];
-                uint32_t dy = y1 - y0;
-                uint32_t dx = x0 - x1;
-                cx = dy ? x0 - (uint32_t)(((uint64_t)(v - y0) * dx + dy / 2) / dy) : x1;
-                break;
-            }
-        }
-        return (int64_t)(((uint64_t)rx * (uint64_t)(IM_ONE - cx) + IM_ONE / 2) >> 16);
-    }
-
-    /* Large radii (> 208 px): exact quarter-ellipse, sagitta < 0.25 px. */
     uint64_t u = (uint64_t)up, d = (uint64_t)ry;
-    while (u > 0x7FFFFFFFULL || d > 0x7FFFFFFFULL) { u >>= 1; d >>= 1; }
-    uint64_t v = d ? (u * IM_ONE) / d : IM_ONE;
-    int64_t cx = root((int64_t)IM_ONE * IM_ONE - (int64_t)(v * v));
+    while (u > 0xFFFFFFFFULL || d > 0xFFFFFFFFULL) { u >>= 1; d >>= 1; }
+    uint32_t v = d ? (uint32_t)((u * IM_ONE) / d) : IM_ONE;
+    if (v > IM_ONE) v = IM_ONE;
+
+    uint32_t n = wang_segments(rx, ry);
+    uint32_t lo = 0, hi = n;
+    while (lo + 1 < hi) {
+        uint32_t mid = (lo + hi) >> 1;
+        uint32_t t = (uint32_t)(((uint64_t)mid * IM_ONE) / n);
+        if (bezier_coord(t) <= v) lo = mid;
+        else hi = mid;
+    }
+    uint32_t t0 = (uint32_t)(((uint64_t)lo * IM_ONE) / n);
+    uint32_t t1 = (uint32_t)(((uint64_t)(lo + 1) * IM_ONE) / n);
+    uint32_t y0 = bezier_coord(t0), y1 = bezier_coord(t1);
+    uint32_t x0 = bezier_coord(IM_ONE - t0), x1 = bezier_coord(IM_ONE - t1);
+    uint32_t dy = y1 > y0 ? y1 - y0 : 0;
+    uint32_t dx = x0 > x1 ? x0 - x1 : 0;
+    uint32_t cx = dy ? x0 - (uint32_t)(((uint64_t)(v > y0 ? v - y0 : 0) * dx + dy / 2) / dy) : x1;
     return (int64_t)(((uint64_t)rx * (uint64_t)(IM_ONE - cx) + IM_ONE / 2) >> 16);
 }
 

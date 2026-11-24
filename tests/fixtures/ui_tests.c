@@ -131,5 +131,19 @@ int im_main(void) {
     if (at(25, 20) == 0 || at(25, 20) == 0xFFFFFF) return 31;
     /* Inner contour at x=25, y=22 is outside the inner arc (partial/lit); half-short-side clamping would leave it empty. */
     if (at(25, 22) == 0) return 32;
+
+    /* Large radius (> 185 px) uses Wang's formula cubic flattening (N = 32 for r = 256) without overflow. */
+    clear();
+    im_fill(&surface, box(0, 0, 600, 600), (im_radii){256 * IM_ONE, 0, 0, 0}, white);
+    if (at(0, 0) != 0 || at(63, 63) != 0) return 33; /* top-left 64x64 viewport lies outside the r=256 corner */
+    clear();
+    im_fill(&surface, box(-200, 0, 400, 600), (im_radii){256 * IM_ONE, 0, 0, 0}, white);
+    if (at(63, 63) != 0xFFFFFF || at(0, 0) != 0) return 34; /* spans across the r=256 flattened cubic */
+
+    /* Cubic Bezier subdivision at r=8 (N=4, t=0.25 vertex at (0.92142, 0.38925)*8) gives 37 at (8,12)
+       and 126 at (8,13), distinct from equal-angle chords (40, 128) and exact circle (49, 151). */
+    clear();
+    im_fill(&surface, box(8, 8, 56, 56), (im_radii){8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE}, white);
+    if ((at(8, 12) & 255) != 37 || (at(8, 13) & 255) != 126) return 35;
     return 0;
 }
