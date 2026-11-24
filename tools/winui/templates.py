@@ -240,9 +240,24 @@ def parse_xaml(text, filename):
         byte_idx = parser.CurrentByteIndex
         base_line = line_at(byte_idx)
         attr_lines = find_attr_lines(byte_idx)
+        allowed_ns = (
+            "http://schemas.microsoft.com/winfx/2006/xaml",
+            "http://schemas.microsoft.com/winfx/2006/xaml/presentation",
+            "http://schemas.openxmlformats.org/markup-compatibility/2006",
+            "using:Microsoft.UI.Xaml.Controls",
+        )
         clean_attrs = {}
         for k, v in attrs.items():
-            short = local_name(k)
+            if " " in k:
+                ns, short = k.rsplit(" ", 1)
+                if ns not in allowed_ns and not ns.startswith("http://schemas.microsoft.com/winfx/2006/xaml/presentation?"):
+                    line_no = attr_lines.get(short, base_line)
+                    raise TemplateError(f"{filename}:{line_no}: unsupported attribute namespace {ns!r} for {short!r}")
+            else:
+                short = local_name(k)
+            if short in clean_attrs:
+                line_no = attr_lines.get(short, base_line)
+                raise TemplateError(f"{filename}:{line_no}: duplicate attribute {short!r}")
             clean_attrs[short] = v
         node = Node(local_name(tag), clean_attrs, filename, base_line, attr_lines)
         if stack:

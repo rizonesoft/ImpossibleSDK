@@ -432,6 +432,23 @@ class TemplateCompiler(unittest.TestCase):
         self.assertIn(f"{path}:7:", res.stderr)
         self.assertIn("BogusStateAttr", res.stderr)
 
+        xaml_ns = (
+            '<ControlTemplate xmlns:vendor="urn:vendor" TargetType="Button">\n'
+            '  <Grid>\n'
+            '    <VisualStateManager.VisualStateGroups>\n'
+            '      <VisualStateGroup Name="CommonStates">\n'
+            '        <VisualState Name="Normal"\n'
+            '          vendor:Name="Foreign" />\n'
+            '      </VisualStateGroup>\n'
+            '    </VisualStateManager.VisualStateGroups>\n'
+            '  </Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_ns, path_ns = self._run_fixture(xaml_ns)
+        self.assertNotEqual(res_ns.returncode, 0)
+        self.assertIn(f"{path_ns}:6:", res_ns.stderr)
+        self.assertIn("namespace", res_ns.stderr.lower())
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3
