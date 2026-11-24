@@ -530,7 +530,10 @@ public static class Script
                                 modVks.Add((ushort)mvk);
                             }
                         }
-                        bool ctrlActive = heldKeys.Contains((ushort)VirtualKey.Control)
+                        bool ctrlActive = vk == VirtualKey.Control
+                            || vk == VirtualKey.LeftControl
+                            || vk == VirtualKey.RightControl
+                            || heldKeys.Contains((ushort)VirtualKey.Control)
                             || heldKeys.Contains((ushort)VirtualKey.LeftControl)
                             || heldKeys.Contains((ushort)VirtualKey.RightControl)
                             || modVks.Contains((ushort)VirtualKey.Control)

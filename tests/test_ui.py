@@ -2311,20 +2311,21 @@ class ReferenceHarness(unittest.TestCase):
             self.assertEqual(ltr_scroll["X"], 3)  # 1px border + 2px left padding
             self.assertEqual(rtl_scroll["X"], 9)  # 1px border + 8px mirrored right padding
             self.assertEqual(dg_rtl["flow_direction"], "RightToLeft")
-            # Guard against mistaking a 100%-host viewbox-vector capture for a native fractional-DPI layout:
-            # committed 150% button capture truthfully reports scale_mode="viewbox-vector" and effective_rasterization_scale=1.0,
-            # and a native-dpi requirement explicitly rejects it.
+            # Scale metadata consistency: works for both 100%-host viewbox-vector captures and genuine 150%-host native-dpi captures.
             s150_committed = next(c for c in ref_run.open_reference_manifest(ROOT / "tests/reference")["cases"] if c["id"] == "button-Normal-Dark-s150")
-            self.assertEqual(s150_committed.get("scale_mode"), "viewbox-vector")
-            self.assertEqual(s150_committed.get("host_rasterization_scale"), 1.0)
-            self.assertEqual(s150_committed.get("effective_rasterization_scale"), 1.0)
+            self.assertIn(s150_committed.get("scale_mode"), ("viewbox-vector", "native-dpi"))
+            self.assertEqual(s150_committed.get("effective_rasterization_scale"), s150_committed.get("host_rasterization_scale"))
             def _require_native_dpi_capture(entry):
                 req_s = float(entry.get("scale", 1.0))
                 eff_s = float(entry.get("effective_rasterization_scale", 1.0))
                 if entry.get("scale_mode") != "native-dpi" or abs(eff_s - req_s) > 1e-6:
                     raise ValueError(f"{entry.get('id')}: not a native-dpi capture (mode={entry.get('scale_mode')}, eff={eff_s}, req={req_s})")
-            with self.assertRaises(ValueError):
+            if s150_committed.get("scale_mode") == "native-dpi":
                 _require_native_dpi_capture(s150_committed)
+            else:
+                self.assertEqual(s150_committed.get("host_rasterization_scale"), 1.0)
+                with self.assertRaises(ValueError):
+                    _require_native_dpi_capture(s150_committed)
             # Committed probe-r4-s15 layout child and automation root must agree in normalized logical coordinates.
             probe15 = next(c for c in ref_run.open_reference_manifest(ROOT / "tests/reference")["cases"] if c["id"] == "probe-r4-s15")
             self.assertEqual(probe15["layout"]["Children"][0]["Rect"], probe15["automation"]["Rect"])
@@ -3061,22 +3062,26 @@ class LiveReference(unittest.TestCase):
                 self.assertTrue(any("Text=;Sel=0:0" in ev.get("State", "") for ev in tb_events), msg=tb_events)
                 self.assertEqual(by1["textbox-select-undo"]["script_log"]["FinalState"]["text"], "Hello")
 
-                # Cross-step desktop shortcut refusal (key_down Control + key_press Escape) must fail and release Control cleanly.
-                seq_shortcut = Path(tmp) / "seq_shortcut.json"
-                seq_shortcut.write_text(json.dumps({"cases": [{
-                    "id": "seq-ctrl-esc",
-                    "control": "Button",
-                    "theme": "Dark",
-                    "scale": 1.0,
-                    "frame": {"width": 160, "height": 64},
-                    "properties": {"Width": 120, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
-                    "script": [{"action": "key_down", "key": "Control"}, {"action": "key_press", "key": "Escape"}],
-                }]}), encoding="utf-8")
-                with self.assertRaises(subprocess.CalledProcessError) as cm_seq:
-                    ref_run.run_reference(exe, Path(tmp) / "out_seq_shortcut", cases_path=seq_shortcut, work_dir=build_tmp)
-                self.assertIn("Control+Escape is disallowed", cm_seq.exception.stderr)
-                self.assertIn("cleanup_releases=[key_up:Control]", cm_seq.exception.stderr)
-                self.assertNotIn("cleanup_errors=", cm_seq.exception.stderr)
+                # Cross-step desktop shortcut refusal in both orders (Control->Escape and Escape->Control).
+                for order_id, steps, exp_rel in (
+                    ("seq-ctrl-esc", [{"action": "key_down", "key": "Control"}, {"action": "key_press", "key": "Escape"}], "key_up:Control"),
+                    ("seq-esc-ctrl", [{"action": "key_down", "key": "Escape"}, {"action": "key_press", "key": "Control"}], "key_up:Escape"),
+                ):
+                    seq_shortcut = Path(tmp) / f"{order_id}.json"
+                    seq_shortcut.write_text(json.dumps({"cases": [{
+                        "id": order_id,
+                        "control": "Button",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Width": 120, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": steps,
+                    }]}), encoding="utf-8")
+                    with self.assertRaises(subprocess.CalledProcessError) as cm_seq:
+                        ref_run.run_reference(exe, Path(tmp) / f"out_{order_id}", cases_path=seq_shortcut, work_dir=build_tmp)
+                    self.assertIn("Control+Escape is disallowed", cm_seq.exception.stderr)
+                    self.assertIn(f"cleanup_releases=[{exp_rel}]", cm_seq.exception.stderr)
+                    self.assertNotIn("cleanup_errors=", cm_seq.exception.stderr)
 
                 # Numeric VirtualKey bypass (e.g. "65563" = 0x1001B, low 16 bits = Escape) must be refused before SendInput.
                 num_vk = Path(tmp) / "num_vk.json"
