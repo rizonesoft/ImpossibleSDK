@@ -6,10 +6,14 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
-import winreg
 import zlib
 from pathlib import Path
+try:
+    import winreg
+except ImportError:  # WSL unit tests import differences() without Windows
+    winreg = None
 
 ROOT = Path(__file__).resolve().parents[1]
 PIXEL_LIMIT = 40  # a channel's difference; the worst measured on 2026-11-24 was 35, a corner probe
@@ -31,6 +35,7 @@ def differences(fresh_dir, store):
     fresh = {c["id"]: c for c in json.loads((fresh_dir / "cases.json").read_text(encoding="utf-8"))["cases"]}
     stored = {c["id"]: c for c in json.loads((store / "cases.json").read_text(encoding="utf-8"))["cases"]}
     found = [f"{i}: not captured" for i in stored if i not in fresh]
+    found += [f"{i}: not in store" for i in fresh if i not in stored]
     for i, old in stored.items():
         if i not in fresh:
             continue
@@ -55,7 +60,8 @@ def main():
     register_fonts(here / "fonts")
     sys.path[:0] = [str(ROOT / "tests"), str(ROOT / "reference"), str(ROOT / "tools/winui")]
     import run
-    out = Path(r"C:\job\out\frames")
+    out = Path(tempfile.gettempdir()) / "impossible-live-frames"
+    shutil.rmtree(out, ignore_errors=True)
     run.run_reference(exe, out)
     found = differences(out, ROOT / "tests/reference")
     for line in found:

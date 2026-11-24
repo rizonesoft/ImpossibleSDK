@@ -2770,16 +2770,28 @@ class ReferenceHarness(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_script_log(filtered)
 
-        # Stripping PointerReleased must fail BOTH validate_script_log AND store validation.
+        # Stripping PointerReleased or emptying Events must fail BOTH validate_script_log AND production store validation.
         no_rel = {**slog, "Events": [e for e in slog["Events"] if e.get("Event") != "PointerReleased"]}
         with self.assertRaises(ValueError):
             validate_script_log(no_rel)
+        expected_specs = ref_run.load_case_specs(ref_run.CASES_DIR)
+        for bad_label, bad_events in (("missing-release", no_rel["Events"]), ("empty-events", [])):
+            with tempfile.TemporaryDirectory() as tmp_store_root:
+                tmp_store = Path(tmp_store_root) / "reference"
+                shutil.copytree(folder, tmp_store)
+                idx = json.loads((tmp_store / "cases.json").read_text(encoding="utf-8"))
+                for item in idx["cases"]:
+                    if item.get("id") == "button-Script-Dark":
+                        item["script_log"]["Events"] = bad_events
+                (tmp_store / "cases.json").write_text(json.dumps(idx, indent=2), encoding="utf-8")
+                with self.assertRaises(ValueError, msg=f"production store validator must reject {bad_label}"):
+                    ref_run._validate_store_dir_unlocked(tmp_store, expected_specs)
         # Shift+Delete counts as a same-script cut in Python's script validator (matching Script.cs).
         ref_run._check_no_clipboard_paste("sd-case", [
             {"action": "key_press", "key": "Delete", "modifiers": ["Shift"]},
             {"action": "key_press", "key": "V", "modifiers": ["Control"]},
         ])
-        # Unindexed .bgra in a marked raw capture output directory must be refused and survive byte-for-byte.
+        # Unindexed .bgra in a marked raw capture output directory OR its .out.backup must be refused and survive byte-for-byte.
         with tempfile.TemporaryDirectory() as tmp_raw:
             raw_out = Path(tmp_raw) / "out"
             raw_src = Path(tmp_raw) / "src"
@@ -2796,6 +2808,20 @@ class ReferenceHarness(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ref_run._publish_capture_output(raw_src, raw_out)
             self.assertEqual((raw_out / "keep_me.bgra").read_bytes(), keep_bytes)
+            # Same ownership rule applies to a leftover .out.backup sibling alongside raw_out.
+            (raw_out / "keep_me.bgra").unlink()
+            raw_bak = Path(tmp_raw) / ".out.backup"
+            raw_bak.mkdir()
+            (raw_bak / ref_run.OUT_MARKER).write_text("impossible-sdk-reference-output\n", encoding="utf-8")
+            (raw_bak / "cases.json").write_text(json.dumps({"cases": [{"id": "a", "file": "a.bgra"}]}), encoding="utf-8")
+            (raw_bak / "a.bgra").write_bytes(b"\x01\x02\x03\x04")
+            bak_keep_bytes = b"KEEP_ME_IN_BACKUP_RAW_FRAME_BYTES"
+            (raw_bak / "keep_bak.bgra").write_bytes(bak_keep_bytes)
+            with self.assertRaises(ValueError):
+                ref_run._ensure_safe_capture_dir(raw_out)
+            with self.assertRaises(ValueError):
+                ref_run._publish_capture_output(raw_src, raw_out)
+            self.assertEqual((raw_bak / "keep_bak.bgra").read_bytes(), bak_keep_bytes)
 
     def test_rectangle_masking_for_text_and_icon_at_fractional_scale(self):
         ref_run, _ = self._ref_modules()
@@ -2820,16 +2846,18 @@ class ReferenceHarness(unittest.TestCase):
             mut[(py * w + px) * 4:(py * w + px) * 4 + 3] = bytes([255, 0, 255])
         compare_frames_with_layout_mask(bytes(mut), real, w, h, scale, cand_both, ref_both, limit=0)
 
-        # Moving a candidate rectangle by 1 device pixel at EVERY required scale (100%, 150%, 200%, 300%) must fail.
+        # Moving a candidate rectangle by 1 device pixel at EVERY required scale (100%, 150%, 200%, 300%),
+        # including half-pixel origins where ties-to-even rounding would otherwise collide (1.5 -> 2.5), must fail.
         for req_scale in (1.0, 1.5, 2.0, 3.0):
             one_px_dip = 1.0 / req_scale
-            ref_s = [("Lbl", 10.0, 10.0, 20.0, 10.0)]
-            cand_s_moved = [("Lbl", 10.0 + one_px_dip, 10.0, 20.0, 10.0)]
             buf_s = bytes(round(60 * req_scale) * round(40 * req_scale) * 4)
-            with self.assertRaises(ValueError, msg=f"1-device-pixel move must fail at scale={req_scale}"):
-                compare_frames_with_layout_mask(
-                    buf_s, buf_s, round(60 * req_scale), round(40 * req_scale), req_scale, cand_s_moved, ref_s, limit=0
-                )
+            for base_x in (10.0, 1.5 / req_scale):
+                ref_s = [("Lbl", base_x, 10.0, 2.0 / req_scale, 10.0)]
+                cand_s_moved = [("Lbl", base_x + one_px_dip, 10.0, 2.0 / req_scale, 10.0)]
+                with self.assertRaises(ValueError, msg=f"1-device-pixel move must fail at scale={req_scale} base_x={base_x}"):
+                    compare_frames_with_layout_mask(
+                        buf_s, buf_s, round(60 * req_scale), round(40 * req_scale), req_scale, cand_s_moved, ref_s, limit=0
+                    )
 
         # Moving a candidate rectangle by 2 DIPs must fail even though its pixels are masked.
         moved = [(independent_icon[0], independent_icon[1] + 2.0, independent_icon[2], independent_icon[3], independent_icon[4]), independent_text]

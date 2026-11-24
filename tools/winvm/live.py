@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -126,6 +127,37 @@ def alone(root):
         yield True
 
 
+def _kill_process_tree(proc):
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def _run_with_tree_kill(command, cwd, timeout, check=False):
+    kwargs = {"cwd": cwd, "stdin": subprocess.DEVNULL}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+    else:
+        kwargs["start_new_session"] = True
+    proc = subprocess.Popen(command, **kwargs)
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc)
+        proc.wait()
+        raise
+    if check and proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, command)
+    return proc.returncode
+
+
 def pack(root):
     """The whole job in one folder on a Windows disk: the tree, the program, Python and a font. Its path and fingerprint."""
     work = windows_temp() / "impossible-live" / hashlib.sha256(str(root).encode()).hexdigest()[:12]
@@ -154,7 +186,7 @@ def pack(root):
         command = ["dotnet.exe", "publish", "-c", "Release", "-p:SelfContained=true", "-v", "q", "--nologo", "-o", there(job) + "\\exe"]
         if shutil.which("bosun"):
             command = ["bosun", "run", "--", *command]
-        subprocess.run(command, cwd=source, check=True, timeout=1200, stdin=subprocess.DEVNULL)
+        _run_with_tree_kill(command, cwd=source, timeout=1200, check=True)
         mark.write_text(packed)
     return work, packed
 
@@ -173,7 +205,7 @@ def command_for(settings, work, out, floor, bosun):
 def run_machine(command, out):
     """The runner's exit code, then what the machine wrote ({} when nothing)."""
     try:
-        code = subprocess.run(command, cwd=out.parent, stdin=subprocess.DEVNULL, timeout=TURN_SECONDS).returncode
+        code = _run_with_tree_kill(command, cwd=out.parent, timeout=TURN_SECONDS, check=False)
     except subprocess.TimeoutExpired:
         code = 3
     return code, read(out / "result.json")

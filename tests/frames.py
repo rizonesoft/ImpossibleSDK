@@ -1,4 +1,10 @@
 """Frame and script-log checks the stored and the live reference tests share."""
+import math
+
+
+def _px_round(value):
+    """Round half-up so every 1-device-pixel shift changes the rasterized pixel edge by 1."""
+    return math.floor(value + 0.5)
 
 
 def extract_mask_rects(layout_node):
@@ -20,8 +26,8 @@ def compare_frames_with_layout_mask(mine, real, width, height, scale, cand_rects
     for (cname, cx, cy, cw, ch), (rname, rx, ry, rw, rh) in zip(cand_rects, ref_rects):
         if cname != rname:
             raise ValueError(f"masked element name mismatch: {cname!r} vs {rname!r}")
-        cx0, cy0, cx1, cy1 = round(cx * scale), round(cy * scale), round((cx + cw) * scale), round((cy + ch) * scale)
-        rx0, ry0, rx1, ry1 = round(rx * scale), round(ry * scale), round((rx + rw) * scale), round((ry + rh) * scale)
+        cx0, cy0, cx1, cy1 = _px_round(cx * scale), _px_round(cy * scale), _px_round((cx + cw) * scale), _px_round((cy + ch) * scale)
+        rx0, ry0, rx1, ry1 = _px_round(rx * scale), _px_round(ry * scale), _px_round((rx + rw) * scale), _px_round((ry + rh) * scale)
         if max(abs(cx0 - rx0), abs(cy0 - ry0), abs(cx1 - rx1), abs(cy1 - ry1)) > rect_tol_px:
             raise ValueError(
                 f"masked element {rname!r} moved at scale={scale}: cand_px=({cx0},{cy0},{cx1},{cy1}) vs ref_px=({rx0},{ry0},{rx1},{ry1})"

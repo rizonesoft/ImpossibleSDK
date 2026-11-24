@@ -123,6 +123,36 @@ class LivePass(unittest.TestCase):
         (self.root / live.PASS).write_text("{")
         self.assertTrue(live.owed(self.root))
 
+    def test_live_job_differences_catches_extra_captured_case(self):
+        sys.path.insert(0, str(ROOT / "reference"))
+        import live_job
+        with tempfile.TemporaryDirectory() as tmp:
+            fresh = Path(tmp) / "fresh"
+            store = Path(tmp) / "store"
+            fresh.mkdir()
+            store.mkdir()
+            (store / "cases.json").write_text(json.dumps({"cases": []}), encoding="utf-8")
+            (fresh / "cases.json").write_text(json.dumps({"cases": [{"id": "new-unstored-case"}]}), encoding="utf-8")
+            found = live_job.differences(fresh, store)
+            self.assertIn("new-unstored-case: not in store", found)
+
+    @unittest.skipUnless(os.name != "nt", "POSIX process-group teardown test")
+    def test_timeout_kills_whole_process_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_file = Path(tmp) / "child.pid"
+            script = (
+                "import subprocess, sys, time; "
+                "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                f"open({str(pid_file)!r}, 'w').write(str(p.pid)); "
+                "time.sleep(60)"
+            )
+            with self.assertRaises(subprocess.TimeoutExpired):
+                live._run_with_tree_kill([sys.executable, "-c", script], cwd=tmp, timeout=1.0, check=True)
+            if pid_file.is_file():
+                child_pid = int(pid_file.read_text().strip())
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(child_pid, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

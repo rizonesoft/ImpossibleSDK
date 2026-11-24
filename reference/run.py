@@ -497,8 +497,10 @@ def _is_owned_backup(backup_path, is_store):
     if not (backup_path / marker).is_file():
         return False
     indexed_z = None
+    indexed_z = set()
+    indexed_raw = set()
+    idx_path = backup_path / "cases.json"
     if is_store:
-        idx_path = backup_path / "cases.json"
         if not idx_path.is_file():
             return False
         try:
@@ -509,6 +511,15 @@ def _is_owned_backup(backup_path, is_store):
         if not isinstance(cases, list):
             return False
         indexed_z = {f"{c['file']}.z" for c in cases if isinstance(c, dict) and isinstance(c.get("file"), str)}
+    elif idx_path.is_file():
+        try:
+            manifest = json.loads(idx_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        cases = manifest.get("cases")
+        if not isinstance(cases, list):
+            return False
+        indexed_raw = {c["file"] for c in cases if isinstance(c, dict) and isinstance(c.get("file"), str)}
     for entry in backup_path.iterdir():
         if entry.is_dir():
             return False
@@ -516,7 +527,7 @@ def _is_owned_backup(backup_path, is_store):
             if entry.name not in ("cases.json", STORE_MARKER) and entry.name not in indexed_z:
                 return False
         else:
-            if entry.name not in ("cases.json", "error.txt", OUT_MARKER) and entry.suffix != ".bgra":
+            if entry.name not in ("cases.json", "error.txt", OUT_MARKER) and entry.name not in indexed_raw:
                 return False
     return True
 
@@ -764,11 +775,21 @@ def _validate_store_dir_unlocked(store, expected_specs=None, expected_provenance
         if c.get("raw_sha256") != hashlib.sha256(raw).hexdigest():
             raise ValueError(f"{store}: raw digest mismatch for {zname!r}")
         slog = c.get("script_log")
+        spec_script = (expected_specs.get(cid) or {}).get("script") if expected_specs is not None else None
+        if spec_script and not isinstance(slog, dict):
+            raise ValueError(f"{store}: case {cid!r} missing script_log for scripted case")
         if isinstance(slog, dict):
+            events = slog.get("Events")
+            if not isinstance(events, list) or not events:
+                raise ValueError(f"{store}: case {cid!r} script_log has empty Events")
             step_pressed = set()
             step_released = set()
             gesture_steps = set()
-            for ev in slog.get("Events") or []:
+            if isinstance(spec_script, list):
+                for s_idx, s_item in enumerate(spec_script):
+                    if isinstance(s_item, dict) and s_item.get("action") in ("pointer_click", "touch_tap"):
+                        gesture_steps.add(f"{s_idx}:{s_item['action']}")
+            for ev in events:
                 step = ev.get("Step", "")
                 ename = ev.get("Event", "")
                 if step.endswith(":pointer_click") or step.endswith(":touch_tap"):

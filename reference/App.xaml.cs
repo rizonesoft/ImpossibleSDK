@@ -835,7 +835,25 @@ public partial class App : Application
                 int remaining = genMs - (int)sw.ElapsedMilliseconds;
                 if (remaining > 0)
                 {
-                    await Task.Delay(remaining + 40);
+                    int budgetLeft = timeoutMs - (int)sw.ElapsedMilliseconds;
+                    if (remaining > budgetLeft)
+                    {
+                        throw new InvalidOperationException($"{caseId}: transition duration for state '{stateName}' exceeded combined {timeoutMs}ms budget");
+                    }
+                    await Task.Delay(remaining);
+                }
+                int settleLeft = timeoutMs - (int)sw.ElapsedMilliseconds;
+                if (settleLeft < 0)
+                {
+                    throw new InvalidOperationException($"{caseId}: transition duration for state '{stateName}' exceeded combined {timeoutMs}ms budget");
+                }
+                if (settleLeft > 0)
+                {
+                    await Task.Delay(Math.Min(40, settleLeft));
+                }
+                if (sw.ElapsedMilliseconds > timeoutMs)
+                {
+                    throw new InvalidOperationException($"{caseId}: transition duration for state '{stateName}' exceeded combined {timeoutMs}ms budget");
                 }
                 storyboardCompleted = true;
             }
