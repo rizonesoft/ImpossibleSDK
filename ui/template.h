@@ -48,18 +48,42 @@ typedef enum im_value_kind {
     IM_TVAL_COLOR,
     IM_TVAL_THEME_VALUE,
     IM_TVAL_FIXED,
+    IM_TVAL_POINT,
     IM_TVAL_QUAD,
     IM_TVAL_BOOL,
     IM_TVAL_INT,
     IM_TVAL_DURATION_MS,
     IM_TVAL_SPLINE,
     IM_TVAL_ICON,
+    IM_TVAL_ICON_FONT,
     IM_TVAL_TEMPLATE_BINDING,
     IM_TVAL_BINDING,
     IM_TVAL_ENUM_STR,
     IM_TVAL_NULL,
     IM_TVAL_NESTED_TEMPLATE
 } im_value_kind;
+
+/* Binding source for IM_TVAL_BINDING values (stored in value.a). */
+typedef enum im_binding_source {
+    IM_BIND_DATA = 0,
+    IM_BIND_TEMPLATED_PARENT
+} im_binding_source;
+
+/* Binding mode for IM_TVAL_BINDING values (stored in value.b). */
+typedef enum im_binding_mode {
+    IM_BIND_ONE_WAY = 0,
+    IM_BIND_TWO_WAY,
+    IM_BIND_ONE_TIME
+} im_binding_mode;
+
+/* Direction for directional theme animations (e.g. DragOverThemeAnimation). */
+typedef enum im_anim_direction {
+    IM_DIR_NONE = 0,
+    IM_DIR_LEFT,
+    IM_DIR_RIGHT,
+    IM_DIR_TOP,
+    IM_DIR_BOTTOM
+} im_anim_direction;
 
 /* Storyboard animation kinds compiled from WinUI visual states and transitions. */
 typedef enum im_anim_kind {
@@ -128,6 +152,7 @@ typedef struct im_template_anim {
     const char *target_name;
     const char *target_property;
     uint32_t duration_ms;
+    im_anim_direction direction;
     bool has_from;
     bool has_to;
     im_template_value from_val;

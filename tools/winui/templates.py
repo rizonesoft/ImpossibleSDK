@@ -195,14 +195,40 @@ def parse_xaml(text, filename):
         return bisect.bisect_left(nl_offsets, byte_index) + 1
 
     def find_attr_lines(byte_index):
-        # Scan the opening tag starting at byte_index to record exact line number of each attribute.
-        end = raw.find(b">", byte_index)
+        # Quote-aware scan of the opening tag starting at byte_index to record exact attribute line numbers.
+        i = byte_index
+        n = len(raw)
+        in_quote = 0
+        end = -1
+        while i < n:
+            b = raw[i]
+            if in_quote:
+                if b == in_quote:
+                    in_quote = 0
+            else:
+                if b in (34, 39):  # " or '
+                    in_quote = b
+                elif b == 62:  # >
+                    end = i
+                    break
+            i += 1
         if end < 0:
             return {}
         tag_bytes = raw[byte_index:end + 1]
+        # Replace quoted attribute values with spaces (preserving newlines) so regex only matches attribute names.
+        masked = bytearray(tag_bytes)
+        q = 0
+        for idx, b in enumerate(tag_bytes):
+            if q:
+                if b == q:
+                    q = 0
+                elif b != 10:
+                    masked[idx] = 32
+            elif b in (34, 39):
+                q = b
         base_line = line_at(byte_index)
         result = {}
-        for match in re.finditer(rb'\s([A-Za-z_][\w.:-]*)\s*=', tag_bytes):
+        for match in re.finditer(rb'\s([A-Za-z_][\w.:-]*)\s*=', bytes(masked)):
             full = match.group(1).decode("utf-8", "replace")
             short = full.split(":", 1)[-1]
             line_no = base_line + tag_bytes[:match.start(1)].count(b"\n")
@@ -377,10 +403,30 @@ class Compiler:
                 return {"kind": "IM_TVAL_TEMPLATE_BINDING", "a": 0, "b": 0, "c": 0, "d": 0, "text": rest, "fallback": None}
 
             if head == "Binding":
-                # Parse Binding arguments: Path / positional, Mode=, RelativeSource=, TargetNullValue=, Converter=...
-                tokens = [t.strip() for t in rest.split(",") if t.strip()]
+                # Split Binding arguments by top-level commas (respecting nested {...} braces).
+                tokens = []
+                cur = []
+                depth = 0
+                for ch in rest:
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                    if ch == "," and depth == 0:
+                        tok = "".join(cur).strip()
+                        if tok:
+                            tokens.append(tok)
+                        cur = []
+                    else:
+                        cur.append(ch)
+                if cur:
+                    tok = "".join(cur).strip()
+                    if tok:
+                        tokens.append(tok)
                 path = None
-                mode = "OneWay"
+                source = "IM_BIND_DATA"
+                mode_map = {"OneWay": "IM_BIND_ONE_WAY", "TwoWay": "IM_BIND_TWO_WAY", "OneTime": "IM_BIND_ONE_TIME"}
+                mode = "IM_BIND_ONE_WAY"
                 fallback = None
                 for tok in tokens:
                     if "=" in tok:
@@ -388,15 +434,19 @@ class Compiler:
                         if k == "Converter":
                             raise TemplateError(f"{file}:{line}: unsupported converter {v!r} in Binding")
                         if k == "Mode":
-                            if v not in BINDING_MODES:
+                            if v not in mode_map:
                                 raise TemplateError(f"{file}:{line}: unknown binding mode {v!r}")
-                            mode = v
+                            mode = mode_map[v]
                         elif k == "Path":
                             path = v
                         elif k == "TargetNullValue":
                             fallback = v.strip("'\"")
                         elif k == "RelativeSource":
-                            pass
+                            rs = v.strip()
+                            if rs in ("{RelativeSource TemplatedParent}", "{RelativeSource Mode=TemplatedParent}", "TemplatedParent"):
+                                source = "IM_BIND_TEMPLATED_PARENT"
+                            else:
+                                raise TemplateError(f"{file}:{line}: unsupported RelativeSource {v!r} in Binding")
                         else:
                             raise TemplateError(f"{file}:{line}: unknown Binding parameter {k!r}")
                     else:
@@ -404,7 +454,7 @@ class Compiler:
                             path = tok
                         else:
                             raise TemplateError(f"{file}:{line}: unexpected Binding token {tok!r}")
-                return {"kind": "IM_TVAL_BINDING", "a": 0, "b": 0, "c": 0, "d": 0, "text": path or "", "fallback": fallback or mode}
+                return {"kind": "IM_TVAL_BINDING", "a": 0, "b": 0, "c": 0, "d": 0, "source": source, "mode": mode, "text": path or "", "fallback": fallback}
 
             if head in ("ThemeResource", "StaticResource"):
                 key = rest.removeprefix("ResourceKey=").strip()
@@ -428,6 +478,8 @@ class Compiler:
                     _slot_l, argb_l = self.resolve_color_theme("Light", key, file, line)
                     slot_c, argb_c = self.resolve_color_theme("HighContrast", key, file, line)
                     return {"kind": "IM_TVAL_COLOR", "a": argb_d, "b": argb_l, "c": slot_c if slot_c >= 0 else argb_c, "d": slot_c, "text": key, "fallback": None}
+                if key == "SymbolThemeFontFamily" or (tag == "FontFamily" and "Segoe" in (res_text or "")):
+                    return {"kind": "IM_TVAL_ICON_FONT", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
                 if tag in ("FontFamily", "FontWeight", "String", "Style", "MenuFlyout", "TextCommandBarFlyout", "ListViewItemPresenterCheckMode"):
                     return {"kind": "IM_TVAL_ENUM_STR", "a": 0, "b": 0, "c": 0, "d": 0, "text": res_text or key, "fallback": None}
                 raise TemplateError(f"{file}:{line}: unsupported resource {key!r} of type {tag!r}")
@@ -451,7 +503,14 @@ class Compiler:
         if text in ("True", "False"):
             return {"kind": "IM_TVAL_BOOL", "a": 1 if text == "True" else 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
 
-        # Numeric quads (Thickness, CornerRadius, Rect, RenderTransformOrigin)
+        # Numeric points (RenderTransformOrigin)
+        if prop_name == "RenderTransformOrigin":
+            parts = [p for p in re.split(r"[,\s]+", text) if p]
+            if len(parts) != 2 or not all(re.fullmatch(r"-?\d+(?:\.\d+)?", p) for p in parts):
+                raise TemplateError(f"{file}:{line}: invalid RenderTransformOrigin {text!r}")
+            return {"kind": "IM_TVAL_POINT", "a": parse_fixed(parts[0], file, line), "b": parse_fixed(parts[1], file, line), "c": 0, "d": 0, "text": None, "fallback": None}
+
+        # Numeric quads (Thickness, CornerRadius, Rect)
         if prop_name in ("Margin", "Padding", "BorderThickness", "CornerRadius", "Rect", "FocusVisualMargin", "FocusVisualPrimaryThickness", "FocusVisualSecondaryThickness"):
             parts = [p for p in re.split(r"[,\s]+", text) if p]
             if all(re.fullmatch(r"-?\d+(?:\.\d+)?", p) for p in parts):
@@ -476,18 +535,41 @@ class Compiler:
             raise TemplateError(f"{node.file}:{node.line}: unknown animation {node.tag!r}")
         kind = ANIMATION_KINDS[node.tag]
         target_name = node.attrs.get("TargetName") or node.attrs.get("Storyboard.TargetName")
-        target_prop = node.attrs.get("TargetProperty") or node.attrs.get("Storyboard.TargetProperty")
+        target_prop_key = "Storyboard.TargetProperty" if "Storyboard.TargetProperty" in node.attrs else "TargetProperty"
+        target_prop = node.attrs.get(target_prop_key)
         if target_prop is not None:
-            target_prop = clean_target_property(target_prop, node.file, node.attr_line("TargetProperty"))
+            target_prop = clean_target_property(target_prop, node.file, node.attr_line(target_prop_key))
         duration_ms = 0
         if "Duration" in node.attrs:
             dv = self.parse_value(node.attrs["Duration"], "Duration", node.file, node.attr_line("Duration"))
             duration_ms = dv["a"]
-        has_from = "From" in node.attrs
-        has_to = "To" in node.attrs
         empty_v = {"kind": "IM_TVAL_NONE", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
-        from_v = self.parse_value(node.attrs["From"], "From", node.file, node.attr_line("From")) if has_from else empty_v
-        to_v = self.parse_value(node.attrs["To"], "To", node.file, node.attr_line("To")) if has_to else empty_v
+        if "From" in node.attrs:
+            has_from = True
+            from_v = self.parse_value(node.attrs["From"], "From", node.file, node.attr_line("From"))
+        elif "FromHorizontalOffset" in node.attrs:
+            has_from = True
+            from_v = self.parse_value(node.attrs["FromHorizontalOffset"], "FromHorizontalOffset", node.file, node.attr_line("FromHorizontalOffset"))
+        else:
+            has_from = False
+            from_v = empty_v
+        if "To" in node.attrs:
+            has_to = True
+            to_v = self.parse_value(node.attrs["To"], "To", node.file, node.attr_line("To"))
+        elif "ToOffset" in node.attrs:
+            has_to = True
+            to_v = self.parse_value(node.attrs["ToOffset"], "ToOffset", node.file, node.attr_line("ToOffset"))
+        else:
+            has_to = False
+            to_v = empty_v
+
+        direction = "IM_DIR_NONE"
+        if "Direction" in node.attrs:
+            dir_map = {"Left": "IM_DIR_LEFT", "Right": "IM_DIR_RIGHT", "Top": "IM_DIR_TOP", "Bottom": "IM_DIR_BOTTOM"}
+            raw_dir = node.attrs["Direction"].strip()
+            if raw_dir not in dir_map:
+                raise TemplateError(f"{node.file}:{node.attr_line('Direction')}: unknown Direction {raw_dir!r}")
+            direction = dir_map[raw_dir]
 
         # Validate any extra attributes on the animation element
         allowed_anim_attrs = {"TargetName", "TargetProperty", "Storyboard.TargetName", "Storyboard.TargetProperty",
@@ -497,10 +579,14 @@ class Compiler:
             if k not in allowed_anim_attrs:
                 raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
 
+        allowed_kf_attrs = {"KeyTime", "Value", "KeySpline", "Name", "Key"}
         kf_start = len(self.keyframes)
         for child in node.children:
             if child.tag not in KEYFRAME_KINDS:
                 raise TemplateError(f"{child.file}:{child.line}: unknown keyframe {child.tag!r}")
+            for k in child.attrs:
+                if k not in allowed_kf_attrs:
+                    raise TemplateError(f"{child.file}:{child.attr_line(k)}: unknown property {k!r} on {child.tag}")
             kf_kind = KEYFRAME_KINDS[child.tag]
             kt_ms = 0
             if "KeyTime" in child.attrs:
@@ -513,14 +599,17 @@ class Compiler:
             val = {"kind": "IM_TVAL_NONE", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
             if "Value" in child.attrs:
                 val = self.parse_value(child.attrs["Value"], target_prop or "Value", child.file, child.attr_line("Value"))
-            else:
-                for sub in child.children:
-                    if sub.tag == f"{child.tag}.Value" and sub.children:
-                        inner = sub.children[0]
-                        if inner.tag in ("Visibility", "Boolean"):
-                            val = self.parse_value(inner.text, inner.tag, inner.file, inner.line)
-                        else:
-                            raise TemplateError(f"{inner.file}:{inner.line}: unknown keyframe value element {inner.tag!r}")
+            for sub in child.children:
+                if sub.tag == f"{child.tag}.Value" and "Value" not in child.attrs:
+                    if len(sub.children) != 1:
+                        raise TemplateError(f"{sub.file}:{sub.line}: expected single value element in {sub.tag}")
+                    inner = sub.children[0]
+                    if inner.tag in ("Visibility", "Boolean"):
+                        val = self.parse_value(inner.text, inner.tag, inner.file, inner.line)
+                    else:
+                        raise TemplateError(f"{inner.file}:{inner.line}: unknown keyframe value element {inner.tag!r}")
+                else:
+                    raise TemplateError(f"{sub.file}:{sub.line}: unknown element {sub.tag!r} in {child.tag}")
             self.keyframes.append({
                 "kind": kf_kind,
                 "key_time_ms": kt_ms,
@@ -533,6 +622,7 @@ class Compiler:
             "target_name": target_name,
             "target_property": target_prop,
             "duration_ms": duration_ms,
+            "direction": direction,
             "has_from": has_from,
             "has_to": has_to,
             "from": from_v,
@@ -622,59 +712,63 @@ class Compiler:
         prop_start = len(out_props)
         name = node.attrs.get("Name")
 
-        # First scan Grid.Resources so nested styles (like DeleteButtonStyle) are registered before siblings reference them.
-        for child in node.children:
-            if child.tag == "Grid.Resources":
-                for res_node in child.children:
-                    if res_node.tag == "Style":
-                        rk = res_node.attrs.get("Name") or res_node.attrs.get("Key")
-                        nested_idx = self.compile_style(res_node, key_override=rk, enum_id=None)
-                        if rk:
-                            self.local_resources[rk] = nested_idx
-                    else:
-                        raise TemplateError(f"{res_node.file}:{res_node.line}: unknown resource element {res_node.tag!r}")
+        saved_resources = dict(self.local_resources)
+        try:
+            # First scan Grid.Resources so nested styles (like DeleteButtonStyle) are scoped to this element's subtree.
+            for child in node.children:
+                if child.tag == "Grid.Resources":
+                    for res_node in child.children:
+                        if res_node.tag == "Style":
+                            rk = res_node.attrs.get("Name") or res_node.attrs.get("Key")
+                            nested_idx = self.compile_style(res_node, key_override=rk, enum_id=None)
+                            if rk:
+                                self.local_resources[rk] = nested_idx
+                        else:
+                            raise TemplateError(f"{res_node.file}:{res_node.line}: unknown resource element {res_node.tag!r}")
 
-        # Collect attributes on this element
-        for k, v in node.attrs.items():
-            if k == "Name":
-                continue
-            if k not in KNOWN_PROPS:
-                raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
-            val = self.parse_value(v, k, node.file, node.attr_line(k))
-            out_props.append({"name": k, "value": val})
+            # Collect attributes on this element
+            for k, v in node.attrs.items():
+                if k == "Name":
+                    continue
+                if k not in KNOWN_PROPS:
+                    raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
+                val = self.parse_value(v, k, node.file, node.attr_line(k))
+                out_props.append({"name": k, "value": val})
 
-        # Handle property-element children that attach directly to this element's props (e.g. Thumb.Template)
-        child_elements = []
-        for child in node.children:
-            if child.tag == "Grid.Resources":
-                continue
-            elif child.tag == "VisualStateManager.VisualStateGroups":
-                vsm_groups_out.append(child)
-            elif child.tag == "Thumb.Template":
-                for ct in child.children:
-                    if ct.tag != "ControlTemplate":
-                        raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate in Thumb.Template, got {ct.tag!r}")
-                    nested_idx = self.compile_control_template(ct, key=f"{name or 'Thumb'}.Template", target_type="Thumb", style_setters=(0, 0), enum_id=None)
-                    out_props.append({"name": "Template", "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{name or 'Thumb'}.Template", "fallback": None}})
-            elif child.tag in PROP_ELEMENT_TAGS:
-                for sub in child.children:
-                    child_elements.append(sub)
-            elif "." in child.tag:
-                raise TemplateError(f"{child.file}:{child.line}: unknown property element {child.tag!r}")
-            else:
-                child_elements.append(child)
+            # Handle property-element children that attach directly to this element's props (e.g. Thumb.Template)
+            child_elements = []
+            for child in node.children:
+                if child.tag == "Grid.Resources":
+                    continue
+                elif child.tag == "VisualStateManager.VisualStateGroups":
+                    vsm_groups_out.append(child)
+                elif child.tag == "Thumb.Template":
+                    for ct in child.children:
+                        if ct.tag != "ControlTemplate":
+                            raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate in Thumb.Template, got {ct.tag!r}")
+                        nested_idx = self.compile_control_template(ct, key=f"{name or 'Thumb'}.Template", target_type="Thumb", style_setters=(0, 0), enum_id=None)
+                        out_props.append({"name": "Template", "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{name or 'Thumb'}.Template", "fallback": None}})
+                elif child.tag in PROP_ELEMENT_TAGS:
+                    for sub in child.children:
+                        child_elements.append(sub)
+                elif "." in child.tag:
+                    raise TemplateError(f"{child.file}:{child.line}: unknown property element {child.tag!r}")
+                else:
+                    child_elements.append(child)
 
-        prop_count = len(out_props) - prop_start
-        out_elems.append({
-            "kind": ELEMENT_KINDS[node.tag],
-            "name": name,
-            "parent": parent_idx,
-            "prop_start": prop_start,
-            "prop_count": prop_count,
-        })
-        for sub in child_elements:
-            self.compile_element_tree(sub, elem_idx, vsm_groups_out, out_elems, out_props)
-        return elem_idx
+            prop_count = len(out_props) - prop_start
+            out_elems.append({
+                "kind": ELEMENT_KINDS[node.tag],
+                "name": name,
+                "parent": parent_idx,
+                "prop_start": prop_start,
+                "prop_count": prop_count,
+            })
+            for sub in child_elements:
+                self.compile_element_tree(sub, elem_idx, vsm_groups_out, out_elems, out_props)
+            return elem_idx
+        finally:
+            self.local_resources = saved_resources
 
     def compile_control_template(self, ct_node, key, target_type, style_setters, enum_id):
         local_elems = []
@@ -813,6 +907,8 @@ def format_val_c(v):
         return f"{{{kind}, {v['text']}, 0, 0, 0, NULL, NULL}}"
     if kind == "IM_TVAL_ICON":
         return f"{{{kind}, {v['text']}, 0, 0, 0, NULL, NULL}}"
+    if kind == "IM_TVAL_BINDING":
+        return f"{{{kind}, {v['source']}, {v['mode']}, 0, 0, {c_str(v['text'])}, {c_str(v['fallback'])}}}"
     if kind == "IM_TVAL_COLOR":
         return f"{{{kind}, (int32_t)0x{v['a'] & 0xFFFFFFFF:08X}u, (int32_t)0x{v['b'] & 0xFFFFFFFF:08X}u, (int32_t)0x{v['c'] & 0xFFFFFFFF:08X}u, {v['d']}, {c_str(v['text'])}, NULL}}"
     return f"{{{kind}, {v['a']}, {v['b']}, {v['c']}, {v['d']}, {c_str(v['text'])}, {c_str(v['fallback'])}}}"
@@ -824,7 +920,7 @@ def emit(compiler):
         "   Copyright (c) Microsoft Corporation. Licensed under the MIT License (see licenses/WinUI.txt).\n"
         "   Do not edit. */\n"
     )
-    h = [head, "#pragma once\n\n/* Compiled control template identifiers. */\ntypedef enum im_template_id {\n"]
+    h = [head, '#pragma once\n#include "template.h"\n\n/* Compiled control template identifiers. */\ntypedef enum im_template_id {\n']
     for idx, t in enumerate(compiler.templates):
         if t["enum_id"]:
             h.append(f"    {t['enum_id']} = {idx},\n")
@@ -865,7 +961,7 @@ def emit(compiler):
     for a in compiler.anims:
         hf = "true" if a["has_from"] else "false"
         ht = "true" if a["has_to"] else "false"
-        c.append(f"    {{{a['kind']}, {c_str(a['target_name'])}, {c_str(a['target_property'])}, {a['duration_ms']}, {hf}, {ht}, {format_val_c(a['from'])}, {format_val_c(a['to'])}, {a['kf_start']}, {a['kf_count']}}},\n")
+        c.append(f"    {{{a['kind']}, {c_str(a['target_name'])}, {c_str(a['target_property'])}, {a['duration_ms']}, {a['direction']}, {hf}, {ht}, {format_val_c(a['from'])}, {format_val_c(a['to'])}, {a['kf_start']}, {a['kf_count']}}},\n")
     c.append("};\n\nconst im_template_keyframe im_template_keyframes[] = {\n")
     for kf in compiler.keyframes:
         sp = ", ".join(str(x) for x in kf["spline"])
@@ -909,10 +1005,14 @@ def main():
             comp.compile_style(doc)
         elif doc.tag == "ControlTemplate":
             comp.compile_control_template(doc, key="Fixture", target_type=doc.attrs.get("TargetType", ""), style_setters=(0, 0), enum_id=None)
-        else:
+        elif doc.tag == "ResourceDictionary":
             for child in doc.children:
                 if child.tag == "Style":
                     comp.compile_style(child)
+                else:
+                    raise TemplateError(f"{child.file}:{child.line}: unknown element {child.tag!r} in ResourceDictionary")
+        else:
+            raise TemplateError(f"{doc.file}:{doc.line}: unknown root element {doc.tag!r}")
         print(f"parsed {len(comp.templates)} templates from {args.parse_file}")
         return 0
 

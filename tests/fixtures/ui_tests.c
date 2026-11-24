@@ -25,7 +25,7 @@ static bool str_eq(const char *a, const char *b) {
     return *a == *b;
 }
 
-static bool has_state_brush(const im_template *tpl, const char *state_name, int32_t brush_id) {
+static bool has_state_prop_brush(const im_template *tpl, const char *state_name, const char *target_name, const char *target_prop, int32_t brush_id) {
     for (uint16_t g = 0; g < tpl->group_count; g++) {
         const im_template_group *grp = &im_template_groups[tpl->group_start + g];
         for (uint16_t s = 0; s < grp->state_count; s++) {
@@ -33,12 +33,21 @@ static bool has_state_brush(const im_template *tpl, const char *state_name, int3
             if (!str_eq(st->name, state_name)) continue;
             for (uint16_t a = 0; a < st->anim_count; a++) {
                 const im_template_anim *an = &im_template_anims[st->anim_start + a];
+                if (!str_eq(an->target_name, target_name) || !str_eq(an->target_property, target_prop)) continue;
                 for (uint16_t k = 0; k < an->kf_count; k++) {
                     const im_template_keyframe *kf = &im_template_keyframes[an->kf_start + k];
                     if (kf->value.kind == IM_TVAL_BRUSH && kf->value.a == brush_id) return true;
                 }
             }
         }
+    }
+    return false;
+}
+
+static bool has_style_setter_brush(const im_template *tpl, const char *prop_name, int32_t brush_id) {
+    for (uint16_t i = 0; i < tpl->style_setter_count; i++) {
+        const im_template_setter *st = &im_template_setters[tpl->style_setter_start + i];
+        if (str_eq(st->property, prop_name) && st->value.kind == IM_TVAL_BRUSH && st->value.a == brush_id) return true;
     }
     return false;
 }
@@ -55,53 +64,99 @@ static const im_template_prop *find_elem_prop(const im_template *tpl, const char
     return NULL;
 }
 
-static int test_templates(void) {
-    /* 1. Button PointerOver vs Pressed border brushes are distinct and accurate. */
-    const im_template *btn = &im_templates[IM_TEMPLATE_BUTTON];
-    if (!has_state_brush(btn, "PointerOver", IM_BRUSH_ButtonBorderBrushPointerOver)) return 40;
-    if (!has_state_brush(btn, "Pressed", IM_BRUSH_ButtonBorderBrushPressed)) return 41;
-    if (has_state_brush(btn, "PointerOver", IM_BRUSH_ButtonBorderBrushPressed)) return 42;
-
-    /* 2. ToggleSwitch resolves ControlFastAnimationDuration (83ms) and ControlFastOutSlowInKeySpline (0,0,0,1). */
-    const im_template *ts = &im_templates[IM_TEMPLATE_TOGGLE_SWITCH];
-    bool found_spline = false;
-    for (uint16_t g = 0; g < ts->group_count; g++) {
-        const im_template_group *grp = &im_template_groups[ts->group_start + g];
-        for (uint16_t s = 0; s < grp->state_count; s++) {
-            const im_template_state *st = &im_template_states[grp->state_start + s];
-            for (uint16_t a = 0; a < st->anim_count; a++) {
-                const im_template_anim *an = &im_template_anims[st->anim_start + a];
-                for (uint16_t k = 0; k < an->kf_count; k++) {
-                    const im_template_keyframe *kf = &im_template_keyframes[an->kf_start + k];
-                    if (kf->kind == IM_KF_SPLINE_DOUBLE && kf->key_time_ms == 83 &&
-                        kf->spline[0] == 0 && kf->spline[1] == 0 && kf->spline[2] == 0 && kf->spline[3] == IM_ONE) {
-                        found_spline = true;
-                    }
-                }
+static const im_template_anim *find_transition_anim(const im_template *tpl, const char *from_state, const char *to_state, im_anim_kind kind, const char *target_name) {
+    for (uint16_t g = 0; g < tpl->group_count; g++) {
+        const im_template_group *grp = &im_template_groups[tpl->group_start + g];
+        for (uint16_t t = 0; t < grp->trans_count; t++) {
+            const im_template_transition *tr = &im_template_transitions[grp->trans_start + t];
+            if (!str_eq(tr->from_state, from_state) || !str_eq(tr->to_state, to_state)) continue;
+            for (uint16_t a = 0; a < tr->anim_count; a++) {
+                const im_template_anim *an = &im_template_anims[tr->anim_start + a];
+                if (an->kind == kind && str_eq(an->target_name, target_name)) return an;
             }
         }
     }
-    if (!found_spline) return 43;
+    return NULL;
+}
 
-    /* 3. TextBox placeholder preserves Binding TargetNullValue fallback and DeleteButton uses IM_ICON_DISMISS. */
+static const im_template_anim *find_state_anim(const im_template *tpl, const char *state_name, im_anim_kind kind, const char *target_name, const char *target_prop) {
+    for (uint16_t g = 0; g < tpl->group_count; g++) {
+        const im_template_group *grp = &im_template_groups[tpl->group_start + g];
+        for (uint16_t s = 0; s < grp->state_count; s++) {
+            const im_template_state *st = &im_template_states[grp->state_start + s];
+            if (!str_eq(st->name, state_name)) continue;
+            for (uint16_t a = 0; a < st->anim_count; a++) {
+                const im_template_anim *an = &im_template_anims[st->anim_start + a];
+                if (an->kind == kind && str_eq(an->target_name, target_name) && str_eq(an->target_property, target_prop)) return an;
+            }
+        }
+    }
+    return NULL;
+}
+
+static int test_templates(void) {
+    /* 1. Button, AccentButton, and SubtleButton verify exact (target, property, brush) bindings. */
+    const im_template *btn = &im_templates[IM_TEMPLATE_BUTTON];
+    if (!has_state_prop_brush(btn, "PointerOver", "ContentPresenter", "Background", IM_BRUSH_ButtonBackgroundPointerOver)) return 40;
+    if (!has_state_prop_brush(btn, "PointerOver", "ContentPresenter", "BorderBrush", IM_BRUSH_ButtonBorderBrushPointerOver)) return 41;
+    if (!has_state_prop_brush(btn, "Pressed", "ContentPresenter", "Background", IM_BRUSH_ButtonBackgroundPressed)) return 42;
+    if (!has_state_prop_brush(btn, "Pressed", "ContentPresenter", "BorderBrush", IM_BRUSH_ButtonBorderBrushPressed)) return 43;
+    if (has_state_prop_brush(btn, "PointerOver", "ContentPresenter", "BorderBrush", IM_BRUSH_ButtonBackgroundPointerOver)) return 44;
+
+    const im_template *acc = &im_templates[IM_TEMPLATE_BUTTON_ACCENT];
+    if (!has_style_setter_brush(acc, "Background", IM_BRUSH_AccentButtonBackground)) return 45;
+    if (!has_state_prop_brush(acc, "PointerOver", "ContentPresenter", "Background", IM_BRUSH_AccentButtonBackgroundPointerOver)) return 46;
+    if (!has_state_prop_brush(acc, "Pressed", "ContentPresenter", "Background", IM_BRUSH_AccentButtonBackgroundPressed)) return 47;
+
+    const im_template *sub = &im_templates[IM_TEMPLATE_BUTTON_SUBTLE];
+    if (!has_style_setter_brush(sub, "Background", IM_BRUSH_SubtleButtonBackground)) return 48;
+    if (!has_state_prop_brush(sub, "PointerOver", "ContentPresenter", "Background", IM_BRUSH_SubtleButtonBackgroundPointerOver)) return 49;
+    if (!has_state_prop_brush(sub, "Pressed", "ContentPresenter", "Background", IM_BRUSH_SubtleButtonBackgroundPressed)) return 50;
+
+    /* 2. ToggleSwitch: ControlFasterAnimationDuration (83ms) on SwitchKnobBounds Opacity, spline (0,0,0,1), RepositionThemeAnimation offsets, and fixed-point RenderTransformOrigin. */
+    const im_template *ts = &im_templates[IM_TEMPLATE_TOGGLE_SWITCH];
+    const im_template_anim *ts_on_op = find_transition_anim(ts, "Dragging", "On", IM_ANIM_DOUBLE_KEYFRAMES, "SwitchKnobBounds");
+    if (!ts_on_op || ts_on_op->kf_count != 1 || im_template_keyframes[ts_on_op->kf_start].key_time_ms != 83) return 51;
+    const im_template_anim *ts_hover_w = find_state_anim(ts, "PointerOver", IM_ANIM_DOUBLE_KEYFRAMES, "SwitchKnobOn", "Width");
+    if (!ts_hover_w || ts_hover_w->kf_count != 1) return 52;
+    const im_template_keyframe *ts_kf = &im_template_keyframes[ts_hover_w->kf_start];
+    if (ts_kf->kind != IM_KF_SPLINE_DOUBLE || ts_kf->key_time_ms != 83 ||
+        ts_kf->spline[0] != 0 || ts_kf->spline[1] != 0 || ts_kf->spline[2] != 0 || ts_kf->spline[3] != IM_ONE) return 53;
+    const im_template_anim *rep_on = find_transition_anim(ts, "Dragging", "On", IM_ANIM_REPOSITION_THEME, "SwitchKnob");
+    const im_template_anim *rep_off = find_transition_anim(ts, "Dragging", "Off", IM_ANIM_REPOSITION_THEME, "SwitchKnob");
+    if (!rep_on || !rep_on->has_from || rep_on->from_val.kind != IM_TVAL_BINDING ||
+        rep_on->from_val.a != IM_BIND_TEMPLATED_PARENT || !str_eq(rep_on->from_val.text, "TemplateSettings.KnobCurrentToOnOffset")) return 54;
+    if (!rep_off || !rep_off->has_from || rep_off->from_val.kind != IM_TVAL_BINDING ||
+        rep_off->from_val.a != IM_BIND_TEMPLATED_PARENT || !str_eq(rep_off->from_val.text, "TemplateSettings.KnobCurrentToOffOffset")) return 55;
+    const im_template_prop *knob_origin = find_elem_prop(ts, "SwitchKnobOn", "RenderTransformOrigin");
+    if (!knob_origin || knob_origin->value.kind != IM_TVAL_POINT ||
+        knob_origin->value.a != IM_ONE / 2 || knob_origin->value.b != IM_ONE / 2) return 56;
+
+    /* 3. TextBox placeholder preserves TemplatedParent Binding + exact TargetNullValue, and DeleteButton uses IM_ICON_DISMISS + IM_TVAL_ICON_FONT. */
     const im_template *tb = &im_templates[IM_TEMPLATE_TEXT_BOX];
     const im_template_prop *ph_fg = find_elem_prop(tb, "PlaceholderTextContentPresenter", "Foreground");
-    if (!ph_fg || ph_fg->value.kind != IM_TVAL_BINDING || !ph_fg->value.fallback || !ph_fg->value.fallback[0]) return 44;
+    if (!ph_fg || ph_fg->value.kind != IM_TVAL_BINDING ||
+        ph_fg->value.a != IM_BIND_TEMPLATED_PARENT || ph_fg->value.b != IM_BIND_ONE_WAY ||
+        !str_eq(ph_fg->value.text, "PlaceholderForeground") ||
+        !str_eq(ph_fg->value.fallback, "{ThemeResource TextControlPlaceholderForeground}")) return 57;
     const im_template_prop *del_style = find_elem_prop(tb, "DeleteButton", "Style");
-    if (!del_style || del_style->value.kind != IM_TVAL_NESTED_TEMPLATE) return 45;
+    if (!del_style || del_style->value.kind != IM_TVAL_NESTED_TEMPLATE) return 58;
     const im_template *del_tpl = &im_templates[del_style->value.a];
     const im_template_prop *glyph = find_elem_prop(del_tpl, "GlyphElement", "Text");
-    if (!glyph || glyph->value.kind != IM_TVAL_ICON || glyph->value.a != IM_ICON_DISMISS) return 46;
+    if (!glyph || glyph->value.kind != IM_TVAL_ICON || glyph->value.a != IM_ICON_DISMISS) return 59;
+    const im_template_prop *glyph_ff = find_elem_prop(del_tpl, "GlyphElement", "FontFamily");
+    if (!glyph_ff || glyph_ff->value.kind != IM_TVAL_ICON_FONT || glyph_ff->value.text != NULL) return 60;
 
-    /* 4. ListView owns Border > ScrollViewer > ItemsPresenter, ItemsStackPanel ItemsPanel, and Header/Footer bindings. */
+    /* 4. ListView owns Border > ScrollViewer > ItemsPresenter, ItemsStackPanel ItemsPanel, and exact Header/Footer bindings. */
     const im_template *lv = &im_templates[IM_TEMPLATE_LIST_VIEW];
-    if (lv->elem_count != 3) return 47;
-    if (im_template_elements[lv->elem_start + 0].kind != IM_ELEM_BORDER || im_template_elements[lv->elem_start + 0].parent != -1) return 48;
-    if (im_template_elements[lv->elem_start + 1].kind != IM_ELEM_SCROLL_VIEWER || im_template_elements[lv->elem_start + 1].parent != 0) return 49;
-    if (im_template_elements[lv->elem_start + 2].kind != IM_ELEM_ITEMS_PRESENTER || im_template_elements[lv->elem_start + 2].parent != 1) return 50;
+    if (lv->elem_count != 3) return 61;
+    if (im_template_elements[lv->elem_start + 0].kind != IM_ELEM_BORDER || im_template_elements[lv->elem_start + 0].parent != -1) return 62;
+    if (im_template_elements[lv->elem_start + 1].kind != IM_ELEM_SCROLL_VIEWER || im_template_elements[lv->elem_start + 1].parent != 0) return 63;
+    if (im_template_elements[lv->elem_start + 2].kind != IM_ELEM_ITEMS_PRESENTER || im_template_elements[lv->elem_start + 2].parent != 1) return 64;
     const im_template_prop *lv_hdr = find_elem_prop(lv, NULL, "Header");
     const im_template_prop *lv_ftr = find_elem_prop(lv, NULL, "Footer");
-    if (!lv_hdr || lv_hdr->value.kind != IM_TVAL_TEMPLATE_BINDING || !lv_ftr || lv_ftr->value.kind != IM_TVAL_TEMPLATE_BINDING) return 51;
+    if (!lv_hdr || lv_hdr->value.kind != IM_TVAL_TEMPLATE_BINDING || !str_eq(lv_hdr->value.text, "Header")) return 65;
+    if (!lv_ftr || lv_ftr->value.kind != IM_TVAL_TEMPLATE_BINDING || !str_eq(lv_ftr->value.text, "Footer")) return 66;
     bool found_panel = false;
     for (uint16_t i = 0; i < lv->style_setter_count; i++) {
         const im_template_setter *st = &im_template_setters[lv->style_setter_start + i];
@@ -110,12 +165,23 @@ static int test_templates(void) {
             if (pt->elem_count == 1 && im_template_elements[pt->elem_start].kind == IM_ELEM_ITEMS_STACK_PANEL) found_panel = true;
         }
     }
-    if (!found_panel) return 52;
+    if (!found_panel) return 67;
 
-    /* 5. ListViewItemExpanded MultiSelectCheck maps to portable IM_ICON_CHECKMARK. */
+    /* 5. DefaultListViewItemStyle has ListViewItemPresenter, and ListViewItemExpanded has IM_ICON_CHECKMARK + 4 distinct DragOver directions + RenderTransformOrigin. */
+    const im_template *lvi_def = &im_templates[IM_TEMPLATE_LIST_VIEW_ITEM];
+    if (lvi_def->elem_count != 1 || im_template_elements[lvi_def->elem_start].kind != IM_ELEM_LIST_VIEW_ITEM_PRESENTER) return 68;
     const im_template *lvi = &im_templates[IM_TEMPLATE_LIST_VIEW_ITEM_EXPANDED];
     const im_template_prop *chk = find_elem_prop(lvi, "MultiSelectCheck", "Glyph");
-    if (!chk || chk->value.kind != IM_TVAL_ICON || chk->value.a != IM_ICON_CHECKMARK) return 53;
+    if (!chk || chk->value.kind != IM_TVAL_ICON || chk->value.a != IM_ICON_CHECKMARK) return 69;
+    const im_template_anim *d_bot = find_state_anim(lvi, "BottomReorderHint", IM_ANIM_DRAG_OVER_THEME, "ContentBorder", NULL);
+    const im_template_anim *d_top = find_state_anim(lvi, "TopReorderHint", IM_ANIM_DRAG_OVER_THEME, "ContentBorder", NULL);
+    const im_template_anim *d_rgt = find_state_anim(lvi, "RightReorderHint", IM_ANIM_DRAG_OVER_THEME, "ContentBorder", NULL);
+    const im_template_anim *d_lft = find_state_anim(lvi, "LeftReorderHint", IM_ANIM_DRAG_OVER_THEME, "ContentBorder", NULL);
+    if (!d_bot || d_bot->direction != IM_DIR_BOTTOM || !d_bot->has_to || d_bot->to_val.kind != IM_TVAL_THEME_VALUE) return 70;
+    if (!d_top || d_top->direction != IM_DIR_TOP || !d_rgt || d_rgt->direction != IM_DIR_RIGHT || !d_lft || d_lft->direction != IM_DIR_LEFT) return 71;
+    const im_template_prop *lvi_origin = find_elem_prop(lvi, "ContentBorder", "RenderTransformOrigin");
+    if (!lvi_origin || lvi_origin->value.kind != IM_TVAL_POINT ||
+        lvi_origin->value.a != IM_ONE / 2 || lvi_origin->value.b != IM_ONE / 2) return 72;
     return 0;
 }
 

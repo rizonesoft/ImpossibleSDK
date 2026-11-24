@@ -2,6 +2,7 @@
    Copyright (c) Microsoft Corporation. Licensed under the MIT License (see licenses/WinUI.txt).
    Do not edit. */
 #pragma once
+#include "template.h"
 
 /* Compiled control template identifiers. */
 typedef enum im_template_id {

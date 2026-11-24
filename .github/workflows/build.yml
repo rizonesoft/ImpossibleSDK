@@ -46,21 +46,27 @@ jobs:
       - name: Fetch pinned WinUI sparse checkout (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          if [ ! -f ~/.cache/impossible-sdk/winui/LICENSE ]; then
-            python3 - <<'EOF'
-          import json, subprocess
+          python3 - <<'EOF'
+          import json, shutil, subprocess
           from pathlib import Path
           pin = json.loads(Path("tools/winui/pin.json").read_text(encoding="utf-8"))
           dst = Path.home() / ".cache/impossible-sdk/winui"
-          dst.parent.mkdir(parents=True, exist_ok=True)
-          subprocess.run(["git", "init", str(dst)], check=True)
-          subprocess.run(["git", "-C", str(dst), "remote", "add", "origin", pin["repository"]], check=True)
-          subprocess.run(["git", "-C", str(dst), "sparse-checkout", "init", "--cone"], check=True)
-          subprocess.run(["git", "-C", str(dst), "sparse-checkout", "set", "controls/dev/CommonStyles", "dxaml/xcp/dxaml/themes"], check=True)
-          subprocess.run(["git", "-C", str(dst), "fetch", "--depth", "1", "origin", pin["commit"]], check=True)
-          subprocess.run(["git", "-C", str(dst), "checkout", pin["commit"]], check=True)
+          head = None
+          if (dst / ".git").exists():
+              res = subprocess.run(["git", "-C", str(dst), "rev-parse", "HEAD"], capture_output=True, text=True)
+              if res.returncode == 0:
+                  head = res.stdout.strip()
+          if head != pin["commit"]:
+              if dst.exists():
+                  shutil.rmtree(dst)
+              dst.parent.mkdir(parents=True, exist_ok=True)
+              subprocess.run(["git", "init", str(dst)], check=True)
+              subprocess.run(["git", "-C", str(dst), "remote", "add", "origin", pin["repository"]], check=True)
+              subprocess.run(["git", "-C", str(dst), "sparse-checkout", "init", "--cone"], check=True)
+              subprocess.run(["git", "-C", str(dst), "sparse-checkout", "set", "controls/dev/CommonStyles", "dxaml/xcp/dxaml/themes"], check=True)
+              subprocess.run(["git", "-C", str(dst), "fetch", "--filter=blob:none", "--depth", "1", "origin", pin["commit"]], check=True)
+              subprocess.run(["git", "-C", str(dst), "checkout", pin["commit"]], check=True)
           EOF
-          fi
       - name: Build and test
         run: python tools/build.py
       - name: Work list
