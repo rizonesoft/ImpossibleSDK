@@ -191,14 +191,21 @@ def compile_standalone_template(xaml_path):
         sc = comp.groups[g]["state_count"]
         for s in range(ss, ss + sc):
             tpl_states.add(comp.states[s]["name"])
+    estart = t["elem_start"]
+    ecount = t["elem_count"]
+    elems = [
+        {"type": comp.elements[i]["kind"], "name": comp.elements[i].get("name", "")}
+        for i in range(estart, estart + ecount)
+    ]
     return {
         t["key"]: {
             "target": t["target_type"],
             "setter_count": t["style_setter_count"],
-            "elem_count": t["elem_count"],
+            "elem_count": ecount,
             "group_count": gcount,
             "state_count": state_count,
             "states": tpl_states,
+            "elements": elems,
         }
     }
 
@@ -306,6 +313,21 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
     for field, actual in (("expected_elements", info["elem_count"]), ("expected_states", info["state_count"]), ("expected_setters", info["setter_count"])):
         if field in case_spec and case_spec[field] != actual:
             raise PackageDrift(f"case {case_spec.get('id')!r}: {field}={case_spec[field]} != compiled {tpl!r} ({actual})")
+    frame = case_spec.get("frame") or {}
+    fw = int(frame.get("width", 160)) if isinstance(frame, dict) else 160
+    fh = int(frame.get("height", 64)) if isinstance(frame, dict) else 64
+    props = case_spec.get("properties") or {}
+    is_enabled = True
+    if isinstance(props, dict):
+        for pk, pv in props.items():
+            if isinstance(pk, str) and pk.lower() == "isenabled" and isinstance(pv, bool):
+                is_enabled = pv
+                break
+    rect = {"X": 0, "Y": 0, "Width": fw, "Height": fh}
+    elem_children = [
+        {"Type": e["type"], "Name": e["name"], "Rect": rect, "Children": []}
+        for e in info.get("elements", [])
+    ]
     return {
         "id": case_spec.get("id"),
         "control": ctrl,
@@ -318,15 +340,20 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
             "Type": ctrl,
             "Name": tpl,
             "Basis": "compiled-template",
+            "Rect": rect,
             "ElementCount": info["elem_count"],
             "States": sorted(info.get("states", set())),
+            "Children": elem_children,
         },
         "automation": {
             "ControlType": ctrl,
             "Name": tpl,
             "Basis": "compiled-template",
-            "IsEnabled": True,
+            "Rect": rect,
+            "IsEnabled": is_enabled,
+            "HasKeyboardFocus": False,
             "Patterns": [],
+            "Children": [],
         },
     }
 
