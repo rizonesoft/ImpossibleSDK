@@ -33,7 +33,7 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Exact corner smoothing | -- | [x] |
-| 2 | §2 | Template compiler | -- | [ ] |
+| 2 | §2 | Template compiler | -- | [x] |
 | 3 | §3 | Element tree and layout | §2, §17 | [ ] |
 | 4 | §4 | Visual states and animation | §3 | [ ] |
 | 5 | §5 | Text in fixed point | §1, §17 | [ ] |
@@ -103,9 +103,12 @@ WinUI's control templates hold the element tree, bindings, visual states and tim
 - [x] Parse `ControlTemplate`, `ItemsPanelTemplate`, setters, bindings (including `TargetNullValue`), visual states, transitions, storyboards, timing/spline resources, and SDK icon mappings in `tools/winui/templates.py` and emit portable fixed-point C tables in `ui/template.h`, `ui/template_data.h`, and `ui/template_data.c`. Done when: all 8 styles (including `ListView`, nested `DeleteButtonStyle` and `Thumb.Template`, resolved timing/spline values, and portable `im_icon_id` values) compile, `--list` round-trips every element and state, and `tests/fixtures/ui_tests.c` plus `tests/test_ui.py` verify decoded C table values (failing on value-only corruption such as swapped brush IDs or dropped fallbacks). Cheaper substitute: hand-written C for each control.
 - [x] Refuse an unknown element, unknown property, unknown animation, unknown binding mode, or unknown converter with exact `<file>:<line>` (including multiline attributes) in `tools/winui/templates.py`. Done when: five separate fixture templates in `tests/test_ui.py` (including a multiline attribute case) each fail with non-zero exit and the exact offending file and line. Cheaper substitute: ignoring unknown items.
 - [x] Add `--check` drift tests (verifying `.h` and `.c` independently in scratch without auto-repair) in `tests/test_ui.py`, provision the pinned sparse WinUI checkout in `.github/workflows/build.yml`, and review `docs/guide/button.md` and `docs/guide/testing.md`. Done when: `python3 tools/build.py` and `python3 tools/site/build.py --check` pass and portable OS compilation passes. Cheaper substitute: skipping drift checks on CI.
-- [ ] Commit: `ui: compile WinUI control templates`
+- [x] Commit: `ui: compile WinUI control templates`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-24 | §2 | c04706def209d5a16e3391476b178e10eaf46a9d
+> **Review:** `docs/reviews/d01-t01-s2.json`
 
 ## 3. Element tree and layout
 

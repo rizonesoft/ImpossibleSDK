@@ -13,7 +13,7 @@ Sections: 26 | Checklist items: 139
 | Status | Reference   | Deliverable                                      | Needs                         | Items |
 | ------ | ----------- | ------------------------------------------------ | ----------------------------- | ----- |
 | [x]    | D01 T01 §1  | Exact corner smoothing                           | windows-host, display-session | 5     |
-| [ ]    | D01 T01 §2  | Template compiler                                | none                          | 4     |
+| [x]    | D01 T01 §2  | Template compiler                                | none                          | 4     |
 | [ ]    | D01 T01 §17 | Reference program for any control                | windows-host, display-session | 10    |
 | [ ]    | D01 T01 §3  | Element tree and layout                          | windows-host                  | 4     |
 | [ ]    | D01 T01 §4  | Visual states and animation                      | none                          | 4     |
@@ -243,6 +243,6 @@ Sections: 1 | Checklist items: 3
 | ------ | ----------- | -------------------- | -------- | ----- |
 | [ ]    | D08 T01 §13 | First public release | operator | 3     |
 
-Progress: 1/188 verified sections, 6 ready to run now.
+Progress: 2/188 verified sections, 5 ready to run now.
 
-Checklist: 8/1541 items completed (includes Commit items).
+Checklist: 9/1541 items completed (includes Commit items).
