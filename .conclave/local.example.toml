@@ -29,3 +29,13 @@ key_item = ""
 reference = ""
 # A project whose `scripts/production-sync.py` and `docs/connections.md` are ported for each new site.
 port_source = ""
+
+[winvm]
+# The Windows machine that runs tests needing a screen (`tools/winvm/vm.ps1`). Empty: live tests are owed, not run.
+name = ""
+# The machine's own folder on a Windows drive, and the Windows ISO it was built from.
+path = ""
+iso = ""
+image_index = 6
+# Machines it must not run beside.
+avoid = []

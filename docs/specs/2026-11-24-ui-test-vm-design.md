@@ -81,6 +81,25 @@ The only thing that holds a pass back indefinitely is the inventory machine bein
 - If touch does not work in the machine, the touch cases join that operator-started recapture.
 - Section 20 (native 150 percent) may be possible in the machine. It is not part of this work.
 
+## What the machine measured, 2026-11-24
+
+| Fact | Measured |
+| --- | --- |
+| Windows install to signed-in desktop | 8 minutes |
+| Start to a usable session | 6 to 22 seconds |
+| Copy 250 MB in | 31 seconds |
+| Whole trial, capture and live tests up to the failure | 154 seconds |
+| The 36 default cases | all captured, in 29 seconds |
+| The scripted button log (mouse, keyboard, touch) | equal to the stored one |
+| Frames equal byte for byte | 0 of 36 |
+| Ordinary control frames, worst channel difference | 8, and 33 for the icon case |
+| Probe frames, worst channel difference | 35 |
+| Accent frames (not Disabled) | up to 143: the guest has Windows' default accent |
+| Runner killed mid-run | the guest turned itself off at its limit |
+
+- Frames differ, so today's baselines stay and the byte comparison is not asked of the machine.
+- The live test stopped at `tests/test_ui.py:3727`: the element `RealLabel` measured 4 pixels narrower than the test's own rectangle at scale 1.5. The commit tested, `f65d416`, has the reference code of `c3d2b55`, whose live tests had not been run on any machine, so whether the machine causes it is open.
+
 ## Left to the builder
 
 Names, folders, the owed record's form, and how fonts the live tests look for are supplied to the machine.
