@@ -94,6 +94,17 @@ public partial class App : Application
             Environment.Exit(0);
             return;
         }
+        // A capture takes the foreground, the mouse and the keyboard, so it opens a window only where that was asked for:
+        // "vm" in the test machine (tools/winvm/live.py), "desktop" by the person at this one.
+        // "vm" counts only where Hyper-V says this is a guest, so it can never stand for the owner's word.
+        string? display = Environment.GetEnvironmentVariable("IMPOSSIBLE_DISPLAY");
+        using var guest = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters");
+        if (display != "desktop" && !(display == "vm" && guest?.GetValue("VirtualMachineName") != null))
+        {
+            Console.Error.WriteLine("Reference.exe would take the mouse and keyboard: run python3 tools/winvm/live.py, or set IMPOSSIBLE_DISPLAY=desktop yourself to use this desktop");
+            Environment.Exit(77);
+            return;
+        }
         string folder = cli.Length > 1 ? cli[1] : throw new InvalidOperationException("Usage: Reference.exe <out_dir> [--cases <path>]");
         string? casesPath = null;
         for (int i = 2; i < cli.Length; i++)

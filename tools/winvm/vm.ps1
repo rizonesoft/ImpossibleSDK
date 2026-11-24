@@ -9,7 +9,7 @@ A Windows 11 Hyper-V machine for tests that need a screen, a mouse and a keyboar
 -Run    restores clean, copies -In to C:\job\in, runs -Command in the signed-in desktop,
         copies C:\job\out to -Out and turns the machine off. -Out\result.json says what
         happened: {"outcome":"ran","exit":N,...} or {"outcome":"not-now","reason":"..."}.
--Stop   turns the machine off and restores clean, unless a live run holds it.
+-Stop   turns the machine off, removes what a killed build left and restores clean, unless a live run holds it.
 
 Exit: the command's own code after -Run, 75 not now, 3 the machine was never reachable or the
 command gave no exit code, 2 a bad argument, 4 another run holds this machine, 1 a failure.
@@ -30,13 +30,14 @@ param(
     [Parameter(Mandatory)] [string]$VmPath,
     [string]$IsoPath, [int]$ImageIndex = 6,
     [string]$In, [string]$Out, [string]$Command,
-    [int]$HardSec = 300, [string[]]$Avoid = @()
+    [int]$HardSec = 270, [string[]]$Avoid = @()
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $Account = 'tester'
 $Ns = 'root\virtualization\v2'
 $script:Touched = $false
+$Avoid = @($Avoid | ForEach-Object { $_ -split ',' } | Where-Object { $_ })   # -File passes a list as one string
 
 function Say([string]$Text) { Write-Host ('winvm: {0} {1}' -f (Get-Date -Format 'HH:mm:ss'), $Text) }
 
@@ -179,6 +180,27 @@ function Start-OnDesktop($Session, [string]$Line, [string]$Output) {
     }
 }
 
+# The guest turns itself off after so many seconds. Not shutdown.exe /t: its sign-out notice takes the foreground from the
+# window under test.
+function Set-Limit($Session, [int]$Seconds, [string]$Task) {
+    Invoke-Command -Session $Session -ArgumentList $Seconds, $Task -ScriptBlock {
+        param($sec, $name)
+        $off = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -Command `"Start-Sleep -Seconds $sec; Stop-Computer -Force`""
+        Register-ScheduledTask -TaskName $name -Action $off -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
+        Start-ScheduledTask -TaskName $name
+    }
+}
+
+# Whether the machine of this name is the one in -VmPath; no other machine is ever stopped or restored.
+function Test-Mine() {
+    $vm = Get-VM | Where-Object { $_.Name -eq $Name }
+    if (-not $vm) { Say "there is no machine $Name"; return $false }
+    $root = [IO.Path]::GetFullPath($VmPath).TrimEnd('\') + '\'
+    if (($vm.Path.TrimEnd('\') + '\').StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    Say "$Name is not the machine in $VmPath and is left as it was"
+    return $false
+}
+
 # Takes "clean" from the running, signed-in desktop. Windows keeps a program the person did not start from coming to the
 # front, so a test's window could never be the foreground one; here nobody is at the keyboard to protect. The setting is
 # allowed only to the process that made the last input, so a key nothing listens to (F24) comes first.
@@ -212,6 +234,9 @@ exit [int]($now -ne 0)
             Remove-Item -LiteralPath 'C:\job' -Recurse -Force
         }
     } finally { Remove-PSSession $s }
+    # Last, so the checkpoint holds this timer running: every restore resumes it, whether or not anyone ever connects.
+    $s = Open-Session 300
+    try { Set-Limit $s $HardSec 'winvm-clean' } finally { Remove-PSSession $s }
     # The old clean goes only once its successor exists.
     $next = Checkpoint-VM -Name $Name -SnapshotName 'clean-next' -Passthru
     Get-VMSnapshot -VMName $Name | Where-Object { $_.Name -eq 'clean' } | Remove-VMSnapshot
@@ -312,8 +337,10 @@ function Invoke-Run() {
     $began = Get-Date
     $script:Touched = $true
     Set-Off
-    Restore-VMSnapshot -VMName $Name -Name 'clean' -Confirm:$false
-    try { if ((Get-VM -Name $Name).State -ne 'Running') { Start-VM -Name $Name } }
+    try {
+        Restore-VMSnapshot -VMName $Name -Name 'clean' -Confirm:$false
+        if ((Get-VM -Name $Name).State -ne 'Running') { Start-VM -Name $Name }
+    }
     catch {
         # 0x8007000E: Hyper-V cannot back the machine's memory.
         if ("$($_.Exception.Message) $($_.Exception.HResult)" -match 'memory|8007000E') { return Send-Not 'Hyper-V could not get the memory' }
@@ -322,12 +349,8 @@ function Invoke-Run() {
     $s = $null
     try {
         try { $s = Open-Session 120 } catch { Say $_.Exception.Message; return 3 }
-        Invoke-Command -Session $s -ArgumentList $HardSec -ScriptBlock {
-            param($sec)
-            # Not shutdown.exe /t: its sign-out notice takes the foreground from the window under test.
-            $off = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -Command `"Start-Sleep -Seconds $sec; Stop-Computer -Force`""
-            Register-ScheduledTask -TaskName 'winvm-limit' -Action $off -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
-            Start-ScheduledTask -TaskName 'winvm-limit'
+        Set-Limit $s $HardSec 'winvm-limit'
+        Invoke-Command -Session $s -ScriptBlock {
             foreach ($d in 'C:\job\in', 'C:\job\out', 'C:\job\run') { New-Item -ItemType Directory -Path $d -Force | Out-Null }
         }
         $up = ((Get-Date) - $began).TotalSeconds
@@ -372,13 +395,25 @@ if (@($Build, $Reclean, $Run, $Stop | Where-Object { $_ }).Count -ne 1) { Say 'g
 $lock = New-Object Threading.Mutex($false, "Global\winvm-$($Name.ToLowerInvariant())")
 try { $held = $lock.WaitOne(0) } catch [Threading.AbandonedMutexException] { $held = $true }
 if (-not $held) { Say "another run holds $Name"; exit 4 }
+if (-not $Build -and -not (Test-Mine)) { exit 2 }
 # Cmdlets in a finally entered by exit are skipped, so every path returns its code and the exit comes last.
 $code = 1
 try {
     if ($Build) { $code = Invoke-Build | Select-Object -Last 1 }
     elseif ($Reclean) { $code = Invoke-Reclean | Select-Object -Last 1 }
     elseif ($Run) { $code = Invoke-Run | Select-Object -Last 1 }
-    else { $script:Touched = $true; Set-Off; Restore-VMSnapshot -VMName $Name -Name 'clean' -Confirm:$false; $code = 0 }
+    else {
+        $script:Touched = $true
+        Set-Off
+        # A build that was killed left its answer media, which holds the password, attached. Test-Mine passed: the folder is ours.
+        Get-VMDvdDrive -VMName $Name | Where-Object { $_.Path } | Set-VMDvdDrive -Path $null
+        foreach ($p in 'stage', 'answer.iso') {
+            $p = Join-Path $VmPath $p
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
+        }
+        Restore-VMSnapshot -VMName $Name -Name 'clean' -Confirm:$false
+        $code = 0
+    }
 } catch { Say "failed: $($_.Exception.Message)" }
 finally { if ($script:Touched) { Set-Off } }
 exit $code

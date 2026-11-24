@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Draw every case with real WinUI, on native Windows or from WSL.
 
+    (a capture needs IMPOSSIBLE_DISPLAY=desktop, which its owner sets; tools/winvm/live.py is the pass that needs no desktop)
     python3 reference/run.py                        capture all reference/cases/*.json into build/reference/out
     python3 reference/run.py --cases path.json      capture a single case file or directory into build/reference/out
     python3 reference/run.py --out <dir>            write fresh output to a specific folder
@@ -94,14 +95,11 @@ def run_cmd(*command, cwd=None, capture_output=False, text=False, timeout=1200, 
         "stdin": subprocess.DEVNULL,
         "text": text,
     }
-    if is_wsl() and "IMPOSSIBLE_REFERENCE_MONITOR" in os.environ:
-        env = dict(os.environ)
-        wslenv = env.get("WSLENV", "")
-        parts = [p for p in wslenv.split(":") if p]
-        if not any(p.split("/")[0] == "IMPOSSIBLE_REFERENCE_MONITOR" for p in parts):
-            parts.append("IMPOSSIBLE_REFERENCE_MONITOR")
-            env["WSLENV"] = ":".join(parts)
-        kwargs["env"] = env
+    passed_on = [name for name in ("IMPOSSIBLE_REFERENCE_MONITOR", "IMPOSSIBLE_DISPLAY") if name in os.environ]
+    if is_wsl() and passed_on:
+        parts = [p for p in os.environ.get("WSLENV", "").split(":") if p]
+        parts += [name for name in passed_on if not any(p.split("/")[0] == name for p in parts)]
+        kwargs["env"] = {**os.environ, "WSLENV": ":".join(parts)}
     if capture_output:
         kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.PIPE
@@ -1216,6 +1214,8 @@ def publish_store(fresh_dir, store_dir, expected_specs):
 
 
 def build_reference(work_dir):
+    if os.environ.get("IMPOSSIBLE_REFERENCE_EXE"):  # the test machine brings the program, and has no .NET SDK
+        return Path(os.environ["IMPOSSIBLE_REFERENCE_EXE"])
     work = Path(work_dir)
     dotnet = "dotnet.exe" if is_wsl() else "dotnet"
     shutil.copytree(HERE, work / "reference", ignore=shutil.ignore_patterns("*.py"))

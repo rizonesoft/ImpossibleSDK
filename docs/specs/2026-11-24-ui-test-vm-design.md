@@ -98,7 +98,9 @@ The only thing that holds a pass back indefinitely is the inventory machine bein
 | Runner killed mid-run | the guest turned itself off at its limit |
 
 - Frames differ, so today's baselines stay and the byte comparison is not asked of the machine.
-- The live test stopped at `tests/test_ui.py:3727`: the element `RealLabel` measured 4 pixels narrower than the test's own rectangle at scale 1.5. The commit tested, `f65d416`, has the reference code of `c3d2b55`, whose live tests had not been run on any machine, so whether the machine causes it is open.
+- The live test first stopped at `RealLabel`. The test was wrong, not the machine: `c3d2b55` expected the 48 by 18 slot, and a TextBlock reports its text (45.562 by 18.621, the font's own metrics). Corrected, the whole live test passes there.
+- Layout, automation, script logs and rendered text equal the stored ones for all 36 cases, so a pass holds them exactly. Pixels are held within 40 a channel, accent frames aside.
+- A full pass through `tools/winvm/live.py`: 183 seconds. Its turn is cut at 270 seconds inside the guest, by a timer the checkpoint holds running, and at 340 outside.
 
 ## Left to the builder
 
