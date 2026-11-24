@@ -62,21 +62,21 @@ ACCENT_KEYS = (
 
 EXPECTED_CASES = [
     *[
-        ("button_case", control, state, theme, 1.0, 160, 64, None)
+        ("button_case", control, state, theme, 1.0, 160, 64, None, f"{control}-{state}-{theme}.bgra")
         for theme in ("Dark", "Light")
         for control in ("button", "accent")
         for state in ("Normal", "PointerOver", "Pressed", "Disabled")
     ],
-    ("probe", "probe-r4-s1", None, None, 1.0, 64, 64, [4, 4, 4, 4]),
-    ("probe", "probe-r4-s15", None, None, 1.5, 64, 64, [4, 4, 4, 4]),
-    ("probe", "probe-r4-s2", None, None, 2.0, 64, 64, [4, 4, 4, 4]),
-    ("probe", "probe-r8-s1", None, None, 1.0, 64, 64, [8, 8, 8, 8]),
-    ("probe", "probe-r8-s15", None, None, 1.5, 64, 64, [8, 8, 8, 8]),
-    ("probe", "probe-r8-s2", None, None, 2.0, 64, 64, [8, 8, 8, 8]),
-    ("probe", "probe-r16-s1", None, None, 1.0, 64, 64, [16, 16, 16, 16]),
-    ("probe", "probe-r16-s15", None, None, 1.5, 64, 64, [16, 16, 16, 16]),
-    ("probe", "probe-r16-s2", None, None, 2.0, 64, 64, [16, 16, 16, 16]),
-    ("probe", "probe-asym-s1", None, None, 1.0, 64, 64, [16, 0, 0, 0]),
+    ("probe", "probe-r4-s1", None, None, 1.0, 64, 64, [4, 4, 4, 4], "probe-r4-s1.bgra"),
+    ("probe", "probe-r4-s15", None, None, 1.5, 64, 64, [4, 4, 4, 4], "probe-r4-s15.bgra"),
+    ("probe", "probe-r4-s2", None, None, 2.0, 64, 64, [4, 4, 4, 4], "probe-r4-s2.bgra"),
+    ("probe", "probe-r8-s1", None, None, 1.0, 64, 64, [8, 8, 8, 8], "probe-r8-s1.bgra"),
+    ("probe", "probe-r8-s15", None, None, 1.5, 64, 64, [8, 8, 8, 8], "probe-r8-s15.bgra"),
+    ("probe", "probe-r8-s2", None, None, 2.0, 64, 64, [8, 8, 8, 8], "probe-r8-s2.bgra"),
+    ("probe", "probe-r16-s1", None, None, 1.0, 64, 64, [16, 16, 16, 16], "probe-r16-s1.bgra"),
+    ("probe", "probe-r16-s15", None, None, 1.5, 64, 64, [16, 16, 16, 16], "probe-r16-s15.bgra"),
+    ("probe", "probe-r16-s2", None, None, 2.0, 64, 64, [16, 16, 16, 16], "probe-r16-s2.bgra"),
+    ("probe", "probe-asym-s1", None, None, 1.0, 64, 64, [16, 0, 0, 0], "probe-asym-s1.bgra"),
 ]
 
 
@@ -91,22 +91,27 @@ def validate_manifest(manifest):
         accent_args.append(val)
     cases = manifest.get("cases", [])
     seen = []
+    files = []
     for case in cases:
         scale = case.get("scale")
         lw, lh = case.get("logical_width"), case.get("logical_height")
         w, h = case.get("width"), case.get("height")
-        if scale is None or lw is None or lh is None or w is None or h is None:
-            raise ValueError(f"case missing scale or dimensions: {case}")
+        fn = case.get("file")
+        if scale is None or lw is None or lh is None or w is None or h is None or not fn:
+            raise ValueError(f"case missing scale, file or dimensions: {case}")
         if w != round(lw * scale) or h != round(lh * scale):
             raise ValueError(
-                f"dimension/scale mismatch for {case.get('file')}: "
+                f"dimension/scale mismatch for {fn}: "
                 f"{w}x{h} != round({lw}x{lh} * {scale})"
             )
         if case.get("control") == "probe":
-            ident = ("probe", case.get("name"), None, None, float(scale), lw, lh, case.get("radii"))
+            ident = ("probe", case.get("name"), None, None, float(scale), lw, lh, case.get("radii"), fn)
         else:
-            ident = ("button_case", case.get("control"), case.get("state"), case.get("theme"), float(scale), lw, lh, None)
+            ident = ("button_case", case.get("control"), case.get("state"), case.get("theme"), float(scale), lw, lh, None, fn)
         seen.append(ident)
+        files.append(fn)
+    if len(files) != len(set(files)):
+        raise ValueError("duplicate reference filename in manifest")
     if len(seen) != len(set(tuple(x if not isinstance(x, list) else tuple(x) for x in s) for s in seen)):
         raise ValueError("duplicate case identity in manifest")
     if seen != EXPECTED_CASES:
@@ -115,7 +120,10 @@ def validate_manifest(manifest):
 
 
 def check_probe_crispness(case, raw):
-    """Reject a resized lower-scale bitmap by requiring crisp 0->255 transitions on straight edges."""
+    """Catch bilinearly upscaled captures by requiring crisp 0->255 transitions on straight edges.
+
+    Nearest-neighbour enlargement is caught separately by the full-frame pixel comparison against the SDK.
+    """
     w, h = case["width"], case["height"]
     scale = case["scale"]
     bw = round(case["box_width"] * scale)
@@ -192,10 +200,16 @@ class Drawing(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_manifest({**manifest, "cases": relabelled_cases})
 
-        # Duplicating a case must fail.
+        # Duplicating a case or pointing two cases to the same reference file must fail.
         duped = {**manifest, "cases": [*manifest["cases"], manifest["cases"][-1]]}
         with self.assertRaises(ValueError):
             validate_manifest(duped)
+        shared_file = [dict(c) for c in manifest["cases"]]
+        for c in shared_file:
+            if c.get("control") == "button" and c.get("state") == "Disabled" and c.get("theme") == "Light":
+                c["file"] = "button-Pressed-Light.bgra"
+        with self.assertRaises(ValueError):
+            validate_manifest({**manifest, "cases": shared_file})
 
         # Missing or malformed accent shade must fail.
         missing_accent = {**manifest, "accents": {k: v for k, v in manifest["accents"].items() if k != "AccentDark1"}}

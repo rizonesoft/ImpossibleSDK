@@ -122,9 +122,14 @@ int im_main(void) {
     if ((at(10, 31) & 255) < 200) return 27;
     if (at(25, 20) == 0xFFFFFF) return 28; /* tl_x = 16 leaves x=25 partial; clamping to 11.43 would fill it */
     if (at(26, 20) != 0xFFFFFF || at(22, 39) != 0xFFFFFF) return 29;
-    /* Exercise im_stroke with competing unequal radii as well. */
+    /* Exercise im_stroke with competing unequal radii: outer radii are {17,0,0,13} on 40x20
+       (tl_y = 17*20/30 = 11.33, tl_x = 17 unclamped) and inner radii are {15,0,0,11} on 36x16. */
     clear();
     im_stroke(&surface, box(10, 20, 50, 40), (im_radii){16 * IM_ONE, 0, 0, 12 * IM_ONE}, 2 * IM_ONE, white);
     if (at(10, 20) != 0 || at(30, 20) != 0xFFFFFF || at(30, 22) != 0 || at(49, 30) != 0xFFFFFF) return 30;
+    /* Outer arc at x=25, y=20 is partial because outer tl_x=17 > 15 (half-short-side clamping to 10 would make it 0xFFFFFF). */
+    if (at(25, 20) == 0 || at(25, 20) == 0xFFFFFF) return 31;
+    /* Inner contour at x=25, y=22 is outside the inner arc (partial/lit); half-short-side clamping would leave it empty. */
+    if (at(25, 22) == 0) return 32;
     return 0;
 }

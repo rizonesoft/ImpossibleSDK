@@ -1,4 +1,4 @@
-<!-- page: group="Impossible UI" order=1 sources=ui/button.h,tests/test_ui.py,reference/App.xaml.cs,tests/reference/cases.json,tests/fixtures/control_shots.c,tools/winui/resources.py reviewed=2026-11-24 -->
+<!-- page: group="Impossible UI" order=1 sources=ui/button.h,ui/draw.c,tests/test_ui.py,reference/App.xaml.cs,tests/reference/cases.json,tests/fixtures/control_shots.c,tools/winui/resources.py reviewed=2026-11-24 -->
 # How a control is compared
 
 How do we know it looks like Windows 11? A small program draws the same control with real WinUI 3, and the tests compare the two pixel by pixel.
@@ -23,7 +23,7 @@ The limits are in the test itself:
 
 ## How are corners smoothed?
 
-Corner clamping follows WinUI's `CGeometryBuilder::CalculateRoundedCornersRectangle`, which partitions adjacent corner radii proportionally along each shared edge. Each quarter-circle arc is flattened into `N = 2^k` inscribed chords following Direct2D's `0.25` px flattening tolerance (`N = 4` up to 11 px, `N = 8` up to 46 px, `N = 16` up to 185 px). The remaining difference on corners comes from Direct2D's GPU per-primitive triangle antialiasing, which is itself asymmetric by 8 to 24 of 255 across the four corners of a symmetric probe and by 11 of 255 between the top and left edges of an accent button, while Impossible UI keeps corners strictly symmetric.
+Corner clamping follows WinUI's `CGeometryBuilder::CalculateRoundedCornersRectangle`, which partitions adjacent corner radii proportionally along each shared edge. Each quarter-circle arc is approximated by `N = 2^k` equal-angle inscribed chords using radius buckets matched to Direct2D's `0.25` px flattening step-ups (`N = 2` up to 3 px, `N = 4` up to 11 px, `N = 8` up to 46 px, `N = 16` up to 185 px, and exact ellipse above 185 px). The remaining difference on corners comes from Direct2D's GPU per-primitive triangle antialiasing, which is itself asymmetric by 8 to 24 of 255 across the four corners of a symmetric probe and by 11 of 255 between the top and left edges of an accent button, while Impossible UI preserves horizontal and vertical reflection symmetry.
 
 ## Where do the values come from?
 

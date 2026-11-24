@@ -7,12 +7,13 @@
    proportionally along that edge rather than clamped to half the shorter side.
 
    Corner coverage is inferred from measured WinUI 3 frames (probe-r4/r8/r16 at
-   scales 1, 1.5 and 2, plus the button captures): Direct2D flattens each 90-degree
-   cubic-bezier quarter-circle into N = 2^k inscribed chords by Wang's formula at
-   D2D1_DEFAULT_FLATTENING_TOLERANCE = 0.25 px (N=2 for r<=3, N=4 for r<=11, N=8
-   for r<=46, N=16 for r<=185). We integrate exact 16-row horizontal coverage over
-   those chords so corners stay strictly 8-way symmetric without reproducing GPU
-   per-primitive AA triangle asymmetry. */
+   scales 1, 1.5 and 2, plus the button captures): each 90-degree corner arc is
+   approximated by N = 2^k equal-angle inscribed chords (SIN16 table) using radius
+   buckets chosen to match Direct2D's 0.25 px flattening step-ups (N=2 for r<=3,
+   N=4 for r<=11, N=8 for r<=46, N=16 for r<=185, and exact quarter-ellipse above
+   185 px). We integrate 16-row horizontal coverage over those chords, preserving
+   4-way (left-right and top-bottom reflection) symmetry without reproducing GPU
+   per-primitive AA triangle asymmetry across corners. */
 enum { ROWS = 16 };
 
 /* sin(pi * i / 32) in 0..65536 (16.16 fixed point) for i = 0..16. */
