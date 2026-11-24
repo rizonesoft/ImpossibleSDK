@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -161,27 +162,74 @@ public static class Script
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GlobalUnlock(IntPtr hMem);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GlobalFree(IntPtr hMem);
 
+    private const uint CF_UNICODETEXT = 13;
     private const uint GMEM_MOVEABLE = 0x0002;
 
     private static bool ScriptUsesClipboard(IReadOnlyList<ScriptActionSpec> actions)
     {
+        var held = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool IsCtrl(string k) => k.Equals("control", StringComparison.OrdinalIgnoreCase)
+            || k.Equals("leftcontrol", StringComparison.OrdinalIgnoreCase)
+            || k.Equals("rightcontrol", StringComparison.OrdinalIgnoreCase);
+        bool IsShift(string k) => k.Equals("shift", StringComparison.OrdinalIgnoreCase)
+            || k.Equals("leftshift", StringComparison.OrdinalIgnoreCase)
+            || k.Equals("rightshift", StringComparison.OrdinalIgnoreCase);
         foreach (var a in actions)
         {
-            if (a.Action is "key_press" or "key_down")
+            string act = (a.Action ?? "").Trim().ToLowerInvariant();
+            string k = (a.Key ?? "").Trim().ToLowerInvariant();
+            if (act == "key_up")
             {
-                string k = (a.Key ?? "").Trim().ToLowerInvariant();
-                if (k is "c" or "x" or "v" or "insert")
-                {
-                    return true;
-                }
+                held.Remove(k);
+                continue;
             }
+            if (act is not ("key_press" or "key_down")) continue;
+            bool ctrl = held.Any(IsCtrl) || IsCtrl(k) || (a.Modifiers?.Any(IsCtrl) == true);
+            bool shift = held.Any(IsShift) || IsShift(k) || (a.Modifiers?.Any(IsShift) == true);
+            if ((ctrl && k is "c" or "x" or "v" or "insert") || (shift && k == "insert"))
+            {
+                return true;
+            }
+            if (act == "key_down" && !string.IsNullOrEmpty(k)) held.Add(k);
+            else if (act == "key_press" && !string.IsNullOrEmpty(k)) held.Remove(k);
         }
         return false;
     }
 
+    private static bool OpenClipboardWithRetry(IntPtr hwnd, int attempts = 20)
+    {
+        for (int i = 0; i < attempts; i++)
+        {
+            if (OpenClipboard(hwnd)) return true;
+            System.Threading.Thread.Sleep(25);
+        }
+        return false;
+    }
+
+    private static string? ReadClipboardUnicodeText(IntPtr hwnd)
+    {
+        if (!OpenClipboardWithRetry(hwnd))
+        {
+            throw new InvalidOperationException($"OpenClipboard failed while verifying clipboard text (err={Marshal.GetLastWin32Error()})");
+        }
+        try
+        {
+            IntPtr handle = GetClipboardData(CF_UNICODETEXT);
+            if (handle == IntPtr.Zero) return null;
+            IntPtr ptr = GlobalLock(handle);
+            if (ptr == IntPtr.Zero) return null;
+            try { return Marshal.PtrToStringUni(ptr); }
+            finally { GlobalUnlock(handle); }
+        }
+        finally
+        {
+            CloseClipboard();
+        }
+    }
+
     private static List<(uint Format, byte[] Data)> SaveAndClearClipboard(IntPtr hwnd)
     {
-        if (!OpenClipboard(hwnd))
+        if (!OpenClipboardWithRetry(hwnd))
         {
             throw new InvalidOperationException($"OpenClipboard failed while saving host clipboard (err={Marshal.GetLastWin32Error()})");
         }
@@ -194,7 +242,7 @@ public static class Script
                 IntPtr handle = GetClipboardData(fmt);
                 if (handle == IntPtr.Zero) continue;
                 ulong size = GlobalSize(handle).ToUInt64();
-                if (size == 0 || size > 64UL * 1024 * 1024) continue;
+                if (size == 0 || size > int.MaxValue) continue;
                 IntPtr ptr = GlobalLock(handle);
                 if (ptr == IntPtr.Zero) continue;
                 try
@@ -219,14 +267,20 @@ public static class Script
 
     private static void RestoreClipboard(IntPtr hwnd, List<(uint Format, byte[] Data)> saved)
     {
-        if (!OpenClipboard(hwnd)) return;
+        if (!OpenClipboardWithRetry(hwnd))
+        {
+            throw new InvalidOperationException($"OpenClipboard failed while restoring host clipboard (err={Marshal.GetLastWin32Error()})");
+        }
         try
         {
             EmptyClipboard();
             foreach (var (fmt, bytes) in saved)
             {
                 IntPtr hGlobal = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)bytes.Length);
-                if (hGlobal == IntPtr.Zero) continue;
+                if (hGlobal == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException($"GlobalAlloc failed while restoring clipboard format {fmt}");
+                }
                 IntPtr ptr = GlobalLock(hGlobal);
                 if (ptr != IntPtr.Zero)
                 {
@@ -235,11 +289,13 @@ public static class Script
                     if (SetClipboardData(fmt, hGlobal) == IntPtr.Zero)
                     {
                         GlobalFree(hGlobal);
+                        throw new InvalidOperationException($"SetClipboardData failed for format {fmt} (err={Marshal.GetLastWin32Error()})");
                     }
                 }
                 else
                 {
                     GlobalFree(hGlobal);
+                    throw new InvalidOperationException($"GlobalLock failed while restoring clipboard format {fmt}");
                 }
             }
         }
@@ -477,12 +533,12 @@ public static class Script
     public static async Task<ScriptResultDto> RunAsync(Window window, FrameworkElement target, IReadOnlyList<ScriptActionSpec> actions)
     {
         var hwnd = WindowNative.GetWindowHandle(window);
-        for (int tries = 0; tries < 5 && GetForegroundWindow() != hwnd; tries++)
+        for (int tries = 0; tries < 8 && GetForegroundWindow() != hwnd; tries++)
         {
             window.Activate();
             SetForegroundWindow(hwnd);
             if (GetForegroundWindow() == hwnd) break;
-            await Task.Delay(100);
+            await Task.Delay(120);
         }
         if (GetForegroundWindow() != hwnd)
         {
@@ -554,9 +610,20 @@ public static class Script
         POINT? activeTouchPt = null;
         bool copiedInScript = false;
         uint expectedClipSeq = 0;
+        string? expectedCopiedText = null;
         bool touchedClipboard = ScriptUsesClipboard(actions);
         List<(uint Format, byte[] Data)>? savedClipboard = touchedClipboard ? SaveAndClearClipboard(hwnd) : null;
         uint postClearClipSeq = touchedClipboard ? GetClipboardSequenceNumber() : 0;
+        EventHandler? onProcessExit = null;
+        if (savedClipboard != null)
+        {
+            onProcessExit = (_, _) =>
+            {
+                try { RestoreClipboard(hwnd, savedClipboard); }
+                catch (Exception ex) { Console.Error.WriteLine($"ProcessExit clipboard restore failed: {ex.Message}"); }
+            };
+            AppDomain.CurrentDomain.ProcessExit += onProcessExit;
+        }
 
         Exception? runError = null;
         try
@@ -673,7 +740,9 @@ public static class Script
                             }
                         }
                         bool isCopyOrCutStep = false;
+                        bool isPasteStep = false;
                         uint seqBeforeKey = 0;
+                        string? expectedSelectionBeforeCopy = null;
                         if (step.Action != "key_up")
                         {
                             bool ctrlActive = vk == VirtualKey.Control
@@ -704,7 +773,6 @@ public static class Script
                             if (ctrlActive && (vk == VirtualKey.C || vk == VirtualKey.X || vk == VirtualKey.Insert))
                             {
                                 isCopyOrCutStep = true;
-                                seqBeforeKey = GetClipboardSequenceNumber();
                             }
                             if ((ctrlActive && vActive) || (shiftActive && insActive))
                             {
@@ -712,10 +780,7 @@ public static class Script
                                 {
                                     throw new InvalidOperationException($"script step {i}: clipboard paste (Control+V / Shift+Insert) without prior same-script copy/cut is disallowed in reference scripts (ambient clipboard state is non-deterministic)");
                                 }
-                                if (GetClipboardSequenceNumber() != expectedClipSeq)
-                                {
-                                    throw new InvalidOperationException($"script step {i}: clipboard changed externally between scripted copy and paste; refusing non-deterministic paste");
-                                }
+                                isPasteStep = true;
                             }
                         }
                         if (!step.UseFocused && target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
@@ -726,6 +791,31 @@ public static class Script
                                 throw new InvalidOperationException($"script step {currentStep}: TryFocusAsync failed before {step.Action} (IsTabStop={kCtrl.IsTabStop})");
                             }
                             await Task.Delay(80);
+                        }
+                        if (isCopyOrCutStep)
+                        {
+                            seqBeforeKey = GetClipboardSequenceNumber();
+                            if (target is TextBox selTb) expectedSelectionBeforeCopy = selTb.SelectedText;
+                            else if (target is RichEditBox selReb)
+                            {
+                                selReb.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.None, out string st);
+                                expectedSelectionBeforeCopy = st.TrimEnd('\r', '\n');
+                            }
+                        }
+                        if (isPasteStep)
+                        {
+                            if (GetClipboardSequenceNumber() != expectedClipSeq)
+                            {
+                                throw new InvalidOperationException($"script step {i}: clipboard changed externally between scripted copy and paste; refusing non-deterministic paste");
+                            }
+                            if (expectedCopiedText != null)
+                            {
+                                string? curClip = ReadClipboardUnicodeText(hwnd);
+                                if (!string.Equals(curClip, expectedCopiedText, StringComparison.Ordinal))
+                                {
+                                    throw new InvalidOperationException($"script step {i}: clipboard text '{curClip}' does not match scripted copy '{expectedCopiedText}'; refusing non-deterministic paste");
+                                }
+                            }
                         }
                         if (step.Action == "key_down")
                         {
@@ -778,6 +868,15 @@ public static class Script
                             if (seqAfter == seqBeforeKey)
                             {
                                 throw new InvalidOperationException($"script step {i}: scripted copy/cut did not update clipboard (sequence number unchanged)");
+                            }
+                            if (expectedSelectionBeforeCopy != null)
+                            {
+                                string? copiedNow = ReadClipboardUnicodeText(hwnd);
+                                if (!string.Equals(copiedNow, expectedSelectionBeforeCopy, StringComparison.Ordinal))
+                                {
+                                    throw new InvalidOperationException($"script step {i}: clipboard text '{copiedNow}' after copy does not match selected text '{expectedSelectionBeforeCopy}'");
+                                }
+                                expectedCopiedText = copiedNow;
                             }
                             copiedInScript = true;
                             expectedClipSeq = seqAfter;
@@ -892,12 +991,17 @@ public static class Script
             {
                 try { SendMouse(outside, MOUSEEVENTF_MOVE); } catch (Exception cex) { cleanupErrors.Add($"park_mouse:{cex.Message}"); }
             }
+            if (onProcessExit != null)
+            {
+                AppDomain.CurrentDomain.ProcessExit -= onProcessExit;
+            }
             if (savedClipboard != null)
             {
                 uint curSeq = GetClipboardSequenceNumber();
                 if (curSeq == postClearClipSeq || (copiedInScript && curSeq == expectedClipSeq))
                 {
-                    RestoreClipboard(hwnd, savedClipboard);
+                    try { RestoreClipboard(hwnd, savedClipboard); }
+                    catch (Exception cex) { cleanupErrors.Add($"restore_clipboard:{cex.Message}"); }
                 }
             }
             target.GotFocus -= gotFocus;

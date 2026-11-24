@@ -94,13 +94,18 @@ public partial class App : Application
             Environment.Exit(0);
             return;
         }
-        string folder = cli.Length > 1 ? cli[1] : throw new InvalidOperationException("Usage: Reference.exe <out_dir> [--cases <path>]");
+        string folder = cli.Length > 1 ? cli[1] : throw new InvalidOperationException("Usage: Reference.exe <out_dir> [--cases <path>] [--extra-font-file <path>]");
         string? casesPath = null;
+        var extraFontFiles = new List<string>();
         for (int i = 2; i < cli.Length; i++)
         {
             if (cli[i] == "--cases" && i + 1 < cli.Length)
             {
                 casesPath = cli[++i];
+            }
+            else if (cli[i] == "--extra-font-file" && i + 1 < cli.Length)
+            {
+                extraFontFiles.Add(cli[++i]);
             }
         }
 
@@ -112,7 +117,7 @@ public partial class App : Application
             window.AppWindow.Resize(new Windows.Graphics.SizeInt32(900, 700));
             window.Activate();
             await Task.Delay(800);
-            await RunCases(window, canvas, folder, casesPath);
+            await RunCases(window, canvas, folder, casesPath, extraFontFiles);
             Environment.Exit(0);
         }
         catch (Exception error)
@@ -713,7 +718,8 @@ public partial class App : Application
         EventHandler<object>? onTransCompleted = null;
         bool storyboardCompleted = false;
 
-        if (!alreadyActive && stateSb != null)
+        if ((!alreadyActive && stateSb != null)
+            || (alreadyActive && stateSb != null && stateSb.GetCurrentState() == ClockState.Active))
         {
             stateCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             onStateCompleted = (_, _) => stateCompleted.TrySetResult(true);
@@ -1293,7 +1299,7 @@ public partial class App : Application
         return items;
     }
 
-    private static async Task RunCases(Window window, Grid canvas, string folder, string? casesPath)
+    private static async Task RunCases(Window window, Grid canvas, string folder, string? casesPath, List<string>? extraFontFiles = null)
     {
         double hostDpi = canvas.XamlRoot.RasterizationScale;
         var specs = LoadCases(casesPath);
@@ -1521,6 +1527,13 @@ public partial class App : Application
                 if (string.IsNullOrEmpty(rawVal)) continue;
                 string full = Path.IsPathRooted(rawVal) ? rawVal : Path.Combine(winFontsDir, rawVal);
                 if (File.Exists(full)) fontFiles.Add(full);
+            }
+        }
+        if (extraFontFiles != null)
+        {
+            foreach (var ef in extraFontFiles)
+            {
+                if (File.Exists(ef)) fontFiles.Add(ef);
             }
         }
         foreach (var fp in fontFiles)
