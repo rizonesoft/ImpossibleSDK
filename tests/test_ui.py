@@ -1,4 +1,5 @@
 """Impossible UI draws what it should, and stays something the OS can take."""
+import hashlib
 import json
 import os
 import platform
@@ -1771,8 +1772,8 @@ class ReferenceHarness(unittest.TestCase):
         self.assertEqual(res.returncode, 2)
         self.assertIn("refuses --cases", res.stderr)
 
-        # 7. Prohibited Microsoft font, FontIcon, ListView items, reflected text props (OnContent), or case-colliding keys fail;
-        #    numeric non-text reflected properties (Opacity: 0.5) and unambiguous capitalized Properties pass.
+        # 7. Prohibited Microsoft font, FontIcon, ListView items, reflected displayable props (OnContent string or numeric),
+        #    or case-colliding keys fail; allowlisted non-text properties (Opacity: 0.5, SelectedIndex: 1) pass.
         ref_run.check_no_prohibited_assets({"id": "num-prop", "control": "Button", "properties": {"Opacity": 0.5}})
         ref_run.check_no_prohibited_assets({"id": "cap-prop", "control": "ComboBox", "Properties": {"SelectedIndex": 1}})
         with self.assertRaises(ValueError):
@@ -1784,9 +1785,28 @@ class ReferenceHarness(unittest.TestCase):
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "bad-reflected", "control": "ToggleSwitch", "properties": {"OnContent": "Enabled"}})
         with self.assertRaises(ValueError):
+            ref_run.check_no_prohibited_assets({"id": "bad-reflected-num", "control": "ToggleSwitch", "properties": {"IsOn": True, "OnContent": 123}})
+        with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "label", "Control": "TextBlock", "Properties": {"Text": "Sample"}})
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "label", "Control": "Border", "control": "TextBlock"})
+
+        # 7b. load_case_specs accepts unambiguous uppercase top-level/case keys ("Cases", "Id") and rejects collisions.
+        with tempfile.TemporaryDirectory() as tmp:
+            cap_file = Path(tmp) / "caps.json"
+            cap_file.write_text(
+                json.dumps({"Cases": [{"Id": "cap-case", "Control": "ComboBox", "Properties": {"SelectedIndex": 1}}]}),
+                encoding="utf-8",
+            )
+            loaded = ref_run.load_case_specs(cap_file)
+            self.assertIn("cap-case", loaded)
+            self.assertEqual(loaded["cap-case"]["control"], "ComboBox")
+            self.assertEqual(loaded["cap-case"]["properties"], {"SelectedIndex": 1})
+
+            bad_top = Path(tmp) / "bad_top.json"
+            bad_top.write_text(json.dumps({"Cases": [], "cases": []}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                ref_run.load_case_specs(bad_top)
 
         # 8. --out refuses unrelated files, foreign capture-like dirs, unrelated .<name>.backup siblings, and handles empty --out cleanly.
         with tempfile.TemporaryDirectory() as tmp:
@@ -1842,8 +1862,34 @@ class ReferenceHarness(unittest.TestCase):
             self.assertEqual(len(recovered["cases"]), len(specs))
             self.assertEqual(len(rframes["button-Normal-Dark.bgra"]), 160 * 64 * 4)
 
+        # 10. Cross-host _store_lock contention: on WSL with Windows python.exe, Windows blocks until WSL releases the lock.
+        if ref_run.is_wsl() and shutil.which("python.exe"):
+            import time
+            win_ref = ref_run.to_win_path(ROOT / "reference")
+            win_store = ref_run.to_win_path(ROOT / "tests/reference")
+            probe_code = (
+                "import sys\n"
+                "sys.path.insert(0, sys.argv[1])\n"
+                "import run\n"
+                "with run._store_lock(sys.argv[2]):\n"
+                "    print('WIN_LOCKED')\n"
+            )
+            with ref_run._store_lock(ROOT / "tests/reference"):
+                proc = subprocess.Popen(
+                    ["python.exe", "-c", probe_code, win_ref, win_store],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
+                time.sleep(0.5)
+                rc = proc.poll()
+                if rc is not None:
+                    out, err = proc.communicate(timeout=10)
+                    self.fail(f"Windows python.exe exited early ({rc}) while WSL held _store_lock: out={out!r} err={err!r}")
+            out, err = proc.communicate(timeout=30)
+            self.assertEqual(proc.returncode, 0, msg=err)
+            self.assertIn("WIN_LOCKED", out)
+
     def test_package_provenance_and_missing_controls(self):
-        _, check_pkg = self._ref_modules()
+        ref_run, check_pkg = self._ref_modules()
         _, _, ver, comp, _, _ = check_pkg.verify_manifest_links(ROOT)
         self.assertEqual(ver, "1.8.260921001")
         self.assertEqual(comp["version"], "1.8.260803003")
@@ -1905,7 +1951,7 @@ class ReferenceHarness(unittest.TestCase):
             with self.assertRaises(check_pkg.PackageDrift):
                 check_pkg.verify_missing_controls(hollow_mc, fake / "ui/template_data.c")
 
-            # Real compiled-template fallback (ToggleSwitch -> DefaultToggleSwitchStyle): passes with exact counts, fails if corrupted.
+            # Real compiled-template fallback routed end-to-end through reference/run.py (ToggleSwitch -> DefaultToggleSwitchStyle).
             sim_ok = {
                 **orig_pkg,
                 "missing_controls": [{
@@ -1919,28 +1965,96 @@ class ReferenceHarness(unittest.TestCase):
                 }],
             }
             check_pkg.verify_missing_controls(sim_ok, fake / "ui/template_data.c")
-            res_case = check_pkg.check_missing_control_case(
-                {"id": "ts-fallback", "control": "ToggleSwitch", "expected_elements": 23, "expected_states": 9, "expected_setters": 11},
-                sim_ok, fake / "ui/template_data.c",
-            )
+            sim_pkg_path = Path(tmp) / "sim_package.json"
+            sim_pkg_path.write_text(json.dumps(sim_ok), encoding="utf-8")
+            sim_cases_path = Path(tmp) / "sim_cases.json"
+            sim_cases_path.write_text(json.dumps({"cases": [{
+                "id": "ts-fallback", "control": "ToggleSwitch",
+                "expected_elements": 23, "expected_states": 9, "expected_setters": 11,
+            }]}), encoding="utf-8")
+            sim_out = Path(tmp) / "sim_out"
+            ref_run.run_reference("unused-exe", sim_out, cases_path=sim_cases_path, pkg_manifest_path=sim_pkg_path)
+            sim_manifest = json.loads((sim_out / "cases.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(sim_manifest["cases"]), 1)
+            res_case = sim_manifest["cases"][0]
             self.assertEqual(
-                (res_case["basis"], res_case["verified_elements"], res_case["verified_states"], res_case["verified_setters"]),
-                ("compiled-template", 23, 9, 11),
+                (res_case["basis"], res_case["template"], res_case["verified_elements"], res_case["verified_states"], res_case["verified_setters"]),
+                ("compiled-template", "DefaultToggleSwitchStyle", 23, 9, 11),
             )
+            sim_bad_cases = Path(tmp) / "sim_bad_cases.json"
+            sim_bad_cases.write_text(json.dumps({"cases": [{
+                "id": "ts-bad", "control": "ToggleSwitch", "expected_states": 999,
+            }]}), encoding="utf-8")
             with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.check_missing_control_case(
-                    {"id": "ts-bad", "control": "ToggleSwitch", "expected_states": 999},
-                    sim_ok, fake / "ui/template_data.c",
-                )
+                ref_run.run_reference("unused-exe", Path(tmp) / "sim_bad_out", cases_path=sim_bad_cases, pkg_manifest_path=sim_pkg_path)
 
             # 6. Nonexistent --nuget-pkg path must fail explicitly.
             with self.assertRaises(check_pkg.PackageDrift):
                 check_pkg.verify_package(ROOT, nuget_pkg=Path(tmp) / "nonexistent")
 
+            # 7. Synthetic live DLL + generic.xaml + WinUI checkout verification runs unconditionally on every host.
+            syn_commit = "b" * 40
+            syn_nuget = Path(tmp) / "syn_nuget"
+            (syn_nuget / "runtimes-framework/win-x64/native").mkdir(parents=True)
+            (syn_nuget / "lib/native/Microsoft.UI/Themes").mkdir(parents=True)
+            (syn_nuget / "runtimes-framework/win-x64/native/Microsoft.ui.xaml.dll").write_bytes(
+                f"FileVersion\x003.1.8.2608 (syn-{syn_commit})\x00".encode("utf-16-le")
+            )
+            syn_gx_xml = (
+                '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" '
+                'xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">'
+                '<Style x:Key="DefaultButtonStyle" TargetType="Button"><Setter Property="Template"><Setter.Value><ControlTemplate><Grid/></ControlTemplate></Setter.Value></Setter></Style>'
+                '<Style x:Key="PkgOnlyStyle" TargetType="ToggleSwitch"><Setter Property="Template"><Setter.Value><ControlTemplate><Border/></ControlTemplate></Setter.Value></Setter></Style>'
+                '<Style x:Key="DefaultTextBoxStyle" TargetType="TextBox"><Setter Property="Template"><Setter.Value><ControlTemplate><Grid/></ControlTemplate></Setter.Value></Setter></Style>'
+                '<Style x:Key="DefaultListViewStyle" TargetType="ListView"><Setter Property="Template"><Setter.Value><ControlTemplate><Grid/></ControlTemplate></Setter.Value></Setter></Style>'
+                '<Style x:Key="DefaultListViewItemStyle" TargetType="ListViewItem"><Setter Property="Template"><Setter.Value><ControlTemplate><Grid/></ControlTemplate></Setter.Value></Setter></Style>'
+                '<Style x:Key="DefaultThumbStyle" TargetType="Thumb"><Setter Property="Template"><Setter.Value><ControlTemplate><Grid/></ControlTemplate></Setter.Value></Setter></Style>'
+                '</ResourceDictionary>'
+            )
+            syn_gx = syn_nuget / "lib/native/Microsoft.UI/Themes/generic.xaml"
+            syn_gx.write_text(syn_gx_xml, encoding="utf-8")
+            syn_winui = Path(tmp) / "syn_winui"
+            (syn_winui / "dxaml/xcp/dxaml/themes").mkdir(parents=True)
+            (syn_winui / "LICENSE").write_text("MIT\n", encoding="utf-8")
+            (syn_winui / "dxaml/xcp/dxaml/themes/generic.xaml").write_text(
+                '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" '
+                'xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">'
+                '<Style x:Key="DefaultButtonStyle" TargetType="Button"><Setter Property="Template"><Setter.Value><ControlTemplate><Border/></ControlTemplate></Setter.Value></Setter></Style>'
+                '<Style x:Key="PinOnlyStyle" TargetType="Button"><Setter Property="Template"><Setter.Value><ControlTemplate><Grid/></ControlTemplate></Setter.Value></Setter></Style>'
+                '</ResourceDictionary>',
+                encoding="utf-8",
+            )
+            syn_pkg = json.loads(json.dumps(orig_pkg))
+            syn_pkg["package_source_commit"] = syn_commit
+            syn_pkg["generic_xaml_sha256"] = hashlib.sha256(syn_gx.read_bytes()).hexdigest()
+            syn_pkg["template_diffs"] = {
+                "changed": ["DefaultButtonStyle"],
+                "pin_only": ["PinOnlyStyle"],
+                "package_only": ["DefaultListViewItemStyle", "DefaultListViewStyle", "DefaultTextBoxStyle", "DefaultThumbStyle", "PkgOnlyStyle"],
+            }
+            syn_pkg["provenance_sha256"] = check_pkg.compute_provenance_sha256(syn_pkg)
+            pkg_file.write_text(json.dumps(syn_pkg), encoding="utf-8")
+            syn_info = check_pkg.verify_package(fake, winui_checkout=syn_winui, nuget_pkg=syn_nuget, require_live=True)
+            self.assertTrue(syn_info["checked_live"])
+
+            bad_commit = {**syn_pkg, "package_source_commit": "c" * 40}
+            bad_commit["provenance_sha256"] = check_pkg.compute_provenance_sha256(bad_commit)
+            pkg_file.write_text(json.dumps(bad_commit), encoding="utf-8")
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_package(fake, winui_checkout=syn_winui, nuget_pkg=syn_nuget, require_live=True)
+
+            bad_diff = json.loads(json.dumps(syn_pkg))
+            bad_diff["template_diffs"]["changed"] = []
+            bad_diff["provenance_sha256"] = check_pkg.compute_provenance_sha256(bad_diff)
+            pkg_file.write_text(json.dumps(bad_diff), encoding="utf-8")
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_package(fake, winui_checkout=syn_winui, nuget_pkg=syn_nuget, require_live=True)
+
     def test_package_provenance_live_dll_and_template_diffs(self):
         _, check_pkg = self._ref_modules()
-        if not ((WINUI / "LICENSE").is_file() and check_pkg.find_nuget_winui_pkg("1.8.260803003") is not None):
-            self.skipTest("live WinUI NuGet package and pinned checkout not installed on this host")
+        if os.environ.get("GITHUB_ACTIONS") == "true" and not os.environ.get("IMPOSSIBLE_WINUI"):
+            if not ((WINUI / "LICENSE").is_file() and check_pkg.find_nuget_winui_pkg("1.8.260803003") is not None):
+                self.skipTest("GitHub Actions runner does not restore the Windows App SDK NuGet package")
         info = check_pkg.verify_package(ROOT, require_live=True)
         self.assertTrue(info["checked_live"])
         self.assertEqual(info["template_diffs"], {"changed": 25, "pin_only": 32, "package_only": 73})

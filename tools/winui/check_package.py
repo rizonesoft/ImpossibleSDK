@@ -151,7 +151,7 @@ def compute_provenance_sha256(pkg_data):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def verify_missing_controls(pkg_data, template_c_path, pkg_target_types=None):
+def verify_missing_controls(pkg_data, template_c_path, pkg_target_types=None, pin_target_types=None):
     """Verify every missing_controls entry is absent from the package and backed by its own compiled template."""
     missing = pkg_data.get("missing_controls")
     if not isinstance(missing, list):
@@ -201,12 +201,14 @@ def verify_missing_controls(pkg_data, template_c_path, pkg_target_types=None):
             "verified_setters": info["setter_count"],
         })
 
-    # If package target types are known, ensure no compiled control in ui/template_data.c is absent from package without being listed.
+    # If package target types are known, ensure no compiled or pinned control is absent from the package without being listed.
     if pkg_target_types is not None:
-        compiled_targets = {info["target"] for info in compiled.values()}
-        for target in sorted(compiled_targets):
+        required_targets = {info["target"] for info in compiled.values()}
+        if pin_target_types is not None:
+            required_targets |= set(pin_target_types)
+        for target in sorted(required_targets):
             if target not in pkg_target_types and target not in by_name:
-                raise PackageDrift(f"reference/package.json: compiled control {target!r} is absent from package and missing from missing_controls")
+                raise PackageDrift(f"reference/package.json: control {target!r} is absent from package and missing from missing_controls")
     return results
 
 
@@ -300,6 +302,7 @@ def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=
 
     checked_live = False
     pkg_target_types = None
+    pin_target_types = None
     if pkg_dir is not None and pkg_dir.is_dir():
         dll = pkg_dir / "runtimes-framework/win-x64/native/Microsoft.ui.xaml.dll"
         gx = pkg_dir / "lib/native/Microsoft.UI/Themes/generic.xaml"
@@ -326,12 +329,18 @@ def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=
                     f"recorded=({len(recorded_diffs['changed'])}/{len(recorded_diffs['pin_only'])}/{len(recorded_diffs['package_only'])}) "
                     f"!= computed=({len(actual_diffs['changed'])}/{len(actual_diffs['pin_only'])}/{len(actual_diffs['package_only'])})"
                 )
+            pin_target_types = extract_target_types(winui_dir / pin["base"])
+            for p in sorted(winui_dir.glob(pin["controls"])):
+                if not any(s in p.name for s in pin.get("skip", [])):
+                    pin_target_types |= extract_target_types(p)
             checked_live = True
 
     if require_live and not checked_live:
         raise PackageDrift("live WinUI package and checkout verification required but unavailable on this host")
 
-    missing_report = verify_missing_controls(pkg, tpl_c, pkg_target_types=pkg_target_types)
+    missing_report = verify_missing_controls(
+        pkg, tpl_c, pkg_target_types=pkg_target_types, pin_target_types=pin_target_types,
+    )
 
     return {
         "version": csproj_ver,

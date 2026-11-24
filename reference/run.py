@@ -16,6 +16,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import zlib
 from pathlib import Path
 
@@ -24,6 +25,7 @@ ROOT = HERE.parent
 DEFAULT_OUT = ROOT / "build/reference/out"
 STORE = ROOT / "tests/reference"
 CASES_DIR = HERE / "cases"
+PACKAGE_MANIFEST = HERE / "package.json"
 
 FORBIDDEN_ASSET_CONTROLS = {"fonticon", "symbolicon"}
 FORBIDDEN_FONT_SUBSTRINGS = ("segoe", "calibri", "cambria", "consolas", "candara", "corbel", "constantia", "microsoft")
@@ -31,15 +33,19 @@ OUT_MARKER = ".impossible-reference-out"
 STORE_MARKER = ".impossible-reference-store"
 
 # Explicit allowlist of non-text properties safe to persist without a permitted FontFamily.
-# Any property outside this allowlist (including reflected text properties like OnContent/OffContent/Header/Text/Content)
-# requires a permitted non-Microsoft FontFamily.
+# Any non-None property outside this allowlist (including reflected displayable content properties like
+# OnContent/OffContent/Header/Text/Content, whether string or numeric) requires a permitted non-Microsoft FontFamily.
 SAFE_NON_TEXT_PROPERTIES = {
-    "name", "width", "height", "minwidth", "minheight",
+    "name", "width", "height", "minwidth", "minheight", "maxwidth", "maxheight",
     "horizontalalignment", "verticalalignment", "margin", "padding",
     "isenabled", "istabstop", "cornerradius", "background", "foreground",
-    "ison", "ischecked", "value", "minimum", "maximum",
-    "orientation", "spacing", "data", "selectedindex",
-    "fontfamily", "fontsize",
+    "borderbrush", "borderthickness", "opacity", "visibility",
+    "ison", "ischecked", "isthreestate", "isopen", "isdropdownopen",
+    "isreadonly", "isindeterminate", "isactive", "istextselectionenabled",
+    "value", "minimum", "maximum", "smallchange", "largechange",
+    "orientation", "flowdirection", "spacing", "data", "selectedindex",
+    "fill", "stroke", "strokethickness", "stretch", "zindex",
+    "fontfamily", "fontsize", "fontweight",
 }
 
 
@@ -101,7 +107,8 @@ def host_temp_root():
 
 
 def canonical_case_hash(case_spec):
-    blob = json.dumps(case_spec, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    norm = normalize_case_spec(case_spec)
+    blob = json.dumps(norm, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 
 
@@ -109,13 +116,34 @@ def load_case_specs(cases_path):
     path = Path(cases_path)
     files = sorted(path.glob("*.json")) if path.is_dir() else [path]
     specs = {}
+    seen_lower = {}
     for fp in files:
         data = json.loads(fp.read_text(encoding="utf-8"))
-        for c in data.get("cases", []):
-            cid = c["id"]
-            if cid in specs:
+        if not isinstance(data, dict):
+            raise ValueError(f"{fp}: top-level JSON must be an object")
+        top = {}
+        for k, v in data.items():
+            if not isinstance(k, str):
+                raise ValueError(f"{fp}: non-string top-level key {k!r}")
+            kl = k.lower()
+            if kl != "cases":
+                raise ValueError(f"{fp}: unknown top-level key {k!r}")
+            if kl in top:
+                raise ValueError(f"{fp}: duplicate case-folded top-level key {k!r}")
+            top[kl] = v
+        raw_cases = top.get("cases", [])
+        if not isinstance(raw_cases, list):
+            raise ValueError(f"{fp}: 'cases' must be a list")
+        for c in raw_cases:
+            norm = normalize_case_spec(c)
+            cid = norm.get("id")
+            if not isinstance(cid, str) or not cid.strip():
+                raise ValueError(f"{fp}: case missing non-empty 'id'")
+            cid_l = cid.lower()
+            if cid_l in seen_lower:
                 raise ValueError(f"{fp}: duplicate case id {cid!r}")
-            specs[cid] = c
+            seen_lower[cid_l] = cid
+            specs[cid] = norm
     return specs
 
 
@@ -133,6 +161,7 @@ ALLOWED_CASE_KEYS = {
     "id", "case_group", "control", "style", "theme", "scale", "flow_direction",
     "state", "use_transitions", "frame", "properties", "items", "children",
     "script", "dump_tree", "probe_box", "probe_radii",
+    "expected_elements", "expected_states", "expected_setters",
 }
 
 
@@ -165,18 +194,18 @@ def check_no_prohibited_assets(case_spec):
         raise ValueError(f"{cid}: control {ctrl!r} uses a prohibited Microsoft glyph font and cannot be persisted")
     props = norm.get("properties") or {}
     items = norm.get("items")
-    # Numeric/boolean/null scalar properties (e.g. Opacity: 0.5) cannot render text; any string/object property
-    # outside SAFE_NON_TEXT_PROPERTIES (such as Content, Text, Header, OnContent, OffContent) requires a permitted font.
-    has_non_allowlisted_text_prop = any(
+    # Any non-None property outside SAFE_NON_TEXT_PROPERTIES (including displayable content properties like
+    # Content, Text, Header, OnContent, OffContent — whether string or numeric) requires a permitted font.
+    has_non_allowlisted_prop = any(
         isinstance(k, str)
         and k.lower() not in SAFE_NON_TEXT_PROPERTIES
-        and not isinstance(v, (int, float, bool, type(None)))
+        and v is not None
         for k, v in props.items()
     )
     has_text = (
         ctrl_l in ("textblock", "textbox")
         or bool(items)
-        or has_non_allowlisted_text_prop
+        or has_non_allowlisted_prop
     )
     if has_text:
         ff = str(_ci_get(props, "fontfamily", "") or "").lower()
@@ -369,37 +398,35 @@ def _validate_store_dir_unlocked(store, expected_specs=None):
 
 
 @contextlib.contextmanager
-def _store_lock(store_dir):
+def _store_lock(store_dir, timeout=120.0):
+    """Cross-host exclusive lock using atomic mkdir so WSL and Windows share mutual exclusion."""
     resolved = Path(store_dir).resolve()
     try:
         rel = resolved.relative_to(ROOT.resolve()).as_posix()
-        # Shared repo-relative lock under build/ (gitignored) so WSL and Windows lock the exact same file.
+        # Shared repo-relative lock dir under build/ (gitignored) so WSL and Windows hit the exact same VFS mkdir.
         key = hashlib.sha256(rel.encode("utf-8")).hexdigest()[:16]
-        lock_dir = ROOT / "build"
-        lock_dir.mkdir(parents=True, exist_ok=True)
-        lock_path = lock_dir / f".ref-{key}.lock"
+        lock_root = ROOT / "build"
+        lock_root.mkdir(parents=True, exist_ok=True)
+        lock_dir = lock_root / f".ref-{key}.lockdir"
     except ValueError:
         key = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:16]
-        lock_path = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lock"
-    fp = open(lock_path, "a+", encoding="utf-8")
+        lock_dir = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            os.mkdir(lock_dir)
+            break
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"timed out waiting for store lock {lock_dir}")
+            time.sleep(0.02)
     try:
-        if os.name == "nt":
-            import msvcrt
-            msvcrt.locking(fp.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(fp.fileno(), fcntl.LOCK_EX)
         yield
     finally:
         try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(fp.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
-        finally:
-            fp.close()
+            os.rmdir(lock_dir)
+        except FileNotFoundError:
+            pass
 
 
 def publish_store(fresh_dir, store_dir, expected_specs):
@@ -464,52 +491,116 @@ def build_reference(work_dir):
     return next((work / "build/reference/bin").rglob("Reference.exe"))
 
 
-def run_reference(program, out_dir, cases_path=None, work_dir=None, snapshotted_specs=None):
+def _load_missing_control_checker():
+    winui_dir = str(ROOT / "tools/winui")
+    if winui_dir not in sys.path:
+        sys.path.insert(0, winui_dir)
+    import check_package
+    return check_package
+
+
+def run_reference(program, out_dir, cases_path=None, work_dir=None, snapshotted_specs=None,
+                  store_dir=None, pkg_manifest_path=None):
     out = Path(out_dir)
     _ensure_safe_capture_dir(out)
+    pkg_path = Path(pkg_manifest_path) if pkg_manifest_path is not None else PACKAGE_MANIFEST
+    pkg_data = json.loads(pkg_path.read_text(encoding="utf-8")) if pkg_path.is_file() else {}
+    missing_controls = {
+        e.get("control") for e in pkg_data.get("missing_controls", []) if isinstance(e, dict) and e.get("control")
+    }
+
+    # Partition missing-control cases so controls lacking in the WinUI package route to compiled-template checks.
+    missing_results = []
+    live_specs = None
+    if missing_controls:
+        specs_to_partition = snapshotted_specs
+        if specs_to_partition is None:
+            specs_to_partition = load_case_specs(cases_path if cases_path is not None else CASES_DIR)
+        check_pkg = _load_missing_control_checker()
+        tpl_c = ROOT / "ui/template_data.c"
+        live_list = []
+        for c in specs_to_partition.values():
+            if c.get("control") in missing_controls:
+                missing_results.append(check_pkg.check_missing_control_case(c, pkg_data, tpl_c))
+            else:
+                live_list.append(c)
+        live_specs = live_list
+
     with tempfile.TemporaryDirectory(dir=host_temp_root(), prefix="impossible-ref-run-") as run_tmp:
         rt = Path(run_tmp)
-        win_out = to_win_path(rt / "out")
-        cmd = [str(program), win_out]
-        if snapshotted_specs is not None:
-            staged_cases = rt / "snapshot_cases"
-            staged_cases.mkdir(parents=True, exist_ok=True)
-            (staged_cases / "snapshot.json").write_text(
-                json.dumps({"cases": list(snapshotted_specs.values())}, indent=2),
+        rt_out = rt / "out"
+        if live_specs is not None and not live_specs:
+            # All cases were missing-control fallbacks; emit cases.json directly without launching Reference.exe.
+            rt_out.mkdir(parents=True, exist_ok=True)
+            (rt_out / "cases.json").write_text(
+                json.dumps({"accents": {}, "cases": missing_results}, indent=2) + "\n",
                 encoding="utf-8",
+                newline="\n",
             )
-            cmd += ["--cases", to_win_path(staged_cases)]
-        elif cases_path is not None:
-            src = Path(cases_path).resolve()
-            staged_cases = rt / "custom_cases"
-            if src.is_dir():
-                shutil.copytree(src, staged_cases)
-                cmd += ["--cases", to_win_path(staged_cases)]
-            else:
-                staged_cases.mkdir(parents=True, exist_ok=True)
-                dst = staged_cases / src.name
-                shutil.copy2(src, dst)
-                cmd += ["--cases", to_win_path(dst)]
         else:
-            staged_cases = rt / "default_cases"
-            shutil.copytree(CASES_DIR, staged_cases)
-            cmd += ["--cases", to_win_path(staged_cases)]
+            win_out = to_win_path(rt_out)
+            cmd = [str(program), win_out]
+            if live_specs is not None:
+                staged_cases = rt / "snapshot_cases"
+                staged_cases.mkdir(parents=True, exist_ok=True)
+                (staged_cases / "snapshot.json").write_text(
+                    json.dumps({"cases": live_specs}, indent=2),
+                    encoding="utf-8",
+                )
+                cmd += ["--cases", to_win_path(staged_cases)]
+            elif snapshotted_specs is not None:
+                staged_cases = rt / "snapshot_cases"
+                staged_cases.mkdir(parents=True, exist_ok=True)
+                (staged_cases / "snapshot.json").write_text(
+                    json.dumps({"cases": list(snapshotted_specs.values())}, indent=2),
+                    encoding="utf-8",
+                )
+                cmd += ["--cases", to_win_path(staged_cases)]
+            elif cases_path is not None:
+                src = Path(cases_path).resolve()
+                staged_cases = rt / "custom_cases"
+                if src.is_dir():
+                    shutil.copytree(src, staged_cases)
+                    cmd += ["--cases", to_win_path(staged_cases)]
+                else:
+                    staged_cases.mkdir(parents=True, exist_ok=True)
+                    dst = staged_cases / src.name
+                    shutil.copy2(src, dst)
+                    cmd += ["--cases", to_win_path(dst)]
+            else:
+                staged_cases = rt / "default_cases"
+                shutil.copytree(CASES_DIR, staged_cases)
+                cmd += ["--cases", to_win_path(staged_cases)]
 
-        res = run_cmd(*cmd, cwd=work_dir or rt, capture_output=True, text=True, timeout=600, check=False)
-        err_file = rt / "out" / "error.txt"
-        err_text = err_file.read_text(encoding="utf-8", errors="replace") if err_file.is_file() else ""
-        if res.returncode != 0:
-            if err_text:
-                sys.stderr.write(err_text + "\n")
-            raise subprocess.CalledProcessError(res.returncode, cmd, output=res.stdout, stderr=(res.stderr or "") + "\n" + err_text)
-        _publish_capture_output(rt / "out", out)
+            res = run_cmd(*cmd, cwd=work_dir or rt, capture_output=True, text=True, timeout=600, check=False)
+            err_file = rt_out / "error.txt"
+            err_text = err_file.read_text(encoding="utf-8", errors="replace") if err_file.is_file() else ""
+            if res.returncode != 0:
+                if err_text:
+                    sys.stderr.write(err_text + "\n")
+                raise subprocess.CalledProcessError(res.returncode, cmd, output=res.stdout, stderr=(res.stderr or "") + "\n" + err_text)
+            if missing_results:
+                mpath = rt_out / "cases.json"
+                manifest = json.loads(mpath.read_text(encoding="utf-8"))
+                manifest.setdefault("cases", []).extend(missing_results)
+                mpath.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+        # Publish store directly from the private per-run capture directory so concurrent runs touching `out`
+        # can never mix another run's pixels with this run's snapshotted case hashes.
+        if store_dir is not None:
+            publish_store(rt_out, store_dir, snapshotted_specs)
+        _publish_capture_output(rt_out, out)
     return out
 
 
-def capture(out_dir, cases_path=None, snapshotted_specs=None):
+def capture(out_dir, cases_path=None, snapshotted_specs=None, store_dir=None, pkg_manifest_path=None):
     with tempfile.TemporaryDirectory(dir=host_temp_root(), prefix="impossible-reference-") as folder:
         program = build_reference(folder)
-        return run_reference(program, out_dir, cases_path=cases_path, work_dir=folder, snapshotted_specs=snapshotted_specs)
+        return run_reference(
+            program, out_dir, cases_path=cases_path, work_dir=folder,
+            snapshotted_specs=snapshotted_specs, store_dir=store_dir,
+            pkg_manifest_path=pkg_manifest_path,
+        )
 
 
 def main(argv=None):
@@ -523,13 +614,12 @@ def main(argv=None):
         print("error: --update-store refuses --cases (partial runs cannot replace the full reference store)", file=sys.stderr)
         return 2
 
-    # Snapshot case specifications BEFORE capture so publication hashes the exact specs rendered by Reference.exe.
+    # Snapshot case specifications BEFORE capture so publication hashes the exact private capture rendered by Reference.exe.
     specs = load_case_specs(CASES_DIR) if args.update_store else None
-    out = capture(args.out, args.cases, snapshotted_specs=specs)
+    out = capture(args.out, args.cases, snapshotted_specs=specs, store_dir=STORE if args.update_store else None)
     frames = list(out.glob("*.bgra"))
     print(f"{len(frames)} frames in {out}")
     if args.update_store:
-        publish_store(out, STORE, specs)
         print(f"published {len(specs)} validated compressed frames to {STORE}")
     return 0
 
