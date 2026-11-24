@@ -1504,18 +1504,21 @@ class GuideDocs(unittest.TestCase):
         self.assertIn(f"{ACCENT_CORNER_LIMIT} of 255", guide)
         self.assertIn(f"{PROBE_LIMIT} of 255", guide)
 
-        # Wang chord sentence must state N = 256 for signed 16.16 radii and must not carry the stale N = 1024 loop cap.
+        # Wang chord sentence must state exact N = 256 (not N = 2560) and smoothing section must not carry the stale 1024 cap.
         smoothing = guide.split("## How are corners smoothed?", 1)[1].split("\n## ", 1)[0]
         sentences = [s.strip() for s in re.split(r"(?<=\.)\s+", smoothing) if s.strip()]
         wang_sentences = [s for s in sentences if "Wang's formula" in s]
         self.assertEqual(len(wang_sentences), 1)
-        self.assertIn("N = 256", wang_sentences[0])
-        self.assertNotIn("1024", wang_sentences[0])
+        self.assertIsNotNone(re.search(r"\bN\s*=\s*256\b", wang_sentences[0]))
+        self.assertNotIn("1024", smoothing)
 
-        # Accent-button explanation sentence itself must state the measured 14 of 255 limit under horizontal and vertical reflection symmetry.
+        # Accent-button explanation sentence must preserve both the measured qualification and horizontal/vertical (not diagonal) symmetry basis.
         accent_sentences = [s for s in sentences if "accent button" in s.lower() and f"{ACCENT_CORNER_LIMIT} of 255" in s]
         self.assertEqual(len(accent_sentences), 1)
-        self.assertIn("horizontal and vertical reflection symmetry", accent_sentences[0])
+        self.assertIn(
+            f"measured corner limit of {ACCENT_CORNER_LIMIT} of 255 stands on horizontal and vertical reflection symmetry (not diagonal symmetry)",
+            accent_sentences[0],
+        )
 
 
 @unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
