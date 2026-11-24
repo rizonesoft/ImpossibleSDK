@@ -412,22 +412,39 @@ def strip_xml_prefix(name):
     return re.sub(r"\b[a-zA-Z_][\w-]*:", "", name)
 
 
+KNOWN_OWNERS = {
+    "UIElement", "FrameworkElement", "Control", "Panel", "Border", "Shape",
+    "SolidColorBrush", "TranslateTransform", "ScaleTransform", "CompositeTransform",
+    "Canvas", "Grid", "ScrollViewer", "ContentPresenter", "TextBlock",
+    "Rectangle", "Button", "Thumb", "FontIcon", "AnimatedIcon", "AutomationProperties",
+    "ListViewItemPresenter", "VisualStateManager",
+}
+
+
 def clean_target_property(prop, file, line):
-    """Validate Storyboard.TargetProperty (may be '(UIElement.Opacity)', '(Border.Background).(SolidColorBrush.Color)', etc.)."""
+    """Validate every segment of Storyboard.TargetProperty (e.g. '(Panel.Background).(SolidColorBrush.Color)')."""
     stripped = strip_xml_prefix(prop.strip())
-    parts = [p.strip("()") for p in re.split(r"\)\.\(|\.", stripped) if p.strip("()")]
-    if not parts:
+    if not stripped:
         raise TemplateError(f"{file}:{line}: empty TargetProperty {prop!r}")
-    leaf = parts[-1]
-    if leaf not in KNOWN_PROPS and stripped not in KNOWN_PROPS:
-        raise TemplateError(f"{file}:{line}: unknown property {prop!r}")
+    if stripped in KNOWN_PROPS:
+        return stripped
+    # Split compound property path into segments while preserving parenthesized Owner.Prop groups.
+    segments = [s for s in re.split(r"\)\.\(|\)\.|(?<!\()\.(?=\()", stripped) if s]
+    if not segments:
+        raise TemplateError(f"{file}:{line}: empty TargetProperty {prop!r}")
+    for raw_seg in segments:
+        seg = raw_seg.strip("()")
+        if not seg:
+            raise TemplateError(f"{file}:{line}: invalid TargetProperty {prop!r}")
+        if seg in KNOWN_PROPS:
+            continue
+        if "." in seg:
+            owner, member = seg.split(".", 1)
+            if owner not in KNOWN_OWNERS or member not in KNOWN_PROPS:
+                raise TemplateError(f"{file}:{line}: unknown property segment {seg!r} in {prop!r}")
+        else:
+            raise TemplateError(f"{file}:{line}: unknown property {seg!r} in {prop!r}")
     return stripped
-
-
-def check_attrs(node, allowed):
-    for k in node.attrs:
-        if k not in allowed:
-            raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
 
 
 class Compiler:
@@ -691,19 +708,26 @@ class Compiler:
                 spline = [sv["a"], sv["b"], sv["c"], sv["d"]]
             val = {"kind": "IM_TVAL_NONE", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
             val_raw = child.take("Value")
-            if val_raw is not None:
+            has_val = val_raw is not None
+            if has_val:
                 val = self.parse_value(val_raw, target_prop or "Value", child.file, child.attr_line("Value"))
             for sub in child.children:
-                if sub.tag == f"{child.tag}.Value" and val_raw is None:
+                if sub.tag == f"{child.tag}.Value":
+                    if has_val:
+                        raise TemplateError(f"{sub.file}:{sub.line}: duplicate {sub.tag} on {child.tag}")
                     sub.visit()
-                    if len(sub.children) != 1:
-                        raise TemplateError(f"{sub.file}:{sub.line}: expected single value element in {sub.tag}")
+                    if len(sub.children) == 0:
+                        raise TemplateError(f"{sub.file}:{sub.line}: expected value element in {sub.tag}")
+                    if len(sub.children) > 1:
+                        extra = sub.children[1]
+                        raise TemplateError(f"{extra.file}:{extra.line}: unexpected extra element {extra.tag!r} in {sub.tag}")
                     inner = sub.children[0]
                     inner.visit()
                     if inner.children:
                         raise TemplateError(f"{inner.children[0].file}:{inner.children[0].line}: unexpected element {inner.children[0].tag!r} in {inner.tag}")
                     if inner.tag == "Visibility" or (inner.tag == "Boolean" and inner.ns == "http://schemas.microsoft.com/winfx/2006/xaml"):
                         val = self.parse_value(inner.text, inner.tag, inner.file, inner.line)
+                        has_val = True
                     else:
                         raise TemplateError(f"{inner.file}:{inner.line}: unknown keyframe value element {inner.tag!r}")
                 else:
@@ -874,8 +898,11 @@ class Compiler:
                     vsm_groups_out.append(child)
                 elif child.tag == "Thumb.Template":
                     child.visit()
-                    if len(child.children) != 1:
-                        raise TemplateError(f"{child.file}:{child.line}: expected single ControlTemplate in Thumb.Template")
+                    if len(child.children) == 0:
+                        raise TemplateError(f"{child.file}:{child.line}: expected ControlTemplate in Thumb.Template")
+                    if len(child.children) > 1:
+                        extra = child.children[1]
+                        raise TemplateError(f"{extra.file}:{extra.line}: unexpected extra element {extra.tag!r} in Thumb.Template")
                     ct = child.children[0]
                     if ct.tag != "ControlTemplate":
                         raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate in Thumb.Template, got {ct.tag!r}")
@@ -966,14 +993,25 @@ class Compiler:
             if prop not in KNOWN_PROPS:
                 raise TemplateError(f"{child.file}:{child.attr_line('Property')}: unknown property {prop!r} in Style Setter")
             if prop in ("Template", "ItemsPanel", "ItemContainerTransitions"):
-                if len(child.children) != 1 or child.children[0].tag != "Setter.Value":
-                    raise TemplateError(f"{child.file}:{child.line}: Setter for {prop!r} must contain a single Setter.Value")
+                if len(child.children) == 0:
+                    raise TemplateError(f"{child.file}:{child.line}: Setter for {prop!r} missing Setter.Value")
+                if child.children[0].tag != "Setter.Value":
+                    bad = child.children[0]
+                    raise TemplateError(f"{bad.file}:{bad.line}: expected Setter.Value for {prop!r}, got {bad.tag!r}")
+                if len(child.children) > 1:
+                    extra = child.children[1]
+                    raise TemplateError(f"{extra.file}:{extra.line}: unexpected extra element {extra.tag!r} in Setter")
                 sv = child.children[0]
                 sv.visit()
-                if len(sv.children) != 1:
-                    raise TemplateError(f"{sv.file}:{sv.line}: Setter.Value for {prop!r} must contain a single child")
+                if len(sv.children) == 0:
+                    raise TemplateError(f"{sv.file}:{sv.line}: empty Setter.Value for {prop!r}")
+                if len(sv.children) > 1:
+                    extra = sv.children[1]
+                    raise TemplateError(f"{extra.file}:{extra.line}: unexpected extra element {extra.tag!r} in Setter.Value")
                 inner = sv.children[0]
                 if prop == "Template":
+                    if ct_node is not None:
+                        raise TemplateError(f"{child.file}:{child.line}: duplicate Template Setter in Style")
                     if inner.tag != "ControlTemplate":
                         raise TemplateError(f"{inner.file}:{inner.line}: expected ControlTemplate, got {inner.tag!r}")
                     ct_node = inner

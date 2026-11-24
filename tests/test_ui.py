@@ -703,7 +703,36 @@ class TemplateCompiler(unittest.TestCase):
         )
         res_esv, path_esv = self._run_fixture(xaml_extra_sv)
         self.assertNotEqual(res_esv.returncode, 0)
-        self.assertIn(f"{path_esv}:3:", res_esv.stderr)
+        self.assertIn(f"{path_esv}:5:", res_esv.stderr)
+
+        # Compound TargetProperty with unknown intermediate segment and duplicate keyframe value wrappers must be rejected on exact lines.
+        xaml_compound = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <ColorAnimationUsingKeyFrames Storyboard.TargetName="R"\n'
+            '      Storyboard.TargetProperty="(Border.Bogus).(SolidColorBrush.Color)" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_cmp, path_cmp = self._run_fixture(xaml_compound)
+        self.assertNotEqual(res_cmp.returncode, 0)
+        self.assertIn(f"{path_cmp}:4:", res_cmp.stderr)
+
+        xaml_dup_kf = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible">\n'
+            '      <DiscreteObjectKeyFrame KeyTime="0">\n'
+            '        <DiscreteObjectKeyFrame.Value><x:Boolean>True</x:Boolean></DiscreteObjectKeyFrame.Value>\n'
+            '        <DiscreteObjectKeyFrame.Value><x:Boolean>False</x:Boolean></DiscreteObjectKeyFrame.Value>\n'
+            '      </DiscreteObjectKeyFrame>\n'
+            '    </ObjectAnimationUsingKeyFrames>\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_dkf, path_dkf = self._run_fixture(xaml_dup_kf)
+        self.assertNotEqual(res_dkf.returncode, 0)
+        self.assertIn(f"{path_dkf}:6:", res_dkf.stderr)
 
 
 EDGE_LIMIT = 1
