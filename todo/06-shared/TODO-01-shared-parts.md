@@ -36,7 +36,7 @@ title: "TODO-01 -- Shared Parts"
 | 2 | §2 | Deflate | D02 T01 §2 | [ ] |
 | 3 | §3 | Hashes | D02 T01 §2 | [ ] |
 | 4 | §4 | Text buffer | D02 T01 §1 | [ ] |
-| 5 | §5 | Unicode data | D02 T01 §1 | [ ] |
+| 5 | §5 | Unicode data | D02 T01 §1 | [x] |
 | 6 | §6 | Time zones and recurrence | D02 T01 §1 | [ ] |
 | 7 | §7 | Lossless sound | §3 | [ ] |
 | 8 | §8 | Lossy sound | D02 T01 §1 | [ ] |
@@ -148,9 +148,12 @@ Categories, breaks, widths, scripts, case, normal forms and names from one pinne
 - [x] Implement UAX #29 grapheme cluster and word breaking and UAX #14 line breaking (whole-buffer and streaming chunked continuation/end-of-input APIs) and UAX #9 bidirectional resolution (paragraph resolution with caller-supplied scratch, class-direct mode, and per-line L1/L2 visual reordering for soft-wrapped lines) in `parts/unicode/unicode.c`, the only place these are written. Done when: `tests/test_parts.py` runs `unicode-tests.exe` asserting expected vs executed counts for 100% of `GraphemeBreakTest.txt`, `WordBreakTest.txt`, `LineBreakTest.txt`, `BidiTest.txt`, and `BidiCharacterTest.txt`, plus two-wrap-position bidi L1/L2 tests and every-cut streaming break parity on regional indicators, emoji ZWJ, and word lookahead. Cheaper substitute: space splitting, whole-document-only breaking, or simplified bidi.
 - [x] Implement UAX #15 normalization (NFD, NFC, NFKD, NFKC) and full/simple/Turkic case folding (with identity default for unlisted codepoints) in `parts/unicode/unicode.c` with explicit capacity units, exact required-size reporting on `IM_UNICODE_BUFFER_TOO_SMALL`, and zero writes past capacity. Done when: `tests/test_parts.py` asserts expected vs executed counts for 100% of `NormalizationTest.txt` and `CaseFolding.txt`, mixed-string identity/expanding/Turkic-I folding, and zero-capacity, one-short guard-sentinel, and exact-retry tests for both output and scratch buffers. Cheaper substitute: ASCII-only folding, partial normalization, or unchecked writes.
 - [x] Register `unicode` in `parts.json` and `cmake/ImpossibleSDK.cmake`, add `tests/fixtures/unicode_tests.c` and register `unicode-tests` in `CMakeLists.txt`, and verify OS freestanding no-float isolation and site docs. Done when: `python3 tools/check_parts.py`, `python3 tools/build.py`, and `python3 tools/site/build.py --check` exit 0. Cheaper substitute: skipping `parts.json`, OS-flag compile check, or fixture vector-count assertions.
-- [ ] Commit: `parts: unicode`
+- [x] Commit: `parts: unicode`
 
 **Test checkpoint:** `python3 tools/gen_unicode.py --check`, `python3 tools/check_parts.py`, `python3 tools/build.py`, and `python3 tools/site/build.py --check` all exit 0, Windows fixture assertions report 100% vector execution with zero skips, and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-24 | §5 | 75c40f06e8f7cd83bfdf4eab2d076ba3d6f414a1
+> **Review:** `docs/reviews/d06-t01-s5.json`
 
 ## 6. Time zones and recurrence
 

@@ -34,7 +34,7 @@ Sections: 26 | Checklist items: 142
 | [ ]    | D01 T02 §2  | Glyph cache                                      | none                          | 5     |
 | [ ]    | D01 T02 §6  | Icon set                                         | windows-host, display-session | 7     |
 | [x]    | D02 T01 §1  | Part layout and image type                       | none                          | 4     |
-| [ ]    | D06 T01 §5  | Unicode data                                     | none                          | 7     |
+| [x]    | D06 T01 §5  | Unicode data                                     | none                          | 7     |
 | [ ]    | D01 T02 §3  | Line, word and grapheme breaking                 | windows-host                  | 5     |
 | [ ]    | D01 T02 §4  | Paragraph layout                                 | windows-host                  | 7     |
 | [ ]    | D01 T02 §5  | Caret, hit testing and selection                 | windows-host, display-session | 6     |
@@ -244,6 +244,6 @@ Sections: 2 | Checklist items: 6
 | [ ]    | D01 T01 §20 | Native 150% DPI fractional layout | windows-host, display-session, operator | 3     |
 | [ ]    | D08 T01 §13 | First public release              | operator                                | 3     |
 
-Progress: 4/189 verified sections, 17 ready to run now.
+Progress: 5/189 verified sections, 16 ready to run now.
 
-Checklist: 30/1547 items completed (includes Commit items).
+Checklist: 31/1547 items completed (includes Commit items).
