@@ -113,27 +113,43 @@ ATTACHED_PROPS = {
 # XAML directives legal only with the x: namespace (not assignable via VisualState.Setters).
 XAML_DIRECTIVE_ATTRS = {"DeferLoadStrategy", "Key", "Load"}
 
-# Properties inherited by all UIElement / FrameworkElement controls and panels.
+# Properties inherited by all UIElement / FrameworkElement controls and panels (from WinUI XamlOM).
 COMMON_UI_PROPS = {
-    "AllowDrop", "AllowFocusOnInteraction", "Clip", "ContextFlyout",
+    "AccessKey", "AllowDrop", "AllowFocusOnInteraction", "AllowFocusWhenDisabled",
+    "CacheMode", "CanBeScrollAnchor", "CanDrag", "CenterPoint", "Clip", "CompositeMode",
+    "ContextFlyout", "ExitDisplayModeOnAccessKeyInvoked", "FlowDirection",
     "FocusVisualMargin", "FocusVisualPrimaryBrush", "FocusVisualPrimaryThickness",
     "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness", "Height",
-    "HighContrastAdjustment", "HorizontalAlignment", "IsHitTestVisible",
-    "IsHoldingEnabled", "ManipulationMode", "Margin", "MaxWidth",
-    "MinHeight", "MinWidth", "Opacity", "RenderTransform", "RenderTransformOrigin",
-    "Style", "UseSystemFocusVisuals", "VerticalAlignment", "Visibility", "Width",
+    "HighContrastAdjustment", "HorizontalAlignment", "IsAccessKeyScope",
+    "IsDoubleTapEnabled", "IsHitTestVisible", "IsHoldingEnabled", "IsRightTapEnabled",
+    "IsTabStop", "IsTapEnabled", "KeyTipHorizontalOffset", "KeyTipPlacementMode",
+    "KeyTipTarget", "KeyTipVerticalOffset", "KeyboardAcceleratorPlacementMode",
+    "KeyboardAcceleratorPlacementTarget", "Language", "ManipulationMode", "Margin",
+    "MaxHeight", "MaxWidth", "MinHeight", "MinWidth", "Opacity", "OpacityTransition",
+    "Projection", "RenderTransform", "RenderTransformOrigin", "RequestedTheme",
+    "Rotation", "RotationAxis", "RotationTransition", "Scale", "ScaleTransition",
+    "Shadow", "Style", "TabFocusNavigation", "TabIndex", "Tag", "Transform3D",
+    "TransformMatrix", "Transitions", "Translation", "TranslationTransition",
+    "UseLayoutRounding", "UseSystemFocusVisuals", "VerticalAlignment", "Visibility",
+    "Width", "XYFocusDown", "XYFocusDownNavigationStrategy", "XYFocusKeyboardNavigation",
+    "XYFocusLeft", "XYFocusLeftNavigationStrategy", "XYFocusRight",
+    "XYFocusRightNavigationStrategy", "XYFocusUp", "XYFocusUpNavigationStrategy",
 }
 
-# Properties inherited by all Control subclasses (Button, ScrollViewer, Thumb, ToggleSwitch, TextBox, ListView, ListViewItem).
+# Properties inherited by all Control subclasses (from WinUI XamlOM).
 CONTROL_PROPS = {
     "Background", "BackgroundSizing", "BorderBrush", "BorderThickness", "CharacterSpacing",
-    "CornerRadius", "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground",
-    "HorizontalContentAlignment", "IsTabStop", "IsTextScaleFactorEnabled", "Padding",
-    "TabNavigation", "Template", "VerticalContentAlignment",
+    "CornerRadius", "DefaultStyleResourceUri", "ElementSoundMode", "FontFamily", "FontSize",
+    "FontStretch", "FontStyle", "FontWeight", "Foreground", "HorizontalContentAlignment",
+    "IsEnabled", "IsFocusEngaged", "IsFocusEngagementEnabled", "IsTabStop",
+    "IsTextScaleFactorEnabled", "Padding", "RequiresPointer", "TabNavigation", "Template",
+    "VerticalContentAlignment",
 }
 
-# Properties inherited by ContentControl subclasses (Button, ScrollViewer).
-CONTENT_CONTROL_PROPS = CONTROL_PROPS | {"Content", "ContentTemplate", "ContentTransitions"}
+# Properties inherited by ContentControl subclasses (Button, ScrollViewer, ListViewItem).
+CONTENT_CONTROL_PROPS = CONTROL_PROPS | {
+    "Content", "ContentTemplate", "ContentTemplateSelector", "ContentTransitions",
+}
 
 # Properties inherited by Panel subclasses (Grid, ItemsStackPanel) and Border.
 PANEL_PROPS = {
@@ -153,33 +169,55 @@ ELEMENT_OWN_PROPS = {
     "Grid": PANEL_PROPS,
     "Border": PANEL_PROPS,
     "ContentPresenter": PANEL_PROPS | {
-        "Content", "ContentTemplate", "ContentTransitions", "FontFamily", "FontSize",
-        "FontStyle", "FontWeight", "Foreground", "HorizontalContentAlignment",
-        "TextWrapping", "VerticalContentAlignment",
+        "Content", "ContentTemplate", "ContentTemplateSelector", "ContentTransitions",
+        "FontFamily", "FontSize", "FontStretch", "FontStyle", "FontWeight", "Foreground",
+        "HorizontalContentAlignment", "IsTextScaleFactorEnabled", "TextWrapping",
+        "VerticalContentAlignment",
     },
     "Rectangle": {"Fill", "RadiusX", "RadiusY", "Stroke", "StrokeThickness"},
     "TextBlock": {
-        "CharacterSpacing", "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground",
-        "IsTextScaleFactorEnabled", "Padding", "Text", "TextAlignment", "TextWrapping",
+        "CharacterSpacing", "FontFamily", "FontSize", "FontStretch", "FontStyle", "FontWeight",
+        "Foreground", "IsTextScaleFactorEnabled", "Padding", "Text", "TextAlignment", "TextWrapping",
     },
-    "Button": CONTENT_CONTROL_PROPS,
+    "Button": CONTENT_CONTROL_PROPS | {"ClickMode", "Command", "CommandParameter", "Flyout"},
     "ScrollViewer": CONTENT_CONTROL_PROPS | {
-        "BringIntoViewOnFocusChange", "HorizontalScrollBarVisibility", "HorizontalScrollMode",
+        "BringIntoViewOnFocusChange", "CanContentRenderOutsideBounds",
+        "HorizontalAnchorRatio", "HorizontalScrollBarVisibility", "HorizontalScrollMode",
+        "HorizontalSnapPointsAlignment", "HorizontalSnapPointsType",
         "IsDeferredScrollingEnabled", "IsHorizontalRailEnabled", "IsHorizontalScrollChainingEnabled",
-        "IsVerticalRailEnabled", "IsVerticalScrollChainingEnabled", "VerticalScrollBarVisibility",
-        "VerticalScrollMode", "ZoomMode",
+        "IsScrollInertiaEnabled", "IsVerticalRailEnabled", "IsVerticalScrollChainingEnabled",
+        "IsZoomChainingEnabled", "IsZoomInertiaEnabled", "LeftHeader", "MaxZoomFactor",
+        "MinZoomFactor", "TopHeader", "TopLeftHeader", "VerticalAnchorRatio",
+        "VerticalScrollBarVisibility", "VerticalScrollMode", "VerticalSnapPointsAlignment",
+        "VerticalSnapPointsType", "ZoomMode", "ZoomSnapPoints", "ZoomSnapPointsType",
     },
     "Thumb": CONTROL_PROPS,
-    "ToggleSwitch": CONTROL_PROPS | {"Header", "HeaderTemplate", "OffContent", "OffContentTemplate", "OnContent", "OnContentTemplate"},
+    "ToggleSwitch": CONTROL_PROPS | {
+        "Header", "HeaderPlacement", "HeaderTemplate", "IsOn",
+        "OffContent", "OffContentTemplate", "OnContent", "OnContentTemplate",
+    },
     "TextBox": CONTROL_PROPS | {
-        "Description", "Header", "HeaderTemplate", "IsSpellCheckEnabled", "IsTextPredictionEnabled",
-        "PlaceholderText", "SelectionFlyout", "SelectionHighlightColor", "Text", "TextAlignment", "TextWrapping",
+        "AcceptsReturn", "CharacterCasing", "Description", "DesiredCandidateWindowAlignment",
+        "Header", "HeaderPlacement", "HeaderTemplate", "HorizontalTextAlignment", "InputScope",
+        "IsColorFontEnabled", "IsReadOnly", "IsSpellCheckEnabled", "IsTextPredictionEnabled",
+        "MaxLength", "PlaceholderForeground", "PlaceholderText",
+        "PreventKeyboardDisplayOnProgrammaticFocus", "ProofingMenuFlyout", "SelectedText",
+        "SelectionFlyout", "SelectionHighlightColor", "SelectionHighlightColorWhenNotFocused",
+        "SelectionLength", "SelectionStart", "Text", "TextAlignment", "TextReadingOrder",
+        "TextWrapping",
     },
     "ListView": CONTROL_PROPS | {
-        "Footer", "FooterTemplate", "FooterTransitions", "Header", "HeaderTemplate", "HeaderTransitions",
-        "IsSwipeEnabled", "ItemContainerTransitions", "ItemsPanel",
+        "CanDragItems", "CanReorderItems", "DataFetchSize", "DisplayMemberPath",
+        "Footer", "FooterTemplate", "FooterTransitions", "GroupStyleSelector",
+        "Header", "HeaderTemplate", "HeaderTransitions", "IncrementalLoadingThreshold",
+        "IncrementalLoadingTrigger", "IsItemClickEnabled", "IsMultiSelectCheckBoxEnabled",
+        "IsSwipeEnabled", "IsSynchronizedWithCurrentItem", "ItemContainerStyle",
+        "ItemContainerStyleSelector", "ItemContainerTransitions", "ItemTemplate",
+        "ItemTemplateSelector", "ItemsPanel", "ItemsSource", "ReorderMode",
+        "SelectedIndex", "SelectedItem", "SelectedValue", "SelectedValuePath",
+        "SelectionMode", "ShowsScrollingPlaceholders", "SingleSelectionFollowsFocus",
     },
-    "ListViewItem": CONTENT_CONTROL_PROPS,
+    "ListViewItem": CONTENT_CONTROL_PROPS | {"IsSelected"},
     "FontIcon": {"FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground", "Glyph"},
     "ListViewItemPresenter": PANEL_PROPS | {
         "CheckBoxBorderBrush", "CheckBoxBrush", "CheckBoxCornerRadius", "CheckBoxDisabledBorderBrush",
@@ -200,7 +238,7 @@ ELEMENT_OWN_PROPS = {
     },
     "ItemsStackPanel": PANEL_PROPS | {"Orientation"},
     "ItemsPresenter": {"Footer", "FooterTemplate", "FooterTransitions", "Header", "HeaderTemplate", "HeaderTransitions", "Padding"},
-    "RowDefinition": {"Height", "MinHeight"},
+    "RowDefinition": {"Height", "MinHeight", "MaxHeight"},
     "ColumnDefinition": {"Width", "MinWidth", "MaxWidth"},
     "TranslateTransform": {"X", "Y"},
     "ScaleTransform": {"ScaleX", "ScaleY", "CenterX", "CenterY"},
@@ -213,6 +251,40 @@ ELEMENT_OWN_PROPS = {
     "EntranceThemeTransition": {"IsStaggeringEnabled"},
 }
 
+# XAML inheritance chain for validating owner-qualified Storyboard.TargetProperty paths.
+ELEMENT_TYPES = {
+    "Grid": {"Grid", "Panel", "FrameworkElement", "UIElement"},
+    "Border": {"Border", "FrameworkElement", "UIElement"},
+    "ContentPresenter": {"ContentPresenter", "FrameworkElement", "UIElement"},
+    "Rectangle": {"Rectangle", "Shape", "FrameworkElement", "UIElement"},
+    "TextBlock": {"TextBlock", "FrameworkElement", "UIElement"},
+    "Button": {"Button", "ButtonBase", "ContentControl", "Control", "FrameworkElement", "UIElement"},
+    "ScrollViewer": {"ScrollViewer", "ContentControl", "Control", "FrameworkElement", "UIElement"},
+    "Thumb": {"Thumb", "Control", "FrameworkElement", "UIElement"},
+    "ToggleSwitch": {"ToggleSwitch", "Control", "FrameworkElement", "UIElement"},
+    "TextBox": {"TextBox", "Control", "FrameworkElement", "UIElement"},
+    "ListView": {"ListView", "ListViewBase", "Selector", "ItemsControl", "Control", "FrameworkElement", "UIElement"},
+    "ListViewItem": {"ListViewItem", "SelectorItem", "ContentControl", "Control", "FrameworkElement", "UIElement"},
+    "FontIcon": {"FontIcon", "IconElement", "FrameworkElement", "UIElement"},
+    "ListViewItemPresenter": {"ListViewItemPresenter", "ContentPresenter", "FrameworkElement", "UIElement"},
+    "ItemsStackPanel": {"ItemsStackPanel", "Panel", "FrameworkElement", "UIElement"},
+    "ItemsPresenter": {"ItemsPresenter", "FrameworkElement", "UIElement"},
+    "RowDefinition": {"RowDefinition"},
+    "ColumnDefinition": {"ColumnDefinition"},
+    "TranslateTransform": {"TranslateTransform", "Transform"},
+    "ScaleTransform": {"ScaleTransform", "Transform"},
+    "CompositeTransform": {"CompositeTransform", "Transform"},
+    "RectangleGeometry": {"RectangleGeometry", "Geometry"},
+    "BrushTransition": {"BrushTransition"},
+    "AddDeleteThemeTransition": {"AddDeleteThemeTransition", "Transition"},
+    "ContentThemeTransition": {"ContentThemeTransition", "Transition"},
+    "ReorderThemeTransition": {"ReorderThemeTransition", "Transition"},
+    "EntranceThemeTransition": {"EntranceThemeTransition", "Transition"},
+}
+
+# Elements that declare an ordinary RuntimeNameProperty 'Name' in WinUI (all others require x:Name).
+NAME_PROP_ELEMENTS = (set(ELEMENT_OWN_PROPS) - NON_UI_ELEMENTS) | {"VisualState", "VisualStateGroup"}
+
 
 def allowed_props_for(tag):
     own = ELEMENT_OWN_PROPS.get(tag)
@@ -223,54 +295,13 @@ def allowed_props_for(tag):
     return COMMON_UI_PROPS | ATTACHED_PROPS | own
 
 
-# Known properties on UI elements, styles, and visual-state setters across the four controls.
-KNOWN_PROPS = {
-    "AnimatedIcon.State", "AutomationProperties.AccessibilityView", "Background", "BackgroundSizing",
-    "BorderBrush", "BorderThickness", "BringIntoViewOnFocusChange", "CheckBoxBorderBrush",
-    "CheckBoxBrush", "CheckBoxCornerRadius", "CheckBoxDisabledBorderBrush", "CheckBoxDisabledBrush",
-    "CheckBoxPointerOverBorderBrush", "CheckBoxPointerOverBrush", "CheckBoxPressedBorderBrush",
-    "CheckBoxPressedBrush", "CheckBoxSelectedBrush", "CheckBoxSelectedDisabledBrush",
-    "CheckBoxSelectedPointerOverBrush", "CheckBoxSelectedPressedBrush", "CheckBrush",
-    "CheckDisabledBrush", "CheckMode", "CheckPressedBrush", "Content", "ContentMargin",
-    "ContentTemplate", "ContentTransitions", "Control.IsTemplateFocusTarget", "CornerRadius",
-    "DisabledOpacity", "DragBackground", "DragForeground",
-    "DragOpacity", "Fill", "FocusBorderBrush",
-    "FocusSecondaryBorderBrush", "FocusVisualMargin", "FocusVisualPrimaryBrush",
-    "FocusVisualPrimaryThickness", "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness",
-    "FontFamily", "FontSize", "FontStyle", "FontWeight", "Footer", "FooterTemplate",
-    "FooterTransitions", "Foreground",
-    "Glyph", "Grid.Column", "Grid.ColumnSpan", "Grid.Row", "Grid.RowSpan", "Header",
-    "HeaderTemplate", "HeaderTransitions", "Height", "HorizontalAlignment",
-    "HorizontalContentAlignment", "HorizontalScrollBarVisibility", "HorizontalScrollMode",
-    "IsDeferredScrollingEnabled", "IsHorizontalRailEnabled", "IsHorizontalScrollChainingEnabled",
-    "IsHitTestVisible", "IsStaggeringEnabled", "IsSwipeEnabled", "IsTabStop",
-    "IsTextScaleFactorEnabled", "IsVerticalRailEnabled", "IsVerticalScrollChainingEnabled",
-    "ItemContainerTransitions", "ItemsPanel",
-    "ManipulationMode", "Margin", "MaxWidth", "MinHeight", "MinWidth", "Name", "Opacity",
-    "Orientation", "Padding", "PlaceholderBackground", "PointerOverBackground",
-    "PointerOverForeground", "PressedBackground", "RadiusX", "RadiusY", "Rect",
-    "RenderTransform", "RenderTransformOrigin", "ReorderHintOffset", "ScrollViewer.BringIntoViewOnFocusChange",
-    "ScrollViewer.HorizontalScrollBarVisibility", "ScrollViewer.HorizontalScrollMode",
-    "ScrollViewer.IsDeferredScrollingEnabled", "ScrollViewer.IsHorizontalRailEnabled",
-    "ScrollViewer.IsHorizontalScrollChainingEnabled", "ScrollViewer.IsVerticalRailEnabled",
-    "ScrollViewer.IsVerticalScrollChainingEnabled", "ScrollViewer.VerticalScrollBarVisibility",
-    "ScrollViewer.VerticalScrollMode", "ScrollViewer.ZoomMode", "SelectedBackground",
-    "SelectedDisabledBackground", "SelectedForeground", "SelectedPointerOverBackground",
-    "SelectedPressedBackground", "SelectionCheckMarkVisualEnabled", "SelectionIndicatorBrush",
-    "SelectionIndicatorCornerRadius", "SelectionIndicatorDisabledBrush",
-    "SelectionIndicatorPointerOverBrush", "SelectionIndicatorPressedBrush",
-    "SelectionIndicatorVisualEnabled", "SelectionHighlightColor", "Stroke", "StrokeThickness",
-    "Style", "TabNavigation", "Template", "Text",
-    "TextAlignment", "TextWrapping", "UseSystemFocusVisuals",
-    "VerticalAlignment", "VerticalContentAlignment", "VerticalScrollBarVisibility",
-    "VerticalScrollMode", "Visibility", "Width", "ZoomMode", "Clip", "BackgroundTransition",
-    "X", "Y", "ScaleX", "ScaleY", "TranslateX", "TranslateY", "CenterX", "CenterY",
-    "Background.Color", "Fill.Color", "Stroke.Color", "Color",
-    "ContextFlyout", "AllowFocusOnInteraction", "HighContrastAdjustment", "Canvas.ZIndex",
-    "SelectionFlyout", "IsSpellCheckEnabled", "IsTextPredictionEnabled", "CharacterSpacing",
-    "Description", "OffContent", "OffContentTemplate", "OnContent", "OnContentTemplate",
-    "PlaceholderText", "AllowDrop", "IsHoldingEnabled",
-}
+# Known properties derived directly from the element schemas (plus brush sub-properties).
+KNOWN_PROPS = (
+    COMMON_UI_PROPS
+    | ATTACHED_PROPS
+    | {"Background.Color", "Fill.Color", "Stroke.Color", "Color"}
+    | set().union(*ELEMENT_OWN_PROPS.values())
+)
 
 TARGET_STYLES = [
     ("controls/dev/CommonStyles/Button_themeresources.xaml", "DefaultButtonStyle", "Button", "IM_TEMPLATE_BUTTON"),
@@ -463,6 +494,8 @@ def parse_xaml(text, filename):
                 line_no = attr_lines.get(("", short), base_line)
                 if short in XAML_DIRECTIVE_ATTRS:
                     raise TemplateError(f"{filename}:{line_no}: XAML directive {short!r} must use the x: namespace")
+                if short == "Name" and el_local not in NAME_PROP_ELEMENTS:
+                    raise TemplateError(f"{filename}:{line_no}: Name on {el_local} must use the x: namespace")
             if "." in el_local:
                 raise TemplateError(f"{filename}:{line_no}: unknown property {short!r} on {el_local}")
             if short in clean_attrs:
@@ -790,16 +823,34 @@ class Compiler:
         if node.tag not in ANIMATION_KINDS:
             raise TemplateError(f"{node.file}:{node.line}: unknown animation {node.tag!r}")
         kind = ANIMATION_KINDS[node.tag]
-        _, target_name = node.take_one_of("Storyboard.TargetName", "TargetName")
+        target_name_key, target_name = node.take_one_of("Storyboard.TargetName", "TargetName")
+        if target_name is not None and target_name not in named_elements:
+            raise TemplateError(
+                f"{node.file}:{node.attr_line(target_name_key)}: unknown Storyboard.TargetName {target_name!r}"
+            )
         target_prop_key, target_prop = node.take_one_of("Storyboard.TargetProperty", "TargetProperty")
         if target_prop is not None:
             target_prop = clean_target_property(target_prop, node.file, node.attr_line(target_prop_key))
-            if target_name and target_name in named_elements and "(" not in target_prop and "." not in target_prop:
+            if target_name:
                 target_tag = named_elements[target_name]
-                if target_prop not in allowed_props_for(target_tag):
-                    raise TemplateError(
-                        f"{node.file}:{node.attr_line(target_prop_key)}: property {target_prop!r} is not supported on {target_tag} ({target_name})"
-                    )
+                if "(" not in target_prop and "." not in target_prop:
+                    if target_prop not in allowed_props_for(target_tag):
+                        raise TemplateError(
+                            f"{node.file}:{node.attr_line(target_prop_key)}: property {target_prop!r} is not supported on {target_tag} ({target_name})"
+                        )
+                else:
+                    cm = re.fullmatch(r"\((\w+)\.(\w+)\)(?:\.\((\w+)\.(\w+)\))?", target_prop)
+                    if not cm:
+                        raise TemplateError(
+                            f"{node.file}:{node.attr_line(target_prop_key)}: unsupported TargetProperty {target_prop!r}"
+                        )
+                    owner, prop = cm.group(1), cm.group(2)
+                    attached = f"{owner}.{prop}" in ATTACHED_PROPS and target_tag not in NON_UI_ELEMENTS
+                    owned = owner in ELEMENT_TYPES.get(target_tag, {target_tag}) and prop in allowed_props_for(target_tag)
+                    if not (attached or owned):
+                        raise TemplateError(
+                            f"{node.file}:{node.attr_line(target_prop_key)}: TargetProperty {target_prop!r} is not supported on {target_tag} ({target_name})"
+                        )
         duration_ms = 0
         dur_raw = node.take("Duration")
         if dur_raw is not None:

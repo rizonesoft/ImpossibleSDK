@@ -346,7 +346,7 @@ class TemplateCompiler(unittest.TestCase):
     def test_refuses_unknown_keyframe_attr_and_child_and_root(self):
         xaml_attr = (
             '<ControlTemplate TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <DoubleAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="Opacity">\n'
             '      <LinearDoubleKeyFrame Bogus="1" Value="1" />\n'
             '    </DoubleAnimationUsingKeyFrames>\n'
@@ -359,7 +359,7 @@ class TemplateCompiler(unittest.TestCase):
 
         xaml_child = (
             '<ControlTemplate TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <DoubleAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="Opacity">\n'
             '      <LinearDoubleKeyFrame Value="1"><Unknown /></LinearDoubleKeyFrame>\n'
             '    </DoubleAnimationUsingKeyFrames>\n'
@@ -377,7 +377,7 @@ class TemplateCompiler(unittest.TestCase):
     def test_exact_attr_line_on_multiline_target_property_and_quoted_gt(self):
         xaml_tp = (
             '<ControlTemplate TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <DoubleAnimation\n'
             '      Storyboard.TargetName="R"\n'
             '      Storyboard.TargetProperty="BogusProp" />\n'
@@ -628,7 +628,7 @@ class TemplateCompiler(unittest.TestCase):
         # Keyframe scalar value elements must reject attributes, child elements, and presentation-namespace Boolean.
         xaml_kf_attr = (
             '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible">\n'
             '      <DiscreteObjectKeyFrame KeyTime="0"><DiscreteObjectKeyFrame.Value><x:Boolean Bogus="1">True</x:Boolean></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>\n'
             '    </ObjectAnimationUsingKeyFrames>\n'
@@ -641,7 +641,7 @@ class TemplateCompiler(unittest.TestCase):
 
         xaml_kf_child = (
             '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible">\n'
             '      <DiscreteObjectKeyFrame KeyTime="0"><DiscreteObjectKeyFrame.Value><x:Boolean>True<Unknown /></x:Boolean></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>\n'
             '    </ObjectAnimationUsingKeyFrames>\n'
@@ -654,7 +654,7 @@ class TemplateCompiler(unittest.TestCase):
 
         xaml_pres_bool = (
             '<ControlTemplate TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible">\n'
             '      <DiscreteObjectKeyFrame KeyTime="0"><DiscreteObjectKeyFrame.Value><Boolean xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">True</Boolean></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>\n'
             '    </ObjectAnimationUsingKeyFrames>\n'
@@ -668,7 +668,7 @@ class TemplateCompiler(unittest.TestCase):
         # Conflicting animation alias attrs, unqualified <Boolean>, and extra child in Style Setter.Value must all be rejected.
         xaml_alias = (
             '<ControlTemplate TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <DoubleAnimation Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible"\n'
             '      TargetProperty="Bogus" To="1" />\n'
             '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
@@ -680,7 +680,7 @@ class TemplateCompiler(unittest.TestCase):
 
         xaml_unq_bool = (
             '<ControlTemplate TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible">\n'
             '      <DiscreteObjectKeyFrame KeyTime="0"><DiscreteObjectKeyFrame.Value><Boolean>True</Boolean></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>\n'
             '    </ObjectAnimationUsingKeyFrames>\n'
@@ -708,7 +708,7 @@ class TemplateCompiler(unittest.TestCase):
         # Compound TargetProperty with unknown intermediate segment and duplicate keyframe value wrappers must be rejected on exact lines.
         xaml_compound = (
             '<ControlTemplate TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <ColorAnimationUsingKeyFrames Storyboard.TargetName="R"\n'
             '      Storyboard.TargetProperty="(Border.Bogus).(SolidColorBrush.Color)" />\n'
             '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
@@ -720,7 +720,7 @@ class TemplateCompiler(unittest.TestCase):
 
         xaml_dup_kf = (
             '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible">\n'
             '      <DiscreteObjectKeyFrame KeyTime="0">\n'
             '        <DiscreteObjectKeyFrame.Value><x:Boolean>True</x:Boolean></DiscreteObjectKeyFrame.Value>\n'
@@ -737,7 +737,7 @@ class TemplateCompiler(unittest.TestCase):
         # Invalid owner/member pairing, vendor-prefixed TargetProperty, and unknown first child before valid ControlTemplate must fail on exact lines.
         xaml_bad_pair = (
             '<ControlTemplate TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <ColorAnimationUsingKeyFrames Storyboard.TargetName="R"\n'
             '      Storyboard.TargetProperty="(SolidColorBrush.Padding).(SolidColorBrush.Color)" />\n'
             '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
@@ -749,7 +749,7 @@ class TemplateCompiler(unittest.TestCase):
 
         xaml_vtp = (
             '<ControlTemplate xmlns:vendor="urn:vendor" TargetType="Button">\n'
-            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
             '    <ColorAnimationUsingKeyFrames Storyboard.TargetName="R"\n'
             '      Storyboard.TargetProperty="(vendor:Border.Background).(SolidColorBrush.Color)" />\n'
             '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
@@ -897,7 +897,12 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_ao.returncode, 0)
         self.assertIn(f"{path_ao}:4:", res_ao.stderr)
 
-        for target_type, prop_name in (("ListViewItem", "Content"), ("TextBox", "Text")):
+        for target_type, prop_name in (
+            ("ListViewItem", "Content"),
+            ("TextBox", "Text"),
+            ("TextBox", "MaxHeight"),
+            ("TextBox", "PlaceholderForeground"),
+        ):
             xaml_ok_setter = (
                 f'<ControlTemplate TargetType="{target_type}">\n'
                 '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
@@ -907,6 +912,42 @@ class TemplateCompiler(unittest.TestCase):
             )
             res_ok, _ = self._run_fixture(xaml_ok_setter)
             self.assertEqual(res_ok.returncode, 0, res_ok.stderr)
+
+        # Unqualified Name on Storyboard, stale Storyboard.TargetName, and wrong-owner compound TargetProperty must be rejected.
+        xaml_unq_sb_name = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S">\n'
+            '    <Storyboard Name="Test" />\n'
+            '  </VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_sbn, path_sbn = self._run_fixture(xaml_unq_sb_name)
+        self.assertNotEqual(res_sbn.returncode, 0)
+        self.assertIn(f"{path_sbn}:3:", res_sbn.stderr)
+
+        xaml_stale_target = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <DoubleAnimation Storyboard.TargetName="Missing"\n'
+            '      Storyboard.TargetProperty="Opacity" To="0" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_st, path_st = self._run_fixture(xaml_stale_target)
+        self.assertNotEqual(res_st.returncode, 0)
+        self.assertIn(f"{path_st}:3:", res_st.stderr)
+
+        xaml_wrong_compound = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <DoubleAnimation Storyboard.TargetName="R"\n'
+            '      Storyboard.TargetProperty="(TranslateTransform.X)" To="4" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_wc, path_wc = self._run_fixture(xaml_wrong_compound)
+        self.assertNotEqual(res_wc.returncode, 0)
+        self.assertIn(f"{path_wc}:4:", res_wc.stderr)
 
 
 EDGE_LIMIT = 1
