@@ -301,12 +301,15 @@ class Site:
         clang = bootstrap.home(part["llvm-mingw"]) / ("bin/clang.exe" if os.name == "nt" else "bin/clang")
         found = {p.stem: p.relative_to(self.root).as_posix() for folder in ("include", "ui", "parts") for p in sorted((self.root / folder).rglob("*.h"))
                  if "Do not edit." not in p.read_text(encoding="utf-8")[:600]}  # what is generated has its own page
+        part_manifest = self.root / "parts.json"
+        part_dirs = [p["folder"] for p in json.loads(part_manifest.read_text(encoding="utf-8"))["parts"]] if part_manifest.is_file() else []
+        header_includes = ["include", "ui", "parts", *[d for d in part_dirs if d not in ("include", "ui", "parts")]]
         for order, name in enumerate([*FIRST, *sorted(set(found) - set(FIRST))]):
             path = found.get(name)
             if not path:
                 raise Drift(f"tools/site/build.py: no header is called {name}.h any more")
             try:
-                header = headers.read(clang, self.root, path, ["include", "ui", "parts"])
+                header = headers.read(clang, self.root, path, header_includes)
             except headers.Undocumented as error:
                 self.fault(str(error))
                 continue

@@ -1,7 +1,7 @@
 /* Fixture decoder exercising parts/image/image.h and im_image_check_limits.
    Exits 0, or with the number of the first check that failed. */
 #include <impossible/base.h>
-#include "../../parts/image/image.h"
+#include "image.h"
 
 /* Minimal fixture image format: 4-byte magic "IMFX", u32 LE width, u32 LE height, u8 format (0=BGRA8, 1=RGBA8),
    followed by width * height * 4 raw pixel bytes in top-to-bottom row order. */
@@ -102,7 +102,7 @@ static void *test_alloc(size_t bytes, void *ctx) {
 }
 
 static bool check_zeroed(const im_image *img) {
-    return img->width == 0 && img->height == 0 && img->stride == 0 && img->pixels == NULL && img->byte_size == 0;
+    return img->width == 0 && img->height == 0 && img->stride == 0 && img->format == 0 && img->pixels == NULL && img->byte_size == 0;
 }
 
 static void write_header(uint8_t *dst, uint32_t w, uint32_t h, uint8_t fmt) {
@@ -139,6 +139,9 @@ int im_main(void) {
 
     im_image_limits exact_lim = {64, 64, 64u * 64u * 4u};
     CHECK(12, im_image_check_limits(64, 64, &exact_lim, &bytes) == IM_IMAGE_OK && bytes == 16384u);
+    /* Width or height exceeding caller limit while byte size (260) fits well inside 16384. */
+    CHECK(29, im_image_check_limits(65, 1, &exact_lim, &bytes) == IM_IMAGE_TOO_LARGE && bytes == 0);
+    CHECK(30, im_image_check_limits(1, 65, &exact_lim, &bytes) == IM_IMAGE_TOO_LARGE && bytes == 0);
 
     /* Dimensions fit individually (100 <= 4096), but 100*100*4 = 40000 > 16384 byte budget. */
     im_image_limits byte_lim = {4096, 4096, 16384u};
@@ -209,7 +212,8 @@ int im_main(void) {
     fill_bytes(&img, 0x5A, sizeof(img));
     CHECK(26, decode_fixture(valid_buf, sizeof(valid_buf), NULL, test_alloc, &ca, &img) == IM_IMAGE_NO_MEMORY && ca.calls == 1 && check_zeroed(&img));
 
-    /* 27-28. NULL args -> IM_IMAGE_BAD_ARG. */
+    /* 27-28. NULL args -> IM_IMAGE_BAD_ARG, zeroed output. */
+    fill_bytes(&img, 0x5A, sizeof(img));
     CHECK(27, decode_fixture(NULL, 0, NULL, test_alloc, &ca, &img) == IM_IMAGE_BAD_ARG && check_zeroed(&img));
     CHECK(28, decode_fixture(valid_buf, sizeof(valid_buf), NULL, test_alloc, &ca, NULL) == IM_IMAGE_BAD_ARG);
 

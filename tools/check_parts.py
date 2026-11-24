@@ -5,8 +5,10 @@
 """
 import argparse
 import json
+import os
 import re
 import sys
+from collections import deque
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +73,48 @@ def strip_comments_preserve_lines(text):
     return "".join(out)
 
 
+def splice_c_lines(text):
+    """Apply C phase-2 backslash-newline splicing while preserving each logical line's starting physical line number."""
+    raw_lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    logical_lines = []
+    line_numbers = []
+    i = 0
+    n = len(raw_lines)
+    while i < n:
+        start = i + 1
+        buf = raw_lines[i]
+        while buf.endswith("\\") and i + 1 < n:
+            i += 1
+            buf = buf[:-1] + raw_lines[i]
+        logical_lines.append(buf)
+        line_numbers.append(start)
+        i += 1
+    return logical_lines, line_numbers
+
+
+def validate_rel_posix(raw, kind, manifest_path, part_name):
+    """Require a clean repository-relative POSIX path with no absolute root, drive letter, backslashes, or '..'."""
+    if not isinstance(raw, str) or not raw:
+        raise PartsError(f"{manifest_path}: part {part_name!r} has empty {kind} path")
+    if "\\" in raw or raw.startswith("/") or re.match(r"^[A-Za-z]:", raw) or Path(raw).is_absolute():
+        raise PartsError(f"{manifest_path}: part {part_name!r} {kind} {raw!r} must be a repository-relative POSIX path")
+    parts_seg = raw.split("/")
+    if any(seg in ("", ".", "..") for seg in parts_seg):
+        raise PartsError(f"{manifest_path}: part {part_name!r} {kind} {raw!r} must be a normalized relative path")
+
+
+def check_no_symlinks(folder, root, manifest_path, part_name):
+    if folder.is_symlink():
+        raise PartsError(f"{manifest_path}: part {part_name!r} folder cannot be a symlink")
+    for dirpath, dirnames, filenames in os.walk(folder, followlinks=False):
+        dp = Path(dirpath)
+        for entry in (*dirnames, *filenames):
+            p = dp / entry
+            if p.is_symlink():
+                rel = p.relative_to(root).as_posix()
+                raise PartsError(f"{manifest_path}: part {part_name!r} contains symlink {rel!r}")
+
+
 def is_within(child, parent):
     try:
         child.relative_to(parent)
@@ -102,13 +146,16 @@ def load_manifest(manifest_path):
             raise PartsError(f"{manifest_path}: invalid part name {name!r}")
         if name in parts:
             raise PartsError(f"{manifest_path}: duplicate part name {name!r}")
-        if not isinstance(folder_rel, str) or not folder_rel:
-            raise PartsError(f"{manifest_path}: part {name!r} missing folder")
-        folder = (root / folder_rel).resolve()
+        validate_rel_posix(folder_rel, "folder", manifest_path, name)
+        folder_raw = root / folder_rel
+        if folder_raw.is_symlink():
+            raise PartsError(f"{manifest_path}: part {name!r} folder {folder_rel!r} cannot be a symlink")
+        folder = folder_raw.resolve()
         if not is_within(folder, root) or folder == root:
             raise PartsError(f"{manifest_path}: part {name!r} folder {folder_rel!r} escapes repo root")
         if not folder.is_dir():
             raise PartsError(f"{manifest_path}: part {name!r} folder {folder_rel!r} does not exist")
+        check_no_symlinks(folder, root, manifest_path, name)
         if not isinstance(depends, list) or not all(isinstance(d, str) for d in depends):
             raise PartsError(f"{manifest_path}: part {name!r} 'depends' must be a list of strings")
         if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
@@ -122,6 +169,7 @@ def load_manifest(manifest_path):
         src_paths = []
         seen_src = set()
         for s in sources:
+            validate_rel_posix(s, "source", manifest_path, name)
             sp = (root / s).resolve()
             if not is_within(sp, folder):
                 raise PartsError(f"{manifest_path}: source {s!r} is outside part {name!r} folder {folder_rel!r}")
@@ -203,14 +251,20 @@ def check_parts(manifest_path):
 
     for name, info in parts.items():
         allowed_deps = set(info["depends"])
-        scan_files = sorted(
+        queue = deque(sorted(
             p.resolve() for p in info["folder"].rglob("*")
             if p.is_file() and p.suffix in (".c", ".h")
-        )
-        for fp in scan_files:
+        ))
+        scanned = set()
+        while queue:
+            fp = queue.popleft()
+            if fp in scanned:
+                continue
+            scanned.add(fp)
             rel = fp.relative_to(root).as_posix()
-            cleaned = strip_comments_preserve_lines(fp.read_text(encoding="utf-8"))
-            for lineno, line in enumerate(cleaned.splitlines(), 1):
+            logical_lines, line_numbers = splice_c_lines(fp.read_text(encoding="utf-8"))
+            cleaned = strip_comments_preserve_lines("\n".join(logical_lines))
+            for lineno, line in zip(line_numbers, cleaned.split("\n")):
                 m = inc_re.match(line)
                 if not m:
                     continue
@@ -227,6 +281,8 @@ def check_parts(manifest_path):
                         raise PartsError(f"{rel}:{lineno}: #include {inc!r} escapes repository root")
                     target_owner = owner_of(target, parts)
                     if target_owner == name:
+                        if target not in scanned:
+                            queue.append(target)
                         continue
                     if target_owner is not None:
                         if target_owner not in allowed_deps:
@@ -247,7 +303,11 @@ def check_parts(manifest_path):
                     target = resolve_include(inc, fp, info, root, parts)
                     if target is not None and is_within(target, root):
                         target_owner = owner_of(target, parts)
-                        if target_owner == name or (target_owner is not None and target_owner in allowed_deps):
+                        if target_owner == name:
+                            if target not in scanned:
+                                queue.append(target)
+                            continue
+                        if target_owner is not None and target_owner in allowed_deps:
                             continue
                         if target_owner is not None:
                             raise PartsError(

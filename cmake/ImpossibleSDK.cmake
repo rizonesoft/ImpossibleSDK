@@ -38,6 +38,14 @@ if(NOT TARGET ImpossibleUI)
     target_compile_options(ImpossibleUI PRIVATE -mno-mmx -mno-sse -mno-sse2 -mno-80387)
 endif()
 
+if(NOT TARGET ImpossibleParts)
+    add_library(ImpossibleParts STATIC "${IMPOSSIBLE_SDK_DIR}/parts/image/image.c")
+    target_include_directories(ImpossibleParts PUBLIC "${IMPOSSIBLE_SDK_DIR}/parts/image")
+    _impossible_compile(ImpossibleParts)
+    # As Impossible OS compiles it: floating point does not build.
+    target_compile_options(ImpossibleParts PRIVATE -mno-mmx -mno-sse -mno-sse2 -mno-80387)
+endif()
+
 function(impossible_add_program name)
     cmake_parse_arguments(arg "WINDOW;CONSOLE;UNCHECKED" "TIER" "SOURCES" ${ARGN})
     if(arg_WINDOW)
@@ -54,7 +62,7 @@ function(impossible_add_program name)
     _impossible_compile(${name})
     target_link_options(${name} PRIVATE -nostdlib -Wl,--entry=impossible_start -Wl,--subsystem,${subsystem}
         -Wl,--gc-sections -Wl,--no-insert-timestamp -Wl,--dynamicbase -Wl,--nxcompat -Wl,--high-entropy-va -s)
-    target_link_libraries(${name} PRIVATE ImpossibleUI ImpossibleSDK kernel32 user32 gdi32 shell32 winmm ws2_32 bcrypt crypt32 dwmapi)
+    target_link_libraries(${name} PRIVATE ImpossibleParts ImpossibleUI ImpossibleSDK kernel32 user32 gdi32 shell32 winmm ws2_32 bcrypt crypt32 dwmapi)
     if(NOT arg_UNCHECKED)
         if(NOT DEFINED arg_TIER)
             message(FATAL_ERROR "${name}: say which TIER it needs")

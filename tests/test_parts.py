@@ -60,11 +60,23 @@ def compile_part_isolated(repo_root, parts, part_name):
         sources_to_compile = []
         for name in closure:
             info = parts[name]
-            src_folder = repo_root / info["folder"]
-            dst_folder = stage / info["folder"]
-            shutil.copytree(src_folder, dst_folder)
+            folder_rel = info["folder"]
+            if Path(folder_rel).is_absolute() or ".." in Path(folder_rel).parts:
+                return False, f"part {name!r} folder must be repository-relative: {folder_rel!r}"
+            src_folder = repo_root / folder_rel
+            if src_folder.is_symlink():
+                return False, f"part {name!r} folder is a symlink: {folder_rel!r}"
+            for dirpath, dirnames, filenames in os.walk(src_folder, followlinks=False):
+                dp = Path(dirpath)
+                for entry in (*dirnames, *filenames):
+                    if (dp / entry).is_symlink():
+                        return False, f"part {name!r} contains symlink: {(dp / entry).relative_to(repo_root).as_posix()}"
+            dst_folder = stage / folder_rel
+            shutil.copytree(src_folder, dst_folder, symlinks=True)
             include_dirs.append(dst_folder)
             for s in info["sources"]:
+                if Path(s).is_absolute() or ".." in Path(s).parts:
+                    return False, f"part {name!r} source must be repository-relative: {s!r}"
                 sources_to_compile.append((name, stage / s))
 
         objects = []
@@ -87,20 +99,28 @@ def compile_part_isolated(repo_root, parts, part_name):
         if not objects:
             return True, ""
 
-        nm = subprocess.run(
-            [str(LLVM / f"llvm-nm{EXE}"), *map(str, objects)],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=60,
-        )
         defined, wanted = set(), set()
-        for line in nm.stdout.splitlines():
-            words = line.split()
-            if len(words) == 2 and words[0] == "U":
-                wanted.add(words[1])
-            elif len(words) == 3 and words[1].isupper():
-                defined.add(words[2])
+        strong_defs = {}
+        strong_types = {"T", "D", "B", "R", "S", "G"}
+        for obj in objects:
+            nm = subprocess.run(
+                [str(LLVM / f"llvm-nm{EXE}"), str(obj)],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=60,
+            )
+            for line in nm.stdout.splitlines():
+                words = line.split()
+                if len(words) == 2 and words[0] == "U":
+                    wanted.add(words[1])
+                elif len(words) == 3 and words[1].isupper():
+                    sym_type, sym_name = words[1], words[2]
+                    if sym_type in strong_types:
+                        if sym_name in strong_defs:
+                            return False, f"duplicate symbol definition: {sym_name} in {strong_defs[sym_name]} and {obj.name}"
+                        strong_defs[sym_name] = obj.name
+                    defined.add(sym_name)
         forbidden = sorted(wanted - defined - ALLOWED_SYMBOLS)
         if forbidden:
             return False, f"undefined symbols outside freestanding allowlist: {', '.join(forbidden)}"
@@ -287,6 +307,100 @@ class PortableParts(unittest.TestCase):
             }
             ok_no, _ = compile_part_isolated(root, without_edge, "consumer")
             self.assertFalse(ok_no)
+
+    def test_refuses_duplicate_strong_symbol_across_declared_dependency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "parts/a").mkdir(parents=True)
+            (root / "parts/b").mkdir(parents=True)
+            (root / "parts/b/b.c").write_text("int shared_helper(void) { return 1; }\n", encoding="utf-8")
+            (root / "parts/a/a.c").write_text("int shared_helper(void) { return 2; }\n", encoding="utf-8")
+            parts = {
+                "b": {"name": "b", "folder": "parts/b", "depends": [], "sources": ["parts/b/b.c"]},
+                "a": {"name": "a", "folder": "parts/a", "depends": ["b"], "sources": ["parts/a/a.c"]},
+            }
+            ok, msg = compile_part_isolated(root, parts, "a")
+            self.assertFalse(ok)
+            self.assertIn("duplicate symbol", msg)
+
+    def test_refuses_inc_transitive_include_spliced_include_absolute_path_and_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "parts/a").mkdir(parents=True)
+            (root / "parts/b").mkdir(parents=True)
+            (root / "parts/b/b.h").write_text("#pragma once\nint b_val(void);\n", encoding="utf-8")
+            manifest = root / "parts.json"
+
+            # 1. Transitive undeclared include through a non-.c/.h .inc file.
+            (root / "parts/a/table.inc").write_text('#include "../b/b.h"\n', encoding="utf-8")
+            (root / "parts/a/a.c").write_text('#include "table.inc"\nint f(void) { return 0; }\n', encoding="utf-8")
+            manifest.write_text(json.dumps({
+                "parts": [
+                    {"name": "a", "folder": "parts/a", "depends": [], "sources": ["parts/a/a.c"]},
+                    {"name": "b", "folder": "parts/b", "depends": [], "sources": []},
+                ]
+            }), encoding="utf-8")
+            res = _run_checker(manifest)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("undeclared part 'b'", res.stderr)
+            (root / "parts/a/table.inc").unlink()
+
+            # 2. C phase-2 backslash-newline spliced #include directive.
+            (root / "parts/a/a.c").write_text('#inc\\\nlude "../b/b.h"\nint f(void) { return 0; }\n', encoding="utf-8")
+            res = _run_checker(manifest)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("undeclared part 'b'", res.stderr)
+
+            # 3. Absolute source path in manifest must be refused.
+            (root / "parts/a/a.c").write_text("int f(void) { return 0; }\n", encoding="utf-8")
+            manifest.write_text(json.dumps({
+                "parts": [
+                    {"name": "a", "folder": "parts/a", "depends": [], "sources": [str((root / "parts/a/a.c").resolve())]},
+                ]
+            }), encoding="utf-8")
+            res = _run_checker(manifest)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("relative", res.stderr)
+
+            # 4. Directory symlink inside part folder must be refused by both checker and isolation.
+            manifest.write_text(json.dumps({
+                "parts": [
+                    {"name": "a", "folder": "parts/a", "depends": [], "sources": ["parts/a/a.c"]},
+                ]
+            }), encoding="utf-8")
+            link = root / "parts/a/loop"
+            try:
+                os.symlink(root, link, target_is_directory=True)
+            except OSError:
+                return
+            res = _run_checker(manifest)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("symlink", res.stderr)
+            ok, msg = compile_part_isolated(
+                root,
+                {"a": {"name": "a", "folder": "parts/a", "depends": [], "sources": ["parts/a/a.c"]}},
+                "a",
+            )
+            self.assertFalse(ok)
+            self.assertIn("symlink", msg)
+
+    def test_site_header_reader_resolves_declared_part_include(self):
+        sys.path.insert(0, str(ROOT / "tools/site"))
+        import headers as site_headers
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(ROOT / "parts/image", root / "parts/image")
+            (root / "parts/demo").mkdir(parents=True)
+            (root / "parts/demo/demo.h").write_text(
+                "/* Demo decoder header. */\n"
+                "#pragma once\n"
+                '#include "image.h"\n'
+                "/* Decode a demo picture into out. */\n"
+                "im_image_error im_demo_decode(im_image *out);\n",
+                encoding="utf-8",
+            )
+            hdr = site_headers.read(LLVM / f"clang{EXE}", root, "parts/demo/demo.h", ["parts", "parts/image", "parts/demo"])
+            self.assertTrue(any("im_demo_decode" in e.names for e in hdr.entries))
 
 
 @unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")

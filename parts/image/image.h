@@ -30,7 +30,7 @@ typedef enum im_image_error {
 
 /* Pixel channel layout for 32-bit decoded images (4 bytes per pixel, straight non-premultiplied sRGB). */
 typedef enum im_pixel_format {
-    /* Blue, green, red, alpha in memory order (matches Windows DIBs and Impossible UI surfaces). */
+    /* Blue, green, red, alpha in memory order (little-endian 0xAARRGGBB; shares BGR byte positions with Impossible UI's opaque 0x00RRGGBB surfaces while carrying straight 8-bit alpha in byte 3). */
     IM_PIXEL_BGRA8 = 0,
     /* Red, green, blue, alpha in memory order. */
     IM_PIXEL_RGBA8
