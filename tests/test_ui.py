@@ -821,8 +821,8 @@ class TemplateCompiler(unittest.TestCase):
         res_gr, _ = self._run_fixture(xaml_grid_row)
         self.assertEqual(res_gr.returncode, 0, res_gr.stderr)
 
-        # Element-incompatible properties (R.Text, R.Duration) and non-attached brush paths (R.(Fill.Color)) on a Grid must fail on line 4.
-        for bad_target in ("R.Text", "R.Duration", "R.(Fill.Color)"):
+        # Element-incompatible properties (R.Text, R.Duration), XAML directives (R.Load), missing target parts (Missing.Text), and brush paths (R.(Fill.Color)) must fail on line 4.
+        for bad_target in ("R.Text", "R.Duration", "R.Load", "R.DeferLoadStrategy", "Missing.Text", "R.(Fill.Color)"):
             xaml_incompat = (
                 '<ControlTemplate TargetType="Button">\n'
                 '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
@@ -834,6 +834,10 @@ class TemplateCompiler(unittest.TestCase):
             res_inc, path_inc = self._run_fixture(xaml_incompat)
             self.assertNotEqual(res_inc.returncode, 0, f"{bad_target} should be rejected on Grid")
             self.assertIn(f"{path_inc}:4:", res_inc.stderr)
+
+        # Inherited Control property Padding on Thumb must be accepted.
+        res_thumb, _ = self._run_fixture('<ControlTemplate TargetType="Button"><Thumb Padding="0" /></ControlTemplate>\n')
+        self.assertEqual(res_thumb.returncode, 0, res_thumb.stderr)
 
 
 EDGE_LIMIT = 1

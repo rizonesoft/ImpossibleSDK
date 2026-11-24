@@ -110,15 +110,26 @@ ATTACHED_PROPS = {
     "ScrollViewer.ZoomMode",
 }
 
+# XAML directives legal on UI elements (not assignable via VisualState.Setters).
+XAML_DIRECTIVE_ATTRS = {"DeferLoadStrategy", "Load"}
+
 # Properties inherited by all UIElement / FrameworkElement controls and panels.
 COMMON_UI_PROPS = {
-    "AllowDrop", "AllowFocusOnInteraction", "Clip", "DeferLoadStrategy",
+    "AllowDrop", "AllowFocusOnInteraction", "Clip",
     "FocusVisualMargin", "FocusVisualPrimaryBrush", "FocusVisualPrimaryThickness",
     "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness", "Height",
     "HighContrastAdjustment", "HorizontalAlignment", "IsHitTestVisible",
-    "IsHoldingEnabled", "Load", "ManipulationMode", "Margin", "MaxWidth",
+    "IsHoldingEnabled", "ManipulationMode", "Margin", "MaxWidth",
     "MinHeight", "MinWidth", "Opacity", "RenderTransform", "RenderTransformOrigin",
     "Style", "UseSystemFocusVisuals", "VerticalAlignment", "Visibility", "Width",
+}
+
+# Properties inherited by all Control subclasses (Button, ScrollViewer, Thumb).
+CONTROL_PROPS = {
+    "Background", "BackgroundSizing", "BorderBrush", "BorderThickness", "CharacterSpacing",
+    "CornerRadius", "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground",
+    "HorizontalContentAlignment", "IsTabStop", "Padding", "TabNavigation", "Template",
+    "VerticalContentAlignment",
 }
 
 # Element-specific properties (UI elements also inherit COMMON_UI_PROPS | ATTACHED_PROPS).
@@ -143,19 +154,14 @@ ELEMENT_OWN_PROPS = {
         "CharacterSpacing", "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground",
         "IsTextScaleFactorEnabled", "Padding", "Text", "TextAlignment", "TextWrapping",
     },
-    "Button": {
-        "Background", "BackgroundSizing", "BorderBrush", "BorderThickness", "Content", "ContentTemplate",
-        "CornerRadius", "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground",
-        "HorizontalContentAlignment", "IsTabStop", "Padding", "TabNavigation", "VerticalContentAlignment",
+    "Button": CONTROL_PROPS | {"Content", "ContentTemplate"},
+    "ScrollViewer": CONTROL_PROPS | {
+        "BringIntoViewOnFocusChange", "HorizontalScrollBarVisibility", "HorizontalScrollMode",
+        "IsDeferredScrollingEnabled", "IsHorizontalRailEnabled", "IsHorizontalScrollChainingEnabled",
+        "IsVerticalRailEnabled", "IsVerticalScrollChainingEnabled", "VerticalScrollBarVisibility",
+        "VerticalScrollMode", "ZoomMode",
     },
-    "ScrollViewer": {
-        "Background", "BorderBrush", "BorderThickness", "BringIntoViewOnFocusChange", "CornerRadius",
-        "Foreground", "HorizontalScrollBarVisibility", "HorizontalScrollMode", "IsDeferredScrollingEnabled",
-        "IsHorizontalRailEnabled", "IsHorizontalScrollChainingEnabled", "IsTabStop",
-        "IsVerticalRailEnabled", "IsVerticalScrollChainingEnabled", "Padding", "TabNavigation",
-        "VerticalScrollBarVisibility", "VerticalScrollMode", "ZoomMode",
-    },
-    "Thumb": {"Background", "BorderBrush", "BorderThickness", "IsTabStop", "Template"},
+    "Thumb": CONTROL_PROPS,
     "FontIcon": {"FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground", "Glyph"},
     "ListViewItemPresenter": {
         "CheckBoxBorderBrush", "CheckBoxBrush", "CheckBoxCornerRadius", "CheckBoxDisabledBorderBrush",
@@ -916,11 +922,10 @@ class Compiler:
                                     else:
                                         prop = prop_part
                                     part_tag = named_elements.get(part_name)
-                                    if part_tag is not None:
-                                        if prop not in allowed_props_for(part_tag):
-                                            raise TemplateError(f"{s.file}:{prop_line}: property {prop!r} is not supported on {part_tag} ({part_name})")
-                                    elif not prop or prop not in KNOWN_PROPS:
-                                        raise TemplateError(f"{s.file}:{prop_line}: unknown property {prop!r}")
+                                    if part_tag is None:
+                                        raise TemplateError(f"{s.file}:{prop_line}: unknown target element {part_name!r} in Setter Target {tgt!r}")
+                                    if prop not in allowed_props_for(part_tag):
+                                        raise TemplateError(f"{s.file}:{prop_line}: property {prop!r} is not supported on {part_tag} ({part_name})")
                                 else:
                                     tgt = ""
                                     prop = raw_tp.strip()
@@ -1007,7 +1012,7 @@ class Compiler:
                             raise TemplateError(f"{res_node.file}:{res_node.line}: unknown resource element {res_node.tag!r}")
 
             # Collect attributes on this element (validated against this element's allowed property set)
-            allowed_elem = allowed_props_for(node.tag)
+            allowed_elem = allowed_props_for(node.tag) | (set() if node.tag in NON_UI_ELEMENTS else XAML_DIRECTIVE_ATTRS)
             for k in list(node.attrs):
                 if k == "Name":
                     continue
