@@ -1,2 +1,7 @@
 # This machine's and this owner's settings; `local.example.toml` is the committed template.
 local.toml
+
+# Local ops/deploy secrets (1Password fallback); `.env.example` is the committed template.
+.env
+.env.*
+!.env.example
