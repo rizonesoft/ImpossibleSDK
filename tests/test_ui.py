@@ -2,6 +2,7 @@
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -1494,6 +1495,29 @@ def bilinear_upscale(raw, sw, sh, dw, dh):
     return bytes(out)
 
 
+class GuideDocs(unittest.TestCase):
+    def test_guide_documents_verified_limits(self):
+        guide = (ROOT / "docs/guide/button.md").read_text(encoding="utf-8")
+        self.assertIn(f"{EDGE_LIMIT} of 255", guide)
+        self.assertIn(f"{STANDARD_DARK_CORNER_LIMIT} of 255", guide)
+        self.assertIn(f"{STANDARD_LIGHT_CORNER_LIMIT} of 255", guide)
+        self.assertIn(f"{ACCENT_CORNER_LIMIT} of 255", guide)
+        self.assertIn(f"{PROBE_LIMIT} of 255", guide)
+
+        # Wang chord sentence must state N = 256 for signed 16.16 radii and must not carry the stale N = 1024 loop cap.
+        smoothing = guide.split("## How are corners smoothed?", 1)[1].split("\n## ", 1)[0]
+        sentences = [s.strip() for s in re.split(r"(?<=\.)\s+", smoothing) if s.strip()]
+        wang_sentences = [s for s in sentences if "Wang's formula" in s]
+        self.assertEqual(len(wang_sentences), 1)
+        self.assertIn("N = 256", wang_sentences[0])
+        self.assertNotIn("1024", wang_sentences[0])
+
+        # Accent-button explanation sentence itself must state the measured 14 of 255 limit under horizontal and vertical reflection symmetry.
+        accent_sentences = [s for s in sentences if "accent button" in s.lower() and f"{ACCENT_CORNER_LIMIT} of 255" in s]
+        self.assertEqual(len(accent_sentences), 1)
+        self.assertIn("horizontal and vertical reflection symmetry", accent_sentences[0])
+
+
 @unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
 class Drawing(unittest.TestCase):
     def test_drawing(self):
@@ -1556,14 +1580,6 @@ class Drawing(unittest.TestCase):
         # Malformed accent argument must be refused with non-zero exit code.
         bad = subprocess.run([str(BUILD / "control-shots.exe"), "NOTHEX"], capture_output=True, timeout=60)
         self.assertNotEqual(bad.returncode, 0)
-
-    def test_guide_documents_verified_limits(self):
-        guide = (ROOT / "docs/guide/button.md").read_text(encoding="utf-8")
-        self.assertIn(f"{EDGE_LIMIT} of 255", guide)
-        self.assertIn(f"{STANDARD_DARK_CORNER_LIMIT} of 255", guide)
-        self.assertIn(f"{STANDARD_LIGHT_CORNER_LIMIT} of 255", guide)
-        self.assertIn(f"{ACCENT_CORNER_LIMIT} of 255", guide)
-        self.assertIn(f"{PROBE_LIMIT} of 255", guide)
 
     def test_buttons_match_real_winui(self):
         """Straight edges and fills may differ by rounding only; corners and probes have verified limits."""
