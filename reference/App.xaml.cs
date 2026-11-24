@@ -626,6 +626,40 @@ public partial class App : Application
         return (pixels, bitmap.PixelWidth, bitmap.PixelHeight);
     }
 
+    private static List<int[]> MergeRanges(List<int[]> raw)
+    {
+        if (raw.Count == 0) return raw;
+        raw.Sort((a, b) => a[0] != b[0] ? a[0].CompareTo(b[0]) : a[1].CompareTo(b[1]));
+        var merged = new List<int[]> { new[] { raw[0][0], raw[0][1] } };
+        for (int i = 1; i < raw.Count; i++)
+        {
+            var last = merged[^1];
+            if (raw[i][0] <= last[1] + 1)
+            {
+                if (raw[i][1] > last[1]) last[1] = raw[i][1];
+            }
+            else
+            {
+                merged.Add(new[] { raw[i][0], raw[i][1] });
+            }
+        }
+        return merged;
+    }
+
+    private static List<int[]> IntersectRanges(List<int[]> a, List<int[]> b)
+    {
+        var outList = new List<int[]>();
+        int i = 0, j = 0;
+        while (i < a.Count && j < b.Count)
+        {
+            int lo = Math.Max(a[i][0], b[j][0]);
+            int hi = Math.Min(a[i][1], b[j][1]);
+            if (lo <= hi) outList.Add(new[] { lo, hi });
+            if (a[i][1] < b[j][1]) i++; else j++;
+        }
+        return outList;
+    }
+
     private static List<int[]> ReadFontCmapRanges(string fontPath)
     {
         var ranges = new List<int[]>();
@@ -633,6 +667,7 @@ public partial class App : Application
         byte[] data = File.ReadAllBytes(fontPath);
         if (data.Length < 12) return ranges;
         static ushort U16(byte[] b, int o) => (ushort)((b[o] << 8) | b[o + 1]);
+        static short I16(byte[] b, int o) => (short)((b[o] << 8) | b[o + 1]);
         static uint U32(byte[] b, int o) => ((uint)b[o] << 24) | ((uint)b[o + 1] << 16) | ((uint)b[o + 2] << 8) | b[o + 3];
         int sfntOffset = 0;
         if (data[0] == (byte)'t' && data[1] == (byte)'t' && data[2] == (byte)'c' && data[3] == (byte)'f')
@@ -677,7 +712,17 @@ public partial class App : Application
             {
                 int go = bestOff + 16 + (int)g * 12;
                 if (go + 12 > data.Length) break;
-                ranges.Add(new[] { (int)U32(data, go), (int)U32(data, go + 4) });
+                int st = (int)U32(data, go);
+                int en = (int)U32(data, go + 4);
+                uint startGid = U32(data, go + 8);
+                if (startGid == 0)
+                {
+                    if (st < en) ranges.Add(new[] { st + 1, en });
+                }
+                else
+                {
+                    ranges.Add(new[] { st, en });
+                }
             }
         }
         else if (bestFmt == 4 && bestOff + 14 <= data.Length)
@@ -685,16 +730,48 @@ public partial class App : Application
             int segCount = U16(data, bestOff + 6) / 2;
             int endOff = bestOff + 14;
             int startOff = endOff + segCount * 2 + 2;
+            int deltaOff = startOff + segCount * 2;
+            int rangeOff = deltaOff + segCount * 2;
             for (int s = 0; s < segCount; s++)
             {
-                if (startOff + s * 2 + 2 > data.Length) break;
+                if (rangeOff + s * 2 + 2 > data.Length) break;
                 int st = U16(data, startOff + s * 2);
                 int en = U16(data, endOff + s * 2);
                 if (st == 0xFFFF && en == 0xFFFF) break;
-                ranges.Add(new[] { st, en });
+                int delta = I16(data, deltaOff + s * 2);
+                int ro = U16(data, rangeOff + s * 2);
+                int curStart = -1;
+                for (int c = st; c <= en; c++)
+                {
+                    int gid;
+                    if (ro == 0)
+                    {
+                        gid = (c + delta) & 0xFFFF;
+                    }
+                    else
+                    {
+                        int glyphIdxOff = rangeOff + s * 2 + ro + (c - st) * 2;
+                        if (glyphIdxOff + 2 > data.Length) { gid = 0; }
+                        else
+                        {
+                            int rawGid = U16(data, glyphIdxOff);
+                            gid = rawGid == 0 ? 0 : ((rawGid + delta) & 0xFFFF);
+                        }
+                    }
+                    if (gid != 0)
+                    {
+                        if (curStart < 0) curStart = c;
+                    }
+                    else if (curStart >= 0)
+                    {
+                        ranges.Add(new[] { curStart, c - 1 });
+                        curStart = -1;
+                    }
+                }
+                if (curStart >= 0) ranges.Add(new[] { curStart, en });
             }
         }
-        return ranges;
+        return MergeRanges(ranges);
     }
 
     private static async Task RunCases(Window window, Grid canvas, string folder, string? casesPath)
@@ -934,14 +1011,19 @@ public partial class App : Application
                 }
                 if (string.IsNullOrEmpty(clean)) continue;
                 installedFonts.Add(clean);
-                if (permittedFamilies.Contains(clean) && !installedFontRanges.ContainsKey(clean))
+                if (permittedFamilies.Contains(clean))
                 {
                     string rawVal = fk.GetValue(vname)?.ToString() ?? "";
                     if (!string.IsNullOrEmpty(rawVal))
                     {
                         string fullPath = Path.IsPathRooted(rawVal) ? rawVal : Path.Combine(winFontsDir, rawVal);
                         var ranges = ReadFontCmapRanges(fullPath);
-                        if (ranges.Count > 0) installedFontRanges[clean] = ranges;
+                        if (ranges.Count > 0)
+                        {
+                            installedFontRanges[clean] = installedFontRanges.TryGetValue(clean, out var prev)
+                                ? IntersectRanges(prev, ranges)
+                                : ranges;
+                        }
                     }
                 }
             }

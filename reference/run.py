@@ -301,17 +301,26 @@ def check_no_prohibited_assets(case_spec, require_installed=False, installed_fon
                 raise ValueError(
                     f"{cid}: no verified cmap glyph coverage recorded for installed FontFamily {ff!r}"
                 )
-            # Check EVERY non-allowlisted string property (including PasswordChar, Password, Text, Content, items)
-            # against the installed font face's actual cmap coverage so accented text passes while uncovered glyphs fail.
+            # Check EVERY rendered text property (including numeric/bool displayable content like OnContent=123,
+            # PasswordChar, default PasswordBox mask U+25CF, Text, Content, and items) against the installed font
+            # family's intersected non-zero-glyph cmap coverage. Masked PasswordBox.Password is never displayed.
+            pw_visible = str(_ci_get(props, "passwordrevealmode", "") or "").lower() == "visible"
             text_values = []
             for k, v in props.items():
-                if isinstance(k, str) and isinstance(v, str) and v != "" and k.lower() not in SAFE_NON_TEXT_PROPERTIES:
+                if not isinstance(k, str) or v is None or v == "":
+                    continue
+                kl = k.lower()
+                if ctrl_l == "passwordbox" and kl == "password" and not pw_visible:
+                    continue
+                if _is_displayable_content_property(k):
+                    text_values.append((k, str(v)))
+                elif isinstance(v, str) and kl not in SAFE_NON_TEXT_PROPERTIES:
                     text_values.append((k, v))
             if ctrl_l == "passwordbox" and _ci_get(props, "passwordchar", None) is None:
                 text_values.append(("PasswordChar(default)", "\u25CF"))
             for idx, it in enumerate(items or []):
-                if isinstance(it, str) and it != "":
-                    text_values.append((f"items[{idx}]", it))
+                if it is not None and str(it) != "":
+                    text_values.append((f"items[{idx}]", str(it)))
             for field_name, tv in text_values:
                 for ch in tv:
                     cp = ord(ch)

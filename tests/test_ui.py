@@ -2337,12 +2337,25 @@ class ReferenceHarness(unittest.TestCase):
                     ref_run.publish_store(uninst_fresh, uninst_store, bad_spec)
                 self.assertIn(want_msg, str(cm_uf.exception))
                 self.assertEqual((uninst_store / "cases.json").read_text(encoding="utf-8"), prev_uninst)
-            # Exact installed family with cmap-covered accented text ("café") passes check_no_prohibited_assets.
+            # Exact installed family with cmap-covered accented text ("café") and masked PasswordBox ("漢" masked by "*") pass;
+            # numeric displayable content (OnContent=123) against an A-Z-only cmap fails.
             ref_run.check_no_prohibited_assets(
                 {"id": "tb-cafe-ok", "control": "TextBlock", "properties": {"Text": "caf\u00e9", "FontFamily": "DejaVu Sans Mono"}},
                 require_installed=True, installed_fonts=["dejavu sans mono"],
                 installed_font_ranges={"dejavu sans mono": latin_ranges},
             )
+            ref_run.check_no_prohibited_assets(
+                {"id": "pw-masked-ok", "control": "PasswordBox", "properties": {"Password": "\u6f22", "PasswordChar": "*", "FontFamily": "DejaVu Sans Mono"}},
+                require_installed=True, installed_fonts=["dejavu sans mono"],
+                installed_font_ranges={"dejavu sans mono": latin_ranges},
+            )
+            with self.assertRaises(ValueError) as cm_num_lbl:
+                ref_run.check_no_prohibited_assets(
+                    {"id": "ts-num-uncovered", "control": "ToggleSwitch", "properties": {"OnContent": 123, "OffContent": 123, "FontFamily": "Inter"}},
+                    require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x41, 0x5A]]},
+                )
+            self.assertIn("not covered by installed FontFamily", str(cm_num_lbl.exception))
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},
