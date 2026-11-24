@@ -1,0 +1,947 @@
+#!/usr/bin/env python3
+"""Compile WinUI control templates (MIT) at the pinned commit into ui/template_data.{h,c}.
+
+    python3 tools/winui/templates.py <checkout>                   writes ui/template_data.{h,c}
+    python3 tools/winui/templates.py <checkout> --check           fails when generated files differ
+    python3 tools/winui/templates.py <checkout> --list            prints round-trip listing
+    python3 tools/winui/templates.py --parse-file <fixture.xaml>  validates a standalone XAML fixture
+"""
+import argparse
+import bisect
+import io
+import json
+import re
+import subprocess
+import sys
+import tarfile
+import tempfile
+import xml.parsers.expat as expat
+from fractions import Fraction
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+sys.path.insert(0, str(HERE))
+import resources as res_mod
+
+PIN = res_mod.PIN
+
+# Portable SDK icon map for WinUI SymbolThemeFontFamily private-use glyphs.
+ICON_GLYPHS = {
+    0xE711: "IM_ICON_DISMISS",
+    0xE894: "IM_ICON_DISMISS",
+    0xE73E: "IM_ICON_CHECKMARK",
+}
+
+# Element tags accepted by the portable engine.
+ELEMENT_KINDS = {
+    "Grid": "IM_ELEM_GRID",
+    "Border": "IM_ELEM_BORDER",
+    "ContentPresenter": "IM_ELEM_CONTENT_PRESENTER",
+    "Rectangle": "IM_ELEM_RECTANGLE",
+    "TextBlock": "IM_ELEM_TEXT_BLOCK",
+    "Button": "IM_ELEM_BUTTON",
+    "ScrollViewer": "IM_ELEM_SCROLL_VIEWER",
+    "Thumb": "IM_ELEM_THUMB",
+    "FontIcon": "IM_ELEM_FONT_ICON",
+    "ListViewItemPresenter": "IM_ELEM_LIST_VIEW_ITEM_PRESENTER",
+    "ItemsStackPanel": "IM_ELEM_ITEMS_STACK_PANEL",
+    "ItemsPresenter": "IM_ELEM_ITEMS_PRESENTER",
+    "RowDefinition": "IM_ELEM_ROW_DEFINITION",
+    "ColumnDefinition": "IM_ELEM_COLUMN_DEFINITION",
+    "TranslateTransform": "IM_ELEM_TRANSLATE_TRANSFORM",
+    "ScaleTransform": "IM_ELEM_SCALE_TRANSFORM",
+    "CompositeTransform": "IM_ELEM_COMPOSITE_TRANSFORM",
+    "RectangleGeometry": "IM_ELEM_RECTANGLE_GEOMETRY",
+    "BrushTransition": "IM_ELEM_BRUSH_TRANSITION",
+    "AddDeleteThemeTransition": "IM_ELEM_ADD_DELETE_THEME_TRANSITION",
+    "ContentThemeTransition": "IM_ELEM_CONTENT_THEME_TRANSITION",
+    "ReorderThemeTransition": "IM_ELEM_REORDER_THEME_TRANSITION",
+    "EntranceThemeTransition": "IM_ELEM_ENTRANCE_THEME_TRANSITION",
+}
+
+# Property-element wrapper tags accepted inside element subtrees.
+PROP_ELEMENT_TAGS = {
+    "Border.Clip",
+    "Border.RenderTransform",
+    "ContentPresenter.BackgroundTransition",
+    "Grid.ColumnDefinitions",
+    "Grid.RenderTransform",
+    "Grid.Resources",
+    "Grid.RowDefinitions",
+    "Rectangle.RenderTransform",
+    "RectangleGeometry.Transform",
+    "Thumb.Template",
+    "VisualStateManager.VisualStateGroups",
+}
+
+ANIMATION_KINDS = {
+    "ObjectAnimationUsingKeyFrames": "IM_ANIM_OBJECT_KEYFRAMES",
+    "DoubleAnimation": "IM_ANIM_DOUBLE",
+    "DoubleAnimationUsingKeyFrames": "IM_ANIM_DOUBLE_KEYFRAMES",
+    "ColorAnimationUsingKeyFrames": "IM_ANIM_COLOR_KEYFRAMES",
+    "RepositionThemeAnimation": "IM_ANIM_REPOSITION_THEME",
+    "FadeInThemeAnimation": "IM_ANIM_FADE_IN_THEME",
+    "FadeOutThemeAnimation": "IM_ANIM_FADE_OUT_THEME",
+    "DragItemThemeAnimation": "IM_ANIM_DRAG_ITEM_THEME",
+    "DragOverThemeAnimation": "IM_ANIM_DRAG_OVER_THEME",
+    "DropTargetItemThemeAnimation": "IM_ANIM_DROP_TARGET_THEME",
+}
+
+KEYFRAME_KINDS = {
+    "DiscreteObjectKeyFrame": "IM_KF_DISCRETE",
+    "LinearDoubleKeyFrame": "IM_KF_LINEAR_DOUBLE",
+    "SplineDoubleKeyFrame": "IM_KF_SPLINE_DOUBLE",
+    "EasingDoubleKeyFrame": "IM_KF_EASING_DOUBLE",
+    "LinearColorKeyFrame": "IM_KF_LINEAR_COLOR",
+}
+
+BINDING_MODES = {"OneWay", "TwoWay", "OneTime"}
+
+# Known properties on elements, styles, and setters across the four controls.
+KNOWN_PROPS = {
+    "AnimatedIcon.State", "AutomationProperties.AccessibilityView", "Background", "BackgroundSizing",
+    "BorderBrush", "BorderThickness", "BringIntoViewOnFocusChange", "CheckBoxBorderBrush",
+    "CheckBoxBrush", "CheckBoxCornerRadius", "CheckBoxDisabledBorderBrush", "CheckBoxDisabledBrush",
+    "CheckBoxPointerOverBorderBrush", "CheckBoxPointerOverBrush", "CheckBoxPressedBorderBrush",
+    "CheckBoxPressedBrush", "CheckBoxSelectedBrush", "CheckBoxSelectedDisabledBrush",
+    "CheckBoxSelectedPointerOverBrush", "CheckBoxSelectedPressedBrush", "CheckBrush",
+    "CheckDisabledBrush", "CheckMode", "CheckPressedBrush", "Content", "ContentMargin",
+    "ContentTemplate", "ContentTransitions", "Control.IsTemplateFocusTarget", "CornerRadius",
+    "DeferLoadStrategy", "Direction", "DisabledOpacity", "DragBackground", "DragForeground",
+    "DragOpacity", "Duration", "EnableDependentAnimation", "Fill", "FocusBorderBrush",
+    "FocusSecondaryBorderBrush", "FocusVisualMargin", "FocusVisualPrimaryBrush",
+    "FocusVisualPrimaryThickness", "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness",
+    "FontFamily", "FontSize", "FontStyle", "FontWeight", "Footer", "FooterTemplate",
+    "FooterTransitions", "Foreground", "From", "FromHorizontalOffset", "GeneratedDuration",
+    "Glyph", "Grid.Column", "Grid.ColumnSpan", "Grid.Row", "Grid.RowSpan", "Header",
+    "HeaderTemplate", "HeaderTransitions", "Height", "HorizontalAlignment",
+    "HorizontalContentAlignment", "HorizontalScrollBarVisibility", "HorizontalScrollMode",
+    "IsDeferredScrollingEnabled", "IsHorizontalRailEnabled", "IsHorizontalScrollChainingEnabled",
+    "IsHitTestVisible", "IsStaggeringEnabled", "IsSwipeEnabled", "IsTabStop",
+    "IsTextScaleFactorEnabled", "IsVerticalRailEnabled", "IsVerticalScrollChainingEnabled",
+    "ItemContainerTransitions", "ItemsPanel", "Key", "KeySpline", "KeyTime", "Load",
+    "ManipulationMode", "Margin", "MaxWidth", "MinHeight", "MinWidth", "Name", "Opacity",
+    "Orientation", "Padding", "PlaceholderBackground", "PointerOverBackground",
+    "PointerOverForeground", "PressedBackground", "RadiusX", "RadiusY", "Rect",
+    "RenderTransform", "RenderTransformOrigin", "ReorderHintOffset", "ScrollViewer.BringIntoViewOnFocusChange",
+    "ScrollViewer.HorizontalScrollBarVisibility", "ScrollViewer.HorizontalScrollMode",
+    "ScrollViewer.IsDeferredScrollingEnabled", "ScrollViewer.IsHorizontalRailEnabled",
+    "ScrollViewer.IsHorizontalScrollChainingEnabled", "ScrollViewer.IsVerticalRailEnabled",
+    "ScrollViewer.IsVerticalScrollChainingEnabled", "ScrollViewer.VerticalScrollBarVisibility",
+    "ScrollViewer.VerticalScrollMode", "ScrollViewer.ZoomMode", "SelectedBackground",
+    "SelectedDisabledBackground", "SelectedForeground", "SelectedPointerOverBackground",
+    "SelectedPressedBackground", "SelectionCheckMarkVisualEnabled", "SelectionIndicatorBrush",
+    "SelectionIndicatorCornerRadius", "SelectionIndicatorDisabledBrush",
+    "SelectionIndicatorPointerOverBrush", "SelectionIndicatorPressedBrush",
+    "SelectionIndicatorVisualEnabled", "SelectionHighlightColor", "Stroke", "StrokeThickness",
+    "Style", "TabNavigation", "Target", "TargetName", "TargetType", "Template", "Text",
+    "TextAlignment", "TextWrapping", "To", "ToOffset", "UseSystemFocusVisuals", "Value",
+    "VerticalAlignment", "VerticalContentAlignment", "VerticalScrollBarVisibility",
+    "VerticalScrollMode", "Visibility", "Width", "ZoomMode", "Clip", "BackgroundTransition",
+    "X", "Y", "ScaleX", "ScaleY", "TranslateX", "TranslateY", "CenterX", "CenterY",
+    "Background.Color", "Fill.Color", "Stroke.Color", "Color",
+    "ContextFlyout", "AllowFocusOnInteraction", "HighContrastAdjustment", "Canvas.ZIndex",
+    "SelectionFlyout", "IsSpellCheckEnabled", "IsTextPredictionEnabled", "CharacterSpacing",
+    "Description", "OffContent", "OffContentTemplate", "OnContent", "OnContentTemplate",
+    "PlaceholderText", "AllowDrop", "IsHoldingEnabled",
+}
+
+TARGET_STYLES = [
+    ("controls/dev/CommonStyles/Button_themeresources.xaml", "DefaultButtonStyle", "Button", "IM_TEMPLATE_BUTTON"),
+    ("controls/dev/CommonStyles/Button_themeresources.xaml", "AccentButtonStyle", "Button", "IM_TEMPLATE_BUTTON_ACCENT"),
+    ("controls/dev/CommonStyles/Button_themeresources.xaml", "SubtleButtonStyle", "Button", "IM_TEMPLATE_BUTTON_SUBTLE"),
+    ("controls/dev/CommonStyles/ToggleSwitch_themeresources.xaml", "DefaultToggleSwitchStyle", "ToggleSwitch", "IM_TEMPLATE_TOGGLE_SWITCH"),
+    ("controls/dev/CommonStyles/TextBox_themeresources.xaml", "DefaultTextBoxStyle", "TextBox", "IM_TEMPLATE_TEXT_BOX"),
+    ("dxaml/xcp/dxaml/themes/generic.xaml", None, "ListView", "IM_TEMPLATE_LIST_VIEW"),
+    ("controls/dev/CommonStyles/ListViewItem_themeresources.xaml", "DefaultListViewItemStyle", "ListViewItem", "IM_TEMPLATE_LIST_VIEW_ITEM"),
+    ("controls/dev/CommonStyles/ListViewItem_themeresources.xaml", "ListViewItemExpanded", "ListViewItem", "IM_TEMPLATE_LIST_VIEW_ITEM_EXPANDED"),
+]
+
+
+class TemplateError(Exception):
+    """Raised when XAML contains an unknown element, property, animation, binding mode, converter, or unresolved ref."""
+
+
+class Node:
+    """XML node with exact source file, opening line, and per-attribute line numbers."""
+
+    def __init__(self, tag, attrs, file, line, attr_lines):
+        self.tag = tag
+        self.attrs = attrs
+        self.file = file
+        self.line = line
+        self.attr_lines = attr_lines
+        self.children = []
+        self.text = ""
+
+    def attr_line(self, name):
+        return self.attr_lines.get(name, self.line)
+
+
+def local_name(name):
+    return name.rsplit(" ", 1)[-1].rsplit("}", 1)[-1]
+
+
+def parse_xaml(text, filename):
+    """Parse XAML into Node tree preserving exact line numbers for elements and attributes."""
+    raw = text.encode("utf-8")
+    nl_offsets = [m.start() for m in re.finditer(rb"\n", raw)]
+    parser = expat.ParserCreate(namespace_separator=" ")
+    stack = []
+    root = None
+
+    def line_at(byte_index):
+        return bisect.bisect_left(nl_offsets, byte_index) + 1
+
+    def find_attr_lines(byte_index):
+        # Scan the opening tag starting at byte_index to record exact line number of each attribute.
+        end = raw.find(b">", byte_index)
+        if end < 0:
+            return {}
+        tag_bytes = raw[byte_index:end + 1]
+        base_line = line_at(byte_index)
+        result = {}
+        for match in re.finditer(rb'\s([A-Za-z_][\w.:-]*)\s*=', tag_bytes):
+            full = match.group(1).decode("utf-8", "replace")
+            short = full.split(":", 1)[-1]
+            line_no = base_line + tag_bytes[:match.start(1)].count(b"\n")
+            result[short] = line_no
+            result[full] = line_no
+        return result
+
+    def start(tag, attrs):
+        byte_idx = parser.CurrentByteIndex
+        base_line = line_at(byte_idx)
+        attr_lines = find_attr_lines(byte_idx)
+        clean_attrs = {}
+        for k, v in attrs.items():
+            short = local_name(k)
+            clean_attrs[short] = v
+        node = Node(local_name(tag), clean_attrs, filename, base_line, attr_lines)
+        if stack:
+            stack[-1].children.append(node)
+        stack.append(node)
+
+    def end(tag):
+        nonlocal root
+        node = stack.pop()
+        if not stack:
+            root = node
+
+    def char_data(data):
+        if stack:
+            stack[-1].text += data
+
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
+    parser.CharacterDataHandler = char_data
+    try:
+        parser.Parse(raw, True)
+    except expat.ExpatError as err:
+        raise TemplateError(f"{filename}:{err.lineno}: XML syntax error: {err}") from err
+    return root
+
+
+def parse_fixed(text, file, line):
+    try:
+        value = Fraction(text.strip()) * 65536
+        whole = int(abs(value) + Fraction(1, 2))
+        return -whole if value < 0 else whole
+    except Exception as err:
+        raise TemplateError(f"{file}:{line}: invalid fixed number {text!r}") from err
+
+
+def parse_duration_ms(text, file, line):
+    """Parse XAML Duration / KeyTime (e.g. '0', '0:0:0.083', '00:00:00.250') to milliseconds."""
+    s = text.strip()
+    if s == "0":
+        return 0
+    m = re.fullmatch(r"(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)", s)
+    if m:
+        hours = int(m.group(1) or 0)
+        mins = int(m.group(2))
+        secs = Fraction(m.group(3))
+        ms = (hours * 3600 + mins * 60 + secs) * 1000
+        return int(ms + Fraction(1, 2))
+    # Plain seconds
+    if re.fullmatch(r"\d+(?:\.\d+)?", s):
+        ms = Fraction(s) * 1000
+        return int(ms + Fraction(1, 2))
+    raise TemplateError(f"{file}:{line}: invalid duration/keytime {text!r}")
+
+
+def parse_spline(text, file, line):
+    parts = [p for p in re.split(r"[,\s]+", text.strip()) if p]
+    if len(parts) != 4:
+        raise TemplateError(f"{file}:{line}: invalid KeySpline {text!r}")
+    return [parse_fixed(p, file, line) for p in parts]
+
+
+def c_str(text):
+    if text is None:
+        return "NULL"
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    return f'"{escaped}"'
+
+
+def strip_xml_prefix(name):
+    return re.sub(r"\b[a-zA-Z_][\w-]*:", "", name)
+
+
+def clean_target_property(prop, file, line):
+    """Validate Storyboard.TargetProperty (may be '(UIElement.Opacity)', '(Border.Background).(SolidColorBrush.Color)', etc.)."""
+    stripped = strip_xml_prefix(prop.strip())
+    parts = [p.strip("()") for p in re.split(r"\)\.\(|\.", stripped) if p.strip("()")]
+    if not parts:
+        raise TemplateError(f"{file}:{line}: empty TargetProperty {prop!r}")
+    leaf = parts[-1]
+    if leaf not in KNOWN_PROPS and stripped not in KNOWN_PROPS:
+        raise TemplateError(f"{file}:{line}: unknown property {prop!r}")
+    return stripped
+
+
+class Compiler:
+    """Compiles WinUI styles and control templates into flat portable C tables."""
+
+    def __init__(self, res_dict=None, brushes=None, values=None):
+        self.res_dict = res_dict
+        self.brushes = brushes or {}
+        self.values = values or {}
+        self.templates = []
+        self.style_setters = []
+        self.elements = []
+        self.props = []
+        self.groups = []
+        self.states = []
+        self.transitions = []
+        self.anims = []
+        self.keyframes = []
+        self.local_resources = {}  # nested style keys inside Grid.Resources
+
+    def resolve_string_resource(self, key, file, line):
+        if self.res_dict is None:
+            raise TemplateError(f"{file}:{line}: unresolved resource {key!r} (no resource dictionary)")
+        try:
+            item = self.res_dict.find("Default", key)
+        except res_mod.Unresolved as err:
+            raise TemplateError(f"{file}:{line}: unresolved resource {key!r}: {err}") from err
+        return res_mod.local(item.tag), (item.text or "").strip(), item
+
+    def resolve_color_theme(self, theme, key, file, line):
+        seen = []
+        cur = key
+        while True:
+            if cur in res_mod.SLOTS:
+                return res_mod.SLOTS.index(cur), 0xFF000000
+            if cur in seen:
+                raise TemplateError(f"{file}:{line}: colour loop on {key!r}")
+            seen.append(cur)
+            item = self.res_dict.theme[theme].get(cur, self.res_dict.any.get(cur))
+            if item is None and theme == "HighContrast":
+                item = self.res_dict.theme["Default"].get(cur)
+            if item is None:
+                raise TemplateError(f"{file}:{line}: unresolved colour {cur!r} for {theme}")
+            tag = res_mod.local(item.tag)
+            if tag == "StaticResource":
+                cur = item.get("ResourceKey")
+                continue
+            if tag == "Color":
+                ref = res_mod.reference(item.text)
+                if ref:
+                    cur = ref
+                    continue
+                return -1, res_mod.argb(item.text)
+            if tag == "SolidColorBrush":
+                ref = res_mod.reference(item.get("Color"))
+                if ref:
+                    cur = ref
+                    continue
+                return -1, res_mod.argb(item.get("Color"))
+            raise TemplateError(f"{file}:{line}: {cur!r} is {tag!r}, not a Color")
+
+    def parse_value(self, raw_text, prop_name, file, line, element_context=None):
+        text = (raw_text or "").strip()
+        if text == "{x:Null}":
+            return {"kind": "IM_TVAL_NULL", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
+
+        # Check markup extensions
+        if text.startswith("{") and text.endswith("}"):
+            inner = text[1:-1].strip()
+            head = inner.split(None, 1)[0]
+            rest = inner[len(head):].strip()
+
+            if head == "TemplateBinding":
+                if rest not in KNOWN_PROPS:
+                    raise TemplateError(f"{file}:{line}: unknown property {rest!r} in TemplateBinding")
+                return {"kind": "IM_TVAL_TEMPLATE_BINDING", "a": 0, "b": 0, "c": 0, "d": 0, "text": rest, "fallback": None}
+
+            if head == "Binding":
+                # Parse Binding arguments: Path / positional, Mode=, RelativeSource=, TargetNullValue=, Converter=...
+                tokens = [t.strip() for t in rest.split(",") if t.strip()]
+                path = None
+                mode = "OneWay"
+                fallback = None
+                for tok in tokens:
+                    if "=" in tok:
+                        k, v = [x.strip() for x in tok.split("=", 1)]
+                        if k == "Converter":
+                            raise TemplateError(f"{file}:{line}: unsupported converter {v!r} in Binding")
+                        if k == "Mode":
+                            if v not in BINDING_MODES:
+                                raise TemplateError(f"{file}:{line}: unknown binding mode {v!r}")
+                            mode = v
+                        elif k == "Path":
+                            path = v
+                        elif k == "TargetNullValue":
+                            fallback = v.strip("'\"")
+                        elif k == "RelativeSource":
+                            pass
+                        else:
+                            raise TemplateError(f"{file}:{line}: unknown Binding parameter {k!r}")
+                    else:
+                        if path is None:
+                            path = tok
+                        else:
+                            raise TemplateError(f"{file}:{line}: unexpected Binding token {tok!r}")
+                return {"kind": "IM_TVAL_BINDING", "a": 0, "b": 0, "c": 0, "d": 0, "text": path or "", "fallback": fallback or mode}
+
+            if head in ("ThemeResource", "StaticResource"):
+                key = rest.removeprefix("ResourceKey=").strip()
+                if key in self.local_resources:
+                    return {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": self.local_resources[key], "b": 0, "c": 0, "d": 0, "text": key, "fallback": None}
+                if key in self.brushes:
+                    return {"kind": "IM_TVAL_BRUSH", "a": 0, "b": 0, "c": 0, "d": 0, "text": f"IM_BRUSH_{key}", "fallback": None}
+                if key in self.values:
+                    return {"kind": "IM_TVAL_THEME_VALUE", "a": 0, "b": 0, "c": 0, "d": 0, "text": f"IM_VALUE_{key}", "fallback": None}
+                tag, res_text, _item = self.resolve_string_resource(key, file, line)
+                if prop_name in ("KeyTime", "Duration", "GeneratedDuration") or tag == "Duration":
+                    ms = parse_duration_ms(res_text, file, line)
+                    return {"kind": "IM_TVAL_DURATION_MS", "a": ms, "b": 0, "c": 0, "d": 0, "text": key, "fallback": None}
+                if prop_name == "KeySpline" or tag == "KeySpline":
+                    sp = parse_spline(res_text, file, line)
+                    return {"kind": "IM_TVAL_SPLINE", "a": sp[0], "b": sp[1], "c": sp[2], "d": sp[3], "text": key, "fallback": None}
+                if tag == "Boolean" or res_text in ("True", "False"):
+                    return {"kind": "IM_TVAL_BOOL", "a": 1 if res_text == "True" else 0, "b": 0, "c": 0, "d": 0, "text": key, "fallback": None}
+                if tag == "Color":
+                    _slot_d, argb_d = self.resolve_color_theme("Default", key, file, line)
+                    _slot_l, argb_l = self.resolve_color_theme("Light", key, file, line)
+                    slot_c, argb_c = self.resolve_color_theme("HighContrast", key, file, line)
+                    return {"kind": "IM_TVAL_COLOR", "a": argb_d, "b": argb_l, "c": slot_c if slot_c >= 0 else argb_c, "d": slot_c, "text": key, "fallback": None}
+                if tag in ("FontFamily", "FontWeight", "String", "Style", "MenuFlyout", "TextCommandBarFlyout", "ListViewItemPresenterCheckMode"):
+                    return {"kind": "IM_TVAL_ENUM_STR", "a": 0, "b": 0, "c": 0, "d": 0, "text": res_text or key, "fallback": None}
+                raise TemplateError(f"{file}:{line}: unsupported resource {key!r} of type {tag!r}")
+
+            raise TemplateError(f"{file}:{line}: unknown markup extension {head!r}")
+
+        # Private-use Unicode glyph check (e.g. SymbolThemeFontFamily glyphs on TextBlock/FontIcon)
+        if prop_name in ("Text", "Glyph") and len(text) == 1 and 0xE000 <= ord(text) <= 0xF8FF:
+            cp = ord(text)
+            icon_id = ICON_GLYPHS.get(cp)
+            if icon_id is None:
+                raise TemplateError(f"{file}:{line}: unmapped private-use icon glyph U+{cp:04X}")
+            return {"kind": "IM_TVAL_ICON", "a": 0, "b": 0, "c": 0, "d": 0, "text": icon_id, "fallback": None}
+
+        if prop_name in ("KeyTime", "Duration", "GeneratedDuration"):
+            ms = parse_duration_ms(text, file, line)
+            return {"kind": "IM_TVAL_DURATION_MS", "a": ms, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
+        if prop_name == "KeySpline":
+            sp = parse_spline(text, file, line)
+            return {"kind": "IM_TVAL_SPLINE", "a": sp[0], "b": sp[1], "c": sp[2], "d": sp[3], "text": None, "fallback": None}
+        if text in ("True", "False"):
+            return {"kind": "IM_TVAL_BOOL", "a": 1 if text == "True" else 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
+
+        # Numeric quads (Thickness, CornerRadius, Rect, RenderTransformOrigin)
+        if prop_name in ("Margin", "Padding", "BorderThickness", "CornerRadius", "Rect", "FocusVisualMargin", "FocusVisualPrimaryThickness", "FocusVisualSecondaryThickness"):
+            parts = [p for p in re.split(r"[,\s]+", text) if p]
+            if all(re.fullmatch(r"-?\d+(?:\.\d+)?", p) for p in parts):
+                vals = [parse_fixed(p, file, line) for p in parts]
+                if len(vals) == 1:
+                    vals = vals * 4
+                elif len(vals) == 2:
+                    vals = [vals[0], vals[1], vals[0], vals[1]]
+                if len(vals) == 4:
+                    return {"kind": "IM_TVAL_QUAD", "a": vals[0], "b": vals[1], "c": vals[2], "d": vals[3], "text": None, "fallback": None}
+
+        if re.fullmatch(r"-?\d+", text) and prop_name in ("Grid.Row", "Grid.Column", "Grid.RowSpan", "Grid.ColumnSpan", "Canvas.ZIndex"):
+            return {"kind": "IM_TVAL_INT", "a": int(text), "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
+
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+            return {"kind": "IM_TVAL_FIXED", "a": parse_fixed(text, file, line), "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
+
+        return {"kind": "IM_TVAL_ENUM_STR", "a": 0, "b": 0, "c": 0, "d": 0, "text": text, "fallback": None}
+
+    def compile_animation(self, node):
+        if node.tag not in ANIMATION_KINDS:
+            raise TemplateError(f"{node.file}:{node.line}: unknown animation {node.tag!r}")
+        kind = ANIMATION_KINDS[node.tag]
+        target_name = node.attrs.get("TargetName") or node.attrs.get("Storyboard.TargetName")
+        target_prop = node.attrs.get("TargetProperty") or node.attrs.get("Storyboard.TargetProperty")
+        if target_prop is not None:
+            target_prop = clean_target_property(target_prop, node.file, node.attr_line("TargetProperty"))
+        duration_ms = 0
+        if "Duration" in node.attrs:
+            dv = self.parse_value(node.attrs["Duration"], "Duration", node.file, node.attr_line("Duration"))
+            duration_ms = dv["a"]
+        has_from = "From" in node.attrs
+        has_to = "To" in node.attrs
+        empty_v = {"kind": "IM_TVAL_NONE", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
+        from_v = self.parse_value(node.attrs["From"], "From", node.file, node.attr_line("From")) if has_from else empty_v
+        to_v = self.parse_value(node.attrs["To"], "To", node.file, node.attr_line("To")) if has_to else empty_v
+
+        # Validate any extra attributes on the animation element
+        allowed_anim_attrs = {"TargetName", "TargetProperty", "Storyboard.TargetName", "Storyboard.TargetProperty",
+                              "Duration", "From", "To", "EnableDependentAnimation", "FromHorizontalOffset",
+                              "ToOffset", "Direction"}
+        for k in node.attrs:
+            if k not in allowed_anim_attrs:
+                raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
+
+        kf_start = len(self.keyframes)
+        for child in node.children:
+            if child.tag not in KEYFRAME_KINDS:
+                raise TemplateError(f"{child.file}:{child.line}: unknown keyframe {child.tag!r}")
+            kf_kind = KEYFRAME_KINDS[child.tag]
+            kt_ms = 0
+            if "KeyTime" in child.attrs:
+                ktv = self.parse_value(child.attrs["KeyTime"], "KeyTime", child.file, child.attr_line("KeyTime"))
+                kt_ms = ktv["a"]
+            spline = [0, 0, 0, 0]
+            if "KeySpline" in child.attrs:
+                sv = self.parse_value(child.attrs["KeySpline"], "KeySpline", child.file, child.attr_line("KeySpline"))
+                spline = [sv["a"], sv["b"], sv["c"], sv["d"]]
+            val = {"kind": "IM_TVAL_NONE", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
+            if "Value" in child.attrs:
+                val = self.parse_value(child.attrs["Value"], target_prop or "Value", child.file, child.attr_line("Value"))
+            else:
+                for sub in child.children:
+                    if sub.tag == f"{child.tag}.Value" and sub.children:
+                        inner = sub.children[0]
+                        if inner.tag in ("Visibility", "Boolean"):
+                            val = self.parse_value(inner.text, inner.tag, inner.file, inner.line)
+                        else:
+                            raise TemplateError(f"{inner.file}:{inner.line}: unknown keyframe value element {inner.tag!r}")
+            self.keyframes.append({
+                "kind": kf_kind,
+                "key_time_ms": kt_ms,
+                "value": val,
+                "spline": spline,
+            })
+        kf_count = len(self.keyframes) - kf_start
+        self.anims.append({
+            "kind": kind,
+            "target_name": target_name,
+            "target_property": target_prop,
+            "duration_ms": duration_ms,
+            "has_from": has_from,
+            "has_to": has_to,
+            "from": from_v,
+            "to": to_v,
+            "kf_start": kf_start,
+            "kf_count": kf_count,
+        })
+
+    def compile_vsm_groups(self, groups_node):
+        group_start = len(self.groups)
+        for gnode in groups_node.children:
+            if gnode.tag != "VisualStateGroup":
+                raise TemplateError(f"{gnode.file}:{gnode.line}: expected VisualStateGroup, got {gnode.tag!r}")
+            gname = gnode.attrs.get("Name", "")
+            state_start = len(self.states)
+            trans_start = len(self.transitions)
+            trans_nodes = []
+            for child in gnode.children:
+                if child.tag == "VisualStateGroup.Transitions":
+                    trans_nodes.extend(child.children)
+                elif child.tag == "VisualState":
+                    sname = child.attrs.get("Name", "")
+                    setter_start = len(self.style_setters)
+                    anim_start = len(self.anims)
+                    for sc in child.children:
+                        if sc.tag == "VisualState.Setters":
+                            for s in sc.children:
+                                if s.tag != "Setter":
+                                    raise TemplateError(f"{s.file}:{s.line}: expected Setter, got {s.tag!r}")
+                                tgt = s.attrs.get("Target", "")
+                                prop = strip_xml_prefix(tgt.split(".", 1)[-1]).strip("()") if "." in tgt else s.attrs.get("Property", "")
+                                if prop and prop not in KNOWN_PROPS:
+                                    raise TemplateError(f"{s.file}:{s.attr_line('Target')}: unknown property {prop!r}")
+                                val = self.parse_value(s.attrs.get("Value", ""), prop, s.file, s.attr_line("Value"))
+                                self.style_setters.append({"target": tgt, "property": prop, "value": val})
+                        elif sc.tag == "Storyboard":
+                            for anim in sc.children:
+                                self.compile_animation(anim)
+                        else:
+                            raise TemplateError(f"{sc.file}:{sc.line}: unexpected element {sc.tag!r} in VisualState")
+                    self.states.append({
+                        "name": sname,
+                        "setter_start": setter_start,
+                        "setter_count": len(self.style_setters) - setter_start,
+                        "anim_start": anim_start,
+                        "anim_count": len(self.anims) - anim_start,
+                    })
+                else:
+                    raise TemplateError(f"{child.file}:{child.line}: unexpected element {child.tag!r} in VisualStateGroup")
+
+            for tnode in trans_nodes:
+                if tnode.tag != "VisualTransition":
+                    raise TemplateError(f"{tnode.file}:{tnode.line}: expected VisualTransition, got {tnode.tag!r}")
+                from_s = tnode.attrs.get("From")
+                to_s = tnode.attrs.get("To")
+                dur_ms = 0
+                if "GeneratedDuration" in tnode.attrs:
+                    dv = self.parse_value(tnode.attrs["GeneratedDuration"], "GeneratedDuration", tnode.file, tnode.attr_line("GeneratedDuration"))
+                    dur_ms = dv["a"]
+                anim_start = len(self.anims)
+                for tc in tnode.children:
+                    if tc.tag == "Storyboard":
+                        for anim in tc.children:
+                            self.compile_animation(anim)
+                    else:
+                        raise TemplateError(f"{tc.file}:{tc.line}: unexpected element {tc.tag!r} in VisualTransition")
+                self.transitions.append({
+                    "from_state": from_s,
+                    "to_state": to_s,
+                    "duration_ms": dur_ms,
+                    "anim_start": anim_start,
+                    "anim_count": len(self.anims) - anim_start,
+                })
+            self.groups.append({
+                "name": gname,
+                "state_start": state_start,
+                "state_count": len(self.states) - state_start,
+                "trans_start": trans_start,
+                "trans_count": len(self.transitions) - trans_start,
+            })
+        return group_start, len(self.groups) - group_start
+
+    def compile_element_tree(self, node, parent_idx, vsm_groups_out, out_elems, out_props):
+        if node.tag not in ELEMENT_KINDS:
+            raise TemplateError(f"{node.file}:{node.line}: unknown element {node.tag!r}")
+        elem_idx = len(out_elems)
+        prop_start = len(out_props)
+        name = node.attrs.get("Name")
+
+        # First scan Grid.Resources so nested styles (like DeleteButtonStyle) are registered before siblings reference them.
+        for child in node.children:
+            if child.tag == "Grid.Resources":
+                for res_node in child.children:
+                    if res_node.tag == "Style":
+                        rk = res_node.attrs.get("Name") or res_node.attrs.get("Key")
+                        nested_idx = self.compile_style(res_node, key_override=rk, enum_id=None)
+                        if rk:
+                            self.local_resources[rk] = nested_idx
+                    else:
+                        raise TemplateError(f"{res_node.file}:{res_node.line}: unknown resource element {res_node.tag!r}")
+
+        # Collect attributes on this element
+        for k, v in node.attrs.items():
+            if k == "Name":
+                continue
+            if k not in KNOWN_PROPS:
+                raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
+            val = self.parse_value(v, k, node.file, node.attr_line(k))
+            out_props.append({"name": k, "value": val})
+
+        # Handle property-element children that attach directly to this element's props (e.g. Thumb.Template)
+        child_elements = []
+        for child in node.children:
+            if child.tag == "Grid.Resources":
+                continue
+            elif child.tag == "VisualStateManager.VisualStateGroups":
+                vsm_groups_out.append(child)
+            elif child.tag == "Thumb.Template":
+                for ct in child.children:
+                    if ct.tag != "ControlTemplate":
+                        raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate in Thumb.Template, got {ct.tag!r}")
+                    nested_idx = self.compile_control_template(ct, key=f"{name or 'Thumb'}.Template", target_type="Thumb", style_setters=(0, 0), enum_id=None)
+                    out_props.append({"name": "Template", "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{name or 'Thumb'}.Template", "fallback": None}})
+            elif child.tag in PROP_ELEMENT_TAGS:
+                for sub in child.children:
+                    child_elements.append(sub)
+            elif "." in child.tag:
+                raise TemplateError(f"{child.file}:{child.line}: unknown property element {child.tag!r}")
+            else:
+                child_elements.append(child)
+
+        prop_count = len(out_props) - prop_start
+        out_elems.append({
+            "kind": ELEMENT_KINDS[node.tag],
+            "name": name,
+            "parent": parent_idx,
+            "prop_start": prop_start,
+            "prop_count": prop_count,
+        })
+        for sub in child_elements:
+            self.compile_element_tree(sub, elem_idx, vsm_groups_out, out_elems, out_props)
+        return elem_idx
+
+    def compile_control_template(self, ct_node, key, target_type, style_setters, enum_id):
+        local_elems = []
+        local_props = []
+        vsm_nodes = []
+        for child in ct_node.children:
+            self.compile_element_tree(child, -1, vsm_nodes, local_elems, local_props)
+
+        base_prop = len(self.props)
+        self.props.extend(local_props)
+        elem_start = len(self.elements)
+        for e in local_elems:
+            self.elements.append({
+                "kind": e["kind"],
+                "name": e["name"],
+                "parent": e["parent"],
+                "prop_start": base_prop + e["prop_start"],
+                "prop_count": e["prop_count"],
+            })
+        elem_count = len(local_elems)
+
+        group_start = len(self.groups)
+        group_count = 0
+        for vsm in vsm_nodes:
+            gs, gc = self.compile_vsm_groups(vsm)
+            if group_count == 0:
+                group_start = gs
+            group_count += gc
+
+        tpl_idx = len(self.templates)
+        self.templates.append({
+            "enum_id": enum_id,
+            "key": key,
+            "target_type": target_type,
+            "style_setter_start": style_setters[0],
+            "style_setter_count": style_setters[1],
+            "elem_start": elem_start,
+            "elem_count": elem_count,
+            "group_start": group_start,
+            "group_count": group_count,
+        })
+        return tpl_idx
+
+    def compile_style(self, style_node, key_override=None, enum_id=None):
+        key = key_override if key_override is not None else style_node.attrs.get("Key") or style_node.attrs.get("TargetType")
+        target_type = style_node.attrs.get("TargetType", "")
+        local_setters = []
+        ct_node = None
+
+        for child in style_node.children:
+            if child.tag != "Setter":
+                raise TemplateError(f"{child.file}:{child.line}: expected Setter in Style, got {child.tag!r}")
+            prop = child.attrs.get("Property", "")
+            if prop not in KNOWN_PROPS:
+                raise TemplateError(f"{child.file}:{child.attr_line('Property')}: unknown property {prop!r} in Style Setter")
+            if prop == "Template":
+                for sv in child.children:
+                    if sv.tag == "Setter.Value" and sv.children:
+                        ct = sv.children[0]
+                        if ct.tag != "ControlTemplate":
+                            raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate, got {ct.tag!r}")
+                        ct_node = ct
+            elif prop == "ItemsPanel":
+                for sv in child.children:
+                    if sv.tag == "Setter.Value" and sv.children:
+                        ipt = sv.children[0]
+                        if ipt.tag != "ItemsPanelTemplate":
+                            raise TemplateError(f"{ipt.file}:{ipt.line}: expected ItemsPanelTemplate, got {ipt.tag!r}")
+                        nested_idx = self.compile_control_template(ipt, key=f"{key}.ItemsPanel", target_type=target_type, style_setters=(0, 0), enum_id=None)
+                        local_setters.append({"target": None, "property": prop, "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{key}.ItemsPanel", "fallback": None}})
+            elif prop == "ItemContainerTransitions":
+                for sv in child.children:
+                    if sv.tag == "Setter.Value" and sv.children:
+                        tc = sv.children[0]
+                        if tc.tag != "TransitionCollection":
+                            raise TemplateError(f"{tc.file}:{tc.line}: expected TransitionCollection, got {tc.tag!r}")
+                        nested_idx = self.compile_control_template(tc, key=f"{key}.ItemContainerTransitions", target_type=target_type, style_setters=(0, 0), enum_id=None)
+                        local_setters.append({"target": None, "property": prop, "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{key}.ItemContainerTransitions", "fallback": None}})
+            elif "Value" in child.attrs:
+                val = self.parse_value(child.attrs["Value"], prop, child.file, child.attr_line("Value"))
+                local_setters.append({"target": None, "property": prop, "value": val})
+            else:
+                raise TemplateError(f"{child.file}:{child.line}: Setter for {prop!r} has no Value")
+
+        setter_start = len(self.style_setters)
+        self.style_setters.extend(local_setters)
+        setter_count = len(local_setters)
+
+        if ct_node is None:
+            raise TemplateError(f"{style_node.file}:{style_node.line}: Style {key!r} has no ControlTemplate")
+        return self.compile_control_template(ct_node, key=key, target_type=target_type, style_setters=(setter_start, setter_count), enum_id=enum_id)
+
+
+def compile_checkout(checkout):
+    head = subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    if head != PIN["commit"]:
+        raise SystemExit(f"error: the checkout is at {head}, the pin is {PIN['commit']}")
+    with tempfile.TemporaryDirectory() as folder:
+        archive = subprocess.run(
+            ["git", "-C", str(checkout), "archive", "--format=tar", PIN["commit"], "--",
+             PIN["base"], PIN["controls"].split("*")[0].rstrip("/")],
+            capture_output=True, check=True,
+        ).stdout
+        with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
+            bundle.extractall(folder, filter="data")
+        root = Path(folder)
+        res_dict = res_mod.load(root)
+        brushes, values, _left = res_mod.collect(res_dict)
+        compiler = Compiler(res_dict=res_dict, brushes=brushes, values=values)
+
+        parsed_cache = {}
+        for rel_path, style_key, target_type, enum_id in TARGET_STYLES:
+            if rel_path not in parsed_cache:
+                parsed_cache[rel_path] = parse_xaml((root / rel_path).read_text(encoding="utf-8"), rel_path)
+            doc = parsed_cache[rel_path]
+            found = None
+            for node in doc.children:
+                if node.tag == "Style" and node.attrs.get("TargetType") == target_type:
+                    if style_key is None and "Key" not in node.attrs and "BasedOn" not in node.attrs:
+                        found = node
+                        break
+                    if style_key is not None and node.attrs.get("Key") == style_key:
+                        found = node
+                        break
+            if found is None:
+                raise TemplateError(f"{rel_path}:1: Style key={style_key!r} TargetType={target_type!r} not found")
+            compiler.compile_style(found, enum_id=enum_id)
+        return compiler
+
+
+def format_val_c(v):
+    kind = v["kind"]
+    if kind == "IM_TVAL_BRUSH":
+        return f"{{{kind}, {v['text']}, 0, 0, 0, NULL, NULL}}"
+    if kind == "IM_TVAL_THEME_VALUE":
+        return f"{{{kind}, {v['text']}, 0, 0, 0, NULL, NULL}}"
+    if kind == "IM_TVAL_ICON":
+        return f"{{{kind}, {v['text']}, 0, 0, 0, NULL, NULL}}"
+    if kind == "IM_TVAL_COLOR":
+        return f"{{{kind}, (int32_t)0x{v['a'] & 0xFFFFFFFF:08X}u, (int32_t)0x{v['b'] & 0xFFFFFFFF:08X}u, (int32_t)0x{v['c'] & 0xFFFFFFFF:08X}u, {v['d']}, {c_str(v['text'])}, NULL}}"
+    return f"{{{kind}, {v['a']}, {v['b']}, {v['c']}, {v['d']}, {c_str(v['text'])}, {c_str(v['fallback'])}}}"
+
+
+def emit(compiler):
+    head = (
+        f"/* Generated by tools/winui/templates.py from microsoft-ui-xaml {PIN['commit']}.\n"
+        "   Copyright (c) Microsoft Corporation. Licensed under the MIT License (see licenses/WinUI.txt).\n"
+        "   Do not edit. */\n"
+    )
+    h = [head, "#pragma once\n\n/* Compiled control template identifiers. */\ntypedef enum im_template_id {\n"]
+    for idx, t in enumerate(compiler.templates):
+        if t["enum_id"]:
+            h.append(f"    {t['enum_id']} = {idx},\n")
+    h.append(f"    IM_TEMPLATE_COUNT = {len(compiler.templates)}\n}} im_template_id;\n\n")
+    h.append("/* Top-level compiled templates table. */\nextern const im_template im_templates[IM_TEMPLATE_COUNT];\n")
+    h.append("/* Compiled style and visual-state setters table. */\nextern const im_template_setter im_template_setters[];\n")
+    h.append("/* Compiled template element tree nodes table. */\nextern const im_template_element im_template_elements[];\n")
+    h.append("/* Compiled element property table. */\nextern const im_template_prop im_template_props[];\n")
+    h.append("/* Compiled visual state groups table. */\nextern const im_template_group im_template_groups[];\n")
+    h.append("/* Compiled visual states table. */\nextern const im_template_state im_template_states[];\n")
+    h.append("/* Compiled visual transitions table. */\nextern const im_template_transition im_template_transitions[];\n")
+    h.append("/* Compiled storyboard animations table. */\nextern const im_template_anim im_template_anims[];\n")
+    h.append("/* Compiled animation keyframes table. */\nextern const im_template_keyframe im_template_keyframes[];\n")
+
+    c = [head, '#include "template.h"\n\n']
+    c.append("const im_template im_templates[IM_TEMPLATE_COUNT] = {\n")
+    for t in compiler.templates:
+        c.append(f"    {{{c_str(t['key'])}, {c_str(t['target_type'])}, {t['style_setter_start']}, {t['style_setter_count']}, {t['elem_start']}, {t['elem_count']}, {t['group_start']}, {t['group_count']}}},\n")
+    c.append("};\n\nconst im_template_setter im_template_setters[] = {\n")
+    for s in compiler.style_setters:
+        c.append(f"    {{{c_str(s['target'])}, {c_str(s['property'])}, {format_val_c(s['value'])}}},\n")
+    c.append("};\n\nconst im_template_element im_template_elements[] = {\n")
+    for e in compiler.elements:
+        c.append(f"    {{{e['kind']}, {c_str(e['name'])}, {e['parent']}, {e['prop_start']}, {e['prop_count']}}},\n")
+    c.append("};\n\nconst im_template_prop im_template_props[] = {\n")
+    for p in compiler.props:
+        c.append(f"    {{{c_str(p['name'])}, {format_val_c(p['value'])}}},\n")
+    c.append("};\n\nconst im_template_group im_template_groups[] = {\n")
+    for g in compiler.groups:
+        c.append(f"    {{{c_str(g['name'])}, {g['state_start']}, {g['state_count']}, {g['trans_start']}, {g['trans_count']}}},\n")
+    c.append("};\n\nconst im_template_state im_template_states[] = {\n")
+    for st in compiler.states:
+        c.append(f"    {{{c_str(st['name'])}, {st['setter_start']}, {st['setter_count']}, {st['anim_start']}, {st['anim_count']}}},\n")
+    c.append("};\n\nconst im_template_transition im_template_transitions[] = {\n")
+    for tr in compiler.transitions:
+        c.append(f"    {{{c_str(tr['from_state'])}, {c_str(tr['to_state'])}, {tr['duration_ms']}, {tr['anim_start']}, {tr['anim_count']}}},\n")
+    c.append("};\n\nconst im_template_anim im_template_anims[] = {\n")
+    for a in compiler.anims:
+        hf = "true" if a["has_from"] else "false"
+        ht = "true" if a["has_to"] else "false"
+        c.append(f"    {{{a['kind']}, {c_str(a['target_name'])}, {c_str(a['target_property'])}, {a['duration_ms']}, {hf}, {ht}, {format_val_c(a['from'])}, {format_val_c(a['to'])}, {a['kf_start']}, {a['kf_count']}}},\n")
+    c.append("};\n\nconst im_template_keyframe im_template_keyframes[] = {\n")
+    for kf in compiler.keyframes:
+        sp = ", ".join(str(x) for x in kf["spline"])
+        c.append(f"    {{{kf['kind']}, {kf['key_time_ms']}, {format_val_c(kf['value'])}, {{{sp}}}}},\n")
+    c.append("};\n")
+    return {"template_data.h": "".join(h), "template_data.c": "".join(c)}
+
+
+def format_listing(compiler):
+    lines = []
+    for idx, t in enumerate(compiler.templates):
+        lines.append(f"TEMPLATE[{idx}] {t['key']} ({t['target_type']}): setters={t['style_setter_count']} elems={t['elem_count']} groups={t['group_count']}")
+        for e_off in range(t["elem_count"]):
+            e = compiler.elements[t["elem_start"] + e_off]
+            lines.append(f"  ELEM[{e_off}] parent={e['parent']} {e['kind']} name={e['name'] or '-'}")
+        for g_off in range(t["group_count"]):
+            g = compiler.groups[t["group_start"] + g_off]
+            lines.append(f"  GROUP {g['name']}: states={g['state_count']} transitions={g['trans_count']}")
+            for s_off in range(g["state_count"]):
+                st = compiler.states[g["state_start"] + s_off]
+                lines.append(f"    STATE {st['name']}: setters={st['setter_count']} anims={st['anim_count']}")
+            for tr_off in range(g["trans_count"]):
+                tr = compiler.transitions[g["trans_start"] + tr_off]
+                lines.append(f"    TRANSITION {tr['from_state'] or '*'} -> {tr['to_state'] or '*'} dur={tr['duration_ms']}ms anims={tr['anim_count']}")
+    return "\n".join(lines) + "\n"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("checkout", nargs="?", type=Path, help="path to pinned WinUI git checkout")
+    parser.add_argument("--check", action="store_true", help="fail if generated files differ")
+    parser.add_argument("--list", action="store_true", help="print round-trip listing of compiled templates")
+    parser.add_argument("--out-dir", type=Path, help="output/check directory (default ui/)")
+    parser.add_argument("--parse-file", type=Path, help="parse a standalone XAML fixture file and exit")
+    args = parser.parse_args()
+
+    if args.parse_file:
+        doc = parse_xaml(args.parse_file.read_text(encoding="utf-8"), str(args.parse_file))
+        comp = Compiler()
+        if doc.tag == "Style":
+            comp.compile_style(doc)
+        elif doc.tag == "ControlTemplate":
+            comp.compile_control_template(doc, key="Fixture", target_type=doc.attrs.get("TargetType", ""), style_setters=(0, 0), enum_id=None)
+        else:
+            for child in doc.children:
+                if child.tag == "Style":
+                    comp.compile_style(child)
+        print(f"parsed {len(comp.templates)} templates from {args.parse_file}")
+        return 0
+
+    if not args.checkout:
+        raise SystemExit("error: checkout path is required unless --parse-file is given")
+
+    compiler = compile_checkout(args.checkout)
+    if args.list:
+        sys.stdout.write(format_listing(compiler))
+        return 0
+
+    out_dir = args.out_dir or (ROOT / "ui")
+    stale = []
+    for name, text in emit(compiler).items():
+        path = out_dir / name
+        if args.check:
+            if not path.is_file() or path.read_text(encoding="utf-8") != text:
+                stale.append(name)
+        else:
+            path.write_text(text, encoding="utf-8", newline="\n")
+    if stale:
+        raise SystemExit(f"error: not what the pinned WinUI gives: {', '.join(stale)}")
+    print(f"{len(compiler.templates)} templates, {len(compiler.elements)} elements, {len(compiler.states)} states, {len(compiler.anims)} animations")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.dont_write_bytecode = True
+    try:
+        raise SystemExit(main())
+    except TemplateError as err:
+        raise SystemExit(f"error: {err}")

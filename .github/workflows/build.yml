@@ -26,6 +26,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # test_site.py clones local history for stamped receipts and page freshness
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
@@ -35,6 +37,30 @@ jobs:
           key: tools-${{ matrix.os }}-${{ hashFiles('toolchain.json') }}
       - name: Install the pinned toolchain
         run: python tools/bootstrap.py
+      - name: Cache pinned WinUI sources (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/impossible-sdk/winui
+          key: winui-${{ hashFiles('tools/winui/pin.json') }}
+      - name: Fetch pinned WinUI sparse checkout (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          if [ ! -f ~/.cache/impossible-sdk/winui/LICENSE ]; then
+            python3 - <<'EOF'
+          import json, subprocess
+          from pathlib import Path
+          pin = json.loads(Path("tools/winui/pin.json").read_text(encoding="utf-8"))
+          dst = Path.home() / ".cache/impossible-sdk/winui"
+          dst.parent.mkdir(parents=True, exist_ok=True)
+          subprocess.run(["git", "init", str(dst)], check=True)
+          subprocess.run(["git", "-C", str(dst), "remote", "add", "origin", pin["repository"]], check=True)
+          subprocess.run(["git", "-C", str(dst), "sparse-checkout", "init", "--cone"], check=True)
+          subprocess.run(["git", "-C", str(dst), "sparse-checkout", "set", "controls/dev/CommonStyles", "dxaml/xcp/dxaml/themes"], check=True)
+          subprocess.run(["git", "-C", str(dst), "fetch", "--depth", "1", "origin", pin["commit"]], check=True)
+          subprocess.run(["git", "-C", str(dst), "checkout", pin["commit"]], check=True)
+          EOF
+          fi
       - name: Build and test
         run: python tools/build.py
       - name: Work list

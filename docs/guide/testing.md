@@ -10,6 +10,7 @@ How do you prove a program works? Build it in WSL or on Windows, and let Windows
 | The program's imports fit its tier | Every program, after linking |
 | Warnings are errors | Every file |
 | `ui/` builds without floating point or system calls | With the SDK's tests |
+| Generated WinUI theme and control template tables match the pinned commit | With the SDK's tests |
 | Buttons match real WinUI within [stated limits](button.md), pixel by pixel | With the SDK's tests |
 
 ## How do you run the tests?

@@ -48,6 +48,125 @@ class Generated(unittest.TestCase):
                                 capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_the_compiled_templates_match_the_pinned_winui(self):
+        script = str(ROOT / "tools/winui/templates.py")
+        res = subprocess.run([sys.executable, script, str(WINUI), "--check"], capture_output=True, text=True, timeout=120)
+        self.assertEqual(res.returncode, 0, res.stderr)
+
+        # Round-trip listing must name every compiled style, key element, and visual state.
+        listed = subprocess.run([sys.executable, script, str(WINUI), "--list"], capture_output=True, text=True, timeout=120, check=True).stdout
+        for needle in (
+            "DefaultButtonStyle (Button)", "AccentButtonStyle (Button)", "SubtleButtonStyle (Button)",
+            "DefaultToggleSwitchStyle (ToggleSwitch)", "SwitchThumb.Template (Thumb)",
+            "DefaultTextBoxStyle (TextBox)", "DeleteButtonStyle (Button)",
+            "ListView (ListView)", "ListView.ItemsPanel (ListView)",
+            "DefaultListViewItemStyle (ListViewItem)", "ListViewItemExpanded (ListViewItem)",
+            "IM_ELEM_CONTENT_PRESENTER name=ContentPresenter",
+            "IM_ELEM_ITEMS_STACK_PANEL", "IM_ELEM_SCROLL_VIEWER name=ScrollViewer",
+            "IM_ELEM_ITEMS_PRESENTER", "IM_ELEM_FONT_ICON name=MultiSelectCheck",
+            "STATE PointerOver", "STATE Pressed", "STATE Dragging", "STATE Focused", "STATE Selected",
+        ):
+            self.assertIn(needle, listed)
+
+        # Independently corrupt template_data.h and template_data.c in scratch: --check must fail without repairing.
+        with tempfile.TemporaryDirectory() as tmp:
+            tdir = Path(tmp)
+            h_orig = (ROOT / "ui/template_data.h").read_text(encoding="utf-8")
+            c_orig = (ROOT / "ui/template_data.c").read_text(encoding="utf-8")
+            (tdir / "template_data.h").write_text(h_orig, encoding="utf-8")
+            (tdir / "template_data.c").write_text(c_orig, encoding="utf-8")
+            ok = subprocess.run([sys.executable, script, str(WINUI), "--check", "--out-dir", str(tdir)], capture_output=True, text=True, timeout=120)
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+
+            mut_h = h_orig + "\n/* drift */\n"
+            (tdir / "template_data.h").write_text(mut_h, encoding="utf-8")
+            bad_h = subprocess.run([sys.executable, script, str(WINUI), "--check", "--out-dir", str(tdir)], capture_output=True, text=True, timeout=120)
+            self.assertNotEqual(bad_h.returncode, 0)
+            self.assertEqual((tdir / "template_data.h").read_text(encoding="utf-8"), mut_h)
+
+            (tdir / "template_data.h").write_text(h_orig, encoding="utf-8")
+            mut_c = c_orig.replace("IM_BRUSH_ButtonBorderBrushPointerOver", "IM_BRUSH_ButtonBorderBrushPressed", 1)
+            (tdir / "template_data.c").write_text(mut_c, encoding="utf-8")
+            bad_c = subprocess.run([sys.executable, script, str(WINUI), "--check", "--out-dir", str(tdir)], capture_output=True, text=True, timeout=120)
+            self.assertNotEqual(bad_c.returncode, 0)
+            self.assertEqual((tdir / "template_data.c").read_text(encoding="utf-8"), mut_c)
+
+
+class TemplateCompiler(unittest.TestCase):
+    def _run_fixture(self, xaml, name="fixture.xaml"):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / name
+            path.write_text(xaml, encoding="utf-8")
+            res = subprocess.run([sys.executable, str(ROOT / "tools/winui/templates.py"), "--parse-file", str(path)],
+                                 capture_output=True, text=True, timeout=30)
+            return res, path
+
+    def test_refuses_unknown_element_with_file_and_line(self):
+        xaml = '<ControlTemplate TargetType="Button">\n  <Grid>\n    <BogusWidget />\n  </Grid>\n</ControlTemplate>\n'
+        res, path = self._run_fixture(xaml)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(f"{path}:3:", res.stderr)
+        self.assertIn("unknown element", res.stderr)
+
+    def test_refuses_unknown_property_on_multiline_element_with_exact_line(self):
+        xaml = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Border\n'
+            '    Width="10"\n'
+            '    BogusProp="42"\n'
+            '    Height="20" />\n'
+            '</ControlTemplate>\n'
+        )
+        res, path = self._run_fixture(xaml)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(f"{path}:4:", res.stderr)
+        self.assertIn("BogusProp", res.stderr)
+
+    def test_refuses_unknown_converter_with_file_and_line(self):
+        xaml = (
+            '<ControlTemplate TargetType="TextBox">\n'
+            '  <TextBlock\n'
+            '    Text="{Binding Value, Converter={StaticResource MyConv}}" />\n'
+            '</ControlTemplate>\n'
+        )
+        res, path = self._run_fixture(xaml)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(f"{path}:3:", res.stderr)
+        self.assertIn("converter", res.stderr.lower())
+
+    def test_refuses_unknown_animation_with_file_and_line(self):
+        xaml = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid>\n'
+            '    <VisualStateManager.VisualStateGroups>\n'
+            '      <VisualStateGroup Name="CommonStates">\n'
+            '        <VisualState Name="Pressed">\n'
+            '          <Storyboard>\n'
+            '            <BogusAnimation TargetName="Root" />\n'
+            '          </Storyboard>\n'
+            '        </VisualState>\n'
+            '      </VisualStateGroup>\n'
+            '    </VisualStateManager.VisualStateGroups>\n'
+            '  </Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res, path = self._run_fixture(xaml)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(f"{path}:7:", res.stderr)
+        self.assertIn("unknown animation", res.stderr)
+
+    def test_refuses_unknown_binding_mode_with_file_and_line(self):
+        xaml = (
+            '<ControlTemplate TargetType="TextBox">\n'
+            '  <TextBlock\n'
+            '    Text="{Binding Value, Mode=Sideways}" />\n'
+            '</ControlTemplate>\n'
+        )
+        res, path = self._run_fixture(xaml)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(f"{path}:3:", res.stderr)
+        self.assertIn("binding mode", res.stderr.lower())
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3

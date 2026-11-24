@@ -1,6 +1,7 @@
 /* Exits 0, or with the number of the first check that failed. */
 #include <impossible/base.h>
 #include "button.h"
+#include "template.h"
 
 enum { W = 64, H = 64 };
 static uint32_t pixels[W * H];
@@ -16,6 +17,106 @@ static im_rect box(int l, int t, int r, int b) {
 
 static uint32_t at(int x, int y) {
     return pixels[y * W + x];
+}
+
+static bool str_eq(const char *a, const char *b) {
+    if (!a || !b) return a == b;
+    while (*a && *a == *b) { a++; b++; }
+    return *a == *b;
+}
+
+static bool has_state_brush(const im_template *tpl, const char *state_name, int32_t brush_id) {
+    for (uint16_t g = 0; g < tpl->group_count; g++) {
+        const im_template_group *grp = &im_template_groups[tpl->group_start + g];
+        for (uint16_t s = 0; s < grp->state_count; s++) {
+            const im_template_state *st = &im_template_states[grp->state_start + s];
+            if (!str_eq(st->name, state_name)) continue;
+            for (uint16_t a = 0; a < st->anim_count; a++) {
+                const im_template_anim *an = &im_template_anims[st->anim_start + a];
+                for (uint16_t k = 0; k < an->kf_count; k++) {
+                    const im_template_keyframe *kf = &im_template_keyframes[an->kf_start + k];
+                    if (kf->value.kind == IM_TVAL_BRUSH && kf->value.a == brush_id) return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+static const im_template_prop *find_elem_prop(const im_template *tpl, const char *elem_name, const char *prop_name) {
+    for (uint16_t e = 0; e < tpl->elem_count; e++) {
+        const im_template_element *el = &im_template_elements[tpl->elem_start + e];
+        if (elem_name && !str_eq(el->name, elem_name)) continue;
+        for (uint16_t p = 0; p < el->prop_count; p++) {
+            const im_template_prop *pr = &im_template_props[el->prop_start + p];
+            if (str_eq(pr->name, prop_name)) return pr;
+        }
+    }
+    return NULL;
+}
+
+static int test_templates(void) {
+    /* 1. Button PointerOver vs Pressed border brushes are distinct and accurate. */
+    const im_template *btn = &im_templates[IM_TEMPLATE_BUTTON];
+    if (!has_state_brush(btn, "PointerOver", IM_BRUSH_ButtonBorderBrushPointerOver)) return 40;
+    if (!has_state_brush(btn, "Pressed", IM_BRUSH_ButtonBorderBrushPressed)) return 41;
+    if (has_state_brush(btn, "PointerOver", IM_BRUSH_ButtonBorderBrushPressed)) return 42;
+
+    /* 2. ToggleSwitch resolves ControlFastAnimationDuration (83ms) and ControlFastOutSlowInKeySpline (0,0,0,1). */
+    const im_template *ts = &im_templates[IM_TEMPLATE_TOGGLE_SWITCH];
+    bool found_spline = false;
+    for (uint16_t g = 0; g < ts->group_count; g++) {
+        const im_template_group *grp = &im_template_groups[ts->group_start + g];
+        for (uint16_t s = 0; s < grp->state_count; s++) {
+            const im_template_state *st = &im_template_states[grp->state_start + s];
+            for (uint16_t a = 0; a < st->anim_count; a++) {
+                const im_template_anim *an = &im_template_anims[st->anim_start + a];
+                for (uint16_t k = 0; k < an->kf_count; k++) {
+                    const im_template_keyframe *kf = &im_template_keyframes[an->kf_start + k];
+                    if (kf->kind == IM_KF_SPLINE_DOUBLE && kf->key_time_ms == 83 &&
+                        kf->spline[0] == 0 && kf->spline[1] == 0 && kf->spline[2] == 0 && kf->spline[3] == IM_ONE) {
+                        found_spline = true;
+                    }
+                }
+            }
+        }
+    }
+    if (!found_spline) return 43;
+
+    /* 3. TextBox placeholder preserves Binding TargetNullValue fallback and DeleteButton uses IM_ICON_DISMISS. */
+    const im_template *tb = &im_templates[IM_TEMPLATE_TEXT_BOX];
+    const im_template_prop *ph_fg = find_elem_prop(tb, "PlaceholderTextContentPresenter", "Foreground");
+    if (!ph_fg || ph_fg->value.kind != IM_TVAL_BINDING || !ph_fg->value.fallback || !ph_fg->value.fallback[0]) return 44;
+    const im_template_prop *del_style = find_elem_prop(tb, "DeleteButton", "Style");
+    if (!del_style || del_style->value.kind != IM_TVAL_NESTED_TEMPLATE) return 45;
+    const im_template *del_tpl = &im_templates[del_style->value.a];
+    const im_template_prop *glyph = find_elem_prop(del_tpl, "GlyphElement", "Text");
+    if (!glyph || glyph->value.kind != IM_TVAL_ICON || glyph->value.a != IM_ICON_DISMISS) return 46;
+
+    /* 4. ListView owns Border > ScrollViewer > ItemsPresenter, ItemsStackPanel ItemsPanel, and Header/Footer bindings. */
+    const im_template *lv = &im_templates[IM_TEMPLATE_LIST_VIEW];
+    if (lv->elem_count != 3) return 47;
+    if (im_template_elements[lv->elem_start + 0].kind != IM_ELEM_BORDER || im_template_elements[lv->elem_start + 0].parent != -1) return 48;
+    if (im_template_elements[lv->elem_start + 1].kind != IM_ELEM_SCROLL_VIEWER || im_template_elements[lv->elem_start + 1].parent != 0) return 49;
+    if (im_template_elements[lv->elem_start + 2].kind != IM_ELEM_ITEMS_PRESENTER || im_template_elements[lv->elem_start + 2].parent != 1) return 50;
+    const im_template_prop *lv_hdr = find_elem_prop(lv, NULL, "Header");
+    const im_template_prop *lv_ftr = find_elem_prop(lv, NULL, "Footer");
+    if (!lv_hdr || lv_hdr->value.kind != IM_TVAL_TEMPLATE_BINDING || !lv_ftr || lv_ftr->value.kind != IM_TVAL_TEMPLATE_BINDING) return 51;
+    bool found_panel = false;
+    for (uint16_t i = 0; i < lv->style_setter_count; i++) {
+        const im_template_setter *st = &im_template_setters[lv->style_setter_start + i];
+        if (str_eq(st->property, "ItemsPanel") && st->value.kind == IM_TVAL_NESTED_TEMPLATE) {
+            const im_template *pt = &im_templates[st->value.a];
+            if (pt->elem_count == 1 && im_template_elements[pt->elem_start].kind == IM_ELEM_ITEMS_STACK_PANEL) found_panel = true;
+        }
+    }
+    if (!found_panel) return 52;
+
+    /* 5. ListViewItemExpanded MultiSelectCheck maps to portable IM_ICON_CHECKMARK. */
+    const im_template *lvi = &im_templates[IM_TEMPLATE_LIST_VIEW_ITEM_EXPANDED];
+    const im_template_prop *chk = find_elem_prop(lvi, "MultiSelectCheck", "Glyph");
+    if (!chk || chk->value.kind != IM_TVAL_ICON || chk->value.a != IM_ICON_CHECKMARK) return 53;
+    return 0;
 }
 
 int im_main(void) {
@@ -145,5 +246,5 @@ int im_main(void) {
     clear();
     im_fill(&surface, box(8, 8, 56, 56), (im_radii){8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE}, white);
     if ((at(8, 12) & 255) != 37 || (at(8, 13) & 255) != 126) return 35;
-    return 0;
+    return test_templates();
 }
