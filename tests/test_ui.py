@@ -1867,30 +1867,31 @@ class ReferenceHarness(unittest.TestCase):
             self.assertEqual((fake_raw_bak / "extra.txt").read_text(encoding="utf-8"), "user notes")
 
         # 9. Interrupted swap (store missing, owned .<name>.backup present, AND stale lockdir from killed publisher)
-        #    is recovered atomically by read_reference_snapshot.
-        with tempfile.TemporaryDirectory() as tmp:
-            tstore = Path(tmp) / "reference"
-            tbackup = Path(tmp) / ".reference.backup"
-            shutil.copytree(ROOT / "tests/reference", tbackup)
-            key = hashlib.sha256(str(tstore.resolve()).encode("utf-8")).hexdigest()[:16]
-            stale_lock = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
-            stale_lock.mkdir(exist_ok=True)
-            (stale_lock / "owner.json").write_text(
-                json.dumps({
+        #    is recovered atomically by read_reference_snapshot for both tokenized and legacy tokenless owner records.
+        for with_token in (True, False):
+            with tempfile.TemporaryDirectory() as tmp:
+                tstore = Path(tmp) / "reference"
+                tbackup = Path(tmp) / ".reference.backup"
+                shutil.copytree(ROOT / "tests/reference", tbackup)
+                key = hashlib.sha256(str(tstore.resolve()).encode("utf-8")).hexdigest()[:16]
+                stale_lock = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
+                stale_lock.mkdir(exist_ok=True)
+                owner_rec = {
                     "pid": 99999999,
                     "host": "nt" if os.name == "nt" else "posix",
                     "distro": os.environ.get("WSL_DISTRO_NAME", "") if os.name != "nt" else "",
-                    "token": "dead-token-999",
                     "created": 0,
-                }),
-                encoding="utf-8",
-            )
-            self.assertFalse(tstore.exists())
-            recovered, rframes = ref_run.read_reference_snapshot(tstore, filenames=["button-Normal-Dark.bgra"])
-            self.assertTrue(tstore.is_dir())
-            self.assertFalse(stale_lock.exists())
-            self.assertEqual(len(recovered["cases"]), len(specs))
-            self.assertEqual(len(rframes["button-Normal-Dark.bgra"]), 160 * 64 * 4)
+                }
+                if with_token:
+                    owner_rec["token"] = "dead-token-999"
+                    (stale_lock / "tok-dead-token-999").write_text("dead-token-999", encoding="utf-8")
+                (stale_lock / "owner.json").write_text(json.dumps(owner_rec), encoding="utf-8")
+                self.assertFalse(tstore.exists())
+                recovered, rframes = ref_run.read_reference_snapshot(tstore, filenames=["button-Normal-Dark.bgra"])
+                self.assertTrue(tstore.is_dir())
+                self.assertFalse(stale_lock.exists())
+                self.assertEqual(len(recovered["cases"]), len(specs))
+                self.assertEqual(len(rframes["button-Normal-Dark.bgra"]), 160 * 64 * 4)
 
         # 10. Cross-host _store_lock contention: Windows prints READY after import, then blocks on _store_lock
         #     until WSL releases it, with a bounded READY deadline and clean process-tree teardown.
@@ -2040,18 +2041,14 @@ class ReferenceHarness(unittest.TestCase):
                     committed_pkg, ROOT / "ui/template_data.c",
                 )
             self.assertIn("MissingState", str(cm_state.exception))
-            # Downstream drawing manifest validator and dump assertions must both accept a manifest containing fallback entries.
+            # Downstream drawing manifest validator and unfiltered per-case dump assertions must both accept fallbacks.
             committed_manifest = ref_run.open_reference_manifest(ROOT / "tests/reference")
             combined_manifest = {
                 **committed_manifest,
                 "cases": list(committed_manifest["cases"]) + [by_mc_id["mc-wrap"]],
             }
             validate_manifest(combined_manifest)
-            self.assertTrue(all(
-                ("layout" in c and "automation" in c)
-                for c in combined_manifest["cases"]
-                if c.get("basis") != "compiled-template"
-            ))
+            self.assertTrue(all("layout" in c and "automation" in c for c in combined_manifest["cases"]))
 
             # Real compiled-template fallback routed end-to-end through reference/run.py (ToggleSwitch -> DefaultToggleSwitchStyle).
             sim_ok = {
@@ -2185,12 +2182,8 @@ class ReferenceHarness(unittest.TestCase):
         ref_run, _ = self._ref_modules()
         folder = ROOT / "tests/reference"
         manifest, frames = ref_run.read_reference_snapshot(folder)
-        # Every rendered capture case must include both layout and automation dumps.
-        self.assertTrue(all(
-            "layout" in c and "automation" in c
-            for c in manifest["cases"]
-            if c.get("basis") != "compiled-template"
-        ))
+        # Every stored case (including compiled-template fallbacks) must include both layout and automation dumps.
+        self.assertTrue(all("layout" in c and "automation" in c for c in manifest["cases"]))
         by_id = {c["id"]: c for c in manifest["cases"]}
 
         # 1. Button layout + automation dumps have frame-relative coords, Invoke pattern, and correct hierarchy.

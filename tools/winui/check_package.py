@@ -314,6 +314,20 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
         "verified_elements": info["elem_count"],
         "verified_states": info["state_count"],
         "verified_setters": info["setter_count"],
+        "layout": {
+            "Type": ctrl,
+            "Name": tpl,
+            "Basis": "compiled-template",
+            "ElementCount": info["elem_count"],
+            "States": sorted(info.get("states", set())),
+        },
+        "automation": {
+            "ControlType": ctrl,
+            "Name": tpl,
+            "Basis": "compiled-template",
+            "IsEnabled": True,
+            "Patterns": [],
+        },
     }
 
 

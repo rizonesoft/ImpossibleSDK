@@ -442,16 +442,19 @@ def _pid_is_alive_same_host(pid):
     if os.name == "nt":
         import ctypes
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        ERROR_INVALID_PARAMETER = 87
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
-            return False
+            # ERROR_INVALID_PARAMETER (87) proves the PID does not exist; ERROR_ACCESS_DENIED (5) means it is alive.
+            return ctypes.get_last_error() != ERROR_INVALID_PARAMETER
         try:
             code = ctypes.c_ulong(0)
-            if ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
                 return code.value == 259  # STILL_ACTIVE
-            return False
+            return True  # conservatively assume alive if GetExitCodeProcess fails
         finally:
-            ctypes.windll.kernel32.CloseHandle(handle)
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
         return True
@@ -509,91 +512,97 @@ def _write_owner_atomic(lock_dir, token):
     os.replace(tmp, owner_file)
 
 
-def _read_dead_owner_token(lock_dir):
-    """Return owner token if lock_dir has a complete owner.json whose PID is provably dead; else None."""
+def _read_dead_owner(lock_dir):
+    """Return (is_dead, token_or_empty) when lock_dir has a complete owner.json whose PID is provably dead."""
     owner_file = lock_dir / "owner.json"
     if not owner_file.is_file():
-        return None
+        return False, None
     try:
         owner = json.loads(owner_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None
+        return False, None
     if not _pid_is_alive_cross_host(owner.get("pid"), owner.get("host"), owner.get("distro", "")):
-        return owner.get("token")
-    return None
+        return True, str(owner.get("token") or "")
+    return False, None
 
 
-def _try_reclaim_stale_lock(lock_dir):
-    """Serialize stale-lock reclamation behind a liveness-checked guard dir; never steal by wall-clock age."""
-    dead_token = _read_dead_owner_token(lock_dir)
-    if dead_token is None:
+def _try_takeover_dead_lock(lock_dir, my_token):
+    """Atomically take over a provably dead lock via token-file CAS rename (zero separate reclaim guard)."""
+    is_dead, dead_token = _read_dead_owner(lock_dir)
+    if not is_dead:
         return False
-    guard = lock_dir.parent / f"{lock_dir.name}.reclaim"
-    guard_token = f"reclaim-{os.getpid()}-{time.time_ns()}"
-    try:
-        os.mkdir(guard)
-    except FileExistsError:
-        # Only remove a reclaim guard if its own owner PID is provably dead (never by age).
-        if _read_dead_owner_token(guard) is not None:
-            shutil.rmtree(guard, ignore_errors=True)
-        return False
-    try:
-        _write_owner_atomic(guard, guard_token)
-        # Re-verify under the guard that lock_dir still belongs to the exact same dead owner token.
-        if lock_dir.is_dir() and _read_dead_owner_token(lock_dir) == dead_token:
-            shutil.rmtree(lock_dir, ignore_errors=True)
-            return True
-        return False
-    finally:
+    my_tok_file = lock_dir / f"tok-{my_token}"
+    if dead_token:
+        dead_tok_file = lock_dir / f"tok-{dead_token}"
         try:
-            cur = json.loads((guard / "owner.json").read_text(encoding="utf-8"))
-            if cur.get("token") == guard_token:
-                shutil.rmtree(guard, ignore_errors=True)
-        except (OSError, ValueError):
-            if guard.is_dir() and not (guard / "owner.json").is_file():
-                shutil.rmtree(guard, ignore_errors=True)
+            os.rename(dead_tok_file, my_tok_file)
+        except OSError:
+            return False
+    else:
+        # Legacy owner.json without token: atomically claim by renaming owner.json itself.
+        try:
+            os.rename(lock_dir / "owner.json", my_tok_file)
+        except OSError:
+            return False
+    _write_owner_atomic(lock_dir, my_token)
+    return True
 
 
 @contextlib.contextmanager
 def _store_lock(store_dir, timeout=120.0):
-    """Cross-host exclusive lock using atomic mkdir + atomic owner.json + liveness-checked reclamation."""
+    """Cross-host exclusive lock using atomic dir rename (pre-populated owner) + token-file CAS takeover."""
     resolved = Path(store_dir).resolve()
     try:
         rel = resolved.relative_to(ROOT.resolve()).as_posix()
-        # Shared repo-relative lock dir under build/ (gitignored) so WSL and Windows hit the exact same VFS mkdir.
+        # Shared repo-relative lock dir under build/ (gitignored) so WSL and Windows hit the exact same VFS rename.
         key = hashlib.sha256(rel.encode("utf-8")).hexdigest()[:16]
         lock_root = ROOT / "build"
         lock_root.mkdir(parents=True, exist_ok=True)
         lock_dir = lock_root / f".ref-{key}.lockdir"
     except ValueError:
         key = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:16]
-        lock_dir = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            os.mkdir(lock_dir)
-            break
-        except FileExistsError:
-            if _try_reclaim_stale_lock(lock_dir):
-                continue
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"timed out waiting for store lock {lock_dir}")
-            time.sleep(0.02)
+        lock_root = Path(tempfile.gettempdir())
+        lock_dir = lock_root / f"impossible-sdk-ref-{key}.lockdir"
+
     token = f"{os.getpid()}-{time.time_ns()}"
-    owner_written = False
+    # Prepare a complete directory (owner.json + tok-<token>) BEFORE renaming into lock_dir so lock_dir
+    # never exists without a complete owner record.
+    prep = Path(tempfile.mkdtemp(dir=lock_root, prefix=f".ref-{key}.prep-"))
+    acquired = False
     try:
-        _write_owner_atomic(lock_dir, token)
-        owner_written = True
+        _write_owner_atomic(prep, token)
+        (prep / f"tok-{token}").write_text(token, encoding="utf-8")
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                os.rename(prep, lock_dir)
+                acquired = True
+                break
+            except OSError:
+                if lock_dir.is_dir() and _try_takeover_dead_lock(lock_dir, token):
+                    shutil.rmtree(prep, ignore_errors=True)
+                    acquired = True
+                    break
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"timed out waiting for store lock {lock_dir}")
+                time.sleep(0.02)
         yield
     finally:
-        if not owner_written:
-            shutil.rmtree(lock_dir, ignore_errors=True)
-        else:
+        if prep.exists():
+            shutil.rmtree(prep, ignore_errors=True)
+        if acquired:
+            # Release strictly by removing our own unique token file first, then owner.json, then empty rmdir.
             try:
-                cur = json.loads((lock_dir / "owner.json").read_text(encoding="utf-8"))
-                if cur.get("token") == token:
-                    shutil.rmtree(lock_dir, ignore_errors=True)
-            except (OSError, ValueError):
+                os.unlink(lock_dir / f"tok-{token}")
+                try:
+                    os.unlink(lock_dir / "owner.json")
+                except FileNotFoundError:
+                    pass
+                try:
+                    os.rmdir(lock_dir)
+                except OSError:
+                    pass
+            except FileNotFoundError:
                 pass
 
 
