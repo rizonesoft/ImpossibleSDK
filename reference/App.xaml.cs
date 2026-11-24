@@ -6,6 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
@@ -39,7 +40,7 @@ public sealed class CaseSpec
     [JsonPropertyName("style")] public string? Style { get; set; }
     [JsonPropertyName("theme")] public string Theme { get; set; } = "Dark";
     [JsonPropertyName("scale")] public double Scale { get; set; } = 1.0;
-    [JsonPropertyName("flow_direction")] public string FlowDirection { get; set; } = "LeftToRight";
+    [JsonPropertyName("flow_direction")] public string? FlowDirection { get; set; }
     [JsonPropertyName("state")] public string? State { get; set; }
     [JsonPropertyName("use_transitions")] public bool UseTransitions { get; set; }
     [JsonPropertyName("frame")] public FrameSpec Frame { get; set; } = new();
@@ -123,20 +124,21 @@ public partial class App : Application
         }
 
         var all = new List<CaseSpec>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var validId = new Regex(@"^[A-Za-z0-9][A-Za-z0-9._-]*$", RegexOptions.CultureInvariant);
         foreach (var file in files)
         {
             var spec = JsonSerializer.Deserialize<CaseFileSpec>(File.ReadAllText(file), opts)
                        ?? throw new InvalidOperationException($"{file}: invalid JSON");
             foreach (var c in spec.Cases)
             {
-                if (string.IsNullOrWhiteSpace(c.Id))
+                if (string.IsNullOrWhiteSpace(c.Id) || !validId.IsMatch(c.Id) || c.Id.Contains("..", StringComparison.Ordinal))
                 {
-                    throw new InvalidOperationException($"{file}: case missing 'id'");
+                    throw new InvalidOperationException($"{file}: invalid case id '{c.Id}' (must match [A-Za-z0-9][A-Za-z0-9._-]* without '..')");
                 }
                 if (!seen.Add(c.Id))
                 {
-                    throw new InvalidOperationException($"{file}: duplicate case id '{c.Id}'");
+                    throw new InvalidOperationException($"{file}: duplicate case id '{c.Id}' (case-insensitive)");
                 }
                 all.Add(c);
             }
@@ -206,24 +208,28 @@ public partial class App : Application
         return result;
     }
 
+    private static FrameworkElement InstantiateControl(string caseId, string controlName)
+    {
+        if (string.IsNullOrWhiteSpace(controlName))
+        {
+            throw new InvalidOperationException($"{caseId}.control: missing control type");
+        }
+        Type? type = typeof(Button).Assembly.GetType($"Microsoft.UI.Xaml.Controls.{controlName}", throwOnError: false, ignoreCase: false);
+        if (type != null && typeof(FrameworkElement).IsAssignableFrom(type) && !type.IsAbstract)
+        {
+            var ctor = type.GetConstructor(Type.EmptyTypes);
+            if (ctor != null)
+            {
+                return (FrameworkElement)ctor.Invoke(null);
+            }
+        }
+        throw new InvalidOperationException($"{caseId}.control: unknown control type '{controlName}'");
+    }
+
     private static FrameworkElement CreateElement(CaseSpec spec, double scaleFactor)
     {
         string caseId = spec.Id;
-        FrameworkElement el = spec.Control switch
-        {
-            "Button" => new Button(),
-            "CheckBox" => new CheckBox(),
-            "ToggleSwitch" => new ToggleSwitch(),
-            "Slider" => new Slider(),
-            "TextBox" => new TextBox(),
-            "ListView" => new ListView(),
-            "Border" => new Border(),
-            "TextBlock" => new TextBlock(),
-            "PathIcon" => new PathIcon(),
-            "StackPanel" => new StackPanel(),
-            "Grid" => new Grid(),
-            _ => throw new InvalidOperationException($"{caseId}.control: unknown control type '{spec.Control}'"),
-        };
+        FrameworkElement el = InstantiateControl(caseId, spec.Control);
 
         if (!string.IsNullOrEmpty(spec.Style))
         {
@@ -234,7 +240,10 @@ public partial class App : Application
             el.Style = style;
         }
 
-        el.FlowDirection = ParseEnum<FlowDirection>(caseId, "flow_direction", spec.FlowDirection);
+        if (!string.IsNullOrEmpty(spec.FlowDirection))
+        {
+            el.FlowDirection = ParseEnum<FlowDirection>(caseId, "flow_direction", spec.FlowDirection);
+        }
 
         if (spec.Properties != null)
         {
@@ -549,7 +558,13 @@ public partial class App : Application
         foreach (var spec in specs)
         {
             var theme = ParseEnum<ElementTheme>(spec.Id, "theme", spec.Theme);
-            double scale = spec.Scale > 0 ? spec.Scale : 1.0;
+            if (double.IsNaN(spec.Scale) || double.IsInfinity(spec.Scale) || spec.Scale <= 0)
+            {
+                throw new InvalidOperationException($"{spec.Id}.scale: scale must be positive (got {spec.Scale})");
+            }
+            double scale = spec.Scale;
+            string flowDirName = string.IsNullOrEmpty(spec.FlowDirection) ? "LeftToRight" : spec.FlowDirection;
+            var flowDir = ParseEnum<FlowDirection>(spec.Id, "flow_direction", flowDirName);
             int logicalW = spec.Frame.Width;
             int logicalH = spec.Frame.Height;
             int pixelW = (int)Math.Round(logicalW * scale);
@@ -569,7 +584,7 @@ public partial class App : Application
                 Width = isProbe ? pixelW : logicalW,
                 Height = isProbe ? pixelH : logicalH,
                 RequestedTheme = theme,
-                FlowDirection = ParseEnum<FlowDirection>(spec.Id, "flow_direction", spec.FlowDirection),
+                FlowDirection = flowDir,
                 Background = new SolidColorBrush(ground),
                 Children = { element },
             };
@@ -628,7 +643,7 @@ public partial class App : Application
                 ["xaml_control"] = spec.Control,
                 ["theme"] = spec.Theme,
                 ["scale"] = scale,
-                ["flow_direction"] = spec.FlowDirection,
+                ["flow_direction"] = flowDirName,
                 ["logical_width"] = logicalW,
                 ["logical_height"] = logicalH,
                 ["file"] = file,

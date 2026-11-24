@@ -137,6 +137,7 @@ public static class Script
 
     [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);
     [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool InitializeTouchInjection(uint maxCount, uint dwMode);
@@ -156,17 +157,36 @@ public static class Script
         }
     }
 
-    private static POINT TargetScreenPoint(Window window, FrameworkElement target, double? relX, double? relY)
+    private static void EnsureForeground(IntPtr hwnd, string step)
+    {
+        if (GetForegroundWindow() != hwnd)
+        {
+            SetForegroundWindow(hwnd);
+            if (GetForegroundWindow() != hwnd)
+            {
+                throw new InvalidOperationException($"script step {step}: reference window lost foreground focus; refusing to inject desktop input");
+            }
+        }
+    }
+
+    private static POINT TargetScreenPoint(Window window, FrameworkElement target, double? relX, double? relY, bool requireInside, string step)
     {
         var hwnd = WindowNative.GetWindowHandle(window);
         double scale = target.XamlRoot?.RasterizationScale ?? 1.0;
-        var origin = target.TransformToVisual(null).TransformPoint(new Point(0, 0));
-        double lx = relX ?? (target.ActualWidth * 0.5);
-        double ly = relY ?? (target.ActualHeight * 0.5);
+        double w = target.ActualWidth;
+        double h = target.ActualHeight;
+        double lx = relX ?? (w * 0.5);
+        double ly = relY ?? (h * 0.5);
+        if (requireInside && (lx < 0 || lx > w || ly < 0 || ly > h))
+        {
+            throw new InvalidOperationException($"script step {step}: coordinate ({lx},{ly}) lies outside target bounds ({w}x{h})");
+        }
+        // Transform the exact local point through the full visual transform (handles Viewbox scale and RTL mirroring).
+        var rootPt = target.TransformToVisual(null).TransformPoint(new Point(lx, ly));
         var pt = new POINT
         {
-            X = (int)Math.Round((origin.X + lx) * scale),
-            Y = (int)Math.Round((origin.Y + ly) * scale),
+            X = (int)Math.Round(rootPt.X * scale),
+            Y = (int)Math.Round(rootPt.Y * scale),
         };
         ClientToScreen(hwnd, ref pt);
         return pt;
@@ -301,8 +321,12 @@ public static class Script
     public static async Task<ScriptResultDto> RunAsync(Window window, FrameworkElement target, IReadOnlyList<ScriptActionSpec> actions)
     {
         var hwnd = WindowNative.GetWindowHandle(window);
-        SetForegroundWindow(hwnd);
+        if (!SetForegroundWindow(hwnd) && GetForegroundWindow() != hwnd)
+        {
+            throw new InvalidOperationException("Script.RunAsync: failed to activate reference window as foreground");
+        }
         await Task.Delay(120);
+        EnsureForeground(hwnd, "init");
 
         var result = new ScriptResultDto();
         int clicks = 0;
@@ -348,8 +372,9 @@ public static class Script
         if (target is ToggleSwitch ts) ts.Toggled += toggledHandler;
         if (target is ToggleButton tb) { tb.Checked += checkedHandler; tb.Unchecked += uncheckedHandler; }
 
-        // Park pointer outside the control before running script so PointerEntered is deterministic.
-        var outside = TargetScreenPoint(window, target, -30, -30);
+        // Park pointer outside the control (still inside window client area) before running script so PointerEntered is deterministic.
+        var outside = TargetScreenPoint(window, target, -15, -15, requireInside: false, step: "park");
+        EnsureForeground(hwnd, "park");
         SendMouse(outside, MOUSEEVENTF_MOVE);
         await Task.Delay(80);
 
@@ -359,26 +384,35 @@ public static class Script
             {
                 var step = actions[i];
                 currentStep = $"{i}:{step.Action}";
+                EnsureForeground(hwnd, currentStep);
                 switch (step.Action)
                 {
                     case "focus":
                         if (target is Control ctrl)
                         {
                             ctrl.IsTabStop = true;
-                            await FocusManager.TryFocusAsync(ctrl, FocusState.Keyboard);
+                            var fr = await FocusManager.TryFocusAsync(ctrl, FocusState.Keyboard);
+                            if (!fr.Succeeded)
+                            {
+                                throw new InvalidOperationException($"script step {currentStep}: TryFocusAsync failed");
+                            }
                             await Task.Delay(80);
                         }
                         break;
 
                     case "pointer_click":
                     {
-                        var pt = TargetScreenPoint(window, target, step.X, step.Y);
+                        var pt = TargetScreenPoint(window, target, step.X, step.Y, requireInside: true, step: currentStep);
+                        EnsureForeground(hwnd, currentStep);
                         SendMouse(pt, MOUSEEVENTF_MOVE);
                         await Task.Delay(80);
+                        EnsureForeground(hwnd, currentStep);
                         SendMouse(pt, MOUSEEVENTF_LEFTDOWN);
                         await Task.Delay(80);
+                        EnsureForeground(hwnd, currentStep);
                         SendMouse(pt, MOUSEEVENTF_LEFTUP);
                         await Task.Delay(120);
+                        EnsureForeground(hwnd, currentStep);
                         SendMouse(outside, MOUSEEVENTF_MOVE);
                         await Task.Delay(80);
                         break;
@@ -394,11 +428,17 @@ public static class Script
                         if (target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
                         {
                             kCtrl.IsTabStop = true;
-                            await FocusManager.TryFocusAsync(kCtrl, FocusState.Keyboard);
+                            var fr = await FocusManager.TryFocusAsync(kCtrl, FocusState.Keyboard);
+                            if (!fr.Succeeded)
+                            {
+                                throw new InvalidOperationException($"script step {currentStep}: TryFocusAsync failed before key_press");
+                            }
                             await Task.Delay(80);
                         }
+                        EnsureForeground(hwnd, currentStep);
                         SendKey((ushort)vk, false);
                         await Task.Delay(80);
+                        EnsureForeground(hwnd, currentStep);
                         SendKey((ushort)vk, true);
                         await Task.Delay(120);
                         break;
@@ -406,9 +446,11 @@ public static class Script
 
                     case "touch_tap":
                     {
-                        var pt = TargetScreenPoint(window, target, step.X, step.Y);
+                        var pt = TargetScreenPoint(window, target, step.X, step.Y, requireInside: true, step: currentStep);
+                        EnsureForeground(hwnd, currentStep);
                         SendTouch(pt, POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT);
                         await Task.Delay(80);
+                        EnsureForeground(hwnd, currentStep);
                         SendTouch(pt, POINTER_FLAG_UP);
                         await Task.Delay(140);
                         break;

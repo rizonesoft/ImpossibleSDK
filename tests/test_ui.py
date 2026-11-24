@@ -1771,11 +1771,23 @@ class ReferenceHarness(unittest.TestCase):
         self.assertEqual(res.returncode, 2)
         self.assertIn("refuses --cases", res.stderr)
 
-        # 7. Prohibited Microsoft font or FontIcon cannot be persisted to the store.
+        # 7. Prohibited Microsoft font, FontIcon, or ListView items cannot be persisted to the store.
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "bad-text", "control": "Button", "properties": {"Content": "Hi"}})
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "bad-icon", "control": "FontIcon"})
+        with self.assertRaises(ValueError):
+            ref_run.check_no_prohibited_assets({"id": "bad-list", "control": "ListView", "items": ["Alpha"]})
+
+        # 8. --out refuses to overwrite a directory containing unrelated sentinel files.
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "out"
+            out_dir.mkdir()
+            sentinel = out_dir / "keep-me.txt"
+            sentinel.write_text("important", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                ref_run._ensure_safe_capture_dir(out_dir)
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "important")
 
     def test_package_provenance_and_missing_controls(self):
         _, check_pkg = self._ref_modules()
@@ -1816,7 +1828,7 @@ class ReferenceHarness(unittest.TestCase):
                 check_pkg.verify_package(fake)
             pin.write_text(orig_pin, encoding="utf-8")
 
-            # 4. Removing a missing_controls entry or corrupting its expected_elements fails.
+            # 4. Removing a missing_controls entry, pointing at an unrelated template, or corrupting elements/states fails.
             pkg_file = fake / "reference/package.json"
             orig_pkg = json.loads(pkg_file.read_text(encoding="utf-8"))
             dropped_mc = {**orig_pkg, "missing_controls": orig_pkg["missing_controls"][1:]}
@@ -1824,18 +1836,46 @@ class ReferenceHarness(unittest.TestCase):
             with self.assertRaises(check_pkg.PackageDrift):
                 check_pkg.verify_package(fake)
 
-            bad_mc = json.loads(json.dumps(orig_pkg))
-            bad_mc["missing_controls"][0]["expected_elements"] = 999
-            pkg_file.write_text(json.dumps(bad_mc), encoding="utf-8")
+            # Unrelated template target (WrapPanel -> DefaultButtonStyle) must fail.
+            unrelated_mc = json.loads(json.dumps(orig_pkg))
+            unrelated_mc["missing_controls"][0]["compiled_template"] = "DefaultButtonStyle"
+            unrelated_mc["missing_controls"][0]["expected_elements"] = 2
+            unrelated_mc["missing_controls"][0]["expected_states"] = 4
+            pkg_file.write_text(json.dumps(unrelated_mc), encoding="utf-8")
             with self.assertRaises(check_pkg.PackageDrift):
                 check_pkg.verify_package(fake)
 
-            # 5. When live NuGet WinUI package + WinUI checkout exist, omitting a template_diff or wrong commit fails.
+            # Exercise a compiled-template fallback for an unavailable control (ToggleSwitch -> DefaultToggleSwitchStyle):
+            # passes with exact elem_count=23 & state_count=9, fails if either is corrupted.
+            sim_ok = json.loads(json.dumps(orig_pkg))
+            sim_ok["missing_controls"].append({
+                "control": "ToggleSwitch",
+                "reason": "Simulated absent control",
+                "basis": "compiled-template",
+                "compiled_template": "DefaultToggleSwitchStyle",
+                "expected_elements": 23,
+                "expected_states": 9,
+            })
+            res_sim = check_pkg.verify_missing_controls(sim_ok, fake / "ui/template_data.c")
+            ts_entry = next(r for r in res_sim if r["control"] == "ToggleSwitch")
+            self.assertEqual((ts_entry["basis"], ts_entry["verified_elements"], ts_entry["verified_states"]), ("compiled-template", 23, 9))
+            sim_bad_states = json.loads(json.dumps(sim_ok))
+            sim_bad_states["missing_controls"][-1]["expected_states"] = 999
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_missing_controls(sim_bad_states, fake / "ui/template_data.c")
+
+            # 5. Nonexistent --nuget-pkg path must fail explicitly.
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_package(ROOT, nuget_pkg=Path(tmp) / "nonexistent")
+
+            # 6. When live NuGet WinUI package + WinUI checkout exist, omitting a template_diff (changed/pin_only/package_only) or wrong commit fails.
             if info["checked_live"]:
-                bad_diffs = {**orig_pkg, "template_diffs": orig_pkg["template_diffs"][:-1]}
-                pkg_file.write_text(json.dumps(bad_diffs), encoding="utf-8")
-                with self.assertRaises(check_pkg.PackageDrift):
-                    check_pkg.verify_package(fake)
+                for bucket in ("changed", "pin_only", "package_only"):
+                    bad_diffs = json.loads(json.dumps(orig_pkg))
+                    bad_diffs["template_diffs"][bucket] = bad_diffs["template_diffs"][bucket][:-1]
+                    pkg_file.write_text(json.dumps(bad_diffs), encoding="utf-8")
+                    with self.assertRaises(check_pkg.PackageDrift):
+                        check_pkg.verify_package(fake)
                 bad_commit = {**orig_pkg, "package_source_commit": "a" * 40}
                 pkg_file.write_text(json.dumps(bad_commit), encoding="utf-8")
                 with self.assertRaises(check_pkg.PackageDrift):
@@ -1911,30 +1951,33 @@ class ReferenceHarness(unittest.TestCase):
         w, h, scale = icon_case["width"], icon_case["height"], float(icon_case["scale"])
         ref_rects = extract_mask_rects(icon_case["layout"])
         self.assertEqual(len(ref_rects), 1)
-        # Add an independent TextBlock rect at fractional 1.5x alongside the dumped PathIcon rect.
-        ref_both = [*ref_rects, ("LabelText", 30.0, 24.0, 30.0, 14.0)]
-        cand_both = list(ref_both)
+        # Candidate geometry is computed independently from the case spec (12x12 icon centered in 160x64 frame: x=74, y=26),
+        # never copied from ref_rects, so a Dump.cs coordinate regression fails immediately.
+        independent_icon = ("SdkIcon", 74.0, 26.0, 12.0, 12.0)
+        independent_text = ("LabelText", 30.0, 24.0, 30.0, 14.0)
+        ref_both = [*ref_rects, independent_text]
+        cand_both = [independent_icon, independent_text]
 
-        # Mutating pixels strictly inside the masked icon AND text rects must pass.
+        # Mutating pixels strictly inside the independently specified icon AND text rects must pass.
         mut = bytearray(real)
-        for _, rx, ry, rw, rh in ref_both:
+        for _, rx, ry, rw, rh in cand_both:
             px, py = round((rx + rw * 0.5) * scale), round((ry + rh * 0.5) * scale)
             mut[(py * w + px) * 4:(py * w + px) * 4 + 3] = bytes([255, 0, 255])
         compare_frames_with_layout_mask(bytes(mut), real, w, h, scale, cand_both, ref_both, limit=0)
 
         # Moving a candidate rectangle by 2 DIPs must fail even though its pixels are masked.
-        moved = [(ref_both[0][0], ref_both[0][1] + 2.0, ref_both[0][2], ref_both[0][3], ref_both[0][4]), ref_both[1]]
+        moved = [(independent_icon[0], independent_icon[1] + 2.0, independent_icon[2], independent_icon[3], independent_icon[4]), independent_text]
         with self.assertRaises(ValueError):
             compare_frames_with_layout_mask(bytes(mut), real, w, h, scale, moved, ref_both, limit=0)
 
         # Missing a masked element must fail.
         with self.assertRaises(ValueError):
-            compare_frames_with_layout_mask(bytes(mut), real, w, h, scale, [ref_both[0]], ref_both, limit=0)
+            compare_frames_with_layout_mask(bytes(mut), real, w, h, scale, [independent_icon], ref_both, limit=0)
 
         # Mutating a pixel immediately outside a masked rect must fail.
         outside = bytearray(real)
-        out_x = round(ref_both[0][1] * scale) - 2
-        out_y = round(ref_both[0][2] * scale)
+        out_x = round(independent_icon[1] * scale) - 2
+        out_y = round(independent_icon[2] * scale)
         outside[(out_y * w + out_x) * 4] ^= 0x40
         with self.assertRaises(ValueError):
             compare_frames_with_layout_mask(bytes(outside), real, w, h, scale, cand_both, ref_both, limit=0)
@@ -2087,7 +2130,33 @@ class LiveReference(unittest.TestCase):
                     ref_run.run_reference(exe, Path(tmp) / "out_bad2", cases_path=bad_ctrl, work_dir=build_tmp)
                 self.assertIn("bad-type-case.control", ctx2.exception.stderr)
 
-                # 3. Non-button controls (ToggleSwitch animated On vs Off, ListView with items + RTL) + scripted button run twice.
+                # 2b. Invalid scale (0) and path-traversal case ID must fail explicitly.
+                bad_scale = Path(tmp) / "bad_scale.json"
+                bad_scale.write_text(json.dumps({"cases": [{
+                    "id": "zero-scale-case",
+                    "control": "Button",
+                    "theme": "Dark",
+                    "scale": 0,
+                    "frame": {"width": 160, "height": 64},
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as ctx3:
+                    ref_run.run_reference(exe, Path(tmp) / "out_bad3", cases_path=bad_scale, work_dir=build_tmp)
+                self.assertIn("zero-scale-case.scale", ctx3.exception.stderr)
+
+                bad_id = Path(tmp) / "bad_id.json"
+                bad_id.write_text(json.dumps({"cases": [{
+                    "id": "../escape",
+                    "control": "Button",
+                    "theme": "Dark",
+                    "scale": 1.0,
+                    "frame": {"width": 160, "height": 64},
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as ctx4:
+                    ref_run.run_reference(exe, Path(tmp) / "out_bad4", cases_path=bad_id, work_dir=build_tmp)
+                self.assertIn("invalid case id", ctx4.exception.stderr)
+
+                # 3. Non-button controls: ToggleSwitch (BOTH start IsOn=False so only the animated "On" transition changes pixels),
+                #    ComboBox (loaded dynamically via reflection without C# edits), ListView with items + RTL, and scripted Button run twice.
                 combo = Path(tmp) / "combo.json"
                 combo.write_text(json.dumps({"cases": [
                     {
@@ -2108,7 +2177,17 @@ class LiveReference(unittest.TestCase):
                         "state": "On",
                         "use_transitions": True,
                         "frame": {"width": 160, "height": 64},
-                        "properties": {"IsOn": True, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "properties": {"IsOn": False, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "dump_tree": True,
+                    },
+                    {
+                        "id": "combo-dyn",
+                        "control": "ComboBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Width": 120, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "items": ["First", "Second"],
                         "dump_tree": True,
                     },
                     {
@@ -2147,8 +2226,9 @@ class LiveReference(unittest.TestCase):
                 by1 = {c["id"]: c for c in m1["cases"]}
                 by2 = {c["id"]: c for c in m2["cases"]}
 
-                # Animated ToggleSwitch On frame differs from Off frame.
+                # Animated ToggleSwitch On frame differs from Off frame even though both started IsOn=False.
                 self.assertNotEqual((out1 / "ts-off.bgra").read_bytes(), (out1 / "ts-on.bgra").read_bytes())
+                self.assertEqual(by1["combo-dyn"]["automation"]["ControlType"], "ComboBox")
                 self.assertEqual(by1["lv-rtl"]["flow_direction"], "RightToLeft")
                 self.assertEqual(by1["lv-rtl"]["automation"]["ControlType"], "List")
 

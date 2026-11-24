@@ -2,7 +2,7 @@
 """Verify reference/package.json against Reference.csproj, packages.lock.json, tools/winui/pin.json,
 and (when present locally) the installed Microsoft.WindowsAppSDK.WinUI NuGet package and WinUI checkout.
 
-    python3 tools/winui/check_package.py [--root <repo>] [--winui <checkout>] [--nuget-pkg <dir>]
+    python3 tools/winui/check_package.py [--root <repo>] [--winui <checkout>] [--nuget-pkg <dir>] [--require-live]
 """
 import argparse
 import hashlib
@@ -45,6 +45,17 @@ def extract_templates(xaml_path):
     return out
 
 
+def extract_target_types(xaml_path):
+    root = ET.fromstring(Path(xaml_path).read_text(encoding="utf-8-sig"))
+    types = set()
+    for el in root.iter():
+        if el.tag.endswith("}Style") or el.tag == "Style":
+            tt = el.attrib.get("TargetType", "")
+            if tt:
+                types.add(tt.split(":")[-1])
+    return types
+
+
 def extract_dll_commit(dll_path):
     """Extract the 40-hex source commit from Microsoft.ui.xaml.dll's UTF-16LE FileVersion resource."""
     data = Path(dll_path).read_bytes()
@@ -75,6 +86,7 @@ def find_nuget_winui_pkg(version):
 
 
 def compute_template_diffs(pkg_generic_xaml, winui_checkout, pin_data):
+    """Return full symmetric template difference: changed, pin_only, and package_only."""
     pkg_t = extract_templates(pkg_generic_xaml)
     pin_t = {}
     base = Path(winui_checkout) / pin_data["base"]
@@ -86,26 +98,47 @@ def compute_template_diffs(pkg_generic_xaml, winui_checkout, pin_data):
             continue
         if p.is_file():
             pin_t.update(extract_templates(p))
-    common = sorted(set(pin_t) & set(pkg_t))
-    return [k for k in common if pin_t[k] != pkg_t[k]]
+    changed = sorted(k for k in (set(pin_t) & set(pkg_t)) if pin_t[k] != pkg_t[k])
+    pin_only = sorted(set(pin_t) - set(pkg_t))
+    package_only = sorted(set(pkg_t) - set(pin_t))
+    return {
+        "changed": changed,
+        "pin_only": pin_only,
+        "package_only": package_only,
+    }
 
 
 def parse_compiled_templates(template_c_path):
-    """Extract compiled template names and (element_count, state_count) from ui/template_data.c."""
+    """Extract compiled template names, target control, element counts, and total visual state counts from ui/template_data.c."""
     text = Path(template_c_path).read_text(encoding="utf-8")
+    groups_block = text.split("const im_template_group im_template_groups[]", 1)[1].split("};", 1)[0]
+    groups = [
+        {"name": m.group(1), "state_count": int(m.group(2))}
+        for m in re.finditer(r'\{\s*"([^"]+)",\s*\d+,\s*(\d+),\s*\d+,\s*\d+\s*\}', groups_block)
+    ]
+
+    tpl_block = text.split("const im_template im_templates[IM_TEMPLATE_COUNT]", 1)[1].split("};", 1)[0]
     out = {}
-    # Match entries in im_templates[]: { "Name", "Target", setter_off, setter_count, elem_off, elem_count, group_off, group_count }
     for m in re.finditer(
-        r'\{\s*"([^"]+)",\s*"([^"]+)",\s*\d+,\s*(\d+),\s*\d+,\s*(\d+),\s*\d+,\s*(\d+)\s*\}',
-        text,
+        r'\{\s*"([^"]+)",\s*"([^"]+)",\s*\d+,\s*(\d+),\s*\d+,\s*(\d+),\s*(\d+),\s*(\d+)\s*\}',
+        tpl_block,
     ):
-        name, target, setter_count, elem_count, group_count = m.group(1), m.group(2), int(m.group(3)), int(m.group(4)), int(m.group(5))
-        out[name] = {"target": target, "setter_count": setter_count, "elem_count": elem_count, "group_count": group_count}
+        name, target = m.group(1), m.group(2)
+        setter_count, elem_count = int(m.group(3)), int(m.group(4))
+        group_off, group_count = int(m.group(5)), int(m.group(6))
+        state_count = sum(groups[i]["state_count"] for i in range(group_off, group_off + group_count))
+        out[name] = {
+            "target": target,
+            "setter_count": setter_count,
+            "elem_count": elem_count,
+            "group_count": group_count,
+            "state_count": state_count,
+        }
     return out
 
 
-def verify_missing_controls(pkg_data, template_c_path, planned_controls=None):
-    """Reconcile missing_controls entries against compiled templates and report basis='compiled-template'."""
+def verify_missing_controls(pkg_data, template_c_path, planned_controls=None, pkg_target_types=None):
+    """Reconcile missing_controls entries against package availability and compiled templates."""
     missing = pkg_data.get("missing_controls")
     if not isinstance(missing, list) or not missing:
         raise PackageDrift("reference/package.json: missing_controls must be a non-empty list")
@@ -115,26 +148,38 @@ def verify_missing_controls(pkg_data, template_c_path, planned_controls=None):
     for entry in missing:
         ctrl = entry.get("control")
         basis = entry.get("basis")
-        tpl = entry.get("fallback_template")
-        exp_elems = entry.get("expected_elements")
-        if not ctrl or basis != "compiled-template" or not tpl:
+        tpl = entry.get("compiled_template")
+        if not ctrl or basis != "compiled-template":
             raise PackageDrift(f"reference/package.json: invalid missing_controls entry {entry!r}")
         if ctrl in by_name:
             raise PackageDrift(f"reference/package.json: duplicate missing_controls entry {ctrl!r}")
-        if tpl not in compiled:
-            raise PackageDrift(f"reference/package.json: missing_controls {ctrl!r} names unknown compiled template {tpl!r}")
-        actual_elems = compiled[tpl]["elem_count"]
-        if actual_elems != exp_elems:
-            raise PackageDrift(
-                f"reference/package.json: missing_controls {ctrl!r} expected_elements={exp_elems} != compiled {tpl!r} ({actual_elems})"
-            )
+        if pkg_target_types is not None and ctrl in pkg_target_types:
+            raise PackageDrift(f"reference/package.json: {ctrl!r} is listed as missing but exists in package generic.xaml")
+
+        record = {"control": ctrl, "basis": basis, "compiled_template": tpl}
+        if tpl is not None:
+            if tpl not in compiled:
+                raise PackageDrift(f"reference/package.json: missing_controls {ctrl!r} names unknown compiled template {tpl!r}")
+            info = compiled[tpl]
+            if info["target"] != ctrl:
+                raise PackageDrift(
+                    f"reference/package.json: missing_controls {ctrl!r} points to unrelated template {tpl!r} (target={info['target']!r})"
+                )
+            exp_elems = entry.get("expected_elements")
+            exp_states = entry.get("expected_states")
+            if exp_elems != info["elem_count"]:
+                raise PackageDrift(
+                    f"reference/package.json: missing_controls {ctrl!r} expected_elements={exp_elems} != compiled {tpl!r} ({info['elem_count']})"
+                )
+            if exp_states != info["state_count"]:
+                raise PackageDrift(
+                    f"reference/package.json: missing_controls {ctrl!r} expected_states={exp_states} != compiled {tpl!r} ({info['state_count']})"
+                )
+            record["verified_elements"] = info["elem_count"]
+            record["verified_states"] = info["state_count"]
         by_name[ctrl] = entry
-        results.append({
-            "control": ctrl,
-            "basis": basis,
-            "fallback_template": tpl,
-            "verified_elements": actual_elems,
-        })
+        results.append(record)
+
     if planned_controls:
         for ctrl in planned_controls:
             if ctrl not in by_name:
@@ -142,7 +187,7 @@ def verify_missing_controls(pkg_data, template_c_path, planned_controls=None):
     return results
 
 
-def verify_package(repo_root, winui_checkout=None, nuget_pkg=None):
+def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=False):
     repo = Path(repo_root)
     pkg_path = repo / "reference/package.json"
     csproj_path = repo / "reference/Reference.csproj"
@@ -180,7 +225,7 @@ def verify_package(repo_root, winui_checkout=None, nuget_pkg=None):
     if comp.get("content_hash") != winui_lock.get("contentHash"):
         raise PackageDrift("package.json winui_component.content_hash != packages.lock.json contentHash")
 
-    # 3. Check tools/winui/pin.json commit matches package.json.
+    # 3. Check tools/winui/pin.json commit and structured template_diffs shape.
     if pkg.get("winui_pin_commit") != pin.get("commit"):
         raise PackageDrift(f"package.json winui_pin_commit {pkg.get('winui_pin_commit')!r} != pin.json {pin.get('commit')!r}")
 
@@ -188,12 +233,24 @@ def verify_package(repo_root, winui_checkout=None, nuget_pkg=None):
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise PackageDrift(f"package.json package_source_commit {commit!r} is not a 40-hex commit")
 
-    # 4. Verify missing_controls against compiled templates.
-    missing_report = verify_missing_controls(pkg, tpl_c, planned_controls=["WrapPanel", "UniformGrid", "DataGrid", "DockPanel"])
+    recorded_diffs = pkg.get("template_diffs")
+    if not isinstance(recorded_diffs, dict) or set(recorded_diffs.keys()) != {"changed", "pin_only", "package_only"}:
+        raise PackageDrift("package.json template_diffs must be an object with 'changed', 'pin_only', and 'package_only' lists")
+    for bucket in ("changed", "pin_only", "package_only"):
+        vals = recorded_diffs[bucket]
+        if not isinstance(vals, list) or vals != sorted(set(vals)):
+            raise PackageDrift(f"package.json template_diffs.{bucket} must be a sorted unique list")
 
-    # 5. If installed NuGet WinUI package is available, verify DLL source commit and generic.xaml hash.
-    pkg_dir = Path(nuget_pkg) if nuget_pkg else find_nuget_winui_pkg(comp["version"])
+    # 4. Resolve NuGet WinUI package (explicit --nuget-pkg MUST exist).
+    if nuget_pkg is not None:
+        pkg_dir = Path(nuget_pkg)
+        if not pkg_dir.is_dir():
+            raise PackageDrift(f"--nuget-pkg directory not found: {pkg_dir}")
+    else:
+        pkg_dir = find_nuget_winui_pkg(comp["version"])
+
     checked_live = False
+    pkg_target_types = None
     if pkg_dir is not None and pkg_dir.is_dir():
         dll = pkg_dir / "runtimes-framework/win-x64/native/Microsoft.ui.xaml.dll"
         gx = pkg_dir / "lib/native/Microsoft.UI/Themes/generic.xaml"
@@ -207,22 +264,36 @@ def verify_package(repo_root, winui_checkout=None, nuget_pkg=None):
         actual_gx_sha = hashlib.sha256(gx.read_bytes()).hexdigest()
         if pkg.get("generic_xaml_sha256") != actual_gx_sha:
             raise PackageDrift(f"package.json generic_xaml_sha256 != {gx} sha256 ({actual_gx_sha})")
+        pkg_target_types = extract_target_types(gx)
 
         winui_dir = Path(winui_checkout) if winui_checkout else Path(os.environ.get("IMPOSSIBLE_WINUI", Path.home() / ".cache/impossible-sdk/winui"))
+        if winui_checkout is not None and not (winui_dir / "LICENSE").is_file():
+            raise PackageDrift(f"--winui checkout not found: {winui_dir}")
         if (winui_dir / "LICENSE").is_file():
             actual_diffs = compute_template_diffs(gx, winui_dir, pin)
-            recorded_diffs = pkg.get("template_diffs")
             if recorded_diffs != actual_diffs:
                 raise PackageDrift(
-                    f"package.json template_diffs ({len(recorded_diffs or [])}) != computed diffs ({len(actual_diffs)})"
+                    "package.json template_diffs mismatch: "
+                    f"recorded=({len(recorded_diffs['changed'])}/{len(recorded_diffs['pin_only'])}/{len(recorded_diffs['package_only'])}) "
+                    f"!= computed=({len(actual_diffs['changed'])}/{len(actual_diffs['pin_only'])}/{len(actual_diffs['package_only'])})"
                 )
             checked_live = True
+
+    if require_live and not checked_live:
+        raise PackageDrift("live WinUI package and checkout verification required but unavailable on this host")
+
+    # 5. Verify missing_controls against package availability and compiled templates.
+    missing_report = verify_missing_controls(
+        pkg, tpl_c,
+        planned_controls=["WrapPanel", "UniformGrid", "DataGrid", "DockPanel"],
+        pkg_target_types=pkg_target_types,
+    )
 
     return {
         "version": csproj_ver,
         "winui_component": comp["version"],
         "package_source_commit": commit,
-        "template_diffs": len(pkg.get("template_diffs", [])),
+        "template_diffs": {k: len(v) for k, v in recorded_diffs.items()},
         "missing_controls": missing_report,
         "checked_live": checked_live,
     }
@@ -233,9 +304,10 @@ def main(argv=None):
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--winui", type=Path, default=None)
     parser.add_argument("--nuget-pkg", type=Path, default=None)
+    parser.add_argument("--require-live", action="store_true")
     args = parser.parse_args(argv)
     try:
-        info = verify_package(args.root, args.winui, args.nuget_pkg)
+        info = verify_package(args.root, args.winui, args.nuget_pkg, require_live=args.require_live)
     except PackageDrift as err:
         print(f"error: {err}", file=sys.stderr)
         return 1
