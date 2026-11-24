@@ -14,6 +14,9 @@
       "control": "button",
       "state": "Normal",
       "theme": "Dark",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "button-Normal-Dark.bgra",
       "width": 160,
       "height": 64
@@ -22,6 +25,9 @@
       "control": "button",
       "state": "PointerOver",
       "theme": "Dark",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "button-PointerOver-Dark.bgra",
       "width": 160,
       "height": 64
@@ -30,6 +36,9 @@
       "control": "button",
       "state": "Pressed",
       "theme": "Dark",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "button-Pressed-Dark.bgra",
       "width": 160,
       "height": 64
@@ -38,6 +47,9 @@
       "control": "button",
       "state": "Disabled",
       "theme": "Dark",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "button-Disabled-Dark.bgra",
       "width": 160,
       "height": 64
@@ -46,6 +58,9 @@
       "control": "accent",
       "state": "Normal",
       "theme": "Dark",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "accent-Normal-Dark.bgra",
       "width": 160,
       "height": 64
@@ -54,6 +69,9 @@
       "control": "accent",
       "state": "PointerOver",
       "theme": "Dark",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "accent-PointerOver-Dark.bgra",
       "width": 160,
       "height": 64
@@ -62,6 +80,9 @@
       "control": "accent",
       "state": "Pressed",
       "theme": "Dark",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "accent-Pressed-Dark.bgra",
       "width": 160,
       "height": 64
@@ -70,6 +91,9 @@
       "control": "accent",
       "state": "Disabled",
       "theme": "Dark",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "accent-Disabled-Dark.bgra",
       "width": 160,
       "height": 64
@@ -78,6 +102,9 @@
       "control": "button",
       "state": "Normal",
       "theme": "Light",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "button-Normal-Light.bgra",
       "width": 160,
       "height": 64
@@ -86,6 +113,9 @@
       "control": "button",
       "state": "PointerOver",
       "theme": "Light",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "button-PointerOver-Light.bgra",
       "width": 160,
       "height": 64
@@ -94,6 +124,9 @@
       "control": "button",
       "state": "Pressed",
       "theme": "Light",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "button-Pressed-Light.bgra",
       "width": 160,
       "height": 64
@@ -102,6 +135,9 @@
       "control": "button",
       "state": "Disabled",
       "theme": "Light",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "button-Disabled-Light.bgra",
       "width": 160,
       "height": 64
@@ -110,6 +146,9 @@
       "control": "accent",
       "state": "Normal",
       "theme": "Light",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "accent-Normal-Light.bgra",
       "width": 160,
       "height": 64
@@ -118,6 +157,9 @@
       "control": "accent",
       "state": "PointerOver",
       "theme": "Light",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "accent-PointerOver-Light.bgra",
       "width": 160,
       "height": 64
@@ -126,6 +168,9 @@
       "control": "accent",
       "state": "Pressed",
       "theme": "Light",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "accent-Pressed-Light.bgra",
       "width": 160,
       "height": 64
@@ -134,8 +179,191 @@
       "control": "accent",
       "state": "Disabled",
       "theme": "Light",
+      "scale": 1,
+      "logical_width": 160,
+      "logical_height": 64,
       "file": "accent-Disabled-Light.bgra",
       "width": 160,
+      "height": 64
+    },
+    {
+      "control": "probe",
+      "name": "probe-r4-s1",
+      "scale": 1,
+      "logical_width": 64,
+      "logical_height": 64,
+      "box_width": 48,
+      "box_height": 48,
+      "radii": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "file": "probe-r4-s1.bgra",
+      "width": 64,
+      "height": 64
+    },
+    {
+      "control": "probe",
+      "name": "probe-r4-s15",
+      "scale": 1.5,
+      "logical_width": 64,
+      "logical_height": 64,
+      "box_width": 48,
+      "box_height": 48,
+      "radii": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "file": "probe-r4-s15.bgra",
+      "width": 96,
+      "height": 96
+    },
+    {
+      "control": "probe",
+      "name": "probe-r4-s2",
+      "scale": 2,
+      "logical_width": 64,
+      "logical_height": 64,
+      "box_width": 48,
+      "box_height": 48,
+      "radii": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "file": "probe-r4-s2.bgra",
+      "width": 128,
+      "height": 128
+    },
+    {
+      "control": "probe",
+      "name": "probe-r8-s1",
+      "scale": 1,
+      "logical_width": 64,
+      "logical_height": 64,
+      "box_width": 48,
+      "box_height": 48,
+      "radii": [
+        8,
+        8,
+        8,
+        8
+      ],
+      "file": "probe-r8-s1.bgra",
+      "width": 64,
+      "height": 64
+    },
+    {
+      "control": "probe",
+      "name": "probe-r8-s15",
+      "scale": 1.5,
+      "logical_width": 64,
+      "logical_height": 64,
+      "box_width": 48,
+      "box_height": 48,
+      "radii": [
+        8,
+        8,
+        8,
+        8
+      ],
+      "file": "probe-r8-s15.bgra",
+      "width": 96,
+      "height": 96
+    },
+    {
+      "control": "probe",
+      "name": "probe-r8-s2",
+      "scale": 2,
+      "logical_width": 64,
+      "logical_height": 64,
+      "box_width": 48,
+      "box_height": 48,
+      "radii": [
+        8,
+        8,
+        8,
+        8
+      ],
+      "file": "probe-r8-s2.bgra",
+      "width": 128,
+      "height": 128
+    },
+    {
+      "control": "probe",
+      "name": "probe-r16-s1",
+      "scale": 1,
+      "logical_width": 64,
+      "logical_height": 64,
+      "box_width": 48,
+      "box_height": 48,
+      "radii": [
+        16,
+        16,
+        16,
+        16
+      ],
+      "file": "probe-r16-s1.bgra",
+      "width": 64,
+      "height": 64
+    },
+    {
+      "control": "probe",
+      "name": "probe-r16-s15",
+      "scale": 1.5,
+      "logical_width": 64,
+      "logical_height": 64,
+      "box_width": 48,
+      "box_height": 48,
+      "radii": [
+        16,
+        16,
+        16,
+        16
+      ],
+      "file": "probe-r16-s15.bgra",
+      "width": 96,
+      "height": 96
+    },
+    {
+      "control": "probe",
+      "name": "probe-r16-s2",
+      "scale": 2,
+      "logical_width": 64,
+      "logical_height": 64,
+      "box_width": 48,
+      "box_height": 48,
+      "radii": [
+        16,
+        16,
+        16,
+        16
+      ],
+      "file": "probe-r16-s2.bgra",
+      "width": 128,
+      "height": 128
+    },
+    {
+      "control": "probe",
+      "name": "probe-asym-s1",
+      "scale": 1,
+      "logical_width": 64,
+      "logical_height": 64,
+      "box_width": 40,
+      "box_height": 20,
+      "radii": [
+        16,
+        0,
+        0,
+        0
+      ],
+      "file": "probe-asym-s1.bgra",
+      "width": 64,
       "height": 64
     }
   ]

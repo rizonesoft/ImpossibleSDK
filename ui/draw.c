@@ -1,10 +1,28 @@
 #include "draw.h"
 
-/* Coverage is counted on a grid of 16 rows by 1/256 pixel columns: the x
-   extent of the shape is exact on each row, so straight edges have no error. */
+/* Corner geometry comes from the pinned WinUI source
+   (dxaml/xcp/core/core/elements/geometry.cpp, CGeometryBuilder::ClampCornerRadii
+   and CalculateRoundedCornersRectangle): outer/inner radii are offset by half the
+   border thickness, and adjacent radii that exceed a shared edge are partitioned
+   proportionally along that edge rather than clamped to half the shorter side.
+
+   Corner coverage is inferred from measured WinUI 3 frames (probe-r4/r8/r16 at
+   scales 1, 1.5 and 2, plus the button captures): Direct2D flattens each 90-degree
+   cubic-bezier quarter-circle into N = 2^k inscribed chords by Wang's formula at
+   D2D1_DEFAULT_FLATTENING_TOLERANCE = 0.25 px (N=2 for r<=3, N=4 for r<=11, N=8
+   for r<=46, N=16 for r<=185). We integrate exact 16-row horizontal coverage over
+   those chords so corners stay strictly 8-way symmetric without reproducing GPU
+   per-primitive AA triangle asymmetry. */
 enum { ROWS = 16 };
 
+/* sin(pi * i / 32) in 0..65536 (16.16 fixed point) for i = 0..16. */
+static const uint32_t SIN16[17] = {
+    0, 6424, 12785, 19024, 25080, 30893, 36410, 41575,
+    46341, 50660, 54491, 57798, 60547, 62714, 64277, 65220, 65536
+};
+
 static int64_t root(int64_t value) {
+    if (value <= 0) return 0;
     int64_t result = 0, bit = (int64_t)1 << 62;
     while (bit > value) bit >>= 2;
     for (; bit; bit >>= 2) {
@@ -16,14 +34,6 @@ static int64_t root(int64_t value) {
         }
     }
     return result;
-}
-
-static im_fixed smaller(im_fixed a, im_fixed b) {
-    return a < b ? a : b;
-}
-
-static im_fixed larger(im_fixed a, im_fixed b) {
-    return a > b ? a : b;
 }
 
 /* Coordinates may be any im_fixed, so their sums and differences are 64-bit. */
@@ -40,24 +50,93 @@ static im_fixed held(int64_t value) {
     return (im_fixed)larger64(INT32_MIN, smaller64(INT32_MAX, value));
 }
 
-static void fit(im_rect shape, im_radii *radii) {
-    im_fixed most = held(larger64(0, smaller64((int64_t)shape.right - shape.left, (int64_t)shape.bottom - shape.top) / 2));
-    im_fixed *each[] = {&radii->top_left, &radii->top_right, &radii->bottom_right, &radii->bottom_left};
-    for (int i = 0; i < 4; i++) *each[i] = larger(0, smaller(*each[i], most));
+typedef struct fitted_radii {
+    int64_t tl_x, tl_y;
+    int64_t tr_x, tr_y;
+    int64_t br_x, br_y;
+    int64_t bl_x, bl_y;
+} fitted_radii;
+
+static int64_t clamp_pair(int64_t a, int64_t b, int64_t edge) {
+    int64_t total = a + b;
+    if (total <= edge || total <= 0) return a;
+    while (a > 0x7FFFFFFFLL || total > 0x7FFFFFFFLL) {
+        a >>= 1;
+        total >>= 1;
+    }
+    if (total <= 0) return edge / 2;
+    return (int64_t)(((uint64_t)a * (uint64_t)edge) / (uint64_t)total);
 }
 
-/* How far a corner pushes the edge in on this row. */
-static im_fixed inset(im_fixed radius, int64_t distance) {
-    if (distance >= radius) return 0;
-    int64_t up = radius - distance;
-    return radius - (im_fixed)root((int64_t)radius * radius - up * up);
+static fitted_radii fit(im_rect shape, im_radii radii) {
+    int64_t w = larger64(0, (int64_t)shape.right - shape.left);
+    int64_t h = larger64(0, (int64_t)shape.bottom - shape.top);
+    int64_t tl = larger64(0, radii.top_left);
+    int64_t tr = larger64(0, radii.top_right);
+    int64_t br = larger64(0, radii.bottom_right);
+    int64_t bl = larger64(0, radii.bottom_left);
+    fitted_radii out = {tl, tl, tr, tr, br, br, bl, bl};
+    if (out.tl_x + out.tr_x > w) {
+        out.tl_x = clamp_pair(out.tl_x, out.tr_x, w);
+        out.tr_x = w - out.tl_x;
+    }
+    if (out.tr_y + out.br_y > h) {
+        out.tr_y = clamp_pair(out.tr_y, out.br_y, h);
+        out.br_y = h - out.tr_y;
+    }
+    if (out.bl_x + out.br_x > w) {
+        out.bl_x = clamp_pair(out.bl_x, out.br_x, w);
+        out.br_x = w - out.bl_x;
+    }
+    if (out.tl_y + out.bl_y > h) {
+        out.tl_y = clamp_pair(out.tl_y, out.bl_y, h);
+        out.bl_y = h - out.tl_y;
+    }
+    return out;
 }
 
-static bool extent(im_rect shape, const im_radii *radii, int64_t y, int64_t *left, int64_t *right) {
+/* How far a corner pushes the edge in on this row, using D2D's chord flattening. */
+static int64_t inset(int64_t rx, int64_t ry, int64_t distance) {
+    if (rx <= 0 || ry <= 0 || distance >= ry) return 0;
+    int64_t up = ry - distance;
+    int64_t rmax = larger64(rx, ry);
+    int step = 0;
+    if (rmax <= 3 * IM_ONE) step = 8;                    /* N = 2 */
+    else if (rmax <= 11 * IM_ONE) step = 4;              /* N = 4 */
+    else if (rmax <= 46 * IM_ONE) step = 2;              /* N = 8 */
+    else if (rmax <= 185 * IM_ONE) step = 1;             /* N = 16 */
+
+    if (step > 0) {
+        uint64_t u = (uint64_t)up, d = (uint64_t)ry;
+        while (u > 0xFFFFFFFFULL || d > 0xFFFFFFFFULL) { u >>= 1; d >>= 1; }
+        uint32_t v = d ? (uint32_t)((u * IM_ONE) / d) : IM_ONE;
+        uint32_t cx = 0;
+        for (int i = 0; i < 16; i += step) {
+            uint32_t y0 = SIN16[i], y1 = SIN16[i + step];
+            if (v <= y1) {
+                uint32_t x0 = SIN16[16 - i], x1 = SIN16[16 - i - step];
+                uint32_t dy = y1 - y0;
+                uint32_t dx = x0 - x1;
+                cx = dy ? x0 - (uint32_t)(((uint64_t)(v - y0) * dx + dy / 2) / dy) : x1;
+                break;
+            }
+        }
+        return (int64_t)(((uint64_t)rx * (uint64_t)(IM_ONE - cx) + IM_ONE / 2) >> 16);
+    }
+
+    /* Large radii (> 208 px): exact quarter-ellipse, sagitta < 0.25 px. */
+    uint64_t u = (uint64_t)up, d = (uint64_t)ry;
+    while (u > 0x7FFFFFFFULL || d > 0x7FFFFFFFULL) { u >>= 1; d >>= 1; }
+    uint64_t v = d ? (u * IM_ONE) / d : IM_ONE;
+    int64_t cx = root((int64_t)IM_ONE * IM_ONE - (int64_t)(v * v));
+    return (int64_t)(((uint64_t)rx * (uint64_t)(IM_ONE - cx) + IM_ONE / 2) >> 16);
+}
+
+static bool extent(im_rect shape, const fitted_radii *radii, int64_t y, int64_t *left, int64_t *right) {
     if (y < shape.top || y >= shape.bottom) return false;
     int64_t above = y - shape.top, below = shape.bottom - y;
-    *left = (int64_t)shape.left + larger(inset(radii->top_left, above), inset(radii->bottom_left, below));
-    *right = (int64_t)shape.right - larger(inset(radii->top_right, above), inset(radii->bottom_right, below));
+    *left = (int64_t)shape.left + larger64(inset(radii->tl_x, radii->tl_y, above), inset(radii->bl_x, radii->bl_y, below));
+    *right = (int64_t)shape.right - larger64(inset(radii->tr_x, radii->tr_y, above), inset(radii->br_x, radii->br_y, below));
     return *left < *right;
 }
 
@@ -86,8 +165,8 @@ static int pixel(int64_t value, int limit) {
 
 static void shade(im_surface *surface, im_rect outer, im_radii outer_radii, const im_rect *hole, im_radii hole_radii, enum im_brush_id brush) {
     if (outer.left >= outer.right || outer.top >= outer.bottom) return;
-    fit(outer, &outer_radii);
-    if (hole) fit(*hole, &hole_radii);
+    fitted_radii outer_fit = fit(outer, outer_radii);
+    fitted_radii hole_fit = hole ? fit(*hole, hole_radii) : outer_fit;
     int top = pixel(outer.top, surface->height), bottom = pixel((int64_t)outer.bottom + IM_ONE - 1, surface->height);
     int from = pixel(outer.left, surface->width), to = pixel((int64_t)outer.right + IM_ONE - 1, surface->width);
     int64_t height = (int64_t)outer.bottom - outer.top;
@@ -95,8 +174,8 @@ static void shade(im_surface *surface, im_rect outer, im_radii outer_radii, cons
         int64_t left[ROWS], right[ROWS], hole_left[ROWS], hole_right[ROWS];
         for (int row = 0; row < ROWS; row++) {
             int64_t at = (int64_t)y * IM_ONE + row * (IM_ONE / ROWS) + IM_ONE / ROWS / 2;
-            if (!extent(outer, &outer_radii, at, &left[row], &right[row])) left[row] = right[row] = 0;
-            if (!hole || !extent(*hole, &hole_radii, at, &hole_left[row], &hole_right[row])) hole_left[row] = hole_right[row] = 0;
+            if (!extent(outer, &outer_fit, at, &left[row], &right[row])) left[row] = right[row] = 0;
+            if (!hole || !extent(*hole, &hole_fit, at, &hole_left[row], &hole_right[row])) hole_left[row] = hole_right[row] = 0;
         }
         uint32_t color = im_brush_over(&surface->palette, brush, (int64_t)y * IM_ONE + IM_ONE / 2 - outer.top, height, surface->scale);
         if (!(color >> 24)) continue;

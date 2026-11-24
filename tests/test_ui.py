@@ -49,31 +49,231 @@ class Generated(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
+EDGE_LIMIT = 1
+STANDARD_DARK_CORNER_LIMIT = 3
+STANDARD_LIGHT_CORNER_LIMIT = 6
+ACCENT_CORNER_LIMIT = 14
+PROBE_LIMIT = 40
+
+ACCENT_KEYS = (
+    "Accent", "AccentLight1", "AccentLight2", "AccentLight3",
+    "AccentDark1", "AccentDark2", "AccentDark3",
+)
+
+EXPECTED_CASES = [
+    *[
+        ("button_case", control, state, theme, 1.0, 160, 64, None)
+        for theme in ("Dark", "Light")
+        for control in ("button", "accent")
+        for state in ("Normal", "PointerOver", "Pressed", "Disabled")
+    ],
+    ("probe", "probe-r4-s1", None, None, 1.0, 64, 64, [4, 4, 4, 4]),
+    ("probe", "probe-r4-s15", None, None, 1.5, 64, 64, [4, 4, 4, 4]),
+    ("probe", "probe-r4-s2", None, None, 2.0, 64, 64, [4, 4, 4, 4]),
+    ("probe", "probe-r8-s1", None, None, 1.0, 64, 64, [8, 8, 8, 8]),
+    ("probe", "probe-r8-s15", None, None, 1.5, 64, 64, [8, 8, 8, 8]),
+    ("probe", "probe-r8-s2", None, None, 2.0, 64, 64, [8, 8, 8, 8]),
+    ("probe", "probe-r16-s1", None, None, 1.0, 64, 64, [16, 16, 16, 16]),
+    ("probe", "probe-r16-s15", None, None, 1.5, 64, 64, [16, 16, 16, 16]),
+    ("probe", "probe-r16-s2", None, None, 2.0, 64, 64, [16, 16, 16, 16]),
+    ("probe", "probe-asym-s1", None, None, 1.0, 64, 64, [16, 0, 0, 0]),
+]
+
+
+def validate_manifest(manifest):
+    """Verify the reference manifest independently of its own count."""
+    accents = manifest.get("accents", {})
+    accent_args = []
+    for key in ACCENT_KEYS:
+        val = accents.get(key)
+        if not isinstance(val, str) or len(val) != 8 or any(ch not in "0123456789abcdefABCDEF" for ch in val):
+            raise ValueError(f"missing or malformed accent shade {key}: {val!r}")
+        accent_args.append(val)
+    cases = manifest.get("cases", [])
+    seen = []
+    for case in cases:
+        scale = case.get("scale")
+        lw, lh = case.get("logical_width"), case.get("logical_height")
+        w, h = case.get("width"), case.get("height")
+        if scale is None or lw is None or lh is None or w is None or h is None:
+            raise ValueError(f"case missing scale or dimensions: {case}")
+        if w != round(lw * scale) or h != round(lh * scale):
+            raise ValueError(
+                f"dimension/scale mismatch for {case.get('file')}: "
+                f"{w}x{h} != round({lw}x{lh} * {scale})"
+            )
+        if case.get("control") == "probe":
+            ident = ("probe", case.get("name"), None, None, float(scale), lw, lh, case.get("radii"))
+        else:
+            ident = ("button_case", case.get("control"), case.get("state"), case.get("theme"), float(scale), lw, lh, None)
+        seen.append(ident)
+    if len(seen) != len(set(tuple(x if not isinstance(x, list) else tuple(x) for x in s) for s in seen)):
+        raise ValueError("duplicate case identity in manifest")
+    if seen != EXPECTED_CASES:
+        raise ValueError(f"manifest cases differ from expected 26 identities (got {len(seen)})")
+    return accent_args
+
+
+def check_probe_crispness(case, raw):
+    """Reject a resized lower-scale bitmap by requiring crisp 0->255 transitions on straight edges."""
+    w, h = case["width"], case["height"]
+    scale = case["scale"]
+    bw = round(case["box_width"] * scale)
+    bh = round(case["box_height"] * scale)
+    bx0 = (w - bw) // 2
+    by0 = (h - bh) // 2
+    bx1 = bx0 + bw
+    by1 = by0 + bh
+    mid_x = w // 2
+    mid_y = h // 2
+    # Top and bottom midpoints must transition cleanly 0 -> 255 without bilinear blur.
+    checks = [
+        ("top-out", mid_x, by0 - 1, 0),
+        ("top-in", mid_x, by0, 255),
+        ("bot-in", mid_x, by1 - 1, 255),
+        ("bot-out", mid_x, by1, 0),
+        ("right-in", bx1 - 1, mid_y, 255),
+        ("right-out", bx1, mid_y, 0),
+    ]
+    if case["radii"][0] == case["radii"][3]:
+        checks.extend([("left-out", bx0 - 1, mid_y, 0), ("left-in", bx0, mid_y, 255)])
+    for label, x, y, expected in checks:
+        got = raw[(y * w + x) * 4]
+        if got != expected:
+            raise ValueError(f"{case['name']} {label} at ({x},{y}): expected {expected}, got {got}")
+
+
+def bilinear_upscale(raw, sw, sh, dw, dh):
+    """Bilinearly upscale a BGRA buffer from sw x sh to dw x dh (simulating the cheaper substitute)."""
+    out = bytearray(dw * dh * 4)
+    for dy in range(dh):
+        sy = (dy + 0.5) * sh / dh - 0.5
+        y0 = max(0, min(sh - 1, int(sy)))
+        y1 = min(sh - 1, y0 + 1)
+        fy = max(0.0, min(1.0, sy - y0))
+        for dx in range(dw):
+            sx = (dx + 0.5) * sw / dw - 0.5
+            x0 = max(0, min(sw - 1, int(sx)))
+            x1 = min(sw - 1, x0 + 1)
+            fx = max(0.0, min(1.0, sx - x0))
+            dst = (dy * dw + dx) * 4
+            for k in range(4):
+                v00 = raw[(y0 * sw + x0) * 4 + k]
+                v10 = raw[(y0 * sw + x1) * 4 + k]
+                v01 = raw[(y1 * sw + x0) * 4 + k]
+                v11 = raw[(y1 * sw + x1) * 4 + k]
+                top = v00 * (1.0 - fx) + v10 * fx
+                bot = v01 * (1.0 - fx) + v11 * fx
+                out[dst + k] = round(top * (1.0 - fy) + bot * fy)
+    return bytes(out)
+
+
 @unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
 class Drawing(unittest.TestCase):
     def test_drawing(self):
-        self.assertEqual(subprocess.run([str(BUILD / "ui-tests.exe")], timeout=60).returncode, 0)
+        self.assertEqual(subprocess.run([str(BUILD / "ui-tests.exe")], stdin=subprocess.DEVNULL, capture_output=True, timeout=60).returncode, 0)
+
+    def test_manifest_validation_catches_faults(self):
+        folder = ROOT / "tests/reference"
+        manifest = json.loads((folder / "cases.json").read_text(encoding="utf-8"))
+        validate_manifest(manifest)
+
+        # Removing one probe must fail.
+        dropped = {**manifest, "cases": [c for c in manifest["cases"] if c.get("name") != "probe-r8-s15"]}
+        with self.assertRaises(ValueError):
+            validate_manifest(dropped)
+
+        # Relabelling a 100% capture (64x64) as 150% (scale=1.5) must fail.
+        relabelled_cases = [dict(c) for c in manifest["cases"]]
+        for c in relabelled_cases:
+            if c.get("name") == "probe-r4-s15":
+                c["width"] = 64
+                c["height"] = 64
+        with self.assertRaises(ValueError):
+            validate_manifest({**manifest, "cases": relabelled_cases})
+
+        # Duplicating a case must fail.
+        duped = {**manifest, "cases": [*manifest["cases"], manifest["cases"][-1]]}
+        with self.assertRaises(ValueError):
+            validate_manifest(duped)
+
+        # Missing or malformed accent shade must fail.
+        missing_accent = {**manifest, "accents": {k: v for k, v in manifest["accents"].items() if k != "AccentDark1"}}
+        with self.assertRaises(ValueError):
+            validate_manifest(missing_accent)
+        bad_accent = {**manifest, "accents": {**manifest["accents"], "Accent": "ZZZZZZZZ"}}
+        with self.assertRaises(ValueError):
+            validate_manifest(bad_accent)
+
+        # Upscaling a 100% probe to 96x96 and labelling it as 150% must fail crispness check.
+        r4_s1 = zlib.decompress((folder / "probe-r4-s1.bgra.z").read_bytes())
+        r4_s15_case = next(c for c in manifest["cases"] if c.get("name") == "probe-r4-s15")
+        upscaled = bilinear_upscale(r4_s1, 64, 64, 96, 96)
+        with self.assertRaises(ValueError):
+            check_probe_crispness(r4_s15_case, upscaled)
+
+    def test_control_shots_honours_accent_palette_and_rejects_malformed(self):
+        custom = ["FF11AA22", "FF22BB33", "FF33CC44", "FF44DD55", "FF556677", "FF667788", "FF778899"]
+        ours = subprocess.run([str(BUILD / "control-shots.exe"), *custom], capture_output=True, timeout=60, check=True).stdout
+        # Case 4 is accent Normal Dark (uses AccentLight2 = 0xFF33CC44); center pixel (80, 32).
+        dark_offset = 4 * 160 * 64 * 4 + (32 * 160 + 80) * 4
+        self.assertEqual((ours[dark_offset + 2], ours[dark_offset + 1], ours[dark_offset]), (0x33, 0xCC, 0x44))
+        # Case 12 is accent Normal Light (uses AccentDark1 = 0xFF556677); center pixel (80, 32).
+        light_offset = 12 * 160 * 64 * 4 + (32 * 160 + 80) * 4
+        self.assertEqual((ours[light_offset + 2], ours[light_offset + 1], ours[light_offset]), (0x55, 0x66, 0x77))
+        # Malformed accent argument must be refused with non-zero exit code.
+        bad = subprocess.run([str(BUILD / "control-shots.exe"), "NOTHEX"], capture_output=True, timeout=60)
+        self.assertNotEqual(bad.returncode, 0)
+
+    def test_guide_documents_verified_limits(self):
+        guide = (ROOT / "docs/guide/button.md").read_text(encoding="utf-8")
+        self.assertIn(f"{EDGE_LIMIT} of 255", guide)
+        self.assertIn(f"{STANDARD_DARK_CORNER_LIMIT} of 255", guide)
+        self.assertIn(f"{STANDARD_LIGHT_CORNER_LIMIT} of 255", guide)
+        self.assertIn(f"{ACCENT_CORNER_LIMIT} of 255", guide)
+        self.assertIn(f"{PROBE_LIMIT} of 255", guide)
 
     def test_buttons_match_real_winui(self):
-        """Straight edges and fills may differ by rounding only; corners have their own limit."""
+        """Straight edges and fills may differ by rounding only; corners and probes have verified limits."""
         folder = ROOT / "tests/reference"
-        cases = json.loads((folder / "cases.json").read_text(encoding="utf-8"))["cases"]
-        ours = subprocess.run([str(BUILD / "control-shots.exe")], capture_output=True, timeout=60, check=True).stdout
-        size = 160 * 64 * 4
-        self.assertEqual(len(ours), size * len(cases))
-        for index, case in enumerate(cases):
-            mine, real = ours[index * size:(index + 1) * size], zlib.decompress((folder / f"{case['file']}.z").read_bytes())
-            edge = corner = 0
-            for p in range(160 * 64):
-                x, y = p % 160, p // 160
-                off = max(abs(mine[p * 4 + k] - real[p * 4 + k]) for k in range(3))
-                if (x < 25 or x >= 135) and (y < 21 or y >= 43):
-                    corner = max(corner, off)
+        manifest = json.loads((folder / "cases.json").read_text(encoding="utf-8"))
+        accent_args = validate_manifest(manifest)
+        cases = manifest["cases"]
+        ours = subprocess.run([str(BUILD / "control-shots.exe"), *accent_args], capture_output=True, timeout=60, check=True).stdout
+        expected_bytes = sum(c["width"] * c["height"] * 4 for c in cases)
+        self.assertEqual(len(ours), expected_bytes)
+        offset = 0
+        for case in cases:
+            w, h = case["width"], case["height"]
+            size = w * h * 4
+            mine = ours[offset:offset + size]
+            offset += size
+            real = zlib.decompress((folder / f"{case['file']}.z").read_bytes())
+            self.assertEqual(len(real), size, case["file"])
+            if case["control"] == "probe":
+                check_probe_crispness(case, real)
+                worst = 0
+                for p in range(w * h):
+                    off = max(abs(mine[p * 4 + k] - real[p * 4 + k]) for k in range(3))
+                    if off > worst:
+                        worst = off
+                self.assertLessEqual(worst, PROBE_LIMIT, case["name"])
+            else:
+                edge = corner = 0
+                for p in range(w * h):
+                    x, y = p % w, p // w
+                    off = max(abs(mine[p * 4 + k] - real[p * 4 + k]) for k in range(3))
+                    if (x < 25 or x >= 135) and (y < 21 or y >= 43):
+                        corner = max(corner, off)
+                    else:
+                        edge = max(edge, off)
+                name = f"{case['control']} {case['state']} {case['theme']}"
+                self.assertLessEqual(edge, EDGE_LIMIT, name)
+                if case["control"] == "accent":
+                    limit = ACCENT_CORNER_LIMIT
                 else:
-                    edge = max(edge, off)
-            name = f"{case['control']} {case['state']} {case['theme']}"
-            self.assertLessEqual(edge, 1, name)
-            self.assertLessEqual(corner, 27 if case["control"] == "accent" else 3, name)
+                    limit = STANDARD_DARK_CORNER_LIMIT if case["theme"] == "Dark" else STANDARD_LIGHT_CORNER_LIMIT
+                self.assertLessEqual(corner, limit, name)
 
 
 if __name__ == "__main__":

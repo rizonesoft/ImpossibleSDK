@@ -23,7 +23,8 @@ typedef struct im_surface {
     im_fixed scale; /* 1.0 at 96 DPI */
 } im_surface;
 
-/* Edges are smoothed. A radius larger than half the shape is reduced to fit. */
+/* Edges are smoothed. Adjacent corner radii that exceed their shared edge are
+   partitioned proportionally along that edge, matching WinUI's geometry rule. */
 void im_fill(im_surface *surface, im_rect shape, im_radii radii, enum im_brush_id brush);
 
 /* The ring between a shape and the same shape inset by the thickness. The radii

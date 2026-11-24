@@ -101,8 +101,11 @@ def badge(light):
 
 def comparison(out):
     """Our buttons beside real WinUI's, from the frames the tests compare: rest, hover, pressed and disabled, dark and light."""
-    cases = json.loads((ROOT / "tests/reference/cases.json").read_text(encoding="utf-8"))["cases"]
-    ours = subprocess.run([ROOT / "build/linux/control-shots.exe"], capture_output=True, check=True, timeout=60).stdout
+    manifest = json.loads((ROOT / "tests/reference/cases.json").read_text(encoding="utf-8"))
+    cases = [c for c in manifest["cases"] if c.get("control") in ("button", "accent")]
+    accent_keys = ("Accent", "AccentLight1", "AccentLight2", "AccentLight3", "AccentDark1", "AccentDark2", "AccentDark3")
+    accent_args = [manifest["accents"][k] for k in accent_keys]
+    ours = subprocess.run([ROOT / "build/linux/control-shots.exe", *accent_args], capture_output=True, check=True, timeout=60).stdout
     size = 160 * 64 * 4
     width, height, zoom = 4 * 160, 4 * 64, 2
     sheets = []

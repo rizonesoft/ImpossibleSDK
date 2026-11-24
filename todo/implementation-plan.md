@@ -244,4 +244,4 @@ Sections: 1 | Checklist items: 3
 
 Progress: 0/187 verified sections, 6 ready to run now.
 
-Checklist: 0/1539 items completed (includes Commit items).
+Checklist: 4/1539 items completed (includes Commit items).

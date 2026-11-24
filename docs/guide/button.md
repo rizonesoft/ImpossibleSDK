@@ -5,13 +5,15 @@ How do we know it looks like Windows 11? A small program draws the same control 
 
 ## What is compared today?
 
-The standard and the accent button, at rest, hovered, pressed and disabled, dark and light: sixteen cases at 100 percent, without text.
+The standard and the accent button, at rest, hovered, pressed and disabled, dark and light (sixteen cases at 100 percent, without text), plus ten white-on-black corner radius probes (radii 4, 8 and 16 at scales 1, 1.5 and 2, and an asymmetric 40 by 20 probe with a single radius-16 corner).
 
 | Part | May differ by |
 | --- | --- |
 | Straight edges and fills | 1 of 255, which is rounding |
-| Corners of the standard button | 3 of 255 |
-| Corners of the accent button | 27 of 255 |
+| Corners of the standard button (dark) | 3 of 255 |
+| Corners of the standard button (light) | 6 of 255 |
+| Corners of the accent button | 14 of 255 |
+| White-on-black radius probes | 40 of 255 |
 
 The limits are in the test itself:
 
@@ -19,9 +21,9 @@ The limits are in the test itself:
                 im_draw_button(&surface, (im_rect){20 * pad, 16 * pad, 140 * pad, 48 * pad}, (im_button_style)style, (im_button_state)state);
 ```
 
-## Why are accent corners further off?
+## How are corners smoothed?
 
-WinUI smooths its curves a little more softly than the exact area. Finding its rule is the first section of the [plan](site:controls.html).
+Corner clamping follows WinUI's `CGeometryBuilder::CalculateRoundedCornersRectangle`, which partitions adjacent corner radii proportionally along each shared edge. Each quarter-circle arc is flattened into `N = 2^k` inscribed chords following Direct2D's `0.25` px flattening tolerance (`N = 4` up to 11 px, `N = 8` up to 46 px, `N = 16` up to 185 px). The remaining difference on corners comes from Direct2D's GPU per-primitive triangle antialiasing, which is itself asymmetric by 8 to 24 of 255 across the four corners of a symmetric probe and by 11 of 255 between the top and left edges of an accent button, while Impossible UI keeps corners strictly symmetric.
 
 ## Where do the values come from?
 

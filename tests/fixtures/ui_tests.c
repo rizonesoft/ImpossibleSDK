@@ -38,11 +38,12 @@ int im_main(void) {
         for (int x = 0; x < 32; x++)
             if (at(10 + x, 10 + y) != at(41 - x, 10 + y) || at(10 + x, 10 + y) != at(10 + x, 41 - y)) return 5;
 
-    clear(); /* the area of a circle of radius 16 is 804.25 */
+    clear(); /* oversized radii clamp to fit; a D2D-flattened N=8 (32-gon) circle of radius 16 has area 799.09 */
     im_fill(&surface, box(10, 10, 42, 42), (im_radii){99 * IM_ONE, 99 * IM_ONE, 99 * IM_ONE, 99 * IM_ONE}, white);
+    if (at(10, 10) != 0 || (at(25, 10) & 255) < 230 || (at(10, 25) & 255) < 230 || at(25, 11) != 0xFFFFFF) return 6;
     uint32_t sum = 0;
     for (int i = 0; i < W * H; i++) sum += pixels[i] & 255;
-    if (sum < 804 * 255 || sum > 805 * 255) return 6;
+    if (sum < 798 * 255 || sum > 800 * 255) return 6;
 
     clear();
     im_stroke(&surface, box(10, 10, 42, 42), round, IM_ONE, white);
@@ -97,10 +98,33 @@ int im_main(void) {
     if (alpha == white_by >> 24) return 20; /* the two heights give different opacities here */
     if ((at(2, 1) & 255) != (255 * (255 - alpha) + 127) / 255) return 21;
 
-    /* The subtle button's background ends inside its border (InnerBorderEdge). */
+    /* The subtle button's background ends inside its border (InnerBorderEdge), and its corner is rounded. */
     surface.palette.theme = IM_DARK;
     clear();
     im_draw_button(&surface, box(0, 0, 60, 32), IM_BUTTON_SUBTLE, IM_HOVER);
     if (at(30, 0) != 0x0F0F0F || at(30, 16) != 0x0F0F0F) return 22;
+    if (at(0, 0) != 0 || at(2, 0) == 0 || at(2, 0) == 0x0F0F0F) return 23;
+
+    /* Asymmetric corner fitting matches CGeometryBuilder::CalculateRoundedCornersRectangle:
+       a 40x20 box with top-left radius 16 and three square corners keeps radius 16 (not clamped to 10). */
+    clear();
+    im_fill(&surface, box(12, 22, 52, 42), (im_radii){16 * IM_ONE, 0, 0, 0}, white);
+    if (at(12, 22) != 0 || at(12, 30) != 0) return 24; /* outside the r=16 corner; would be lit if clamped to 10 */
+    if (at(12, 38) != 0xFFFFFF || at(51, 22) != 0xFFFFFF || at(51, 41) != 0xFFFFFF || at(12, 41) != 0xFFFFFF) return 25;
+
+    /* Competing unequal radii: 40x20 with top_left=16, bottom_left=12 splits the 20px left edge
+       proportionally (tl_y = 16*20/28 = 11.43, bl_y = 8.57) while keeping tl_x=16, bl_x=12. */
+    clear();
+    im_fill(&surface, box(10, 20, 50, 40), (im_radii){16 * IM_ONE, 0, 0, 12 * IM_ONE}, white);
+    /* Left edge meets at y = 20 + 11.43 = 31.43: pixel (10, 31) is near the tangent, (10, 20) is empty,
+       and along the top edge (25, 20) is still partial because tl_x remains 16 (not clamped to 11.43). */
+    if (at(10, 20) != 0 || at(10, 39) != 0) return 26;
+    if ((at(10, 31) & 255) < 200) return 27;
+    if (at(25, 20) == 0xFFFFFF) return 28; /* tl_x = 16 leaves x=25 partial; clamping to 11.43 would fill it */
+    if (at(26, 20) != 0xFFFFFF || at(22, 39) != 0xFFFFFF) return 29;
+    /* Exercise im_stroke with competing unequal radii as well. */
+    clear();
+    im_stroke(&surface, box(10, 20, 50, 40), (im_radii){16 * IM_ONE, 0, 0, 12 * IM_ONE}, 2 * IM_ONE, white);
+    if (at(10, 20) != 0 || at(30, 20) != 0xFFFFFF || at(30, 22) != 0 || at(49, 30) != 0xFFFFFF) return 30;
     return 0;
 }

@@ -471,11 +471,15 @@ class Site:
 
     def picture(self):
         """Impossible UI and real WinUI, from the same cases the tests compare."""
-        wide, high, cases = 160, 64, json.loads(self.read("tests/reference/cases.json"))["cases"]
+        manifest = json.loads(self.read("tests/reference/cases.json"))
+        wide, high = 160, 64
+        cases = [c for c in manifest["cases"] if c.get("control") in ("button", "accent")]
         frame = wide * high * 4
         real = [zlib.decompress((self.root / "tests/reference" / f"{c['file']}.z").read_bytes()) for c in cases]
         if self.run:
-            shots = subprocess.run([str(self.built / "control-shots.exe")], capture_output=True, timeout=60, check=True).stdout
+            accent_keys = ("Accent", "AccentLight1", "AccentLight2", "AccentLight3", "AccentDark1", "AccentDark2", "AccentDark3")
+            accent_args = [manifest["accents"][k] for k in accent_keys]
+            shots = subprocess.run([str(self.built / "control-shots.exe"), *accent_args], capture_output=True, timeout=60, check=True).stdout
             ours = [shots[i * frame:(i + 1) * frame] for i in range(len(cases))]
         else:
             ours = real
