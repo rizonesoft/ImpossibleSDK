@@ -105,7 +105,7 @@ class LivePass(unittest.TestCase):
         self.assertEqual(code, 1)
 
     def test_everything_that_decides_the_verdict_owes_a_pass(self):
-        for name in ("tests/reference/cases.json", "tests/frames.py", "tools/winui/check_package.py", "tools/winvm/needs.json"):
+        for name in ("tests/reference/cases.json", "tests/frames.py", "tools/winui/check_package.py", "tools/winvm/needs.json", "ui/template_data.c"):
             self.attempt(0, {"outcome": "ran", "exit": 0})
             self.assertFalse(live.owed(self.root))
             (self.root / name).parent.mkdir(parents=True, exist_ok=True)
@@ -126,7 +126,7 @@ class LivePass(unittest.TestCase):
 
     def test_live_job_differences_catches_extra_captured_case(self):
         sys.path.insert(0, str(ROOT / "reference"))
-        import live_job
+        import live_job, zlib
         with tempfile.TemporaryDirectory() as tmp:
             fresh = Path(tmp) / "fresh"
             store = Path(tmp) / "store"
@@ -136,6 +136,28 @@ class LivePass(unittest.TestCase):
             (fresh / "cases.json").write_text(json.dumps({"cases": [{"id": "new-unstored-case"}]}), encoding="utf-8")
             found = live_job.differences(fresh, store)
             self.assertIn("new-unstored-case: not in store", found)
+
+            # Accent frames: accept different guest accent color in the same silhouette, reject a blank frame.
+            w, h = 8, 6
+            bg = bytes([32, 32, 32, 255])
+            def make_box(color):
+                buf = bytearray(bg * (w * h))
+                for y in range(1, 5):
+                    for x in range(2, 6):
+                        buf[(y * w + x) * 4 : (y * w + x) * 4 + 4] = color
+                return bytes(buf)
+            want_px = make_box(bytes([200, 100, 50, 255]))
+            alt_color_px = make_box(bytes([50, 120, 220, 255]))
+            blank_px = bg * (w * h)
+            case = {"id": "accent-Normal-Dark", "control": "accent", "width": w, "height": h, "file": "acc.bgra"}
+            (store / "cases.json").write_text(json.dumps({"cases": [case]}), encoding="utf-8")
+            (store / "acc.bgra.z").write_bytes(zlib.compress(want_px))
+            (fresh / "cases.json").write_text(json.dumps({"cases": [case]}), encoding="utf-8")
+            (fresh / "acc.bgra").write_bytes(alt_color_px)
+            self.assertEqual(live_job.differences(fresh, store), [])
+            (fresh / "acc.bgra").write_bytes(blank_px)
+            blank_found = live_job.differences(fresh, store)
+            self.assertTrue(any("accent frame is blank" in m for m in blank_found), blank_found)
 
     @unittest.skipUnless(os.name != "nt", "POSIX process-group teardown test")
     def test_timeout_kills_whole_process_tree(self):

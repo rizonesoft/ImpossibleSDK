@@ -31,6 +31,28 @@ def register_fonts(folder):
             winreg.SetValueEx(key, f"{source.stem} (TrueType)", 0, winreg.REG_SZ, str(target))
 
 
+def _non_bg_bbox(buf, width, height):
+    """Bounding box (min_x, min_y, max_x, max_y) of pixels differing from top-left background by > 8, or None if blank."""
+    if not buf or width <= 0 or height <= 0:
+        return None
+    bg = (buf[0], buf[1], buf[2])
+    min_x, min_y, max_x, max_y = width, height, -1, -1
+    for y in range(height):
+        row = y * width * 4
+        for x in range(width):
+            off = row + x * 4
+            if max(abs(buf[off] - bg[0]), abs(buf[off + 1] - bg[1]), abs(buf[off + 2] - bg[2])) > 8:
+                if x < min_x:
+                    min_x = x
+                if x > max_x:
+                    max_x = x
+                if y < min_y:
+                    min_y = y
+                if y > max_y:
+                    max_y = y
+    return None if max_x < 0 else (min_x, min_y, max_x, max_y)
+
+
 def differences(fresh_dir, store):
     fresh = {c["id"]: c for c in json.loads((fresh_dir / "cases.json").read_text(encoding="utf-8"))["cases"]}
     stored = {c["id"]: c for c in json.loads((store / "cases.json").read_text(encoding="utf-8"))["cases"]}
@@ -41,13 +63,26 @@ def differences(fresh_dir, store):
             continue
         new = fresh[i]
         found += [f"{i}: {key} differs" for key in EXACT if new.get(key) != old.get(key)]
-        if "file" not in old or old["control"] == "accent":
+        if "file" not in old:
             continue
         name = old["file"] if old["file"].endswith(".z") else old["file"] + ".z"
         want = zlib.decompress((store / name).read_bytes())
         got = (fresh_dir / new["file"]).read_bytes()
+        if len(want) != len(got):
+            found.append(f"{i}: frame byte size differs ({len(got)} vs {len(want)})")
+            continue
+        if old.get("control") == "accent" or old.get("case_group") == "accent" or i.startswith("accent-"):
+            w, h = int(old["width"]), int(old["height"])
+            want_box = _non_bg_bbox(want, w, h)
+            got_box = _non_bg_bbox(got, w, h)
+            if want_box is not None and got_box is None:
+                found.append(f"{i}: accent frame is blank (expected silhouette {want_box})")
+            elif want_box is not None and got_box is not None:
+                if max(abs(a - b) for a, b in zip(want_box, got_box)) > 2:
+                    found.append(f"{i}: accent silhouette differs ({got_box} vs {want_box})")
+            continue
         worst = max((abs(a - b) for a, b in zip(want, got)), default=0)
-        if len(want) != len(got) or worst > PIXEL_LIMIT:
+        if worst > PIXEL_LIMIT:
             found.append(f"{i}: pixels differ by {worst}")
     return found
 

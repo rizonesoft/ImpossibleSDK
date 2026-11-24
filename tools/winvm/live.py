@@ -32,7 +32,14 @@ except ImportError:  # Windows, where only the tests import this
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 PASS = "tests/live-pass.json"
-COVERED = ("tests/test_live.py", "tests/frames.py", "tools/winui/check_package.py", "tools/winui/pin.json", "tools/winvm/needs.json")
+COVERED = (
+    "tests/test_live.py",
+    "tests/frames.py",
+    "tools/winui/check_package.py",
+    "tools/winui/pin.json",
+    "tools/winvm/needs.json",
+    "ui/template_data.c",
+)
 TRY = "build/live-try.json"
 CACHE = Path.home() / ".cache/impossible-sdk/winvm"
 NOT_NOW = 75
