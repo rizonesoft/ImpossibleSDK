@@ -860,16 +860,29 @@ public partial class App : Application
             }
             else if (obj is RichEditBox reb)
             {
-                reb.Document.GetText(Microsoft.UI.Text.TextGetOptions.None, out string rebText);
-                rebText = rebText.TrimEnd('\r', '\n');
-                if (!string.IsNullOrEmpty(rebText))
+                string elemName = string.IsNullOrEmpty(reb.Name) ? "RichEditBox" : $"RichEditBox:{reb.Name}";
+                string fallbackFont = reb.FontFamily?.Source ?? "";
+                var range = reb.Document.GetRange(0, 0);
+                int pos = 0;
+                while (range.Expand(Microsoft.UI.Text.TextRangeUnit.CharacterFormat) > 0)
                 {
-                    items.Add(new Dictionary<string, string>
+                    int end = range.EndPosition;
+                    range.GetText(Microsoft.UI.Text.TextGetOptions.None, out string runText);
+                    runText = runText.TrimEnd('\r', '\n');
+                    if (!string.IsNullOrEmpty(runText))
                     {
-                        ["element"] = string.IsNullOrEmpty(reb.Name) ? "RichEditBox" : $"RichEditBox:{reb.Name}",
-                        ["font"] = reb.FontFamily?.Source ?? "",
-                        ["text"] = rebText,
-                    });
+                        string runFont = range.CharacterFormat?.Name;
+                        if (string.IsNullOrEmpty(runFont)) runFont = fallbackFont;
+                        items.Add(new Dictionary<string, string>
+                        {
+                            ["element"] = elemName,
+                            ["font"] = runFont,
+                            ["text"] = runText,
+                        });
+                    }
+                    if (end <= pos) break;
+                    pos = end;
+                    range.SetRange(pos, pos);
                 }
             }
             else if (obj is PasswordBox pbox)

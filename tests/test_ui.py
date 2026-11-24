@@ -2378,7 +2378,7 @@ class ReferenceHarness(unittest.TestCase):
             with self.assertRaises(ValueError) as cm_scr_reb:
                 ref_run.check_no_prohibited_assets(
                     {"id": "reb-shift-bang", "control": "RichEditBox", "properties": {"FontFamily": "Inter"},
-                     "script": [{"action": "focus"}, {"action": "key_press", "key": "1", "modifiers": ["Shift"]}]},
+                     "script": [{"action": "focus"}, {"action": "key_press", "key": "Number1", "modifiers": ["Shift"]}]},
                     require_installed=True, installed_fonts=["inter"],
                     installed_font_ranges={"inter": [[0x31, 0x31]]},
                     captured_frame={"id": "reb-shift-bang", "rendered_text": []},
@@ -3137,7 +3137,7 @@ class LiveReference(unittest.TestCase):
                         "theme": "Dark",
                         "scale": 1.0,
                         "frame": {"width": 180, "height": 64},
-                        "properties": {"Name": "ShiftBox", "Text": "", "Width": 140, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "properties": {"Name": "ShiftBox", "Text": "", "FontFamily": "Inter", "Width": 140, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
                         "script": [
                             {"action": "focus"},
                             {"action": "key_down", "key": "Shift"},
@@ -3146,6 +3146,15 @@ class LiveReference(unittest.TestCase):
                             {"action": "key_up", "key": "Shift"},
                             {"action": "key_press", "key": "C"},
                         ],
+                    },
+                    {
+                        "id": "btn-touch-nofocus",
+                        "control": "Button",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Name": "NoFocusBtn", "Width": 120, "Height": 32, "IsTabStop": True, "AllowFocusOnInteraction": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [{"action": "touch_tap"}],
                     },
                     {
                         "id": "prop-togglebtn",
@@ -3397,11 +3406,11 @@ class LiveReference(unittest.TestCase):
                 self.assertIn(shift_text, ("ABc", "abC"))
                 self.assertEqual(shift_text[0].isupper(), shift_text[1].isupper())
                 self.assertNotEqual(shift_text[1].isupper(), shift_text[2].isupper())
-                # Live rendered_text captures post-script displayed characters and real font, and feeds publish_store end to end.
+                # Live rendered_text captures post-script displayed characters and exact FontFamily, and feeds publish_store end to end.
                 rt_entries = by1["tb-overlap-shift"].get("rendered_text", [])
                 matched_rt = [rt for rt in rt_entries if rt.get("text") == shift_text]
                 self.assertTrue(matched_rt, f"expected {shift_text!r} in live rendered_text={rt_entries!r}")
-                self.assertTrue(matched_rt[0].get("font"), f"expected non-empty collected font in {matched_rt[0]!r}")
+                self.assertEqual(matched_rt[0].get("font", "").strip().lower(), "inter")
                 pub_live_fresh = Path(tmp) / "pub_live_fresh"
                 pub_live_fresh.mkdir()
                 shutil.copy2(out1 / by1["tb-overlap-shift"]["file"], pub_live_fresh / by1["tb-overlap-shift"]["file"])
@@ -3417,6 +3426,9 @@ class LiveReference(unittest.TestCase):
                         {"tb-overlap-shift": {"id": "tb-overlap-shift", "control": "TextBox", "properties": {"FontFamily": "Inter"}}},
                     )
                 self.assertIn("rendered_text", str(cm_live_pub.exception))
+                self.assertIn("not covered by installed FontFamily", str(cm_live_pub.exception))
+                # touch_tap on AllowFocusOnInteraction=False button succeeds without timing out.
+                self.assertEqual(by1["btn-touch-nofocus"]["script_log"]["FinalState"]["clicks"], 1)
 
                 # Generic property dispatch verifies actual configured values on ToggleButton, ProgressBar, Slider, and ComboBox.
                 self.assertIs(by1["prop-togglebtn"].get("is_checked"), True)

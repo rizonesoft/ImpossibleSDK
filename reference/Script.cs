@@ -673,7 +673,7 @@ public static class Script
                         EnsureForeground(hwnd, currentStep);
                         SendTouch(pt, POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT);
                         activeTouchPt = pt;
-                        bool expectPointerFocus = target is Control fc && fc.IsTabStop && fc.IsEnabled;
+                        bool expectPointerFocus = target is Control fc && fc.IsTabStop && fc.IsEnabled && fc.AllowFocusOnInteraction;
                         bool settled = false;
                         bool pressed = false;
                         bool focused = false;
