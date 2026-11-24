@@ -270,7 +270,10 @@ def parse_xaml(text, filename):
             if el_ns == ns_xaml:
                 if el_local not in ("Boolean", "Double", "Int32", "String"):
                     raise TemplateError(f"{filename}:{base_line}: unsupported x: element {el_local!r}")
-            elif el_ns != ns_pres:
+            elif el_ns == ns_pres:
+                if el_local in ("Boolean", "Double", "Int32", "String"):
+                    raise TemplateError(f"{filename}:{base_line}: XAML primitive {el_local!r} must use the x: namespace")
+            else:
                 raise TemplateError(f"{filename}:{base_line}: unsupported element namespace {el_ns!r} for {el_local!r}")
         else:
             el_local = local_name(tag)
@@ -670,6 +673,9 @@ class Compiler:
                     if len(sub.children) != 1:
                         raise TemplateError(f"{sub.file}:{sub.line}: expected single value element in {sub.tag}")
                     inner = sub.children[0]
+                    check_attrs(inner, set())
+                    if inner.children:
+                        raise TemplateError(f"{inner.children[0].file}:{inner.children[0].line}: unexpected element {inner.children[0].tag!r} in {inner.tag}")
                     if inner.tag in ("Visibility", "Boolean"):
                         val = self.parse_value(inner.text, inner.tag, inner.file, inner.line)
                     else:
@@ -950,6 +956,8 @@ class Compiler:
                         nested_idx = self.compile_control_template(tc, key=f"{key}.ItemContainerTransitions", target_type=target_type, style_setters=(0, 0), enum_id=None)
                         local_setters.append({"target": None, "property": prop, "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{key}.ItemContainerTransitions", "fallback": None}})
             elif "Value" in child.attrs:
+                if child.children:
+                    raise TemplateError(f"{child.children[0].file}:{child.children[0].line}: unexpected element {child.children[0].tag!r} in Setter")
                 val = self.parse_value(child.attrs["Value"], prop, child.file, child.attr_line("Value"))
                 local_setters.append({"target": None, "property": prop, "value": val})
             else:
@@ -1108,6 +1116,7 @@ def main():
         elif doc.tag == "ControlTemplate":
             comp.compile_control_template(doc, key="Fixture", target_type=doc.attrs.get("TargetType", ""), style_setters=(0, 0), enum_id=None)
         elif doc.tag == "ResourceDictionary":
+            check_attrs(doc, {"Ignorable"})
             for child in doc.children:
                 if child.tag == "Style":
                     comp.compile_style(child)

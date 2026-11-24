@@ -625,6 +625,46 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_prop.returncode, 0)
         self.assertIn(f"{path_prop}:4:", res_prop.stderr)
 
+        # Keyframe scalar value elements must reject attributes, child elements, and presentation-namespace Boolean.
+        xaml_kf_attr = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible">\n'
+            '      <DiscreteObjectKeyFrame KeyTime="0"><DiscreteObjectKeyFrame.Value><x:Boolean Bogus="1">True</x:Boolean></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>\n'
+            '    </ObjectAnimationUsingKeyFrames>\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_kfa, path_kfa = self._run_fixture(xaml_kf_attr)
+        self.assertNotEqual(res_kfa.returncode, 0)
+        self.assertIn(f"{path_kfa}:4:", res_kfa.stderr)
+
+        xaml_kf_child = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible">\n'
+            '      <DiscreteObjectKeyFrame KeyTime="0"><DiscreteObjectKeyFrame.Value><x:Boolean>True<Unknown /></x:Boolean></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>\n'
+            '    </ObjectAnimationUsingKeyFrames>\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_kfc, path_kfc = self._run_fixture(xaml_kf_child)
+        self.assertNotEqual(res_kfc.returncode, 0)
+        self.assertIn(f"{path_kfc}:4:", res_kfc.stderr)
+
+        xaml_pres_bool = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible">\n'
+            '      <DiscreteObjectKeyFrame KeyTime="0"><DiscreteObjectKeyFrame.Value><Boolean xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">True</Boolean></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>\n'
+            '    </ObjectAnimationUsingKeyFrames>\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_pb, path_pb = self._run_fixture(xaml_pres_bool)
+        self.assertNotEqual(res_pb.returncode, 0)
+        self.assertIn(f"{path_pb}:4:", res_pb.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3
