@@ -159,9 +159,9 @@ typedef struct im_ucd_name_entry {
     uint8_t tok_len;
 } im_ucd_name_entry;
 
-extern const im_ucd_prop im_ucd_props[1269];
+extern const im_ucd_prop im_ucd_props[1271];
 extern const uint16_t im_ucd_stage1[4352];
-extern const uint16_t im_ucd_stage2[50944];
+extern const uint16_t im_ucd_stage2[51200];
 extern const char *const im_ucd_script_names[171];
 extern const size_t im_ucd_script_count;
 extern const im_ucd_pair im_ucd_mirrors[428];

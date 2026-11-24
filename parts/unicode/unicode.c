@@ -1123,6 +1123,7 @@ static size_t lb_feed_impl(im_unicode_breaker *st, const uint32_t *cps, size_t l
             uint8_t cur_b = lb_base(cur_raw);
             if (lb_is_cm_or_zwj(cur_b) && lb_is_lb9_base(st->pending_first)) {
                 st->pending_mid_count++;
+                st->pending_kind = (cur_b == IM_LB_ZWJ) ? 2u : 1u;
                 continue;
             }
             /* Resolve pending with lookahead = cur_raw */
@@ -1136,7 +1137,7 @@ static size_t lb_feed_impl(im_unicode_breaker *st, const uint32_t *cps, size_t l
             for (size_t k = 0u; k < st->pending_mid_count; k++) {
                 if (write_out) breaks[w] = IM_BREAK_NONE; /* LB9 absorbed */
                 w++;
-                st->lb_prev_class = IM_LB_CM;
+                st->lb_prev_class = (k + 1u == st->pending_mid_count && st->pending_kind == 2u) ? IM_LB_ZWJ : IM_LB_CM;
             }
             st->pending_kind = 0u;
             st->pending_mid_count = 0u;
@@ -1276,16 +1277,20 @@ typedef struct bidi_bracket_pair {
 } bidi_bracket_pair;
 
 size_t im_unicode_bidi_scratch_size(size_t len) {
+    if (len == 0u) {
+        return 0u;
+    }
     /* Per codepoint:
-     *   orig_cls[len]  (uint8_t)
-     *   cur_cls[len]   (uint8_t)
-     *   levels[len]    (uint8_t)
-     *   run_idx[len]   (size_t)
-     *   iso_match[len] (size_t)
-     *   run_pos[len]   (size_t)
+     *   orig_cls[len]    (uint8_t)
+     *   cur_cls[len]     (uint8_t)
+     *   tmp_levels[len]  (uint8_t)
+     *   run_idx[len]     (size_t)
+     *   iso_match[len]   (size_t)
+     *   run_pos[len]     (size_t)
+     *   aux_stack[len]   (size_t: O(N) BD9 isolate stack, then reused for BD16 completed bracket pairs <= len/2 * 2)
      * Plus alignment padding (64 bytes).
      */
-    size_t per = 3u * sizeof(uint8_t) + 3u * sizeof(size_t);
+    size_t per = 3u * sizeof(uint8_t) + 4u * sizeof(size_t);
     if (len > (SIZE_MAX - 64u) / per) {
         return SIZE_MAX;
     }
@@ -1444,6 +1449,7 @@ static im_unicode_error bidi_resolve_core(const uint32_t *cps, const uint8_t *gi
     size_t *run_idx = (size_t *)p; p += len * sizeof(size_t);
     size_t *iso_match = (size_t *)p; p += len * sizeof(size_t);
     size_t *run_pos = (size_t *)p; p += len * sizeof(size_t);
+    size_t *aux_buf = (size_t *)p; p += len * sizeof(size_t);
     uint8_t *orig_cls = (uint8_t *)p; p += len;
     uint8_t *cur_cls = (uint8_t *)p; p += len;
     uint8_t *tmp_levels = (uint8_t *)p;
@@ -1465,21 +1471,16 @@ static im_unicode_error bidi_resolve_core(const uint32_t *cps, const uint8_t *gi
         *resolved_base_out = para_level;
     }
 
-    /* Precompute matching PDI for each isolate initiator (BD9) */
-    for (size_t i = 0u; i < len; i++) {
-        if (bidi_is_isolate_initiator(orig_cls[i])) {
-            size_t depth = 1u;
-            for (size_t j = i + 1u; j < len; j++) {
-                if (bidi_is_isolate_initiator(orig_cls[j])) {
-                    depth++;
-                } else if (orig_cls[j] == IM_BIDI_PDI) {
-                    depth--;
-                    if (depth == 0u) {
-                        iso_match[i] = j;
-                        iso_match[j] = i;
-                        break;
-                    }
-                }
+    /* Precompute matching PDI for each isolate initiator in O(N) using aux_buf as stack (BD9) */
+    {
+        size_t iso_sp = 0u;
+        for (size_t i = 0u; i < len; i++) {
+            if (bidi_is_isolate_initiator(orig_cls[i])) {
+                aux_buf[iso_sp++] = i;
+            } else if (orig_cls[i] == IM_BIDI_PDI && iso_sp > 0u) {
+                size_t open_i = aux_buf[--iso_sp];
+                iso_match[open_i] = i;
+                iso_match[i] = open_i;
             }
         }
     }
@@ -1738,24 +1739,24 @@ static im_unicode_error bidi_resolve_core(const uint32_t *cps, const uint8_t *gi
             }
         }
 
-        /* N0: Paired Brackets (BD16) when codepoints are provided */
+        /* N0: Paired Brackets (BD16) when codepoints are provided; reuse aux_buf for unlimited completed pairs (<= len/2) */
         if (cps) {
             size_t open_pos_stk[BIDI_BRACKET_STACK_MAX];
             uint32_t open_pair_stk[BIDI_BRACKET_STACK_MAX];
             size_t bsp = 0u;
-            /* Collect up to 256 pairs directly on stack (most paragraphs have < 32 brackets; if more, still safe) */
-            bidi_bracket_pair pairs[256];
+            bidi_bracket_pair *pairs = (bidi_bracket_pair *)aux_buf;
+            size_t max_pairs = len / 2u;
             size_t pair_cnt = 0u;
-            bool overflow_brk = false;
 
-            for (size_t k = 0u; k < seq_len && !overflow_brk; k++) {
+            for (size_t k = 0u; k < seq_len; k++) {
                 size_t idx = run_pos[k];
                 if (cur_cls[idx] != IM_BIDI_ON) continue;
                 uint32_t paired = 0u;
                 im_bidi_bracket_type bt = im_unicode_bidi_bracket(cps[idx], &paired);
                 if (bt == IM_BPT_OPEN) {
                     if (bsp >= BIDI_BRACKET_STACK_MAX) {
-                        overflow_brk = true;
+                        /* BD16: stop processing and return an empty list on stack overflow */
+                        pair_cnt = 0u;
                         break;
                     }
                     open_pos_stk[bsp] = k;
@@ -1766,7 +1767,7 @@ static im_unicode_error bidi_resolve_core(const uint32_t *cps, const uint8_t *gi
                     for (size_t s = bsp; s > 0u; ) {
                         s--;
                         if (open_pair_stk[s] == cur_can) {
-                            if (pair_cnt < 256u) {
+                            if (pair_cnt < max_pairs) {
                                 pairs[pair_cnt].open_pos = open_pos_stk[s];
                                 pairs[pair_cnt].close_pos = k;
                                 pair_cnt++;
@@ -1937,41 +1938,35 @@ im_unicode_error im_unicode_bidi_reorder_line(const uint32_t *cps, const uint8_t
         return IM_UNICODE_OK;
     }
 
-    /* Apply L1 directly without heap: use line_levels_out if provided, else compute L1 inline on a pass */
+    /* O(N) backward pass for UAX #9 L1 (trailing whitespace/isolate/X9 reset + segment/paragraph separator reset) */
     uint8_t max_lvl = 0u;
     uint8_t min_odd = 255u;
-
-    /* Find trailing whitespace/isolate run start for L1 clause 4 */
     size_t trail_start = n;
-    while (trail_start > 0u) {
-        uint8_t pc = (uint8_t)im_unicode_bidi_class(cps[line_start + trail_start - 1u]);
-        if (pc == IM_BIDI_WS || pc == IM_BIDI_FSI || pc == IM_BIDI_LRI || pc == IM_BIDI_RLI ||
-            pc == IM_BIDI_PDI || bidi_is_x9_removed(pc)) {
-            trail_start--;
-        } else {
-            break;
-        }
-    }
+    bool in_trail = true;
+    bool reset_ws = true;
+    bool has_interior_bs = false;
 
-    for (size_t i = 0u; i < n; i++) {
-        uint8_t lv = para_levels[line_start + i];
+    for (size_t i = n; i > 0u; ) {
+        i--;
         uint8_t c = (uint8_t)im_unicode_bidi_class(cps[line_start + i]);
-        if (i >= trail_start || c == IM_BIDI_B || c == IM_BIDI_S) {
+        bool is_ws_like = (c == IM_BIDI_WS || c == IM_BIDI_FSI || c == IM_BIDI_LRI || c == IM_BIDI_RLI ||
+                           c == IM_BIDI_PDI || bidi_is_x9_removed(c));
+        uint8_t lv = para_levels[line_start + i];
+        if (c == IM_BIDI_B || c == IM_BIDI_S) {
             lv = (uint8_t)resolved_base;
-        } else if (c == IM_BIDI_WS || c == IM_BIDI_FSI || c == IM_BIDI_LRI || c == IM_BIDI_RLI ||
-                   c == IM_BIDI_PDI || bidi_is_x9_removed(c)) {
-            /* Check if followed only by WS/isolate/X9 before a B or S */
-            for (size_t k = i + 1u; k < n; k++) {
-                uint8_t nc = (uint8_t)im_unicode_bidi_class(cps[line_start + k]);
-                if (nc == IM_BIDI_B || nc == IM_BIDI_S) {
-                    lv = (uint8_t)resolved_base;
-                    break;
-                }
-                if (!(nc == IM_BIDI_WS || nc == IM_BIDI_FSI || nc == IM_BIDI_LRI || nc == IM_BIDI_RLI ||
-                      nc == IM_BIDI_PDI || bidi_is_x9_removed(nc))) {
-                    break;
-                }
+            reset_ws = true;
+            in_trail = false;
+            has_interior_bs = true;
+        } else if (is_ws_like) {
+            if (reset_ws) {
+                lv = (uint8_t)resolved_base;
             }
+            if (in_trail) {
+                trail_start = i;
+            }
+        } else {
+            reset_ws = false;
+            in_trail = false;
         }
         if (line_levels_out) {
             line_levels_out[i] = lv;
@@ -1985,18 +1980,19 @@ im_unicode_error im_unicode_bidi_reorder_line(const uint32_t *cps, const uint8_t
         return IM_UNICODE_OK;
     }
 
-    /* L2 reversal: if line_levels_out is provided, read from it; otherwise recompute level helper */
+    /* L2 reversal: reads line_levels_out directly in O(1), or uses O(1) trail_start when line_levels_out is NULL */
     for (int lvl = (int)max_lvl; lvl >= (int)min_odd; lvl--) {
         size_t i = 0u;
         while (i < n) {
-            /* Compute effective level at logical index i */
             uint8_t lv_i;
             if (line_levels_out) {
                 lv_i = line_levels_out[i];
             } else {
                 lv_i = (i >= trail_start) ? (uint8_t)resolved_base : para_levels[line_start + i];
-                uint8_t ci = (uint8_t)im_unicode_bidi_class(cps[line_start + i]);
-                if (ci == IM_BIDI_B || ci == IM_BIDI_S) lv_i = (uint8_t)resolved_base;
+                if (has_interior_bs) {
+                    uint8_t ci = (uint8_t)im_unicode_bidi_class(cps[line_start + i]);
+                    if (ci == IM_BIDI_B || ci == IM_BIDI_S) lv_i = (uint8_t)resolved_base;
+                }
             }
             if (lv_i >= (uint8_t)lvl) {
                 size_t start = i;
@@ -2006,8 +2002,10 @@ im_unicode_error im_unicode_bidi_reorder_line(const uint32_t *cps, const uint8_t
                         lv_k = line_levels_out[i];
                     } else {
                         lv_k = (i >= trail_start) ? (uint8_t)resolved_base : para_levels[line_start + i];
-                        uint8_t ck = (uint8_t)im_unicode_bidi_class(cps[line_start + i]);
-                        if (ck == IM_BIDI_B || ck == IM_BIDI_S) lv_k = (uint8_t)resolved_base;
+                        if (has_interior_bs) {
+                            uint8_t ck = (uint8_t)im_unicode_bidi_class(cps[line_start + i]);
+                            if (ck == IM_BIDI_B || ck == IM_BIDI_S) lv_k = (uint8_t)resolved_base;
+                        }
                     }
                     if (lv_k < (uint8_t)lvl) break;
                     i++;
@@ -2164,9 +2162,106 @@ static bool is_safe_segment_boundary(uint32_t cp, bool compat, bool compose) {
     return true;
 }
 
+static bool buffers_overlap_u32(const uint32_t *src, size_t src_len, const uint32_t *dst, size_t dst_cap) {
+    if (!src || !dst || src_len == 0u || dst_cap == 0u) {
+        return false;
+    }
+    uintptr_t s0 = (uintptr_t)src;
+    uintptr_t s1 = s0 + src_len * sizeof(uint32_t);
+    uintptr_t d0 = (uintptr_t)dst;
+    uintptr_t d1 = d0 + dst_cap * sizeof(uint32_t);
+    return s0 < d1 && d0 < s1;
+}
+
+/* Stream a single arbitrarily long segment (>1024 codepoints) with zero heap allocation:
+   decompose each input codepoint, group combining runs by ccc 1..254, and apply exact canonical composition. */
+static void normalize_long_segment(const uint32_t *src, size_t seg_start, size_t seg_end,
+                                   bool compat, bool compose,
+                                   uint32_t *dst, size_t dst_cap, size_t *total, bool *overflow) {
+    /* Maintain a tiny stack buffer for each individual codepoint's decomposition (max 18 in Unicode 16.0.0) */
+    uint32_t cbuf[32];
+    size_t starter_pos = SIZE_MAX;
+    uint32_t starter_cp = 0u;
+    uint8_t last_ccc = 0u;
+    bool has_starter = false;
+
+    /* Helper macro-like loop: iterate over runs of ccc==0 vs runs of ccc>0 in the decomposed stream.
+       Since seg_start..seg_end may have multiple starters (due to COMP_SECOND), we process each
+       ccc==0 starter and its following combining-mark run in exact canonical order! */
+    size_t cur = seg_start;
+    while (cur < seg_end) {
+        /* Find the next sub-run starting at cur and extending through any codepoints whose decomposition has ccc>0 */
+        size_t sub_start = cur;
+        cur++;
+        while (cur < seg_end) {
+            size_t cl = 0u;
+            decomp_append(src[cur], compat, cbuf, 32u, &cl);
+            if (cl > 0u && im_unicode_ccc(cbuf[0]) == 0u) break;
+            cur++;
+        }
+        /* Emit all ccc==0 codepoints in sub_start..cur in order, then bucket-emit ccc=1..254 in order! */
+        uint8_t min_ccc = 255u, max_ccc = 0u;
+        for (size_t k = sub_start; k < cur; k++) {
+            size_t cl = 0u;
+            decomp_append(src[k], compat, cbuf, 32u, &cl);
+            for (size_t j = 0u; j < cl; j++) {
+                uint32_t ch = cbuf[j];
+                uint8_t ccc = im_unicode_ccc(ch);
+                if (ccc == 0u) {
+                    if (compose && has_starter && last_ccc == 0u) {
+                        uint32_t comp = find_comp(starter_cp, ch);
+                        if (comp != 0u) {
+                            starter_cp = comp;
+                            if (dst && starter_pos < dst_cap) dst[starter_pos] = comp;
+                            continue;
+                        }
+                    }
+                    starter_pos = *total;
+                    starter_cp = ch;
+                    has_starter = true;
+                    last_ccc = 0u;
+                    if (dst && *total < dst_cap) dst[*total] = ch;
+                    else *overflow = true;
+                    (*total)++;
+                } else {
+                    if (ccc < min_ccc) min_ccc = ccc;
+                    if (ccc > max_ccc) max_ccc = ccc;
+                }
+            }
+        }
+        if (min_ccc <= max_ccc) {
+            for (unsigned target_ccc = min_ccc; target_ccc <= max_ccc; target_ccc++) {
+                for (size_t k = sub_start; k < cur; k++) {
+                    size_t cl = 0u;
+                    decomp_append(src[k], compat, cbuf, 32u, &cl);
+                    for (size_t j = 0u; j < cl; j++) {
+                        uint32_t ch = cbuf[j];
+                        if (im_unicode_ccc(ch) != (uint8_t)target_ccc) continue;
+                        if (compose && has_starter && (last_ccc < (uint8_t)target_ccc || last_ccc == 0u)) {
+                            uint32_t comp = find_comp(starter_cp, ch);
+                            if (comp != 0u) {
+                                starter_cp = comp;
+                                if (dst && starter_pos < dst_cap) dst[starter_pos] = comp;
+                                continue;
+                            }
+                        }
+                        last_ccc = (uint8_t)target_ccc;
+                        if (dst && *total < dst_cap) dst[*total] = ch;
+                        else *overflow = true;
+                        (*total)++;
+                    }
+                }
+            }
+        }
+    }
+}
+
 im_unicode_error im_unicode_normalize(im_norm_form form, const uint32_t *src, size_t src_len,
                                       uint32_t *dst, size_t dst_cap, size_t *out_len) {
     if (!out_len || (src_len > 0u && !src) || (!dst && dst_cap > 0u) || (unsigned)form > (unsigned)IM_NORM_NFKC) {
+        return IM_UNICODE_BAD_ARG;
+    }
+    if (buffers_overlap_u32(src, src_len, dst, dst_cap)) {
         return IM_UNICODE_BAD_ARG;
     }
     *out_len = 0u;
@@ -2206,9 +2301,7 @@ im_unicode_error im_unicode_normalize(im_norm_form form, const uint32_t *src, si
                 total++;
             }
         } else {
-            /* Pathological >1024 combining marks in one segment: count safely without stack overflow */
-            total += seg_len;
-            overflow = true;
+            normalize_long_segment(src, seg_start, i, compat, compose, dst, dst_cap, &total, &overflow);
         }
     }
 
@@ -2226,6 +2319,9 @@ im_unicode_error im_unicode_normalize(im_norm_form form, const uint32_t *src, si
 im_unicode_error im_unicode_casefold(im_casefold_mode mode, const uint32_t *src, size_t src_len,
                                      uint32_t *dst, size_t dst_cap, size_t *out_len) {
     if (!out_len || (src_len > 0u && !src) || (!dst && dst_cap > 0u) || (unsigned)mode > (unsigned)IM_CASEFOLD_TURKIC) {
+        return IM_UNICODE_BAD_ARG;
+    }
+    if (buffers_overlap_u32(src, src_len, dst, dst_cap)) {
         return IM_UNICODE_BAD_ARG;
     }
     *out_len = 0u;

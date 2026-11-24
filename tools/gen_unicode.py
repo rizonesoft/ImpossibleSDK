@@ -193,8 +193,26 @@ def parse_all_ucd(pin, cache_root, allow_network=True):
         for cp in range(lo, hi + 1):
             ccc[cp] = val
 
-    # 4. DerivedBidiClass.txt (includes unassigned default bidi ranges!)
-    for row in iter_ucd_rows(get("extracted/DerivedBidiClass.txt")):
+    # 4. DerivedBidiClass.txt (parse normative # @missing: default ranges FIRST, then explicit rows)
+    bidi_long_names = {
+        "Left_To_Right": "L",
+        "Right_To_Left": "R",
+        "Arabic_Letter": "AL",
+        "European_Terminator": "ET",
+    }
+    bidi_path = get("extracted/DerivedBidiClass.txt")
+    for raw in Path(bidi_path).read_text(encoding="utf-8").splitlines():
+        s = raw.strip()
+        if s.startswith("# @missing:"):
+            body = s[len("# @missing:"):].strip()
+            parts = [p.strip() for p in body.split(";")]
+            if len(parts) >= 2:
+                lo, hi = parse_range(parts[0])
+                cname = bidi_long_names.get(parts[1], parts[1])
+                val = BIDI_MAP[cname]
+                for cp in range(lo, hi + 1):
+                    bidi[cp] = val
+    for row in iter_ucd_rows(bidi_path):
         lo, hi = parse_range(row[0])
         val = BIDI_MAP[row[1]]
         for cp in range(lo, hi + 1):

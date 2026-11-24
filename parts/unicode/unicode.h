@@ -224,7 +224,7 @@ size_t im_unicode_bidi_scratch_size(size_t len);
 
 /* Resolve UAX #9 paragraph embedding levels (and optional whole-paragraph visual order) for cps[0..len-1].
    base_level: 0 (LTR), 1 (RTL), or -1 (auto P2/P3). Caller provides scratch[scratch_bytes] (no heap allocation).
-   levels_out[levels_cap] receives resolved levels (0..125); order_out (optional, NULL to skip) receives visual-to-logical indices. */
+   levels_out[levels_cap] receives resolved levels (0..126); order_out (optional, NULL to skip) receives visual-to-logical indices. */
 im_unicode_error im_unicode_bidi_resolve(const uint32_t *cps, size_t len, int8_t base_level,
                                          void *scratch, size_t scratch_bytes,
                                          uint8_t *levels_out, size_t levels_cap,
@@ -246,11 +246,13 @@ im_unicode_error im_unicode_bidi_reorder_line(const uint32_t *cps, const uint8_t
                                               size_t *visual_order_out, size_t visual_order_cap);
 
 /* Normalize src[0..src_len-1] into dst[0..dst_cap-1] (capacity unit: uint32_t codepoints) using UAX #15 form.
+   src and dst must not overlap (overlapping buffers return IM_UNICODE_BAD_ARG before writing).
    Always writes the exact required output codepoint count to *out_len; returns IM_UNICODE_BUFFER_TOO_SMALL without writing past dst_cap. */
 im_unicode_error im_unicode_normalize(im_norm_form form, const uint32_t *src, size_t src_len,
                                       uint32_t *dst, size_t dst_cap, size_t *out_len);
 
 /* Case-fold src[0..src_len-1] into dst[0..dst_cap-1] (capacity unit: uint32_t codepoints) using mode (unlisted codepoints pass through unchanged).
+   src and dst must not overlap (overlapping buffers return IM_UNICODE_BAD_ARG before writing).
    Always writes the exact required output codepoint count to *out_len; returns IM_UNICODE_BUFFER_TOO_SMALL without writing past dst_cap. */
 im_unicode_error im_unicode_casefold(im_casefold_mode mode, const uint32_t *src, size_t src_len,
                                      uint32_t *dst, size_t dst_cap, size_t *out_len);

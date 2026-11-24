@@ -538,15 +538,27 @@ class UnicodePart(unittest.TestCase):
             bc_lines.append(f"{req_base}|{parts[0]}|{parts[2]}|{' '.join(exp_lvls)}|{parts[4]}")
         self._assert_suite("--suite-bidi-char", "bidi_char", "\n".join(bc_lines) + "\n", len(bc_lines))
 
-        # 5. NormalizationTest.txt (100% of vectors across NFD, NFC, NFKD, NFKC).
+        # 5. NormalizationTest.txt (100% of vectors across NFD, NFC, NFKD, NFKC + Part 1 identity requirement).
         norm_lines = []
+        part1_cps = []
+        in_part1 = False
         for raw in (ver_dir / "NormalizationTest.txt").read_text(encoding="utf-8").splitlines():
             body = raw.split("#", 1)[0].strip()
-            if not body or body.startswith("@"):
+            if not body:
+                continue
+            if body.startswith("@"):
+                in_part1 = body.startswith("@Part1")
                 continue
             cols = [c.strip() for c in body.split(";")[:5]]
             norm_lines.append("|".join(cols))
+            if in_part1 and " " not in cols[0]:
+                part1_cps.append(cols[0])
         self._assert_suite("--suite-norm", "norm", "\n".join(norm_lines) + "\n", len(norm_lines))
+        self._assert_suite("--suite-norm-id", "norm_id", "\n".join(part1_cps) + "\n", 0x110000 - len(part1_cps))
+
+        # 5b. Fixture rejects malformed non-hex token cleanly without hanging.
+        bad_tok = self._run_fixture("--suite-word", "ZZZZ|11\n")
+        self.assertNotEqual(bad_tok.returncode, 0)
 
         # 6. CaseFolding.txt (all C, F, S, T mappings + unlisted identity defaults across all 3 modes).
         cf_map = {}
@@ -568,33 +580,88 @@ class UnicodePart(unittest.TestCase):
                 cf_lines.append(f"{mode}|{h}|{h}")
         self._assert_suite("--suite-casefold", "casefold", "\n".join(cf_lines) + "\n", len(cf_lines))
 
-        # 7. Properties & Names across all assigned codepoints + unassigned default-bidi ranges.
-        data = self.gen.parse_all_ucd(self.pin, self.cache, allow_network=False)
-        mirror_map = dict(data["mirrors"])
-        bracket_map = {cp: (bt, pair) for cp, pair, bt in data["brackets"]}
-        name_map = dict(data["explicit_names"])
-        algo = data["algo_prefixes"]
-        sample_cps = set(name_map.keys())
-        # Add Hangul, CJK, Tangut, Egyptian Hieroglyph algorithmic boundaries, plus unassigned default-bidi ranges.
-        for lo, hi, _ in algo:
-            sample_cps.update((lo, (lo + hi) // 2, hi))
-        sample_cps.update((0xAC00, 0xAC01, 0xD7A3, 0x0378, 0x0590, 0x0600, 0x089F, 0xFB50, 0xFE70, 0x10800, 0x1EE00, 0x10FFFF))
-        prop_lines = []
-        for cp in sorted(sample_cps):
-            nm = name_map.get(cp, "")
-            if not nm and 0xAC00 <= cp <= 0xD7A3:
-                nm = self.gen.hangul_name(cp)
-            elif not nm:
-                for lo, hi, pfx in algo:
-                    if lo <= cp <= hi:
-                        nm = f"{pfx}{cp:04X}"
-                        break
-            bt, bp = bracket_map.get(cp, (0, 0))
-            prop_lines.append(
-                f"{cp:X}|{data['gc'][cp]}|{data['eaw'][cp]}|{data['ccc'][cp]}|{data['bidi'][cp]}|"
-                f"{data['script_names'][data['script_ids'][cp]]}|{mirror_map.get(cp, 0):X}|{bt}|{bp:X}|{nm}"
-            )
-        self._assert_suite("--suite-props", "props", "\n".join(prop_lines) + "\n", len(prop_lines))
+        # 7. Independent parser of pinned UCD files verifying ALL 1,114,112 codepoints (0x0000..0x10FFFF).
+        def _parse_rng(tok):
+            if ".." in tok:
+                a, b = tok.split("..", 1)
+                return int(a, 16), int(b, 16)
+            v = int(tok, 16)
+            return v, v
+
+        def _rows(rel_path):
+            for line in (ver_dir / rel_path).read_text(encoding="utf-8").splitlines():
+                s = line.split("#", 1)[0].strip()
+                if s:
+                    yield [f.strip() for f in s.split(";")]
+
+        total_cps = 0x110000
+        gc_exp = [0] * total_cps
+        eaw_exp = [0] * total_cps
+        ccc_exp = [0] * total_cps
+        bidi_exp = [0] * total_cps
+        script_exp = ["Unknown"] * total_cps
+        name_exp = [""] * total_cps
+        mirror_exp = {}
+        bracket_exp = {}
+
+        for row in _rows("extracted/DerivedGeneralCategory.txt"):
+            lo, hi = _parse_rng(row[0])
+            val = self.gen.GC_MAP[row[1]]
+            gc_exp[lo : hi + 1] = [val] * (hi - lo + 1)
+        for row in _rows("EastAsianWidth.txt"):
+            lo, hi = _parse_rng(row[0])
+            val = self.gen.EAW_MAP[row[1]]
+            eaw_exp[lo : hi + 1] = [val] * (hi - lo + 1)
+        for row in _rows("extracted/DerivedCombiningClass.txt"):
+            lo, hi = _parse_rng(row[0])
+            val = int(row[1])
+            ccc_exp[lo : hi + 1] = [val] * (hi - lo + 1)
+        # Independent parse of # @missing: default bidi ranges + explicit DerivedBidiClass rows.
+        long_bidi = {"Left_To_Right": "L", "Right_To_Left": "R", "Arabic_Letter": "AL", "European_Terminator": "ET"}
+        for line in (ver_dir / "extracted/DerivedBidiClass.txt").read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if s.startswith("# @missing:"):
+                parts = [p.strip() for p in s[len("# @missing:"):].split(";")]
+                lo, hi = _parse_rng(parts[0])
+                val = self.gen.BIDI_MAP[long_bidi.get(parts[1], parts[1])]
+                bidi_exp[lo : hi + 1] = [val] * (hi - lo + 1)
+        for row in _rows("extracted/DerivedBidiClass.txt"):
+            lo, hi = _parse_rng(row[0])
+            val = self.gen.BIDI_MAP[row[1]]
+            bidi_exp[lo : hi + 1] = [val] * (hi - lo + 1)
+        for row in _rows("Scripts.txt"):
+            lo, hi = _parse_rng(row[0])
+            script_exp[lo : hi + 1] = [row[1]] * (hi - lo + 1)
+        for row in _rows("BidiMirroring.txt"):
+            mirror_exp[int(row[0], 16)] = int(row[1], 16)
+        for row in _rows("BidiBrackets.txt"):
+            bracket_exp[int(row[0], 16)] = (1 if row[2] == "o" else 2, int(row[1], 16))
+        for row in _rows("extracted/DerivedName.txt"):
+            lo, hi = _parse_rng(row[0])
+            nm = row[1]
+            if nm.endswith("*"):
+                pfx = nm[:-1]
+                for cp in range(lo, hi + 1):
+                    name_exp[cp] = f"{pfx}{cp:04X}"
+            else:
+                for cp in range(lo, hi + 1):
+                    name_exp[cp] = nm
+
+        # Send all 1,114,112 codepoints in 4 chunks so each fixture stdin stays small and fast.
+        chunk_size = 0x44000
+        checked_total = 0
+        for start_cp in range(0, total_cps, chunk_size):
+            end_cp = min(total_cps, start_cp + chunk_size)
+            prop_lines = []
+            for cp in range(start_cp, end_cp):
+                bt, bp = bracket_exp.get(cp, (0, 0))
+                prop_lines.append(
+                    f"{cp:X}|{gc_exp[cp]}|{eaw_exp[cp]}|{ccc_exp[cp]}|{bidi_exp[cp]}|"
+                    f"{script_exp[cp]}|{mirror_exp.get(cp, 0):X}|{bt}|{bp:X}|{name_exp[cp]}"
+                )
+            self._assert_suite("--suite-props", "props", "\n".join(prop_lines) + "\n", end_cp - start_cp)
+            checked_total += end_cp - start_cp
+        self.assertEqual(checked_total, 1114112)
 
 
 if __name__ == "__main__":

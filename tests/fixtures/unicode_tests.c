@@ -38,54 +38,68 @@ static size_t cstr_len(const char *s) {
     return n;
 }
 
-static uint32_t parse_hex(const char *s, size_t *pos, size_t end) {
+static bool parse_hex_checked(const char *s, size_t *pos, size_t end, uint32_t *out) {
     while (*pos < end && (s[*pos] == ' ' || s[*pos] == '\t')) (*pos)++;
     uint32_t v = 0u;
+    size_t digits = 0u;
     while (*pos < end) {
         char c = s[*pos];
         if (c >= '0' && c <= '9') v = (v << 4) | (uint32_t)(c - '0');
         else if (c >= 'a' && c <= 'f') v = (v << 4) | (uint32_t)(c - 'a' + 10);
         else if (c >= 'A' && c <= 'F') v = (v << 4) | (uint32_t)(c - 'A' + 10);
         else break;
+        digits++;
+        if (digits > 8u) return false;
         (*pos)++;
     }
-    return v;
+    if (digits == 0u) return false;
+    if (*pos < end && s[*pos] != ' ' && s[*pos] != '\t' && s[*pos] != '|') return false;
+    *out = v;
+    return true;
 }
 
-static int64_t parse_int(const char *s, size_t *pos, size_t end) {
+static bool parse_int_checked(const char *s, size_t *pos, size_t end, int64_t *out) {
     while (*pos < end && (s[*pos] == ' ' || s[*pos] == '\t')) (*pos)++;
     bool neg = false;
     if (*pos < end && s[*pos] == '-') { neg = true; (*pos)++; }
     int64_t v = 0;
+    size_t digits = 0u;
     while (*pos < end && s[*pos] >= '0' && s[*pos] <= '9') {
         v = v * 10 + (s[*pos] - '0');
+        digits++;
+        if (digits > 15u) return false;
         (*pos)++;
     }
-    return neg ? -v : v;
+    if (digits == 0u) return false;
+    if (*pos < end && s[*pos] != ' ' && s[*pos] != '\t' && s[*pos] != '|') return false;
+    *out = neg ? -v : v;
+    return true;
 }
 
-static size_t parse_hex_list(const char *s, size_t start, size_t end, uint32_t *out, size_t cap) {
+static bool parse_hex_list(const char *s, size_t start, size_t end, uint32_t *out, size_t cap, size_t *out_n) {
     size_t n = 0u, pos = start;
     while (pos < end) {
         while (pos < end && (s[pos] == ' ' || s[pos] == '\t')) pos++;
         if (pos >= end) break;
-        uint32_t v = parse_hex(s, &pos, end);
-        if (n < cap) out[n] = v;
-        n++;
+        uint32_t v = 0u;
+        if (!parse_hex_checked(s, &pos, end, &v) || n >= cap) return false;
+        out[n++] = v;
     }
-    return n;
+    *out_n = n;
+    return true;
 }
 
-static size_t parse_u8_list(const char *s, size_t start, size_t end, uint8_t *out, size_t cap) {
+static bool parse_u8_list(const char *s, size_t start, size_t end, uint8_t *out, size_t cap, size_t *out_n) {
     size_t n = 0u, pos = start;
     while (pos < end) {
         while (pos < end && (s[pos] == ' ' || s[pos] == '\t')) pos++;
         if (pos >= end) break;
-        int64_t v = parse_int(s, &pos, end);
-        if (n < cap) out[n] = (uint8_t)v;
-        n++;
+        int64_t v = 0;
+        if (!parse_int_checked(s, &pos, end, &v) || v < 0 || v > 255 || n >= cap) return false;
+        out[n++] = (uint8_t)v;
     }
-    return n;
+    *out_n = n;
+    return true;
 }
 
 static size_t find_pipe(const char *s, size_t start, size_t end) {
@@ -270,6 +284,80 @@ static int run_self_tests(void) {
         if (bbuf[6] != 0xCCu) return 73;
     }
 
+    /* 8. Long combining-mark segment (>1024 codepoints): A + 1024 * U+0301 -> NFC length 1024 (first accent composes with A) */
+    {
+        uint32_t *long_in = (uint32_t *)im_alloc(1025u * sizeof(uint32_t));
+        uint32_t *long_out = (uint32_t *)im_alloc(1026u * sizeof(uint32_t));
+        if (!long_in || !long_out) return 80;
+        long_in[0] = 'A';
+        for (size_t i = 1u; i < 1025u; i++) long_in[i] = 0x0301u;
+        size_t req = 0u;
+        if (im_unicode_normalize(IM_NORM_NFC, long_in, 1025u, NULL, 0u, &req) != IM_UNICODE_BUFFER_TOO_SMALL || req != 1024u) return 81;
+        long_out[1024] = 0xBEEFCAFEu;
+        if (im_unicode_normalize(IM_NORM_NFC, long_in, 1025u, long_out, 1024u, &req) != IM_UNICODE_OK || req != 1024u) return 82;
+        if (long_out[0] != 0x00C1u || long_out[1] != 0x0301u || long_out[1023] != 0x0301u || long_out[1024] != 0xBEEFCAFEu) return 83;
+        im_free(long_in);
+        im_free(long_out);
+    }
+
+    /* 9. Overlapping src/dst buffers must be refused with IM_UNICODE_BAD_ARG before writing */
+    {
+        uint32_t ov[4] = { 0x00DFu, 'x', 0u, 0u };
+        size_t ol = 0u;
+        if (im_unicode_casefold(IM_CASEFOLD_FULL, ov, 2u, ov, 3u, &ol) != IM_UNICODE_BAD_ARG) return 84;
+        if (ov[0] != 0x00DFu || ov[1] != 'x') return 85;
+        if (im_unicode_normalize(IM_NORM_NFD, ov, 2u, ov, 3u, &ol) != IM_UNICODE_BAD_ARG) return 86;
+    }
+
+    /* 10. Unassigned bidi defaults from # @missing: U+0590 -> R, U+20CF -> ET */
+    if (im_unicode_bidi_class(0x0590u) != IM_BIDI_R) return 87;
+    if (im_unicode_bidi_class(0x20CFu) != IM_BIDI_ET) return 88;
+    if (im_unicode_bidi_scratch_size(0u) != 0u) return 89;
+
+    /* 11. LB8a after lookahead-absorbed ZWJ: 0020 002E 200D 4E00 -> 0 0 0 0 2 (and 3-valued MUST vs ALLOW) */
+    {
+        const uint32_t lb_zwj[] = { 0x0020u, 0x002Eu, 0x200Du, 0x4E00u };
+        uint8_t br[5];
+        if (im_unicode_line_breaks(lb_zwj, 4u, br, 5u) != IM_UNICODE_OK) return 90;
+        if (br[0] != IM_BREAK_NONE || br[1] != IM_BREAK_NONE || br[2] != IM_BREAK_NONE ||
+            br[3] != IM_BREAK_NONE || br[4] != IM_BREAK_MUST) return 91;
+
+        const uint32_t lb_hard[] = { 'a', ' ', 'b', '\n', 'c', '\r', '\n', 'd' };
+        uint8_t bh[9];
+        if (im_unicode_line_breaks(lb_hard, 8u, bh, 9u) != IM_UNICODE_OK) return 92;
+        if (bh[0] != IM_BREAK_NONE || bh[2] != IM_BREAK_ALLOW || bh[4] != IM_BREAK_MUST ||
+            bh[6] != IM_BREAK_NONE || bh[7] != IM_BREAK_MUST || bh[8] != IM_BREAK_MUST) return 93;
+    }
+
+    /* 12. Bidi BD16: >256 completed bracket pairs AND 64-nested-open overflow clears all pairs */
+    {
+        size_t n257 = 256u * 2u + 5u;
+        uint32_t *b_in = (uint32_t *)im_alloc(n257 * sizeof(uint32_t));
+        size_t sc_n = im_unicode_bidi_scratch_size(n257);
+        void *sc_b = im_alloc(sc_n);
+        uint8_t *lv_b = (uint8_t *)im_alloc(n257);
+        if (!b_in || !sc_b || !lv_b) return 94;
+        for (size_t i = 0u; i < 256u; i++) { b_in[2u * i] = '('; b_in[2u * i + 1u] = ')'; }
+        b_in[512] = 0x05D0u; b_in[513] = '('; b_in[514] = 0x05D1u; b_in[515] = ')'; b_in[516] = 'a';
+        if (im_unicode_bidi_resolve(b_in, n257, 0, sc_b, sc_n, lv_b, n257, NULL, 0u, NULL) != IM_UNICODE_OK) return 95;
+        if (lv_b[513] != 1u || lv_b[515] != 1u) return 96;
+        im_free(b_in); im_free(sc_b); im_free(lv_b);
+
+        /* 64-nested-open overflow: "א(ב)" followed by 64 '(' -> BD16 empties pair list so first '(' and ')' stay neutral */
+        size_t n_ov = 4u + 64u + 1u;
+        uint32_t *ov_in = (uint32_t *)im_alloc(n_ov * sizeof(uint32_t));
+        size_t sc_o = im_unicode_bidi_scratch_size(n_ov);
+        void *sc_ov = im_alloc(sc_o);
+        uint8_t *lv_ov = (uint8_t *)im_alloc(n_ov);
+        ov_in[0] = 0x05D0u; ov_in[1] = '('; ov_in[2] = 0x05D1u; ov_in[3] = ')';
+        for (size_t i = 0u; i < 64u; i++) ov_in[4u + i] = '(';
+        ov_in[68] = 'a';
+        if (im_unicode_bidi_resolve(ov_in, n_ov, 0, sc_ov, sc_o, lv_ov, n_ov, NULL, 0u, NULL) != IM_UNICODE_OK) return 97;
+        /* Without N0 pairing, ')' between R (05D1) and L ('a' via 64 neutrals) takes emb_dir = 0 (not 1)! */
+        if (lv_ov[3] != 0u) return 98;
+        im_free(ov_in); im_free(sc_ov); im_free(lv_ov);
+    }
+
     im_print("SELF_TESTS OK\n");
     return 0;
 }
@@ -289,18 +377,21 @@ static int run_break_suite(im_unicode_break_kind kind, const char *label, const 
         if (line_start == line_end) continue;
 
         size_t pipe = find_pipe(data, line_start, line_end);
-        size_t n = parse_hex_list(data, line_start, pipe, cps, 256u);
+        size_t n = 0u;
+        bool parsed = (pipe < line_end) && parse_hex_list(data, line_start, pipe, cps, 256u, &n);
         size_t exp_start = pipe + 1u;
         while (exp_start < line_end && (data[exp_start] == ' ' || data[exp_start] == '\t')) exp_start++;
-        size_t exp_len = line_end - exp_start;
+        size_t exp_len = (exp_start <= line_end) ? (line_end - exp_start) : 0u;
         executed++;
 
-        im_unicode_error err;
-        if (kind == IM_BREAK_KIND_GRAPHEME) err = im_unicode_grapheme_breaks(cps, n, got, 257u);
-        else if (kind == IM_BREAK_KIND_WORD) err = im_unicode_word_breaks(cps, n, got, 257u);
-        else err = im_unicode_line_breaks(cps, n, got, 257u);
-
-        bool ok = (err == IM_UNICODE_OK && exp_len == n + 1u);
+        bool ok = parsed && (exp_len == n + 1u);
+        if (ok) {
+            im_unicode_error err;
+            if (kind == IM_BREAK_KIND_GRAPHEME) err = im_unicode_grapheme_breaks(cps, n, got, 257u);
+            else if (kind == IM_BREAK_KIND_WORD) err = im_unicode_word_breaks(cps, n, got, 257u);
+            else err = im_unicode_line_breaks(cps, n, got, 257u);
+            ok = (err == IM_UNICODE_OK);
+        }
         if (ok) {
             for (size_t i = 0u; i < exp_len; i++) {
                 uint8_t exp_b = (data[exp_start + i] == '1') ? 1u : 0u;
@@ -367,18 +458,34 @@ static int run_bidi_suite(bool char_mode, const char *label, const char *data, s
         if (!char_mode) {
             /* BidiTest.txt: BITSET | CLS... | EXP_LVL (255='x')... | EXP_ORD... */
             size_t tmp_p = line_start;
-            uint32_t bitset = (uint32_t)parse_int(data, &tmp_p, p1);
-            size_t n = parse_u8_list(data, p1 + 1u, p2, cls, 1024u);
-            size_t nl = parse_u8_list(data, p2 + 1u, p3, exp_lvl, 1024u);
-            size_t no = 0u;
-            {
+            int64_t bit_v = 0;
+            size_t n = 0u, nl = 0u, no = 0u;
+            bool parsed = (p3 < line_end) &&
+                          parse_int_checked(data, &tmp_p, p1, &bit_v) &&
+                          parse_u8_list(data, p1 + 1u, p2, cls, 1024u, &n) &&
+                          parse_u8_list(data, p2 + 1u, p3, exp_lvl, 1024u, &nl);
+            if (parsed) {
                 size_t op = p3 + 1u;
                 while (op < line_end) {
                     while (op < line_end && (data[op] == ' ' || data[op] == '\t')) op++;
                     if (op >= line_end) break;
-                    exp_ord[no++] = (size_t)parse_int(data, &op, line_end);
+                    int64_t ov = 0;
+                    if (!parse_int_checked(data, &op, line_end, &ov) || ov < 0 || no >= 1024u) {
+                        parsed = false;
+                        break;
+                    }
+                    exp_ord[no++] = (size_t)ov;
                 }
             }
+            if (!parsed) {
+                executed++;
+                if (failed < 5u) {
+                    im_print("FAIL "); im_print(label); im_print(" parse #"); print_u64(executed); im_print("\n");
+                }
+                failed++;
+                continue;
+            }
+            uint32_t bitset = (uint32_t)bit_v;
             const int8_t modes[3] = { -1, 0, 1 };
             for (unsigned m = 0u; m < 3u; m++) {
                 if ((bitset & (1u << m)) == 0u) continue;
@@ -415,25 +522,37 @@ static int run_bidi_suite(bool char_mode, const char *label, const char *data, s
             /* BidiCharacterTest.txt: BASE | HEX... | EXP_BASE | EXP_LVL (255='x')... | EXP_ORD... */
             size_t p4 = find_pipe(data, p3 + 1u, line_end);
             size_t tmp_p = line_start;
-            int8_t req_base = (int8_t)parse_int(data, &tmp_p, p1);
-            size_t n = parse_hex_list(data, p1 + 1u, p2, cps, 1024u);
-            tmp_p = p2 + 1u;
-            int8_t exp_base = (int8_t)parse_int(data, &tmp_p, p3);
-            size_t nl = parse_u8_list(data, p3 + 1u, p4, exp_lvl, 1024u);
-            size_t no = 0u;
-            {
+            int64_t req_v = 0, exp_v = 0;
+            size_t n = 0u, nl = 0u, no = 0u;
+            bool parsed = (p4 < line_end) &&
+                          parse_int_checked(data, &tmp_p, p1, &req_v) &&
+                          parse_hex_list(data, p1 + 1u, p2, cps, 1024u, &n);
+            if (parsed) {
+                tmp_p = p2 + 1u;
+                parsed = parse_int_checked(data, &tmp_p, p3, &exp_v) &&
+                         parse_u8_list(data, p3 + 1u, p4, exp_lvl, 1024u, &nl);
+            }
+            if (parsed) {
                 size_t op = p4 + 1u;
                 while (op < line_end) {
                     while (op < line_end && (data[op] == ' ' || data[op] == '\t')) op++;
                     if (op >= line_end) break;
-                    exp_ord[no++] = (size_t)parse_int(data, &op, line_end);
+                    int64_t ov = 0;
+                    if (!parse_int_checked(data, &op, line_end, &ov) || ov < 0 || no >= 1024u) {
+                        parsed = false;
+                        break;
+                    }
+                    exp_ord[no++] = (size_t)ov;
                 }
             }
             executed++;
+            bool ok = parsed;
             int8_t rb = -1;
-            im_unicode_error err = im_unicode_bidi_resolve(cps, n, req_base, scratch, sc_cap,
-                                                           got_lvl, 1024u, got_ord, 1024u, &rb);
-            bool ok = (err == IM_UNICODE_OK && rb == exp_base && nl == n);
+            if (ok) {
+                im_unicode_error err = im_unicode_bidi_resolve(cps, n, (int8_t)req_v, scratch, sc_cap,
+                                                               got_lvl, 1024u, got_ord, 1024u, &rb);
+                ok = (err == IM_UNICODE_OK && rb == (int8_t)exp_v && nl == n);
+            }
             if (ok) {
                 for (size_t i = 0u; i < n; i++) {
                     if (exp_lvl[i] != 255u && got_lvl[i] != exp_lvl[i]) { ok = false; break; }
@@ -485,13 +604,17 @@ static int run_norm_suite(const char *data, size_t len) {
         if (line_start == line_end) continue;
 
         size_t cur = line_start;
+        bool parsed = true;
         for (int f = 0; f < 5; f++) {
             size_t next = (f < 4) ? find_pipe(data, cur, line_end) : line_end;
-            cn[f] = parse_hex_list(data, cur, next, c[f], 64u);
+            if ((f < 4 && next >= line_end) || !parse_hex_list(data, cur, next, c[f], 64u, &cn[f])) {
+                parsed = false;
+                break;
+            }
             cur = next + 1u;
         }
         executed++;
-        bool ok = true;
+        bool ok = parsed;
         size_t ol = 0u;
         /* Per NormalizationTest.txt invariants:
          * c2 == NFC(c1) == NFC(c2) == NFC(c3); c4 == NFC(c4) == NFC(c5)
@@ -521,6 +644,53 @@ static int run_norm_suite(const char *data, size_t len) {
     return (failed == 0u && executed > 0u) ? 0 : 1;
 }
 
+static int run_norm_id_suite(const char *data, size_t len) {
+    /* Input: hex codepoints listed in NormalizationTest.txt Part 1 (one per line).
+       Verifies that EVERY codepoint 0x0000..0x10FFFF NOT in Part 1 is invariant under NFC, NFD, NFKC, and NFKD. */
+    uint8_t *in_part1 = (uint8_t *)im_alloc(0x110000u);
+    if (!in_part1) return 2;
+    size_t pos = 0u;
+    while (pos < len) {
+        size_t line_start = pos;
+        while (pos < len && data[pos] != '\n') pos++;
+        size_t line_end = pos;
+        if (pos < len) pos++;
+        if (line_end > line_start && data[line_end - 1u] == '\r') line_end--;
+        if (line_start == line_end) continue;
+        size_t p = line_start;
+        uint32_t cp = 0u;
+        if (!parse_hex_checked(data, &p, line_end, &cp) || cp > 0x10FFFFu) {
+            im_free(in_part1);
+            return 1;
+        }
+        in_part1[cp] = 1u;
+    }
+    uint64_t executed = 0u, failed = 0u;
+    uint32_t out[16];
+    for (uint32_t cp = 0u; cp <= 0x10FFFFu; cp++) {
+        if (in_part1[cp]) continue;
+        executed++;
+        bool ok = true;
+        for (unsigned form = 0u; form < 4u && ok; form++) {
+            size_t ol = 0u;
+            if (im_unicode_normalize((im_norm_form)form, &cp, 1u, out, 16u, &ol) != IM_UNICODE_OK ||
+                ol != 1u || out[0] != cp) {
+                ok = false;
+            }
+        }
+        if (!ok) {
+            if (failed < 5u) {
+                im_print("FAIL norm_id cp="); print_u64(cp); im_print("\n");
+            }
+            failed++;
+        }
+    }
+    im_free(in_part1);
+    im_print("SUITE norm_id executed="); print_u64(executed);
+    im_print(" failed="); print_u64(failed); im_print("\n");
+    return (failed == 0u && executed > 0u) ? 0 : 1;
+}
+
 static int run_casefold_suite(const char *data, size_t len) {
     uint64_t executed = 0u, failed = 0u;
     uint32_t src[16], exp[16], out[16];
@@ -536,13 +706,18 @@ static int run_casefold_suite(const char *data, size_t len) {
         size_t p1 = find_pipe(data, line_start, line_end);
         size_t p2 = find_pipe(data, p1 + 1u, line_end);
         size_t mp = line_start;
-        int64_t mode = parse_int(data, &mp, p1);
-        size_t sn = parse_hex_list(data, p1 + 1u, p2, src, 16u);
-        size_t en = parse_hex_list(data, p2 + 1u, line_end, exp, 16u);
+        int64_t mode = 0;
+        size_t sn = 0u, en = 0u;
+        bool parsed = (p2 < line_end) &&
+                      parse_int_checked(data, &mp, p1, &mode) &&
+                      parse_hex_list(data, p1 + 1u, p2, src, 16u, &sn) &&
+                      parse_hex_list(data, p2 + 1u, line_end, exp, 16u, &en);
         executed++;
         size_t ol = 0u;
-        im_unicode_error err = im_unicode_casefold((im_casefold_mode)mode, src, sn, out, 16u, &ol);
-        if (err != IM_UNICODE_OK || !eq_u32(out, ol, exp, en)) {
+        bool ok = parsed &&
+                  im_unicode_casefold((im_casefold_mode)mode, src, sn, out, 16u, &ol) == IM_UNICODE_OK &&
+                  eq_u32(out, ol, exp, en);
+        if (!ok) {
             if (failed < 5u) {
                 im_print("FAIL casefold #"); print_u64(executed); im_print("\n");
             }
@@ -569,39 +744,50 @@ static int run_props_suite(const char *data, size_t len) {
         /* Format: CP_HEX|GC|EAW|CCC|BIDI|SCRIPT_NAME|MIRROR_HEX|BTYPE|BPAIR_HEX|NAME */
         size_t f[10];
         size_t cur = line_start;
+        bool parsed = true;
         for (int i = 0; i < 9; i++) {
             f[i] = find_pipe(data, cur, line_end);
+            if (f[i] >= line_end) { parsed = false; break; }
             cur = f[i] + 1u;
         }
-        size_t p = line_start;
-        uint32_t cp = parse_hex(data, &p, f[0]);
-        p = f[0] + 1u; int64_t gc = parse_int(data, &p, f[1]);
-        p = f[1] + 1u; int64_t eaw = parse_int(data, &p, f[2]);
-        p = f[2] + 1u; int64_t ccc = parse_int(data, &p, f[3]);
-        p = f[3] + 1u; int64_t bidi = parse_int(data, &p, f[4]);
-        size_t sn_start = f[4] + 1u, sn_len = f[5] - sn_start;
-        p = f[5] + 1u; uint32_t mirror = parse_hex(data, &p, f[6]);
-        p = f[6] + 1u; int64_t btype = parse_int(data, &p, f[7]);
-        p = f[7] + 1u; uint32_t bpair = parse_hex(data, &p, f[8]);
-        size_t nm_start = f[8] + 1u, nm_len = line_end - nm_start;
+        uint32_t cp = 0u, mirror = 0u, bpair = 0u;
+        int64_t gc = 0, eaw = 0, ccc = 0, bidi = 0, btype = 0;
+        if (parsed) {
+            size_t p = line_start; parsed = parse_hex_checked(data, &p, f[0], &cp);
+            if (parsed) { p = f[0] + 1u; parsed = parse_int_checked(data, &p, f[1], &gc); }
+            if (parsed) { p = f[1] + 1u; parsed = parse_int_checked(data, &p, f[2], &eaw); }
+            if (parsed) { p = f[2] + 1u; parsed = parse_int_checked(data, &p, f[3], &ccc); }
+            if (parsed) { p = f[3] + 1u; parsed = parse_int_checked(data, &p, f[4], &bidi); }
+            if (parsed) { p = f[5] + 1u; parsed = parse_hex_checked(data, &p, f[6], &mirror); }
+            if (parsed) { p = f[6] + 1u; parsed = parse_int_checked(data, &p, f[7], &btype); }
+            if (parsed) { p = f[7] + 1u; parsed = parse_hex_checked(data, &p, f[8], &bpair); }
+        }
+        size_t sn_start = f[4] + 1u, sn_len = parsed ? (f[5] - sn_start) : 0u;
+        size_t nm_start = f[8] + 1u, nm_len = parsed ? (line_end - nm_start) : 0u;
 
         executed++;
-        bool ok = true;
-        if ((int64_t)im_unicode_general_category(cp) != gc) ok = false;
-        if ((int64_t)im_unicode_east_asian_width(cp) != eaw) ok = false;
-        if ((int64_t)im_unicode_ccc(cp) != ccc) ok = false;
-        if ((int64_t)im_unicode_bidi_class(cp) != bidi) ok = false;
-        const char *sname = im_unicode_script_name(im_unicode_script(cp));
-        if (cstr_len(sname) != sn_len || memcmp(sname, data + sn_start, sn_len) != 0) ok = false;
-        if (im_unicode_bidi_mirror(cp) != mirror) ok = false;
-        uint32_t got_bp = 0u;
-        if ((int64_t)im_unicode_bidi_bracket(cp, &got_bp) != btype || got_bp != bpair) ok = false;
-        size_t got_nl = 0u;
-        im_unicode_error nerr = im_unicode_name(cp, nbuf, sizeof(nbuf), &got_nl);
-        if (nm_len == 0u) {
-            if (nerr != IM_UNICODE_NOT_FOUND || got_nl != 0u) ok = false;
-        } else {
-            if (nerr != IM_UNICODE_OK || got_nl != nm_len || memcmp(nbuf, data + nm_start, nm_len) != 0) ok = false;
+        bool ok = parsed;
+        if (ok && (int64_t)im_unicode_general_category(cp) != gc) ok = false;
+        if (ok && (int64_t)im_unicode_east_asian_width(cp) != eaw) ok = false;
+        if (ok && (int64_t)im_unicode_ccc(cp) != ccc) ok = false;
+        if (ok && (int64_t)im_unicode_bidi_class(cp) != bidi) ok = false;
+        if (ok) {
+            const char *sname = im_unicode_script_name(im_unicode_script(cp));
+            if (cstr_len(sname) != sn_len || memcmp(sname, data + sn_start, sn_len) != 0) ok = false;
+        }
+        if (ok && im_unicode_bidi_mirror(cp) != mirror) ok = false;
+        if (ok) {
+            uint32_t got_bp = 0u;
+            if ((int64_t)im_unicode_bidi_bracket(cp, &got_bp) != btype || got_bp != bpair) ok = false;
+        }
+        if (ok) {
+            size_t got_nl = 0u;
+            im_unicode_error nerr = im_unicode_name(cp, nbuf, sizeof(nbuf), &got_nl);
+            if (nm_len == 0u) {
+                if (nerr != IM_UNICODE_NOT_FOUND || got_nl != 0u) ok = false;
+            } else {
+                if (nerr != IM_UNICODE_OK || got_nl != nm_len || memcmp(nbuf, data + nm_start, nm_len) != 0) ok = false;
+            }
         }
         if (!ok) {
             if (failed < 5u) {
@@ -622,10 +808,11 @@ int im_main(void) {
     bool is_b = im_has_argument(L"--suite-bidi");
     bool is_bc = im_has_argument(L"--suite-bidi-char");
     bool is_n = im_has_argument(L"--suite-norm");
+    bool is_nid = im_has_argument(L"--suite-norm-id");
     bool is_cf = im_has_argument(L"--suite-casefold");
     bool is_pr = im_has_argument(L"--suite-props");
 
-    if (!is_g && !is_w && !is_l && !is_b && !is_bc && !is_n && !is_cf && !is_pr) {
+    if (!is_g && !is_w && !is_l && !is_b && !is_bc && !is_n && !is_nid && !is_cf && !is_pr) {
         return run_self_tests();
     }
 
@@ -643,6 +830,7 @@ int im_main(void) {
     else if (is_b) rc = run_bidi_suite(false, "bidi", data, len);
     else if (is_bc) rc = run_bidi_suite(true, "bidi_char", data, len);
     else if (is_n) rc = run_norm_suite(data, len);
+    else if (is_nid) rc = run_norm_id_suite(data, len);
     else if (is_cf) rc = run_casefold_suite(data, len);
     else if (is_pr) rc = run_props_suite(data, len);
 
