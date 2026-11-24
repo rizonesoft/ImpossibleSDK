@@ -1510,7 +1510,7 @@ class GuideDocs(unittest.TestCase):
         wang_sentences = [s for s in sentences if "Wang's formula" in s]
         self.assertEqual(len(wang_sentences), 1)
         self.assertIsNotNone(re.search(r"\bN\s*=\s*256\b", wang_sentences[0]))
-        self.assertIn("signed 16.16 radii under 32,768 px", wang_sentences[0])
+        self.assertIsNotNone(re.search(r"\bsigned 16\.16 radii under 32,768 px\b", wang_sentences[0]))
         self.assertIsNone(re.search(r"1,?024", smoothing))
 
         # Accent-button explanation sentence must preserve both the measured qualification and horizontal/vertical (not diagonal) symmetry basis.
@@ -1526,7 +1526,7 @@ class GuideDocs(unittest.TestCase):
         todo_text = (ROOT / todo_rel).read_text(encoding="utf-8")
         s1_body = todo_text.split("## 1. Exact corner smoothing", 1)[1].split("\n## 2. ", 1)[0]
         self.assertIsNotNone(re.search(r"\bN\s*=\s*256\b", s1_body), f"{todo_rel}: missing N=256 in §1")
-        self.assertIn("signed 16.16 radii `< 32,768` px", s1_body, f"{todo_rel}: missing signed 16.16 radius range in §1")
+        self.assertIsNotNone(re.search(r"\bsigned 16\.16 radii `< 32,768` px\b", s1_body), f"{todo_rel}: missing signed 16.16 radius range in §1")
         self.assertIsNone(re.search(r"1,?024", s1_body), f"{todo_rel}: stale 1024/1,024 cap in §1")
         self.assertIn(
             f"measured corner error under horizontal and vertical reflection symmetry is {ACCENT_CORNER_LIMIT} of 255",
