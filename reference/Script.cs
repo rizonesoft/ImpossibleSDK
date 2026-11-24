@@ -342,6 +342,15 @@ public static class Script
         VirtualKey.F4, VirtualKey.Print, VirtualKey.Snapshot, VirtualKey.Sleep,
     };
 
+    private static VirtualKey ParseNamedVirtualKey(string raw, int stepIndex, string field)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || int.TryParse(raw.Trim(), out _) || !Enum.TryParse<VirtualKey>(raw.Trim(), ignoreCase: true, out var vk) || !Enum.IsDefined(typeof(VirtualKey), vk))
+        {
+            throw new InvalidOperationException($"script step {stepIndex}: invalid {field} '{raw}' (must be a named VirtualKey)");
+        }
+        return vk;
+    }
+
     public static async Task<ScriptResultDto> RunAsync(Window window, FrameworkElement target, IReadOnlyList<ScriptActionSpec> actions)
     {
         var hwnd = WindowNative.GetWindowHandle(window);
@@ -499,10 +508,7 @@ public static class Script
                     case "key_press":
                     {
                         string keyName = step.Key ?? "Space";
-                        if (!Enum.TryParse<VirtualKey>(keyName, ignoreCase: true, out var vk))
-                        {
-                            throw new InvalidOperationException($"script step {i}: unknown key '{keyName}'");
-                        }
+                        var vk = ParseNamedVirtualKey(keyName, i, "key");
                         if (ForbiddenSystemKeys.Contains(vk))
                         {
                             throw new InvalidOperationException($"script step {i}: system key '{keyName}' is disallowed in reference scripts");
@@ -516,10 +522,7 @@ public static class Script
                             }
                             foreach (var m in step.Modifiers)
                             {
-                                if (!Enum.TryParse<VirtualKey>(m, ignoreCase: true, out var mvk))
-                                {
-                                    throw new InvalidOperationException($"script step {i}: unknown modifier '{m}'");
-                                }
+                                var mvk = ParseNamedVirtualKey(m, i, "modifier");
                                 if (!AllowedModifiers.Contains(mvk))
                                 {
                                     throw new InvalidOperationException($"script step {i}: modifier '{m}' is disallowed (only Shift/Control allowed)");

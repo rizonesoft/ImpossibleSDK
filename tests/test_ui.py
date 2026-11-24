@@ -2311,28 +2311,20 @@ class ReferenceHarness(unittest.TestCase):
             self.assertEqual(ltr_scroll["X"], 3)  # 1px border + 2px left padding
             self.assertEqual(rtl_scroll["X"], 9)  # 1px border + 8px mirrored right padding
             self.assertEqual(dg_rtl["flow_direction"], "RightToLeft")
-            # Fractional-DPI layout verifier: accepts native-dpi 150% rounded rect (10.667 DIPs = 16px) and rejects
-            # both an enlarged 100% layout (11.0 DIPs) and any viewbox-vector capture (effective_rasterization_scale=1.0).
-            def _verify_native_fractional_layout(entry, expected_native_w, tol=0.05):
+            # Guard against mistaking a 100%-host viewbox-vector capture for a native fractional-DPI layout:
+            # committed 150% button capture truthfully reports scale_mode="viewbox-vector" and effective_rasterization_scale=1.0,
+            # and a native-dpi requirement explicitly rejects it.
+            s150_committed = next(c for c in ref_run.open_reference_manifest(ROOT / "tests/reference")["cases"] if c["id"] == "button-Normal-Dark-s150")
+            self.assertEqual(s150_committed.get("scale_mode"), "viewbox-vector")
+            self.assertEqual(s150_committed.get("host_rasterization_scale"), 1.0)
+            self.assertEqual(s150_committed.get("effective_rasterization_scale"), 1.0)
+            def _require_native_dpi_capture(entry):
                 req_s = float(entry.get("scale", 1.0))
                 eff_s = float(entry.get("effective_rasterization_scale", 1.0))
                 if entry.get("scale_mode") != "native-dpi" or abs(eff_s - req_s) > 1e-6:
                     raise ValueError(f"{entry.get('id')}: not a native-dpi capture (mode={entry.get('scale_mode')}, eff={eff_s}, req={req_s})")
-                got_w = float(entry["layout"]["Children"][0]["Rect"]["Width"])
-                if abs(got_w - expected_native_w) > tol:
-                    raise ValueError(f"{entry.get('id')}: width {got_w} != native expected {expected_native_w}")
-            native_150_entry = {
-                "id": "frac-150-native", "scale": 1.5, "host_rasterization_scale": 1.5,
-                "effective_rasterization_scale": 1.5, "scale_mode": "native-dpi",
-                "layout": {"Children": [{"Rect": {"X": 0, "Y": 0, "Width": round(16 / 1.5, 3), "Height": round(16 / 1.5, 3)}}]},
-            }
-            _verify_native_fractional_layout(native_150_entry, 16 / 1.5)
-            enlarged_100_entry = {**native_150_entry, "id": "frac-150-enlarged", "layout": {"Children": [{"Rect": {"X": 0, "Y": 0, "Width": 11.0, "Height": 11.0}}]}}
             with self.assertRaises(ValueError):
-                _verify_native_fractional_layout(enlarged_100_entry, 16 / 1.5)
-            s150_committed = next(c for c in ref_run.open_reference_manifest(ROOT / "tests/reference")["cases"] if c["id"] == "button-Normal-Dark-s150")
-            with self.assertRaises(ValueError):
-                _verify_native_fractional_layout(s150_committed, 120.0)
+                _require_native_dpi_capture(s150_committed)
             # Committed probe-r4-s15 layout child and automation root must agree in normalized logical coordinates.
             probe15 = next(c for c in ref_run.open_reference_manifest(ROOT / "tests/reference")["cases"] if c["id"] == "probe-r4-s15")
             self.assertEqual(probe15["layout"]["Children"][0]["Rect"], probe15["automation"]["Rect"])
@@ -3043,6 +3035,10 @@ class LiveReference(unittest.TestCase):
                 self.assertIsNotNone(inner_layout)
                 self.assertGreaterEqual(inner_btn["Rect"]["Width"], 99.0)
                 self.assertGreaterEqual(inner_btn["Rect"]["Height"], 31.0)
+                self.assertGreaterEqual(inner_btn["Rect"]["X"], 0.0)
+                self.assertLessEqual(inner_btn["Rect"]["X"] + inner_btn["Rect"]["Width"], 160.5)
+                self.assertGreaterEqual(inner_btn["Rect"]["Y"], 0.0)
+                self.assertLessEqual(inner_btn["Rect"]["Y"] + inner_btn["Rect"]["Height"], 64.5)
                 for axis in ("X", "Y", "Width", "Height"):
                     self.assertAlmostEqual(inner_btn["Rect"][axis], inner_layout["Rect"][axis], delta=1.0)
 
@@ -3081,6 +3077,23 @@ class LiveReference(unittest.TestCase):
                 self.assertIn("Control+Escape is disallowed", cm_seq.exception.stderr)
                 self.assertIn("cleanup_releases=[key_up:Control]", cm_seq.exception.stderr)
                 self.assertNotIn("cleanup_errors=", cm_seq.exception.stderr)
+
+                # Numeric VirtualKey bypass (e.g. "65563" = 0x1001B, low 16 bits = Escape) must be refused before SendInput.
+                num_vk = Path(tmp) / "num_vk.json"
+                num_vk.write_text(json.dumps({"cases": [{
+                    "id": "num-vk-bypass",
+                    "control": "Button",
+                    "theme": "Dark",
+                    "scale": 1.0,
+                    "frame": {"width": 160, "height": 64},
+                    "properties": {"Width": 120, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                    "script": [{"action": "key_down", "key": "Control"}, {"action": "key_press", "key": "65563"}],
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as cm_num:
+                    ref_run.run_reference(exe, Path(tmp) / "out_num_vk", cases_path=num_vk, work_dir=build_tmp)
+                self.assertIn("must be a named VirtualKey", cm_num.exception.stderr)
+                self.assertIn("cleanup_releases=[key_up:Control]", cm_num.exception.stderr)
+                self.assertNotIn("cleanup_errors=", cm_num.exception.stderr)
 
                 # Negative storyboard timeout with use_transitions=False must fail naming the case and state.
                 timeout_case = Path(tmp) / "sb_timeout.json"
