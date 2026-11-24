@@ -23,14 +23,15 @@ class Site(unittest.TestCase):
     def setUpClass(cls):
         cls.folder = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         cls.copy = Path(cls.folder.name, "sdk")
-        cls.copy.mkdir()
+        # Clone local history (isolated from ROOT) so stamped receipt commit SHAs resolve in todo-graph.py.
+        subprocess.run(["git", "clone", "-q", "--local", "--no-checkout", str(ROOT), str(cls.copy)],
+                       check=True, capture_output=True, timeout=60)
         skip = shutil.ignore_patterns("__pycache__", "node_modules", "build")
         for name in KEEP:
             shutil.copytree(ROOT / name, cls.copy / name, ignore=skip)
         for path in ROOT.iterdir():
             if path.is_file() and path.name != ".git":  # a worktree's .git leads to the real repository
                 shutil.copy2(path, cls.copy)
-        cls.git("init", "-q")
         cls.git("config", "user.name", "test")
         cls.git("config", "user.email", "test@example.invalid")
         cls.git("config", "core.autocrlf", "false")
