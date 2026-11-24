@@ -94,12 +94,6 @@ public partial class App : Application
             Environment.Exit(0);
             return;
         }
-        if (cli.Length >= 3 && cli[1] == "--restore-clipboard")
-        {
-            Script.RestoreClipboardFromBackupFile(cli[2]);
-            Environment.Exit(0);
-            return;
-        }
         string folder = cli.Length > 1 ? cli[1] : throw new InvalidOperationException("Usage: Reference.exe <out_dir> [--cases <path>]");
         string? casesPath = null;
         for (int i = 2; i < cli.Length; i++)
@@ -115,7 +109,7 @@ public partial class App : Application
             Directory.CreateDirectory(folder);
             var canvas = new Grid();
             window = new Window { Content = canvas, Title = "Impossible UI reference" };
-            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(900, 700));
+            PlaceWindowOnTargetMonitor(window, 900, 700);
             window.Activate();
             await Task.Delay(800);
             await RunCases(window, canvas, folder, casesPath);
@@ -125,6 +119,51 @@ public partial class App : Application
         {
             File.WriteAllText(Path.Combine(folder, "error.txt"), error.ToString());
             Environment.Exit(1);
+        }
+    }
+
+    private static void PlaceWindowOnTargetMonitor(Window win, int width, int height)
+    {
+        var areas = Microsoft.UI.Windowing.DisplayArea.FindAll();
+        Microsoft.UI.Windowing.DisplayArea? chosen = null;
+        string? envMon = Environment.GetEnvironmentVariable("IMPOSSIBLE_REFERENCE_MONITOR")?.Trim();
+        if (!string.IsNullOrEmpty(envMon))
+        {
+            if (envMon.Equals("primary", StringComparison.OrdinalIgnoreCase))
+            {
+                chosen = Microsoft.UI.Windowing.DisplayArea.Primary;
+            }
+            else if (int.TryParse(envMon, NumberStyles.Integer, CultureInfo.InvariantCulture, out int idx) && idx >= 1 && idx <= areas.Count)
+            {
+                chosen = areas[idx - 1];
+            }
+            else
+            {
+                throw new InvalidOperationException($"IMPOSSIBLE_REFERENCE_MONITOR='{envMon}' is invalid (expected 'primary' or 1..{areas.Count})");
+            }
+        }
+        else if (areas.Count > 1)
+        {
+            // Default to the first non-primary monitor on multi-monitor desktops so visual tests stay off the primary screen.
+            for (int i = 0; i < areas.Count; i++)
+            {
+                if (!areas[i].IsPrimary)
+                {
+                    chosen = areas[i];
+                    break;
+                }
+            }
+        }
+        if (chosen != null)
+        {
+            var wa = chosen.WorkArea;
+            int x = wa.X + Math.Max(0, (wa.Width - width) / 2);
+            int y = wa.Y + Math.Max(0, (wa.Height - height) / 2);
+            win.AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, width, height));
+        }
+        else
+        {
+            win.AppWindow.Resize(new Windows.Graphics.SizeInt32(width, height));
         }
     }
 
@@ -1416,7 +1455,7 @@ public partial class App : Application
             ScriptResultDto? scriptResult = null;
             if (spec.Script != null && spec.Script.Count > 0)
             {
-                scriptResult = await Script.RunAsync(window, element, spec.Script, Path.Combine(folder, "clipboard-backup.json"));
+                scriptResult = await Script.RunAsync(window, element, spec.Script);
             }
 
             var (pixels, width, height) = await CaptureSettledAsync(captureTarget, spec.Id);

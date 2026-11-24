@@ -1,15 +1,14 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
 using Windows.System;
 using WinRT.Interop;
@@ -145,256 +144,23 @@ public static class Script
     }
 
     [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
+    [DllImport("user32.dll")] private static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);
     [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool InitializeTouchInjection(uint maxCount, uint dwMode);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool InjectTouchInput(uint count, POINTER_TOUCH_INFO[] contacts);
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool OpenClipboard(IntPtr hWndNewOwner);
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool CloseClipboard();
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool EmptyClipboard();
-    [DllImport("user32.dll", SetLastError = true)] private static extern uint EnumClipboardFormats(uint format);
-    [DllImport("user32.dll", SetLastError = true)] private static extern uint GetClipboardSequenceNumber();
-    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr GetClipboardData(uint uFormat);
-    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern UIntPtr GlobalSize(IntPtr hMem);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GlobalLock(IntPtr hMem);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GlobalUnlock(IntPtr hMem);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GlobalFree(IntPtr hMem);
 
-    private const uint CF_UNICODETEXT = 13;
-    private const uint GMEM_MOVEABLE = 0x0002;
-
-    private static bool ScriptUsesClipboard(IReadOnlyList<ScriptActionSpec> actions)
+    private static void CollectTextControls(DependencyObject root, HashSet<TextBox> textBoxes, HashSet<RichEditBox> richBoxes)
     {
-        var held = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        bool IsCtrl(string k) => k.Equals("control", StringComparison.OrdinalIgnoreCase)
-            || k.Equals("leftcontrol", StringComparison.OrdinalIgnoreCase)
-            || k.Equals("rightcontrol", StringComparison.OrdinalIgnoreCase);
-        bool IsShift(string k) => k.Equals("shift", StringComparison.OrdinalIgnoreCase)
-            || k.Equals("leftshift", StringComparison.OrdinalIgnoreCase)
-            || k.Equals("rightshift", StringComparison.OrdinalIgnoreCase);
-        foreach (var a in actions)
+        if (root is TextBox tb) textBoxes.Add(tb);
+        else if (root is RichEditBox reb) richBoxes.Add(reb);
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
         {
-            string act = (a.Action ?? "").Trim().ToLowerInvariant();
-            string k = (a.Key ?? "").Trim().ToLowerInvariant();
-            if (act == "key_up")
-            {
-                held.Remove(k);
-                continue;
-            }
-            if (act is not ("key_press" or "key_down")) continue;
-            bool ctrl = held.Any(IsCtrl) || IsCtrl(k) || (a.Modifiers?.Any(IsCtrl) == true);
-            bool shift = held.Any(IsShift) || IsShift(k) || (a.Modifiers?.Any(IsShift) == true);
-            if ((ctrl && k is "c" or "x" or "v" or "insert") || (shift && k == "insert"))
-            {
-                return true;
-            }
-            if (act == "key_down" && !string.IsNullOrEmpty(k)) held.Add(k);
-            else if (act == "key_press" && !string.IsNullOrEmpty(k)) held.Remove(k);
-        }
-        return false;
-    }
-
-    private static bool OpenClipboardWithRetry(IntPtr hwnd, int attempts = 20)
-    {
-        for (int i = 0; i < attempts; i++)
-        {
-            if (OpenClipboard(hwnd)) return true;
-            System.Threading.Thread.Sleep(25);
-        }
-        return false;
-    }
-
-    private static string? ReadClipboardUnicodeText(IntPtr hwnd)
-    {
-        if (!OpenClipboardWithRetry(hwnd))
-        {
-            throw new InvalidOperationException($"OpenClipboard failed while verifying clipboard text (err={Marshal.GetLastWin32Error()})");
-        }
-        try
-        {
-            IntPtr handle = GetClipboardData(CF_UNICODETEXT);
-            if (handle == IntPtr.Zero) return null;
-            IntPtr ptr = GlobalLock(handle);
-            if (ptr == IntPtr.Zero) return null;
-            try { return Marshal.PtrToStringUni(ptr); }
-            finally { GlobalUnlock(handle); }
-        }
-        finally
-        {
-            CloseClipboard();
-        }
-    }
-
-    private sealed class ClipboardFormatBackup
-    {
-        [JsonPropertyName("format")] public uint Format { get; set; }
-        [JsonPropertyName("data")] public string Data { get; set; } = "";
-    }
-
-    private sealed class ClipboardBackupFile
-    {
-        [JsonPropertyName("post_clear_seq")] public uint PostClearSeq { get; set; }
-        [JsonPropertyName("expected_seq")] public uint ExpectedSeq { get; set; }
-        [JsonPropertyName("formats")] public List<ClipboardFormatBackup> Formats { get; set; } = new();
-    }
-
-    private static void WriteClipboardBackup(string path, uint postClearSeq, uint expectedSeq, List<(uint Format, byte[] Data)> saved)
-    {
-        var dto = new ClipboardBackupFile
-        {
-            PostClearSeq = postClearSeq,
-            ExpectedSeq = expectedSeq,
-            Formats = saved.Select(f => new ClipboardFormatBackup
-            {
-                Format = f.Format,
-                Data = Convert.ToBase64String(f.Data),
-            }).ToList(),
-        };
-        string tmp = path + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(dto));
-        File.Move(tmp, path, overwrite: true);
-    }
-
-    public static void RestoreClipboardFromBackupFile(string path)
-    {
-        if (!File.Exists(path)) return;
-        var dto = JsonSerializer.Deserialize<ClipboardBackupFile>(File.ReadAllText(path));
-        if (dto == null)
-        {
-            File.Delete(path);
-            return;
-        }
-        uint curSeq = GetClipboardSequenceNumber();
-        bool ownedByRunner = curSeq == dto.PostClearSeq || (dto.ExpectedSeq != 0 && curSeq == dto.ExpectedSeq);
-        if (ownedByRunner)
-        {
-            var saved = dto.Formats.Select(f => (f.Format, Convert.FromBase64String(f.Data))).ToList();
-            RestoreClipboard(IntPtr.Zero, saved);
-        }
-        File.Delete(path);
-    }
-
-    private static List<(uint Format, byte[] Data)> SaveAndClearClipboard(IntPtr hwnd, string? backupPath, out uint postClearSeq)
-    {
-        if (!OpenClipboardWithRetry(hwnd))
-        {
-            throw new InvalidOperationException($"OpenClipboard failed while saving host clipboard (err={Marshal.GetLastWin32Error()})");
-        }
-        try
-        {
-            var saved = new List<(uint, byte[])>();
-            uint fmt = 0;
-            while ((fmt = EnumClipboardFormats(fmt)) != 0)
-            {
-                IntPtr handle = GetClipboardData(fmt);
-                if (handle == IntPtr.Zero)
-                {
-                    throw new InvalidOperationException($"host clipboard contains unsavable format {fmt} (null handle); refusing to clear host clipboard");
-                }
-                ulong size = GlobalSize(handle).ToUInt64();
-                if (size == 0 || size > int.MaxValue)
-                {
-                    throw new InvalidOperationException($"host clipboard contains unsavable non-HGLOBAL format {fmt} (GlobalSize={size}); refusing to clear host clipboard");
-                }
-                IntPtr ptr = GlobalLock(handle);
-                if (ptr == IntPtr.Zero)
-                {
-                    throw new InvalidOperationException($"host clipboard contains non-lockable format {fmt}; refusing to clear host clipboard");
-                }
-                try
-                {
-                    byte[] buf = new byte[(int)size];
-                    Marshal.Copy(ptr, buf, 0, buf.Length);
-                    saved.Add((fmt, buf));
-                }
-                finally
-                {
-                    GlobalUnlock(handle);
-                }
-            }
-            if (!EmptyClipboard())
-            {
-                throw new InvalidOperationException($"EmptyClipboard failed while preparing clipboard script (err={Marshal.GetLastWin32Error()})");
-            }
-            postClearSeq = GetClipboardSequenceNumber();
-            if (!string.IsNullOrEmpty(backupPath))
-            {
-                try
-                {
-                    WriteClipboardBackup(backupPath, postClearSeq, 0, saved);
-                }
-                catch
-                {
-                    // Still holding OpenClipboard lock: restore immediately before surfacing error.
-                    EmptyClipboard();
-                    foreach (var (sfmt, sbytes) in saved)
-                    {
-                        IntPtr hg = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)sbytes.Length);
-                        if (hg == IntPtr.Zero) continue;
-                        IntPtr sp = GlobalLock(hg);
-                        if (sp != IntPtr.Zero)
-                        {
-                            try { Marshal.Copy(sbytes, 0, sp, sbytes.Length); }
-                            finally { GlobalUnlock(hg); }
-                            if (SetClipboardData(sfmt, hg) == IntPtr.Zero) GlobalFree(hg);
-                        }
-                        else
-                        {
-                            GlobalFree(hg);
-                        }
-                    }
-                    throw;
-                }
-            }
-            return saved;
-        }
-        finally
-        {
-            CloseClipboard();
-        }
-    }
-
-    private static void RestoreClipboard(IntPtr hwnd, List<(uint Format, byte[] Data)> saved)
-    {
-        if (!OpenClipboardWithRetry(hwnd))
-        {
-            throw new InvalidOperationException($"OpenClipboard failed while restoring host clipboard (err={Marshal.GetLastWin32Error()})");
-        }
-        try
-        {
-            EmptyClipboard();
-            foreach (var (fmt, bytes) in saved)
-            {
-                IntPtr hGlobal = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)bytes.Length);
-                if (hGlobal == IntPtr.Zero)
-                {
-                    throw new InvalidOperationException($"GlobalAlloc failed while restoring clipboard format {fmt}");
-                }
-                IntPtr ptr = GlobalLock(hGlobal);
-                if (ptr != IntPtr.Zero)
-                {
-                    try { Marshal.Copy(bytes, 0, ptr, bytes.Length); }
-                    finally { GlobalUnlock(hGlobal); }
-                    if (SetClipboardData(fmt, hGlobal) == IntPtr.Zero)
-                    {
-                        GlobalFree(hGlobal);
-                        throw new InvalidOperationException($"SetClipboardData failed for format {fmt} (err={Marshal.GetLastWin32Error()})");
-                    }
-                }
-                else
-                {
-                    GlobalFree(hGlobal);
-                    throw new InvalidOperationException($"GlobalLock failed while restoring clipboard format {fmt}");
-                }
-            }
-        }
-        finally
-        {
-            CloseClipboard();
+            CollectTextControls(VisualTreeHelper.GetChild(root, i), textBoxes, richBoxes);
         }
     }
 
@@ -623,7 +389,7 @@ public static class Script
         return vk;
     }
 
-    public static async Task<ScriptResultDto> RunAsync(Window window, FrameworkElement target, IReadOnlyList<ScriptActionSpec> actions, string? clipboardBackupPath = null)
+    public static async Task<ScriptResultDto> RunAsync(Window window, FrameworkElement target, IReadOnlyList<ScriptActionSpec> actions)
     {
         var hwnd = WindowNative.GetWindowHandle(window);
         for (int tries = 0; tries < 8 && GetForegroundWindow() != hwnd; tries++)
@@ -691,6 +457,8 @@ public static class Script
         if (target is ToggleSwitch ts) ts.Toggled += toggledHandler;
         if (target is ToggleButton tb) { tb.Checked += checkedHandler; tb.Unchecked += uncheckedHandler; }
 
+        // Save the user's cursor position so scripted pointer runs snap it back on exit.
+        bool hasSavedCursor = GetCursorPos(out POINT savedCursor);
         // Park pointer outside the control (still inside window client area) before running script so PointerEntered is deterministic.
         var outside = TargetScreenPoint(window, target, -15, -15, requireInside: false, step: "park");
         EnsureForeground(hwnd, "park");
@@ -701,45 +469,84 @@ public static class Script
         POINT lastMousePt = outside;
         var heldKeys = new List<ushort>();
         POINT? activeTouchPt = null;
+        // Private in-process clipboard: intercept CopyingToClipboard/CuttingToClipboard/Paste on every TextBox and
+        // RichEditBox in target's subtree with Handled=true so Reference.exe NEVER opens, reads, clears, or writes
+        // the contributor's shared Windows desktop clipboard.
         bool copiedInScript = false;
-        uint expectedClipSeq = 0;
-        string? expectedCopiedText = null;
-        bool touchedClipboard = ScriptUsesClipboard(actions);
-        List<(uint Format, byte[] Data)>? savedClipboard = null;
-        uint postClearClipSeq = 0;
-        bool clipboardCleared = false;
-        EventHandler? onProcessExit = null;
-        if (touchedClipboard)
+        string? privateClipboard = null;
+        string? interceptedClipError = null;
+        var interceptedTextBoxes = new HashSet<TextBox>();
+        var interceptedRichBoxes = new HashSet<RichEditBox>();
+        CollectTextControls(target, interceptedTextBoxes, interceptedRichBoxes);
+
+        TypedEventHandler<TextBox, TextControlCopyingToClipboardEventArgs> tbCopyHandler = (sender, e) =>
         {
-            onProcessExit = (_, _) =>
+            e.Handled = true;
+            privateClipboard = sender.SelectedText;
+            copiedInScript = true;
+        };
+        TypedEventHandler<TextBox, TextControlCuttingToClipboardEventArgs> tbCutHandler = (sender, e) =>
+        {
+            e.Handled = true;
+            privateClipboard = sender.SelectedText;
+            copiedInScript = true;
+            sender.SelectedText = "";
+        };
+        TextControlPasteEventHandler tbPasteHandler = (sender, e) =>
+        {
+            e.Handled = true;
+            if (!copiedInScript || privateClipboard == null)
             {
-                if (!clipboardCleared || savedClipboard == null) return;
-                try
-                {
-                    uint curSeq = GetClipboardSequenceNumber();
-                    if (curSeq == postClearClipSeq || (copiedInScript && curSeq == expectedClipSeq))
-                    {
-                        RestoreClipboard(hwnd, savedClipboard);
-                    }
-                    if (!string.IsNullOrEmpty(clipboardBackupPath) && File.Exists(clipboardBackupPath))
-                    {
-                        File.Delete(clipboardBackupPath);
-                    }
-                }
-                catch (Exception ex) { Console.Error.WriteLine($"ProcessExit clipboard restore failed: {ex.Message}"); }
-            };
-            AppDomain.CurrentDomain.ProcessExit += onProcessExit;
-            try
-            {
-                savedClipboard = SaveAndClearClipboard(hwnd, clipboardBackupPath, out postClearClipSeq);
-                clipboardCleared = true;
+                interceptedClipError ??= "clipboard paste without prior same-script copy/cut is disallowed";
+                return;
             }
-            catch
+            if (sender is TextBox tbPaste)
             {
-                AppDomain.CurrentDomain.ProcessExit -= onProcessExit;
-                onProcessExit = null;
-                throw;
+                int insertEnd = tbPaste.SelectionStart + privateClipboard.Length;
+                tbPaste.SelectedText = privateClipboard;
+                tbPaste.Select(insertEnd, 0);
             }
+        };
+        TypedEventHandler<RichEditBox, TextControlCopyingToClipboardEventArgs> rebCopyHandler = (sender, e) =>
+        {
+            e.Handled = true;
+            sender.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.None, out string selText);
+            privateClipboard = selText;
+            copiedInScript = true;
+        };
+        TypedEventHandler<RichEditBox, TextControlCuttingToClipboardEventArgs> rebCutHandler = (sender, e) =>
+        {
+            e.Handled = true;
+            sender.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.None, out string selText);
+            privateClipboard = selText;
+            copiedInScript = true;
+            sender.Document.Selection.SetText(Microsoft.UI.Text.TextSetOptions.None, "");
+        };
+        TextControlPasteEventHandler rebPasteHandler = (sender, e) =>
+        {
+            e.Handled = true;
+            if (!copiedInScript || privateClipboard == null)
+            {
+                interceptedClipError ??= "clipboard paste without prior same-script copy/cut is disallowed";
+                return;
+            }
+            if (sender is RichEditBox rebPaste)
+            {
+                rebPaste.Document.Selection.SetText(Microsoft.UI.Text.TextSetOptions.None, privateClipboard);
+                rebPaste.Document.Selection.Collapse(false);
+            }
+        };
+        foreach (var tbItem in interceptedTextBoxes)
+        {
+            tbItem.CopyingToClipboard += tbCopyHandler;
+            tbItem.CuttingToClipboard += tbCutHandler;
+            tbItem.Paste += tbPasteHandler;
+        }
+        foreach (var rebItem in interceptedRichBoxes)
+        {
+            rebItem.CopyingToClipboard += rebCopyHandler;
+            rebItem.CuttingToClipboard += rebCutHandler;
+            rebItem.Paste += rebPasteHandler;
         }
 
         Exception? runError = null;
@@ -858,8 +665,6 @@ public static class Script
                         }
                         bool isCopyOrCutStep = false;
                         bool isPasteStep = false;
-                        uint seqBeforeKey = 0;
-                        string? expectedSelectionBeforeCopy = null;
                         if (step.Action != "key_up")
                         {
                             bool ctrlActive = vk == VirtualKey.Control
@@ -893,7 +698,7 @@ public static class Script
                             }
                             if ((ctrlActive && vActive) || (shiftActive && insActive))
                             {
-                                if (!copiedInScript)
+                                if (!copiedInScript || privateClipboard == null)
                                 {
                                     throw new InvalidOperationException($"script step {i}: clipboard paste (Control+V / Shift+Insert) without prior same-script copy/cut is disallowed in reference scripts (ambient clipboard state is non-deterministic)");
                                 }
@@ -909,46 +714,24 @@ public static class Script
                             }
                             await Task.Delay(80);
                         }
-                        if (isCopyOrCutStep)
+                        if (isCopyOrCutStep || isPasteStep)
                         {
-                            seqBeforeKey = GetClipboardSequenceNumber();
-                            if (target is TextBox selTb) expectedSelectionBeforeCopy = selTb.SelectedText;
-                            else if (target is RichEditBox selReb)
+                            // Refuse clipboard chords unless the active focused element is an intercepted TextBox or RichEditBox
+                            // (including focused children inside a panel-root case), so no control can ever touch the host clipboard.
+                            object? focusedNow = target.XamlRoot != null ? FocusManager.GetFocusedElement(target.XamlRoot) : null;
+                            bool intercepted = (focusedNow is TextBox ftb && interceptedTextBoxes.Contains(ftb))
+                                || (focusedNow is RichEditBox freb && interceptedRichBoxes.Contains(freb));
+                            if (!intercepted)
                             {
-                                selReb.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.None, out string st);
-                                expectedSelectionBeforeCopy = st.TrimEnd('\r', '\n');
+                                throw new InvalidOperationException($"script step {i}: clipboard chord requires an intercepted TextBox or RichEditBox focus target (focused={DescribeElement(focusedNow)})");
                             }
                         }
-                        string? textBeforePaste = null;
-                        int selStartBeforePaste = 0;
-                        int selLenBeforePaste = 0;
-                        if (isPasteStep)
+                        bool copiedBeforeStep = copiedInScript;
+                        string? prevClipValue = privateClipboard;
+                        if (isCopyOrCutStep)
                         {
-                            if (GetClipboardSequenceNumber() != expectedClipSeq)
-                            {
-                                throw new InvalidOperationException($"script step {i}: clipboard changed externally between scripted copy and paste; refusing non-deterministic paste");
-                            }
-                            if (expectedCopiedText != null)
-                            {
-                                string? curClip = ReadClipboardUnicodeText(hwnd);
-                                if (!string.Equals(curClip, expectedCopiedText, StringComparison.Ordinal))
-                                {
-                                    throw new InvalidOperationException($"script step {i}: clipboard text mismatch before paste (expected length {expectedCopiedText.Length}, actual length {curClip?.Length ?? -1}); refusing non-deterministic paste");
-                                }
-                            }
-                            if (target is TextBox pasteTb)
-                            {
-                                textBeforePaste = pasteTb.Text ?? "";
-                                selStartBeforePaste = pasteTb.SelectionStart;
-                                selLenBeforePaste = pasteTb.SelectionLength;
-                            }
-                            else if (target is RichEditBox pasteReb)
-                            {
-                                pasteReb.Document.GetText(Microsoft.UI.Text.TextGetOptions.None, out string fullBefore);
-                                textBeforePaste = fullBefore.TrimEnd('\r', '\n');
-                                selStartBeforePaste = Math.Min(pasteReb.Document.Selection.StartPosition, textBeforePaste.Length);
-                                selLenBeforePaste = Math.Min(Math.Max(0, pasteReb.Document.Selection.Length), textBeforePaste.Length - selStartBeforePaste);
-                            }
+                            // Reset copy marker for this step so we prove the intercepted CopyingToClipboard/CuttingToClipboard fired.
+                            copiedInScript = false;
                         }
                         if (step.Action == "key_down")
                         {
@@ -995,52 +778,15 @@ public static class Script
                             }
                             await Task.Delay(80);
                         }
-                        if (isPasteStep)
+                        if (interceptedClipError != null)
                         {
-                            if (GetClipboardSequenceNumber() != expectedClipSeq)
-                            {
-                                throw new InvalidOperationException($"script step {i}: clipboard changed externally during paste; refusing non-deterministic paste");
-                            }
-                            if (expectedCopiedText != null && textBeforePaste != null)
-                            {
-                                string expectedAfter = textBeforePaste.Substring(0, selStartBeforePaste)
-                                    + expectedCopiedText
-                                    + textBeforePaste.Substring(selStartBeforePaste + selLenBeforePaste);
-                                string? actualAfter = null;
-                                if (target is TextBox postTb) actualAfter = postTb.Text ?? "";
-                                else if (target is RichEditBox postReb)
-                                {
-                                    postReb.Document.GetText(Microsoft.UI.Text.TextGetOptions.None, out string fullAfter);
-                                    actualAfter = fullAfter.TrimEnd('\r', '\n');
-                                }
-                                if (actualAfter != null && !string.Equals(actualAfter, expectedAfter, StringComparison.Ordinal))
-                                {
-                                    throw new InvalidOperationException($"script step {i}: pasted control text mismatch (expected length {expectedAfter.Length}, actual length {actualAfter.Length}); refusing non-deterministic paste");
-                                }
-                            }
+                            throw new InvalidOperationException($"script step {i}: {interceptedClipError}");
                         }
-                        if (isCopyOrCutStep)
+                        if (isCopyOrCutStep && !copiedInScript)
                         {
-                            uint seqAfter = GetClipboardSequenceNumber();
-                            if (seqAfter == seqBeforeKey)
-                            {
-                                throw new InvalidOperationException($"script step {i}: scripted copy/cut did not update clipboard (sequence number unchanged)");
-                            }
-                            if (expectedSelectionBeforeCopy != null)
-                            {
-                                string? copiedNow = ReadClipboardUnicodeText(hwnd);
-                                if (!string.Equals(copiedNow, expectedSelectionBeforeCopy, StringComparison.Ordinal))
-                                {
-                                    throw new InvalidOperationException($"script step {i}: clipboard text mismatch after copy (expected length {expectedSelectionBeforeCopy.Length}, actual length {copiedNow?.Length ?? -1}); refusing non-deterministic copy");
-                                }
-                                expectedCopiedText = copiedNow;
-                            }
-                            copiedInScript = true;
-                            expectedClipSeq = seqAfter;
-                            if (!string.IsNullOrEmpty(clipboardBackupPath) && savedClipboard != null)
-                            {
-                                WriteClipboardBackup(clipboardBackupPath, postClearClipSeq, expectedClipSeq, savedClipboard);
-                            }
+                            copiedInScript = copiedBeforeStep;
+                            privateClipboard = prevClipValue;
+                            throw new InvalidOperationException($"script step {i}: scripted copy/cut did not trigger private clipboard capture");
                         }
                         break;
                     }
@@ -1152,24 +898,21 @@ public static class Script
             {
                 try { SendMouse(outside, MOUSEEVENTF_MOVE); } catch (Exception cex) { cleanupErrors.Add($"park_mouse:{cex.Message}"); }
             }
-            if (onProcessExit != null)
+            if (hasSavedCursor)
             {
-                AppDomain.CurrentDomain.ProcessExit -= onProcessExit;
+                SetCursorPos(savedCursor.X, savedCursor.Y);
             }
-            if (savedClipboard != null)
+            foreach (var tbItem in interceptedTextBoxes)
             {
-                bool restoreFailed = false;
-                uint curSeq = GetClipboardSequenceNumber();
-                if (curSeq == postClearClipSeq || (copiedInScript && curSeq == expectedClipSeq))
-                {
-                    try { RestoreClipboard(hwnd, savedClipboard); }
-                    catch (Exception cex) { restoreFailed = true; cleanupErrors.Add($"restore_clipboard:{cex.Message}"); }
-                }
-                if (!restoreFailed && !string.IsNullOrEmpty(clipboardBackupPath) && File.Exists(clipboardBackupPath))
-                {
-                    try { File.Delete(clipboardBackupPath); }
-                    catch (Exception cex) { cleanupErrors.Add($"delete_clipboard_backup:{cex.Message}"); }
-                }
+                tbItem.CopyingToClipboard -= tbCopyHandler;
+                tbItem.CuttingToClipboard -= tbCutHandler;
+                tbItem.Paste -= tbPasteHandler;
+            }
+            foreach (var rebItem in interceptedRichBoxes)
+            {
+                rebItem.CopyingToClipboard -= rebCopyHandler;
+                rebItem.CuttingToClipboard -= rebCutHandler;
+                rebItem.Paste -= rebPasteHandler;
             }
             target.GotFocus -= gotFocus;
             target.LostFocus -= lostFocus;

@@ -2853,6 +2853,14 @@
           },
           {
             "Step": "0:pointer_click",
+            "Event": "PointerReleased",
+            "PointerType": "Mouse",
+            "Target": "ContentPresenter:ContentPresenter",
+            "Focused": "none",
+            "State": ""
+          },
+          {
+            "Step": "0:pointer_click",
             "Event": "PointerPressed",
             "PointerType": "Mouse",
             "Target": "ContentPresenter:ContentPresenter",

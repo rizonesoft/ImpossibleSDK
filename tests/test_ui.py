@@ -3965,78 +3965,96 @@ class LiveReference(unittest.TestCase):
                             ref_run.publish_store(out_f, store_f, {case_obj["id"]: case_obj})
                         self.assertIn("U+4E2D", str(cm_gid0.exception))
 
-                # Live injected external clipboard write regression: an external process overwrites the Windows
-                # clipboard right after Reference.exe's Ctrl+C and before Ctrl+V. Reference.exe must refuse the
-                # paste, must NEVER disclose the private external text in error.txt/stderr, and must NOT overwrite
-                # the newer external clipboard entry on exit.
+                # Class-level clipboard isolation regressions (zero host clipboard access):
+                # 1. Structural invariant: reference/Script.cs contains no Win32 desktop clipboard P/Invokes.
+                script_cs = (ref_run.ROOT / "reference/Script.cs").read_text(encoding="utf-8")
+                for forbidden_api in ("OpenClipboard", "EmptyClipboard", "GetClipboardData", "SetClipboardData"):
+                    self.assertNotIn(forbidden_api, script_cs, f"reference/Script.cs must not touch the shared desktop clipboard ({forbidden_api})")
+
+                # 2. Read-only GetClipboardSequenceNumber() before and after live clipboard scripts (direct TextBox,
+                # panel-root focused child TextBox, multiline RichEditBox, and refused non-text Button copy) proves
+                # zero mutations to the contributor's clipboard without ever reading or modifying its contents.
                 ps_exe = "pwsh.exe" if ref_run.is_wsl() else "powershell.exe"
-                orig_clip = ref_run.run_cmd(
-                    ps_exe, "-NoProfile", "-Command", "Get-Clipboard -Raw",
-                    capture_output=True, text=True, check=False,
-                ).stdout
-                ext_secret = "SECRET_EXTERNAL_CLIPBOARD_DATA_999"
-                ext_case = {
-                    "id": "tb-ext-clip-refused", "control": "TextBox", "theme": "Dark", "scale": 1.0,
-                    "frame": {"width": 180, "height": 64},
-                    "properties": {"Text": "HiClipTest", "FontFamily": "Barlow"},
-                    "script": [
-                        {"action": "focus"},
-                        {"action": "key_press", "key": "A", "modifiers": ["Control"]},
-                        {"action": "key_press", "key": "C", "modifiers": ["Control"]},
-                        {"action": "key_press", "key": "Right"},
-                        {"action": "key_press", "key": "Right"},
-                        {"action": "key_press", "key": "Right"},
-                        {"action": "key_press", "key": "V", "modifiers": ["Control"]},
-                    ],
-                }
-                ext_cf = Path(build_tmp) / "tb_ext_clip.json"
-                ext_cf.write_text(json.dumps({"cases": [ext_case]}), encoding="utf-8")
-                out_ext = Path(build_tmp) / "out_tb_ext_clip"
-                watcher_script = (
-                    "$deadline = (Get-Date).AddSeconds(25); "
-                    "while ((Get-Date) -lt $deadline) { "
-                    "  $v = Get-Clipboard -Raw -ErrorAction Ignore; "
-                    "  if ($v -eq 'HiClipTest') { Set-Clipboard -Value '" + ext_secret + "'; exit 0 }; "
-                    "  Start-Sleep -Milliseconds 15 "
-                    "}; exit 1"
+                seq_cmd = (
+                    "Add-Type -Name ClipSeq -Namespace RefTest -MemberDefinition "
+                    "'[DllImport(\"user32.dll\")] public static extern uint GetClipboardSequenceNumber();'; "
+                    "[RefTest.ClipSeq]::GetClipboardSequenceNumber()"
                 )
-                watcher_kwargs = {"stdin": subprocess.DEVNULL, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True}
-                if os.name == "nt":
-                    watcher_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-                watcher = subprocess.Popen([ps_exe, "-NoProfile", "-Command", watcher_script], **watcher_kwargs)
-                try:
-                    ext_res = ref_run.run_cmd(
-                        str(exe), ref_run.to_win_path(out_ext),
-                        "--cases", ref_run.to_win_path(ext_cf),
-                        capture_output=True, text=True, check=False,
-                    )
-                    watcher.wait(timeout=30)
-                    self.assertEqual(watcher.returncode, 0, f"external clipboard injector did not fire: {watcher.stderr.read()}")
-                    self.assertNotEqual(ext_res.returncode, 0, "external clipboard write between copy and paste must be refused")
-                    ext_err = (out_ext / "error.txt").read_text(encoding="utf-8")
-                    self.assertIn("non-deterministic", ext_err.lower())
-                    self.assertNotIn(ext_secret, ext_err, "error.txt must never disclose external clipboard text")
-                    self.assertNotIn(ext_secret, ext_res.stderr or "", "stderr must never disclose external clipboard text")
-                    after_clip = ref_run.run_cmd(
-                        ps_exe, "-NoProfile", "-Command", "Get-Clipboard -Raw",
-                        capture_output=True, text=True, check=False,
-                    ).stdout.rstrip("\r\n")
-                    self.assertEqual(after_clip, ext_secret, "exit cleanup must not overwrite a newer external clipboard copy")
-                finally:
-                    if watcher.poll() is None:
-                        watcher.kill()
-                        watcher.wait(timeout=10)
-                    # Restore original host clipboard text cleanly via base64 so newlines/quotes survive intact.
-                    if orig_clip:
-                        import base64 as _b64
-                        b64_orig = _b64.b64encode(orig_clip.rstrip("\r\n").encode("utf-8")).decode("ascii")
-                        ref_run.run_cmd(
-                            ps_exe, "-NoProfile", "-Command",
-                            f"Set-Clipboard -Value ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64_orig}')))",
-                            capture_output=True, text=True, check=False,
-                        )
-                    else:
-                        ref_run.run_cmd(ps_exe, "-NoProfile", "-Command", "Set-Clipboard -Value $null", capture_output=True, text=True, check=False)
+                seq_before = ref_run.run_cmd(
+                    ps_exe, "-NoProfile", "-Command", seq_cmd,
+                    capture_output=True, text=True, check=True,
+                ).stdout.strip()
+
+                iso_cases = [
+                    {
+                        "id": "panel-child-copy-paste-live",
+                        "control": "StackPanel",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 200, "height": 80},
+                        "children": [
+                            {
+                                "id": "child-tb",
+                                "control": "TextBox",
+                                "properties": {"Name": "ChildTb", "Text": "PanHi", "FontFamily": "Barlow", "Width": 160, "Height": 40},
+                            }
+                        ],
+                        "script": [
+                            {"action": "pointer_click", "x": 80, "y": 20},
+                            {"action": "key_press", "key": "A", "modifiers": ["Control"], "use_focused": True},
+                            {"action": "key_press", "key": "C", "modifiers": ["Control"], "use_focused": True},
+                            {"action": "key_press", "key": "Right", "use_focused": True},
+                            {"action": "key_press", "key": "V", "modifiers": ["Control"], "use_focused": True},
+                        ],
+                    },
+                    {
+                        "id": "reb-multiline-copy-paste-live",
+                        "control": "RichEditBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 220, "height": 100},
+                        "rich_text_rtf": r"{\rtf1\ansi Line1\par Line2\par}",
+                        "properties": {"FontFamily": "Barlow", "AcceptsReturn": True},
+                        "script": [
+                            {"action": "focus"},
+                            {"action": "key_press", "key": "A", "modifiers": ["Control"]},
+                            {"action": "key_press", "key": "C", "modifiers": ["Control"]},
+                            {"action": "key_press", "key": "Right"},
+                            {"action": "key_press", "key": "V", "modifiers": ["Control"]},
+                        ],
+                    },
+                ]
+                iso_cf = Path(build_tmp) / "iso_clip_cases.json"
+                iso_cf.write_text(json.dumps({"cases": iso_cases}), encoding="utf-8")
+                out_iso = ref_run.run_reference(exe, Path(tmp) / "out_iso_clip", cases_path=iso_cf, work_dir=build_tmp)
+                m_iso = json.loads((out_iso / "cases.json").read_text(encoding="utf-8"))
+                by_iso = {c["id"]: c for c in m_iso["cases"]}
+                self.assertIn("Text=PanHiPanHi", by_iso["panel-child-copy-paste-live"]["script_log"]["FinalState"].get("focused_state", ""))
+                reb_texts = [rt["text"] for rt in by_iso["reb-multiline-copy-paste-live"]["rendered_text"]]
+                self.assertGreaterEqual(reb_texts.count("Line1"), 2, f"multiline RichEditBox paste missing duplicated Line1: {reb_texts!r}")
+                self.assertGreaterEqual(reb_texts.count("Line2"), 2, f"multiline RichEditBox paste missing duplicated Line2: {reb_texts!r}")
+
+                # Clipboard chord on non-text Button must be refused before SendKey.
+                btn_clip_cf = Path(build_tmp) / "btn_clip_refused.json"
+                btn_clip_cf.write_text(json.dumps({"cases": [{
+                    "id": "btn-copy-refused", "control": "Button", "theme": "Dark", "scale": 1.0,
+                    "frame": {"width": 120, "height": 48},
+                    "script": [{"action": "focus"}, {"action": "key_press", "key": "C", "modifiers": ["Control"]}],
+                }]}), encoding="utf-8")
+                out_btn_clip = Path(build_tmp) / "out_btn_clip_refused"
+                btn_clip_res = ref_run.run_cmd(
+                    str(exe), ref_run.to_win_path(out_btn_clip),
+                    "--cases", ref_run.to_win_path(btn_clip_cf),
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertNotEqual(btn_clip_res.returncode, 0, "clipboard chord on non-text Button must be refused")
+                self.assertIn("intercepted TextBox or RichEditBox", (out_btn_clip / "error.txt").read_text(encoding="utf-8"))
+
+                seq_after = ref_run.run_cmd(
+                    ps_exe, "-NoProfile", "-Command", seq_cmd,
+                    capture_output=True, text=True, check=True,
+                ).stdout.strip()
+                self.assertEqual(seq_before, seq_after, f"host clipboard sequence number changed during isolated clipboard scripts ({seq_before} -> {seq_after})")
 
                 # Scripted button gives identical event + focus log across two independent runs,
                 # with touch_tap GotFocus settled before Click (deterministic ordering across refreshes).
