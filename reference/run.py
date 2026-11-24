@@ -526,15 +526,15 @@ def _decode_distro(tag):
 
 def _resolve_legacy_distro_tag(tag):
     """Resolve a b78e066 hyphen-to-underscore distro tag to an exact distro name if unambiguous, else None."""
-    if not tag or tag == "none":
+    if not tag:
+        return ""
+    if tag == "none":
+        if os.name != "nt" and os.environ.get("WSL_DISTRO_NAME", "") == "none":
+            return "none"
         return ""
     if "_" not in tag:
         return tag
-    if os.name != "nt":
-        cur_distro = os.environ.get("WSL_DISTRO_NAME", "")
-        if cur_distro and cur_distro.replace("-", "_") == tag:
-            return cur_distro
-        return None
+    # Both WSL and Windows can query wsl.exe -l -q to prove whether tag maps to a unique installed WSL distro.
     if shutil.which("wsl.exe"):
         res = subprocess.run(["wsl.exe", "-l", "-q"], capture_output=True, timeout=10)
         if res.returncode == 0:
@@ -600,7 +600,14 @@ def _try_clear_dead_lock(lock_dir, my_token):
     except OSError:
         return False
     if not entries:
-        # Never remove an empty directory: an older mkdir-only publisher (c5ae204) holds an empty .lockdir while live.
+        # .lockv2 is never created empty by a live owner (only an interrupted b78e066 release leaves it empty).
+        # .lockdir may be held empty by a live c5ae204 mkdir-only publisher, so never remove an empty .lockdir.
+        if lock_dir.name.endswith(".lockv2"):
+            try:
+                os.rmdir(lock_dir)
+                return True
+            except OSError:
+                return False
         return False
 
     owner_file = lock_dir / "owner.json"
