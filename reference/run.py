@@ -233,7 +233,34 @@ def _codepoint_in_ranges(cp, ranges):
     return any(isinstance(r, (list, tuple)) and len(r) == 2 and r[0] <= cp <= r[1] for r in ranges)
 
 
-def check_no_prohibited_assets(case_spec, require_installed=False, installed_fonts=None, installed_font_ranges=None):
+def _script_typed_chars(script):
+    """Extract characters that key_press/key_down script actions may type into a control."""
+    chars = []
+    for idx, step in enumerate(script or []):
+        if not isinstance(step, dict):
+            continue
+        act = str(step.get("action") or "").lower()
+        if act not in ("key_press", "key_down"):
+            continue
+        key = str(step.get("key") or "")
+        if len(key) == 1 and key.isalpha():
+            chars.append((f"script[{idx}].key({key})", key.upper() + key.lower()))
+        elif len(key) == 1 and key.isdigit():
+            chars.append((f"script[{idx}].key({key})", key))
+        elif key.startswith("Number") and len(key) == 7 and key[6].isdigit():
+            chars.append((f"script[{idx}].key({key})", key[6]))
+        elif key.lower() == "space":
+            chars.append((f"script[{idx}].key(Space)", " "))
+    return chars
+
+
+def check_no_prohibited_assets(
+    case_spec,
+    require_installed=False,
+    installed_fonts=None,
+    installed_font_ranges=None,
+    captured_frame=None,
+):
     """Refuse unknown/colliding keys, Microsoft fonts, unverified/uninstalled fonts, or stock Microsoft glyph controls."""
     norm = normalize_case_spec(case_spec)
     cid = norm.get("id", "<unknown>")
@@ -325,7 +352,12 @@ def check_no_prohibited_assets(case_spec, require_installed=False, installed_fon
             if ctrl_l == "numberbox":
                 text_values.append(("NumberBox(digits)", "0123456789.-+"))
             elif ctrl_l in ("datepicker", "timepicker", "calendarview", "calendardatepicker"):
-                text_values.append((f"{ctrl}(formatted)", "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:-/, "))
+                if captured_frame is None or not isinstance(captured_frame.get("rendered_text"), list):
+                    raise ValueError(
+                        f"{cid}: locale-formatted {ctrl} requires captured rendered_text from the capture host to verify all rendered glyphs"
+                    )
+            for field_name, tv in _script_typed_chars(norm.get("script")):
+                text_values.append((field_name, tv))
             for idx, it in enumerate(items or []):
                 if it is not None and str(it) != "":
                     text_values.append((f"items[{idx}]", str(it)))
@@ -337,6 +369,44 @@ def check_no_prohibited_assets(case_spec, require_installed=False, installed_fon
                     if not _codepoint_in_ranges(cp, cmap_ranges):
                         raise ValueError(
                             f"{cid}.{field_name}: codepoint U+{cp:04X} is not covered by installed FontFamily {ff!r} cmap (would trigger unverified system font fallback)"
+                        )
+    if require_installed and captured_frame is not None:
+        inst = {str(n).strip().lower() for n in (installed_fonts or []) if isinstance(n, str)}
+        norm_ranges = {
+            str(k).strip().lower(): v for k, v in (installed_font_ranges or {}).items()
+            if isinstance(k, str) and isinstance(v, list)
+        }
+        rendered_text = captured_frame.get("rendered_text")
+        if rendered_text is not None:
+            if not isinstance(rendered_text, list):
+                raise ValueError(f"{cid}.rendered_text: must be a list")
+            for idx, item in enumerate(rendered_text):
+                if not isinstance(item, dict):
+                    raise ValueError(f"{cid}.rendered_text[{idx}]: must be an object")
+                tv = str(item.get("text") or "")
+                if not tv:
+                    continue
+                rff = str(item.get("font") or "").strip().lower()
+                if not rff or rff not in permitted_fonts or any(bad in rff for bad in FORBIDDEN_FONT_SUBSTRINGS):
+                    raise ValueError(
+                        f"{cid}.rendered_text[{idx}]: rendered text requires a permitted non-Microsoft FontFamily (got {rff!r})"
+                    )
+                if rff not in inst:
+                    raise ValueError(
+                        f"{cid}.rendered_text[{idx}]: FontFamily {rff!r} is not an exact installed font family on the capture host"
+                    )
+                rcmap = norm_ranges.get(rff)
+                if not rcmap:
+                    raise ValueError(
+                        f"{cid}.rendered_text[{idx}]: no verified cmap glyph coverage recorded for installed FontFamily {rff!r}"
+                    )
+                for ch in tv:
+                    cp = ord(ch)
+                    if cp < 0x20:
+                        continue
+                    if not _codepoint_in_ranges(cp, rcmap):
+                        raise ValueError(
+                            f"{cid}.rendered_text[{idx}]: codepoint U+{cp:04X} is not covered by installed FontFamily {rff!r} cmap (would trigger unverified system font fallback)"
                         )
     for child in norm.get("children") or []:
         check_no_prohibited_assets(
@@ -965,10 +1035,15 @@ def publish_store(fresh_dir, store_dir, expected_specs):
 
     installed_fonts = manifest.get("installed_fonts")
     installed_font_ranges = manifest.get("installed_font_ranges")
-    for spec in expected_specs.values():
+    frame_by_id = {
+        c["id"]: c for c in (manifest.get("cases") or [])
+        if isinstance(c, dict) and isinstance(c.get("id"), str)
+    }
+    for cid, spec in expected_specs.items():
         check_no_prohibited_assets(
             spec, require_installed=True,
             installed_fonts=installed_fonts, installed_font_ranges=installed_font_ranges,
+            captured_frame=frame_by_id.get(cid),
         )
 
     with _store_lock(store):

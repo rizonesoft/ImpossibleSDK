@@ -802,6 +802,96 @@ public partial class App : Application
         return ReadSingleFaceCmapRanges(data, 0);
     }
 
+    private static List<Dictionary<string, string>> CollectRenderedText(DependencyObject root)
+    {
+        var items = new List<Dictionary<string, string>>();
+        void Walk(DependencyObject obj)
+        {
+            if (obj is UIElement uie && (uie.Visibility != Visibility.Visible || uie.Opacity <= 0.0))
+            {
+                return;
+            }
+            if (obj is TextBlock tb)
+            {
+                if (!string.IsNullOrEmpty(tb.Text))
+                {
+                    items.Add(new Dictionary<string, string>
+                    {
+                        ["element"] = string.IsNullOrEmpty(tb.Name) ? "TextBlock" : $"TextBlock:{tb.Name}",
+                        ["font"] = tb.FontFamily?.Source ?? "",
+                        ["text"] = tb.Text,
+                    });
+                }
+            }
+            else if (obj is RichTextBlock rtb)
+            {
+                string font = rtb.FontFamily?.Source ?? "";
+                string elemName = string.IsNullOrEmpty(rtb.Name) ? "RichTextBlock" : $"RichTextBlock:{rtb.Name}";
+                foreach (var block in rtb.Blocks)
+                {
+                    if (block is Microsoft.UI.Xaml.Documents.Paragraph para)
+                    {
+                        foreach (var inline in para.Inlines)
+                        {
+                            if (inline is Microsoft.UI.Xaml.Documents.Run run && !string.IsNullOrEmpty(run.Text))
+                            {
+                                items.Add(new Dictionary<string, string>
+                                {
+                                    ["element"] = elemName,
+                                    ["font"] = run.FontFamily?.Source ?? font,
+                                    ["text"] = run.Text,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            else if (obj is TextBox tbox)
+            {
+                if (!string.IsNullOrEmpty(tbox.Text))
+                {
+                    items.Add(new Dictionary<string, string>
+                    {
+                        ["element"] = string.IsNullOrEmpty(tbox.Name) ? "TextBox" : $"TextBox:{tbox.Name}",
+                        ["font"] = tbox.FontFamily?.Source ?? "",
+                        ["text"] = tbox.Text,
+                    });
+                }
+            }
+            else if (obj is PasswordBox pbox)
+            {
+                if (!string.IsNullOrEmpty(pbox.Password))
+                {
+                    string shown = pbox.PasswordRevealMode == PasswordRevealMode.Visible
+                        ? pbox.Password
+                        : (string.IsNullOrEmpty(pbox.PasswordChar) ? "\u25CF" : pbox.PasswordChar);
+                    items.Add(new Dictionary<string, string>
+                    {
+                        ["element"] = string.IsNullOrEmpty(pbox.Name) ? "PasswordBox" : $"PasswordBox:{pbox.Name}",
+                        ["font"] = pbox.FontFamily?.Source ?? "",
+                        ["text"] = shown,
+                    });
+                }
+            }
+            else if (obj is FontIcon fi && !string.IsNullOrEmpty(fi.Glyph))
+            {
+                items.Add(new Dictionary<string, string>
+                {
+                    ["element"] = string.IsNullOrEmpty(fi.Name) ? "FontIcon" : $"FontIcon:{fi.Name}",
+                    ["font"] = fi.FontFamily?.Source ?? "",
+                    ["text"] = fi.Glyph,
+                });
+            }
+            int count = VisualTreeHelper.GetChildrenCount(obj);
+            for (int i = 0; i < count; i++)
+            {
+                Walk(VisualTreeHelper.GetChild(obj, i));
+            }
+        }
+        Walk(root);
+        return items;
+    }
+
     private static async Task RunCases(Window window, Grid canvas, string folder, string? casesPath)
     {
         double hostDpi = canvas.XamlRoot.RasterizationScale;
@@ -987,6 +1077,7 @@ public partial class App : Application
             }
             if (layoutDump != null) entry["layout"] = layoutDump;
             if (automationDump != null) entry["automation"] = automationDump;
+            entry["rendered_text"] = CollectRenderedText(innerFrame);
             if (scriptResult != null) entry["script_log"] = scriptResult;
             results.Add(entry);
         }

@@ -149,6 +149,19 @@ public static class Script
     [DllImport("user32.dll", SetLastError = true)] private static extern bool InitializeTouchInjection(uint maxCount, uint dwMode);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool InjectTouchInput(uint count, POINTER_TOUCH_INFO[] contacts);
 
+    private static async Task WaitSettleAsync(Microsoft.UI.Dispatching.DispatcherQueue? dq, int minDelayMs)
+    {
+        await Task.Delay(minDelayMs);
+        if (dq != null)
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            if (dq.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => tcs.TrySetResult(true)))
+            {
+                await tcs.Task;
+            }
+        }
+    }
+
     private static bool touchInitialized;
 
     private static void EnsureTouch()
@@ -390,10 +403,15 @@ public static class Script
             });
         }
 
+        TaskCompletionSource<bool>? pendingTouchPressed = null;
         RoutedEventHandler gotFocus = (_, e) => Record("GotFocus", "", e.OriginalSource);
         RoutedEventHandler lostFocus = (_, e) => Record("LostFocus", "", e.OriginalSource);
         PointerEventHandler ptrEntered = (_, e) => Record("PointerEntered", e.Pointer.PointerDeviceType.ToString(), e.OriginalSource);
-        PointerEventHandler ptrPressed = (_, e) => Record("PointerPressed", e.Pointer.PointerDeviceType.ToString(), e.OriginalSource);
+        PointerEventHandler ptrPressed = (_, e) =>
+        {
+            Record("PointerPressed", e.Pointer.PointerDeviceType.ToString(), e.OriginalSource);
+            pendingTouchPressed?.TrySetResult(true);
+        };
         PointerEventHandler ptrReleased = (_, e) => Record("PointerReleased", e.Pointer.PointerDeviceType.ToString(), e.OriginalSource);
         PointerEventHandler ptrExited = (_, e) => Record("PointerExited", e.Pointer.PointerDeviceType.ToString(), e.OriginalSource);
         KeyEventHandler keyDown = (_, e) => Record($"KeyDown:{e.Key}", "", e.OriginalSource);
@@ -651,14 +669,29 @@ public static class Script
                     case "touch_tap":
                     {
                         var pt = TargetScreenPoint(window, target, step.X, step.Y, requireInside: true, step: currentStep);
+                        pendingTouchPressed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                         EnsureForeground(hwnd, currentStep);
                         SendTouch(pt, POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT);
                         activeTouchPt = pt;
-                        await Task.Delay(80);
+                        bool expectPointerFocus = target is Control fc && fc.IsTabStop && fc.IsEnabled;
+                        for (int tick = 0; tick < 10; tick++)
+                        {
+                            await Task.Delay(30);
+                            bool pressed = pendingTouchPressed.Task.IsCompleted;
+                            bool focused = !expectPointerFocus || (target is Control c2 && c2.FocusState == FocusState.Pointer);
+                            if (pressed && focused)
+                            {
+                                break;
+                            }
+                            EnsureForeground(hwnd, currentStep);
+                            SendTouch(pt, POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT);
+                        }
+                        pendingTouchPressed = null;
+                        await WaitSettleAsync(target.DispatcherQueue, 10);
                         EnsureForeground(hwnd, currentStep);
                         SendTouch(pt, POINTER_FLAG_UP);
                         activeTouchPt = null;
-                        await Task.Delay(140);
+                        await WaitSettleAsync(target.DispatcherQueue, 140);
                         break;
                     }
 

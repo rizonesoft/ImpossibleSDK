@@ -2365,6 +2365,34 @@ class ReferenceHarness(unittest.TestCase):
                         installed_font_ranges={"inter": [[0x41, 0x5A]]},
                     )
                 self.assertIn("not covered by installed FontFamily", str(cm_num_lbl.exception))
+            # Scripted TextBox typing uncovered letter 'A' against digit-only cmap must fail static and captured checks.
+            with self.assertRaises(ValueError) as cm_scr_tb:
+                ref_run.check_no_prohibited_assets(
+                    {"id": "tb-script-key", "control": "TextBox", "properties": {"FontFamily": "Inter"},
+                     "script": [{"action": "focus"}, {"action": "key_press", "key": "A"}]},
+                    require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x30, 0x39]]},
+                )
+            self.assertIn("not covered by installed FontFamily", str(cm_scr_tb.exception))
+            # Locale-formatted DatePicker without captured rendered_text fails; with localized 'März' fails ASCII-only cmap and passes Latin-1 cmap.
+            dp_case = {"id": "dp-locale", "control": "DatePicker", "properties": {"FontFamily": "Inter"}}
+            with self.assertRaises(ValueError) as cm_dp_nocap:
+                ref_run.check_no_prohibited_assets(
+                    dp_case, require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                )
+            self.assertIn("requires captured rendered_text", str(cm_dp_nocap.exception))
+            dp_cap = {"id": "dp-locale", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "M\u00e4rz 2026"}]}
+            with self.assertRaises(ValueError) as cm_dp_de:
+                ref_run.check_no_prohibited_assets(
+                    dp_case, require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x20, 0x7E]]}, captured_frame=dp_cap,
+                )
+            self.assertIn("U+00E4", str(cm_dp_de.exception))
+            ref_run.check_no_prohibited_assets(
+                dp_case, require_installed=True, installed_fonts=["inter"],
+                installed_font_ranges={"inter": latin_ranges}, captured_frame=dp_cap,
+            )
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},
@@ -3346,6 +3374,24 @@ class LiveReference(unittest.TestCase):
                 self.assertIn(shift_text, ("ABc", "abC"))
                 self.assertEqual(shift_text[0].isupper(), shift_text[1].isupper())
                 self.assertNotEqual(shift_text[1].isupper(), shift_text[2].isupper())
+                # Live rendered_text captures post-script displayed characters and feeds publication verification end to end.
+                rt_texts = [rt["text"] for rt in by1["tb-overlap-shift"].get("rendered_text", [])]
+                self.assertIn(shift_text, rt_texts)
+                live_rt_frame = {"id": "tb-overlap-shift", "rendered_text": [
+                    {"element": "TextBox", "font": "Inter", "text": shift_text}
+                ]}
+                with self.assertRaises(ValueError) as cm_live_rt:
+                    ref_run.check_no_prohibited_assets(
+                        {"id": "tb-overlap-shift", "control": "TextBox", "properties": {"FontFamily": "Inter"}},
+                        require_installed=True, installed_fonts=["inter"],
+                        installed_font_ranges={"inter": [[0x30, 0x39]]}, captured_frame=live_rt_frame,
+                    )
+                self.assertIn("rendered_text[0]", str(cm_live_rt.exception))
+                ref_run.check_no_prohibited_assets(
+                    {"id": "tb-overlap-shift", "control": "TextBox", "properties": {"FontFamily": "Inter"}},
+                    require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x20, 0x7E]]}, captured_frame=live_rt_frame,
+                )
 
                 # Generic property dispatch verifies actual configured values on ToggleButton, ProgressBar, Slider, and ComboBox.
                 self.assertIs(by1["prop-togglebtn"].get("is_checked"), True)
@@ -3414,9 +3460,14 @@ class LiveReference(unittest.TestCase):
                 r_ttc = ref_run.run_cmd(str(exe), "--dump-cmap", ref_run.to_win_path(ttc), capture_output=True, text=True)
                 self.assertEqual(json.loads(r_ttc.stdout), [[0x41, 0x46]])
 
-                # Scripted button gives identical event + focus log across two independent runs.
+                # Scripted button gives identical event + focus log across two independent runs,
+                # with touch_tap GotFocus settled before Click (deterministic ordering across refreshes).
                 validate_script_log(by1["btn-script-live"]["script_log"])
                 self.assertEqual(by1["btn-script-live"]["script_log"], by2["btn-script-live"]["script_log"])
+                touch_evts = [e["Event"] for e in by1["btn-script-live"]["script_log"]["Events"] if e["Step"] == "3:touch_tap"]
+                self.assertIn("GotFocus", touch_evts)
+                self.assertIn("Click", touch_evts)
+                self.assertLess(touch_evts.index("GotFocus"), touch_evts.index("Click"))
 
 
 if __name__ == "__main__":
