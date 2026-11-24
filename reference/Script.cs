@@ -674,19 +674,29 @@ public static class Script
                         SendTouch(pt, POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT);
                         activeTouchPt = pt;
                         bool expectPointerFocus = target is Control fc && fc.IsTabStop && fc.IsEnabled;
-                        for (int tick = 0; tick < 10; tick++)
+                        bool settled = false;
+                        bool pressed = false;
+                        bool focused = false;
+                        for (int tick = 0; tick < 25; tick++)
                         {
                             await Task.Delay(30);
-                            bool pressed = pendingTouchPressed.Task.IsCompleted;
-                            bool focused = !expectPointerFocus || (target is Control c2 && c2.FocusState == FocusState.Pointer);
+                            pressed = pendingTouchPressed.Task.IsCompleted;
+                            focused = !expectPointerFocus || (target is Control c2 && c2.FocusState == FocusState.Pointer);
                             if (pressed && focused)
                             {
+                                settled = true;
                                 break;
                             }
                             EnsureForeground(hwnd, currentStep);
                             SendTouch(pt, POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT);
                         }
                         pendingTouchPressed = null;
+                        if (!settled)
+                        {
+                            throw new InvalidOperationException(
+                                $"script step {currentStep}: touch_tap did not settle press/pointer-focus before release (pressed={pressed}, focused={focused})"
+                            );
+                        }
                         await WaitSettleAsync(target.DispatcherQueue, 10);
                         EnsureForeground(hwnd, currentStep);
                         SendTouch(pt, POINTER_FLAG_UP);

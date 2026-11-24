@@ -858,6 +858,20 @@ public partial class App : Application
                     });
                 }
             }
+            else if (obj is RichEditBox reb)
+            {
+                reb.Document.GetText(Microsoft.UI.Text.TextGetOptions.None, out string rebText);
+                rebText = rebText.TrimEnd('\r', '\n');
+                if (!string.IsNullOrEmpty(rebText))
+                {
+                    items.Add(new Dictionary<string, string>
+                    {
+                        ["element"] = string.IsNullOrEmpty(reb.Name) ? "RichEditBox" : $"RichEditBox:{reb.Name}",
+                        ["font"] = reb.FontFamily?.Source ?? "",
+                        ["text"] = rebText,
+                    });
+                }
+            }
             else if (obj is PasswordBox pbox)
             {
                 if (!string.IsNullOrEmpty(pbox.Password))

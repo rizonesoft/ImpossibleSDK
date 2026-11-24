@@ -233,23 +233,41 @@ def _codepoint_in_ranges(cp, ranges):
     return any(isinstance(r, (list, tuple)) and len(r) == 2 and r[0] <= cp <= r[1] for r in ranges)
 
 
+_SHIFTED_DIGITS = {
+    "0": ")", "1": "!", "2": "@", "3": "#", "4": "$",
+    "5": "%", "6": "^", "7": "&", "8": "*", "9": "(",
+}
+
+
 def _script_typed_chars(script):
     """Extract characters that key_press/key_down script actions may type into a control."""
     chars = []
+    shift_held = False
     for idx, step in enumerate(script or []):
         if not isinstance(step, dict):
             continue
         act = str(step.get("action") or "").lower()
+        key = str(step.get("key") or "")
+        key_l = key.lower()
+        if act == "key_down" and key_l in ("shift", "leftshift", "rightshift"):
+            shift_held = True
+            continue
+        if act == "key_up" and key_l in ("shift", "leftshift", "rightshift"):
+            shift_held = False
+            continue
         if act not in ("key_press", "key_down"):
             continue
-        key = str(step.get("key") or "")
+        mods = {str(m).lower() for m in (step.get("modifiers") or [])}
+        shifted = shift_held or bool(mods & {"shift", "leftshift", "rightshift"})
         if len(key) == 1 and key.isalpha():
             chars.append((f"script[{idx}].key({key})", key.upper() + key.lower()))
         elif len(key) == 1 and key.isdigit():
-            chars.append((f"script[{idx}].key({key})", key))
+            val = _SHIFTED_DIGITS[key] if shifted else key
+            chars.append((f"script[{idx}].key({key})", val))
         elif key.startswith("Number") and len(key) == 7 and key[6].isdigit():
-            chars.append((f"script[{idx}].key({key})", key[6]))
-        elif key.lower() == "space":
+            val = _SHIFTED_DIGITS[key[6]] if shifted else key[6]
+            chars.append((f"script[{idx}].key({key})", val))
+        elif key_l == "space":
             chars.append((f"script[{idx}].key(Space)", " "))
     return chars
 
@@ -260,6 +278,7 @@ def check_no_prohibited_assets(
     installed_fonts=None,
     installed_font_ranges=None,
     captured_frame=None,
+    _is_child=False,
 ):
     """Refuse unknown/colliding keys, Microsoft fonts, unverified/uninstalled fonts, or stock Microsoft glyph controls."""
     norm = normalize_case_spec(case_spec)
@@ -356,8 +375,9 @@ def check_no_prohibited_assets(
                     raise ValueError(
                         f"{cid}: locale-formatted {ctrl} requires captured rendered_text from the capture host to verify all rendered glyphs"
                     )
-            for field_name, tv in _script_typed_chars(norm.get("script")):
-                text_values.append((field_name, tv))
+            if not (ctrl_l == "passwordbox" and not pw_visible):
+                for field_name, tv in _script_typed_chars(norm.get("script")):
+                    text_values.append((field_name, tv))
             for idx, it in enumerate(items or []):
                 if it is not None and str(it) != "":
                     text_values.append((f"items[{idx}]", str(it)))
@@ -370,7 +390,7 @@ def check_no_prohibited_assets(
                         raise ValueError(
                             f"{cid}.{field_name}: codepoint U+{cp:04X} is not covered by installed FontFamily {ff!r} cmap (would trigger unverified system font fallback)"
                         )
-    if require_installed and captured_frame is not None:
+    if require_installed and captured_frame is not None and not _is_child:
         inst = {str(n).strip().lower() for n in (installed_fonts or []) if isinstance(n, str)}
         norm_ranges = {
             str(k).strip().lower(): v for k, v in (installed_font_ranges or {}).items()
@@ -412,6 +432,7 @@ def check_no_prohibited_assets(
         check_no_prohibited_assets(
             child, require_installed=require_installed,
             installed_fonts=installed_fonts, installed_font_ranges=installed_font_ranges,
+            captured_frame=captured_frame, _is_child=True,
         )
 
 
