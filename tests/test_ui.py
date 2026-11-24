@@ -1868,14 +1868,24 @@ class ReferenceHarness(unittest.TestCase):
 
         # 9. Interrupted swap (store missing, owned .<name>.backup present) is recovered atomically across all
         #    dead lock formats: current tok-*, legacy tokenless owner.json, legacy tokenized owner.json,
-        #    legacy two-file (owner.json + plain tok-*), legacy b78e066 hyphenated .lockv2, and empty .lockv2.
-        for mode in ("current", "legacy-tokenless", "legacy-tokenized", "legacy-two-file", "legacy-v2", "legacy-v2-empty"):
+        #    legacy two-file (owner.json + plain tok-*), stale empty .lockdir (767b006 sharing-violation residue),
+        #    legacy b78e066 hyphenated .lockv2, empty .lockv2, and .tok-*.tmp residue in .lockv2.
+        for mode in (
+            "current",
+            "legacy-tokenless",
+            "legacy-tokenized",
+            "legacy-two-file",
+            "legacy-empty-stale",
+            "legacy-v2",
+            "legacy-v2-empty",
+            "legacy-v2-tmp-residue",
+        ):
             with tempfile.TemporaryDirectory() as tmp:
                 tstore = Path(tmp) / "reference"
                 tbackup = Path(tmp) / ".reference.backup"
                 shutil.copytree(ROOT / "tests/reference", tbackup)
                 key = hashlib.sha256(str(tstore.resolve()).encode("utf-8")).hexdigest()[:16]
-                suffix = ".lockv2" if mode in ("legacy-v2", "legacy-v2-empty") else ".lockdir"
+                suffix = ".lockv2" if mode in ("legacy-v2", "legacy-v2-empty", "legacy-v2-tmp-residue") else ".lockdir"
                 stale_lock = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}{suffix}"
                 stale_lock.mkdir(exist_ok=True)
                 host = "nt" if os.name == "nt" else "posix"
@@ -1892,6 +1902,11 @@ class ReferenceHarness(unittest.TestCase):
                     (stale_lock / f"tok-{dead_tok}").write_text(json.dumps({
                         "pid": 99999999, "host": host, "distro": distro, "token": dead_tok, "created": 0,
                     }), encoding="utf-8")
+                elif mode == "legacy-v2-tmp-residue":
+                    (stale_lock / ".tok-posix-99999999-none-1.tmp").write_text("{", encoding="utf-8")
+                elif mode == "legacy-empty-stale":
+                    old_ts = ref_run.time.time() - (ref_run._EMPTY_LOCKDIR_GRACE_SECONDS + 10.0)
+                    os.utime(stale_lock, (old_ts, old_ts))
                 elif mode == "legacy-tokenless":
                     (stale_lock / "owner.json").write_text(json.dumps({
                         "pid": 99999999, "host": host, "distro": distro, "created": 0,
@@ -1932,8 +1947,8 @@ class ReferenceHarness(unittest.TestCase):
                 self.assertTrue(dead_dir.is_dir())
             finally:
                 dead_dir.rmdir()
-            # Mid-takeover mismatched-JSON legacy token: refused when two distros fold to Ubuntu_24.04 or from Debian;
-            # reclaimed when wsl.exe -l -q uniquely resolves Ubuntu-24.04, and reclaimed when WSL_DISTRO_NAME == "none".
+            # Mid-takeover mismatched-JSON legacy token: test explicit POSIX and Windows reader identities
+            # with command-dispatched subprocess mocks so the test is host-independent on Linux and windows-latest.
             mid_dir = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.midtest"
             mid_dir.mkdir(exist_ok=True)
             try:
@@ -1941,23 +1956,42 @@ class ReferenceHarness(unittest.TestCase):
                     json.dumps({"pid": 88888888, "host": "posix", "distro": "Ubuntu-24.04", "token": "old"}),
                     encoding="utf-8",
                 )
-                def _wsl_two(cmd, **kw):
-                    return subprocess.CompletedProcess(cmd, 0, "Ubuntu-24.04\nUbuntu_24.04\n".encode("utf-16-le"), b"")
-                def _wsl_one(cmd, **kw):
-                    return subprocess.CompletedProcess(cmd, 0, "Ubuntu-24.04\n".encode("utf-16-le"), b"")
-                with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu_24.04"}), \
+                def _wsl_dispatch(distros, pid_state="DEAD\n"):
+                    def _run(cmd, **kw):
+                        if "-l" in cmd:
+                            return subprocess.CompletedProcess(cmd, 0, ("\n".join(distros) + "\n").encode("utf-16-le"), b"")
+                        return subprocess.CompletedProcess(cmd, 0, pid_state, "")
+                    return _run
+                with mock.patch.object(ref_run.os, "name", "posix"), \
+                     mock.patch.object(ref_run, "_pid_is_alive_same_host", return_value=False), \
+                     mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu_24.04"}), \
                      mock.patch.object(ref_run.shutil, "which", return_value="wsl.exe"), \
-                     mock.patch.object(ref_run.subprocess, "run", side_effect=_wsl_two):
+                     mock.patch.object(ref_run.subprocess, "run", side_effect=_wsl_dispatch(["Ubuntu-24.04", "Ubuntu_24.04"])):
                     self.assertFalse(ref_run._try_clear_dead_lock(mid_dir, "claim-ambig"))
-                with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Debian"}), \
+                with mock.patch.object(ref_run.os, "name", "posix"), \
+                     mock.patch.object(ref_run, "_pid_is_alive_same_host", return_value=False), \
+                     mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Debian"}), \
                      mock.patch.object(ref_run.shutil, "which", return_value="wsl.exe"), \
-                     mock.patch.object(ref_run.subprocess, "run", side_effect=_wsl_one):
+                     mock.patch.object(ref_run.subprocess, "run", side_effect=_wsl_dispatch(["Ubuntu-24.04"])):
                     self.assertFalse(ref_run._try_clear_dead_lock(mid_dir, "claim-deb"))
                 self.assertTrue(mid_dir.is_dir())
-                with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu-24.04"}), \
+                with mock.patch.object(ref_run.os, "name", "posix"), \
+                     mock.patch.object(ref_run, "_pid_is_alive_same_host", return_value=False), \
+                     mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu-24.04"}), \
                      mock.patch.object(ref_run.shutil, "which", return_value="wsl.exe"), \
-                     mock.patch.object(ref_run.subprocess, "run", side_effect=_wsl_one):
+                     mock.patch.object(ref_run.subprocess, "run", side_effect=_wsl_dispatch(["Ubuntu-24.04"])):
                     self.assertTrue(ref_run._try_clear_dead_lock(mid_dir, "claim-ubu"))
+                self.assertFalse(mid_dir.exists())
+
+                mid_dir.mkdir(exist_ok=True)
+                (mid_dir / "tok-posix-99999999-Ubuntu_24.04-1").write_text(
+                    json.dumps({"pid": 88888888, "host": "posix", "distro": "Ubuntu-24.04", "token": "old"}),
+                    encoding="utf-8",
+                )
+                with mock.patch.object(ref_run.os, "name", "nt"), \
+                     mock.patch.object(ref_run.shutil, "which", return_value="wsl.exe"), \
+                     mock.patch.object(ref_run.subprocess, "run", side_effect=_wsl_dispatch(["Ubuntu-24.04"], "DEAD\n")):
+                    self.assertTrue(ref_run._try_clear_dead_lock(mid_dir, "claim-win-ubu"))
                 self.assertFalse(mid_dir.exists())
 
                 mid_dir.mkdir(exist_ok=True)
@@ -1965,7 +1999,9 @@ class ReferenceHarness(unittest.TestCase):
                     json.dumps({"pid": 88888888, "host": "posix", "distro": "none", "token": "old"}),
                     encoding="utf-8",
                 )
-                with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "none"}):
+                with mock.patch.object(ref_run.os, "name", "posix"), \
+                     mock.patch.object(ref_run, "_pid_is_alive_same_host", return_value=False), \
+                     mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "none"}):
                     self.assertTrue(ref_run._try_clear_dead_lock(mid_dir, "claim-none"))
                 self.assertFalse(mid_dir.exists())
             finally:
