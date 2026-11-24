@@ -189,6 +189,8 @@ def parse_xaml(text, filename):
     nl_offsets = [m.start() for m in re.finditer(rb"\n", raw)]
     parser = expat.ParserCreate(namespace_separator=" ")
     stack = []
+    ns_scopes = [{}]
+    pending_ns = {}
     root = None
 
     def line_at(byte_index):
@@ -227,38 +229,68 @@ def parse_xaml(text, filename):
             elif b in (34, 39):
                 q = b
         base_line = line_at(byte_index)
+        cur_ns = ns_scopes[-1]
         result = {}
         for match in re.finditer(rb'\s([A-Za-z_][\w.:-]*)\s*=', bytes(masked)):
             full = match.group(1).decode("utf-8", "replace")
-            short = full.split(":", 1)[-1]
             line_no = base_line + tag_bytes[:match.start(1)].count(b"\n")
-            result[short] = line_no
-            result[full] = line_no
+            if ":" in full:
+                prefix, short = full.split(":", 1)
+                if prefix == "xmlns":
+                    continue
+                ns_uri = cur_ns.get(prefix)
+                if ns_uri is not None:
+                    result[(ns_uri, short)] = line_no
+                result[full] = line_no
+                result.setdefault(short, line_no)
+            else:
+                if full == "xmlns":
+                    continue
+                result[("", full)] = line_no
+                result[full] = line_no
         return result
+
+    def start_ns(prefix, uri):
+        pending_ns[prefix or ""] = uri
 
     def start(tag, attrs):
         byte_idx = parser.CurrentByteIndex
         base_line = line_at(byte_idx)
+        cur_ns = {**ns_scopes[-1], **pending_ns}
+        pending_ns.clear()
+        ns_scopes.append(cur_ns)
         attr_lines = find_attr_lines(byte_idx)
-        allowed_ns = (
-            "http://schemas.microsoft.com/winfx/2006/xaml",
-            "http://schemas.microsoft.com/winfx/2006/xaml/presentation",
-            "http://schemas.openxmlformats.org/markup-compatibility/2006",
-            "using:Microsoft.UI.Xaml.Controls",
-        )
+        ns_xaml = "http://schemas.microsoft.com/winfx/2006/xaml"
+        ns_pres = "http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        ns_mc = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+        ns_ctrl = "using:Microsoft.UI.Xaml.Controls"
+        xaml_allowed = {"Name", "Key", "DeferLoadStrategy", "Load"}
         clean_attrs = {}
         for k, v in attrs.items():
             if " " in k:
                 ns, short = k.rsplit(" ", 1)
-                if ns not in allowed_ns and not ns.startswith("http://schemas.microsoft.com/winfx/2006/xaml/presentation?"):
-                    line_no = attr_lines.get(short, base_line)
+                line_no = attr_lines.get((ns, short), base_line)
+                if ns == ns_mc:
+                    if short != "Ignorable":
+                        raise TemplateError(f"{filename}:{line_no}: unsupported markup-compatibility attribute {short!r}")
+                elif ns == ns_xaml:
+                    if short not in xaml_allowed:
+                        raise TemplateError(f"{filename}:{line_no}: unsupported x: attribute {short!r}")
+                elif ns == ns_ctrl:
+                    if short not in KNOWN_PROPS:
+                        raise TemplateError(f"{filename}:{line_no}: unsupported controls attribute {short!r}")
+                elif ns == ns_pres or ns.startswith(ns_pres + "?"):
+                    pass
+                else:
                     raise TemplateError(f"{filename}:{line_no}: unsupported attribute namespace {ns!r} for {short!r}")
             else:
+                ns = ""
                 short = local_name(k)
+                line_no = attr_lines.get(("", short), base_line)
             if short in clean_attrs:
-                line_no = attr_lines.get(short, base_line)
                 raise TemplateError(f"{filename}:{line_no}: duplicate attribute {short!r}")
             clean_attrs[short] = v
+            attr_lines[short] = line_no
         node = Node(local_name(tag), clean_attrs, filename, base_line, attr_lines)
         if stack:
             stack[-1].children.append(node)
@@ -267,6 +299,7 @@ def parse_xaml(text, filename):
     def end(tag):
         nonlocal root
         node = stack.pop()
+        ns_scopes.pop()
         if not stack:
             root = node
 
@@ -274,6 +307,7 @@ def parse_xaml(text, filename):
         if stack:
             stack[-1].text += data
 
+    parser.StartNamespaceDeclHandler = start_ns
     parser.StartElementHandler = start
     parser.EndElementHandler = end
     parser.CharacterDataHandler = char_data

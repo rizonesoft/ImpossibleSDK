@@ -449,6 +449,40 @@ class TemplateCompiler(unittest.TestCase):
         self.assertIn(f"{path_ns}:6:", res_ns.stderr)
         self.assertIn("namespace", res_ns.stderr.lower())
 
+        # Reverse order (vendor:Name before Name) must still report vendor:Name's exact line (line 5).
+        xaml_rev = (
+            '<ControlTemplate xmlns:vendor="urn:vendor" TargetType="Button">\n'
+            '  <Grid>\n'
+            '    <VisualStateManager.VisualStateGroups>\n'
+            '      <VisualStateGroup Name="CommonStates">\n'
+            '        <VisualState vendor:Name="Foreign"\n'
+            '          Name="Normal" />\n'
+            '      </VisualStateGroup>\n'
+            '    </VisualStateManager.VisualStateGroups>\n'
+            '  </Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_rev, path_rev = self._run_fixture(xaml_rev)
+        self.assertNotEqual(res_rev.returncode, 0)
+        self.assertIn(f"{path_rev}:5:", res_rev.stderr)
+
+        # mc:Name (unsupported attribute in markup-compatibility namespace) must be rejected on its exact line (line 6).
+        xaml_mc = (
+            '<ControlTemplate xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" TargetType="Button">\n'
+            '  <Grid>\n'
+            '    <VisualStateManager.VisualStateGroups>\n'
+            '      <VisualStateGroup Name="CommonStates">\n'
+            '        <VisualState\n'
+            '          mc:Name="Foreign" />\n'
+            '      </VisualStateGroup>\n'
+            '    </VisualStateManager.VisualStateGroups>\n'
+            '  </Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_mc, path_mc = self._run_fixture(xaml_mc)
+        self.assertNotEqual(res_mc.returncode, 0)
+        self.assertIn(f"{path_mc}:6:", res_mc.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3
