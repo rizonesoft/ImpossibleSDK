@@ -97,16 +97,16 @@ KEYFRAME_KINDS = {
 }
 
 ANIMATION_ATTRS = {
-    "DoubleAnimation": {"Storyboard.TargetName", "TargetName", "Storyboard.TargetProperty", "TargetProperty", "Duration", "From", "To", "EnableDependentAnimation"},
-    "DoubleAnimationUsingKeyFrames": {"Storyboard.TargetName", "TargetName", "Storyboard.TargetProperty", "TargetProperty", "Duration", "EnableDependentAnimation"},
-    "ObjectAnimationUsingKeyFrames": {"Storyboard.TargetName", "TargetName", "Storyboard.TargetProperty", "TargetProperty", "Duration"},
-    "ColorAnimationUsingKeyFrames": {"Storyboard.TargetName", "TargetName", "Storyboard.TargetProperty", "TargetProperty", "Duration", "EnableDependentAnimation"},
-    "RepositionThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration", "FromHorizontalOffset", "FromVerticalOffset"},
-    "FadeInThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration"},
-    "FadeOutThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration"},
-    "DragItemThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration"},
-    "DragOverThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration", "Direction", "ToOffset"},
-    "DropTargetItemThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration"},
+    "DoubleAnimation": {"Storyboard.TargetName", "Storyboard.TargetProperty", "Duration", "From", "To", "EnableDependentAnimation"},
+    "DoubleAnimationUsingKeyFrames": {"Storyboard.TargetName", "Storyboard.TargetProperty", "Duration", "EnableDependentAnimation"},
+    "ObjectAnimationUsingKeyFrames": {"Storyboard.TargetName", "Storyboard.TargetProperty", "Duration"},
+    "ColorAnimationUsingKeyFrames": {"Storyboard.TargetName", "Storyboard.TargetProperty", "Duration", "EnableDependentAnimation"},
+    "RepositionThemeAnimation": {"TargetName", "Duration", "FromHorizontalOffset", "FromVerticalOffset"},
+    "FadeInThemeAnimation": {"TargetName", "Duration"},
+    "FadeOutThemeAnimation": {"TargetName", "Duration"},
+    "DragItemThemeAnimation": {"TargetName", "Duration"},
+    "DragOverThemeAnimation": {"TargetName", "Duration", "Direction", "ToOffset"},
+    "DropTargetItemThemeAnimation": {"TargetName", "Duration"},
 }
 
 ANIMATION_KEYFRAMES = {
@@ -142,7 +142,7 @@ XAML_DIRECTIVE_ATTRS = {"DeferLoadStrategy", "Key", "Load"}
 
 # Properties inherited by all UIElement / FrameworkElement controls and panels (from WinUI XamlOM).
 COMMON_UI_PROPS = {
-    "AccessKey", "AllowDrop", "AllowFocusOnInteraction", "AllowFocusWhenDisabled",
+    "AccessKey", "AccessKeyScopeOwner", "AllowDrop", "AllowFocusOnInteraction", "AllowFocusWhenDisabled",
     "CacheMode", "CanBeScrollAnchor", "CanDrag", "CenterPoint", "Clip", "CompositeMode",
     "ContextFlyout", "DataContext", "ExitDisplayModeOnAccessKeyInvoked", "FlowDirection",
     "FocusVisualMargin", "FocusVisualPrimaryBrush", "FocusVisualPrimaryThickness",
@@ -917,31 +917,20 @@ class Compiler:
             dv = self.parse_value(dur_raw, "Duration", node.file, node.attr_line("Duration"))
             duration_ms = dv["a"]
         empty_v = {"kind": "IM_TVAL_NONE", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
+        has_from_y = False
+        from_y_v = empty_v
         if node.tag == "RepositionThemeAnimation":
             fh_raw = node.take("FromHorizontalOffset")
             fv_raw = node.take("FromVerticalOffset")
-            fh_v = self.parse_value(fh_raw, "FromHorizontalOffset", node.file, node.attr_line("FromHorizontalOffset")) if fh_raw is not None else None
-            fv_v = self.parse_value(fv_raw, "FromVerticalOffset", node.file, node.attr_line("FromVerticalOffset")) if fv_raw is not None else None
-            if fh_v is not None and fv_v is not None:
-                if fh_v["kind"] not in ("IM_TVAL_FIXED", "IM_TVAL_INT") or fv_v["kind"] not in ("IM_TVAL_FIXED", "IM_TVAL_INT"):
-                    raise TemplateError(f"{node.file}:{node.line}: RepositionThemeAnimation cannot combine non-scalar horizontal and vertical offsets")
+            if fh_raw is not None:
                 has_from = True
-                from_v = {"kind": "IM_TVAL_POINT", "a": fh_v["a"], "b": fv_v["a"], "c": 0, "d": 0, "text": None, "fallback": None}
-            elif fh_v is not None:
-                has_from = True
-                if fh_v["kind"] in ("IM_TVAL_FIXED", "IM_TVAL_INT"):
-                    from_v = {"kind": "IM_TVAL_POINT", "a": fh_v["a"], "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
-                else:
-                    from_v = fh_v
-            elif fv_v is not None:
-                has_from = True
-                if fv_v["kind"] in ("IM_TVAL_FIXED", "IM_TVAL_INT"):
-                    from_v = {"kind": "IM_TVAL_POINT", "a": 0, "b": fv_v["a"], "c": 0, "d": 0, "text": None, "fallback": None}
-                else:
-                    from_v = dict(fv_v, c=1)
+                from_v = self.parse_value(fh_raw, "FromHorizontalOffset", node.file, node.attr_line("FromHorizontalOffset"))
             else:
                 has_from = False
                 from_v = empty_v
+            if fv_raw is not None:
+                has_from_y = True
+                from_y_v = self.parse_value(fv_raw, "FromVerticalOffset", node.file, node.attr_line("FromVerticalOffset"))
         else:
             from_raw = node.take("From")
             if from_raw is not None:
@@ -1031,8 +1020,10 @@ class Compiler:
             "duration_ms": duration_ms,
             "direction": direction,
             "has_from": has_from,
+            "has_from_y": has_from_y,
             "has_to": has_to,
             "from": from_v,
+            "from_y": from_y_v,
             "to": to_v,
             "kf_start": kf_start,
             "kf_count": kf_count,
@@ -1454,8 +1445,9 @@ def emit(compiler):
     c.append("};\n\nconst im_template_anim im_template_anims[] = {\n")
     for a in compiler.anims:
         hf = "true" if a["has_from"] else "false"
+        hfy = "true" if a["has_from_y"] else "false"
         ht = "true" if a["has_to"] else "false"
-        c.append(f"    {{{a['kind']}, {c_str(a['target_name'])}, {c_str(a['target_property'])}, {a['duration_ms']}, {a['direction']}, {hf}, {ht}, {format_val_c(a['from'])}, {format_val_c(a['to'])}, {a['kf_start']}, {a['kf_count']}}},\n")
+        c.append(f"    {{{a['kind']}, {c_str(a['target_name'])}, {c_str(a['target_property'])}, {a['duration_ms']}, {a['direction']}, {hf}, {hfy}, {ht}, {format_val_c(a['from'])}, {format_val_c(a['from_y'])}, {format_val_c(a['to'])}, {a['kf_start']}, {a['kf_count']}}},\n")
     c.append("};\n\nconst im_template_keyframe im_template_keyframes[] = {\n")
     for kf in compiler.keyframes:
         sp = ", ".join(str(x) for x in kf["spline"])

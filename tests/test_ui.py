@@ -1050,41 +1050,66 @@ class TemplateCompiler(unittest.TestCase):
         res_lvo, _ = self._run_fixture(xaml_lvip_ok)
         self.assertEqual(res_lvo.returncode, 0, res_lvo.stderr)
 
-        # RepositionThemeAnimation must preserve the axis of single horizontal vs vertical offsets.
+        # RepositionThemeAnimation must preserve horizontal and vertical axes in emitted C for both literal and bound offsets, including mixed pairs.
         sys.path.insert(0, str(ROOT / "tools" / "winui"))
         import templates as tpl_mod
-        c_h = tpl_mod.Compiler()
-        c_h.compile_control_template(
-            tpl_mod.parse_xaml(
-                '<ControlTemplate TargetType="Button"><Grid Name="R"><VisualStateManager.VisualStateGroups>'
-                '<VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>'
-                '<RepositionThemeAnimation TargetName="R" FromHorizontalOffset="4" />'
-                '</Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid></ControlTemplate>',
-                "h.xaml",
-            ),
-            "h",
-            "Button",
-            (0, 0),
-            None,
+
+        def compile_reposition(attrs):
+            c = tpl_mod.Compiler()
+            c.compile_control_template(
+                tpl_mod.parse_xaml(
+                    '<ControlTemplate TargetType="Button"><Grid Name="R"><VisualStateManager.VisualStateGroups>'
+                    '<VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>'
+                    f'<RepositionThemeAnimation TargetName="R" {attrs} />'
+                    '</Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid></ControlTemplate>',
+                    "rep.xaml",
+                ),
+                "rep",
+                "Button",
+                (0, 0),
+                None,
+            )
+            return c
+
+        c_h = compile_reposition('FromHorizontalOffset="4"')
+        c_v = compile_reposition('FromVerticalOffset="4"')
+        self.assertTrue(c_h.anims[0]["has_from"])
+        self.assertFalse(c_h.anims[0]["has_from_y"])
+        self.assertFalse(c_v.anims[0]["has_from"])
+        self.assertTrue(c_v.anims[0]["has_from_y"])
+        self.assertNotEqual(tpl_mod.emit(c_h)["template_data.c"], tpl_mod.emit(c_v)["template_data.c"])
+
+        c_bh = compile_reposition('FromHorizontalOffset="{Binding Offset}"')
+        c_bv = compile_reposition('FromVerticalOffset="{Binding Offset}"')
+        self.assertNotEqual(tpl_mod.emit(c_bh)["template_data.c"], tpl_mod.emit(c_bv)["template_data.c"])
+
+        c_mix = compile_reposition('FromHorizontalOffset="{Binding Offset}" FromVerticalOffset="4"')
+        self.assertTrue(c_mix.anims[0]["has_from"])
+        self.assertEqual(c_mix.anims[0]["from"]["kind"], "IM_TVAL_BINDING")
+        self.assertTrue(c_mix.anims[0]["has_from_y"])
+        self.assertEqual(c_mix.anims[0]["from_y"]["a"], 4 * 65536)
+
+        # Unqualified TargetName on DoubleAnimation must be rejected; UIElement.AccessKeyScopeOwner on ListViewItemPresenter must be accepted.
+        xaml_unq_tn = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <DoubleAnimation TargetName="R" Storyboard.TargetProperty="Opacity" To="0" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
         )
-        c_v = tpl_mod.Compiler()
-        c_v.compile_control_template(
-            tpl_mod.parse_xaml(
-                '<ControlTemplate TargetType="Button"><Grid Name="R"><VisualStateManager.VisualStateGroups>'
-                '<VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>'
-                '<RepositionThemeAnimation TargetName="R" FromVerticalOffset="4" />'
-                '</Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid></ControlTemplate>',
-                "v.xaml",
-            ),
-            "v",
-            "Button",
-            (0, 0),
-            None,
+        res_utn, path_utn = self._run_fixture(xaml_unq_tn)
+        self.assertNotEqual(res_utn.returncode, 0)
+        self.assertIn(f"{path_utn}:3:", res_utn.stderr)
+
+        xaml_akso = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="ListViewItem">\n'
+            '  <ListViewItemPresenter Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.AccessKeyScopeOwner" Value="{x:Null}" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></ListViewItemPresenter>\n'
+            '</ControlTemplate>\n'
         )
-        self.assertEqual(c_h.anims[0]["from"]["kind"], "IM_TVAL_POINT")
-        self.assertEqual((c_h.anims[0]["from"]["a"], c_h.anims[0]["from"]["b"]), (4 * 65536, 0))
-        self.assertEqual(c_v.anims[0]["from"]["kind"], "IM_TVAL_POINT")
-        self.assertEqual((c_v.anims[0]["from"]["a"], c_v.anims[0]["from"]["b"]), (0, 4 * 65536))
+        res_akso, _ = self._run_fixture(xaml_akso)
+        self.assertEqual(res_akso.returncode, 0, res_akso.stderr)
 
 
 EDGE_LIMIT = 1

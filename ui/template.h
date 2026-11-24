@@ -154,8 +154,10 @@ typedef struct im_template_anim {
     uint32_t duration_ms;
     im_anim_direction direction;
     bool has_from;
+    bool has_from_y;
     bool has_to;
     im_template_value from_val;
+    im_template_value from_y_val;
     im_template_value to_val;
     uint16_t kf_start;
     uint16_t kf_count;
