@@ -1,0 +1,24 @@
+{
+  "parts": [
+    {
+      "name": "ui",
+      "folder": "ui",
+      "depends": [],
+      "sources": [
+        "ui/button.c",
+        "ui/draw.c",
+        "ui/template_data.c",
+        "ui/theme.c",
+        "ui/theme_data.c"
+      ]
+    },
+    {
+      "name": "image",
+      "folder": "parts/image",
+      "depends": [],
+      "sources": [
+        "parts/image/image.c"
+      ]
+    }
+  ]
+}

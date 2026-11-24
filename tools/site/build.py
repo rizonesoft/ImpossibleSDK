@@ -33,8 +33,8 @@ import bootstrap  # noqa: E402
 import headers  # noqa: E402
 from markdown_it import MarkdownIt  # noqa: E402
 
-FIRST = ["base", "text", "file", "window", "theme", "draw", "button"]  # the order to read them in; any other header follows
-COMMANDS = ["bootstrap", "build", "check_imports", "new_app", "app_build", "prove", "contribute"]
+FIRST = ["base", "text", "file", "window", "theme", "draw", "button", "image"]  # the order to read them in; any other header follows
+COMMANDS = ["bootstrap", "build", "check_imports", "check_parts", "new_app", "app_build", "prove", "contribute"]
 GROUPS = ["Start here", "Guide", "Reference", "Impossible UI", "Project"]
 DIRECTIVE = re.compile(r"<!-- page: (.*?) -->\n")
 
@@ -299,14 +299,14 @@ class Site:
             self.tiers_page(), ["abi/tiers.json", "project.json"])
         part = {p["name"]: p for p in bootstrap.components()}
         clang = bootstrap.home(part["llvm-mingw"]) / ("bin/clang.exe" if os.name == "nt" else "bin/clang")
-        found = {p.stem: p.relative_to(self.root).as_posix() for folder in ("include", "ui") for p in sorted((self.root / folder).rglob("*.h"))
+        found = {p.stem: p.relative_to(self.root).as_posix() for folder in ("include", "ui", "parts") for p in sorted((self.root / folder).rglob("*.h"))
                  if "Do not edit." not in p.read_text(encoding="utf-8")[:600]}  # what is generated has its own page
         for order, name in enumerate([*FIRST, *sorted(set(found) - set(FIRST))]):
             path = found.get(name)
             if not path:
                 raise Drift(f"tools/site/build.py: no header is called {name}.h any more")
             try:
-                header = headers.read(clang, self.root, path, ["include", "ui"])
+                header = headers.read(clang, self.root, path, ["include", "ui", "parts"])
             except headers.Undocumented as error:
                 self.fault(str(error))
                 continue

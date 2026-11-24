@@ -43,7 +43,8 @@ def main():
     builder = [str(SDK / "tools/build.py")] if folder == SDK else [str(SDK / "tools/app_build.py"), str(folder)]
     subprocess.run([sys.executable, *builder, "--no-test"], check=True, timeout=1800)
     if folder == SDK:  # what needs the pinned compiler runs where it is
-        subprocess.run([sys.executable, "-m", "unittest", "tests.test_ui.Portable"], cwd=SDK, check=True, timeout=600)
+        subprocess.run([sys.executable, "-m", "unittest", "tests.test_ui.Portable", "tests.test_parts.PortableParts"],
+                       cwd=SDK, check=True, timeout=600)
     sdk = SDK if folder == SDK else app_build.sdk_at(app_build.pinned(folder))  # what the program was built with
     env = {**os.environ, "IMPOSSIBLE_BUILD": there(folder / "build/linux"), "IMPOSSIBLE_SDK_DIR": there(sdk),
            "PYTHONDONTWRITEBYTECODE": "1", "WSLENV": "IMPOSSIBLE_BUILD:IMPOSSIBLE_SDK_DIR:PYTHONDONTWRITEBYTECODE"}

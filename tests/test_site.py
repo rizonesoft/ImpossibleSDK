@@ -14,7 +14,7 @@ import bootstrap
 
 BUILD = Path(os.environ.get("IMPOSSIBLE_BUILD", ROOT / "build" / bootstrap.host()))
 CLANG = next(bootstrap.home(p) for p in bootstrap.components() if p["name"] == "llvm-mingw") / "bin" / ("clang.exe" if os.name == "nt" else "clang")
-KEEP = ("abi", "brand", "cmake", "docs", "include", "reference", "samples", "scripts", "site", "src", "tests", "todo", "tools", "ui", ".conclave", "licenses")
+KEEP = ("abi", "brand", "cmake", "docs", "include", "parts", "reference", "samples", "scripts", "site", "src", "tests", "todo", "tools", "ui", ".conclave", "licenses")
 
 
 @unittest.skipUnless(CLANG.is_file() and not str(ROOT).startswith("\\\\"), "needs the pinned compiler: the build in WSL or on Windows runs this")
