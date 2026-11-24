@@ -1126,6 +1126,39 @@ class TemplateCompiler(unittest.TestCase):
         res_fw, _ = self._run_fixture(xaml_fe_width)
         self.assertEqual(res_fw.returncode, 0, res_fw.stderr)
 
+        # (UIElement.Width) must be rejected (Width is declared on FrameworkElement, not UIElement) in both animations and setters, while R.(FrameworkElement.Width) setter must be accepted.
+        xaml_uie_width = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <DoubleAnimation Storyboard.TargetName="R" Storyboard.TargetProperty="(UIElement.Width)" EnableDependentAnimation="True" To="40" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_uw, path_uw = self._run_fixture(xaml_uie_width)
+        self.assertNotEqual(res_uw.returncode, 0)
+        self.assertIn(f"{path_uw}:3:", res_uw.stderr)
+
+        xaml_uie_width_setter = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(UIElement.Width)" Value="40" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_uws, path_uws = self._run_fixture(xaml_uie_width_setter)
+        self.assertNotEqual(res_uws.returncode, 0)
+        self.assertIn(f"{path_uws}:3:", res_uws.stderr)
+
+        xaml_fe_width_setter = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(FrameworkElement.Width)" Value="40" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_fws, _ = self._run_fixture(xaml_fe_width_setter)
+        self.assertEqual(res_fws.returncode, 0, res_fws.stderr)
+
         # Unqualified TargetName on DoubleAnimation must be rejected; UIElement.AccessKeyScopeOwner on ListViewItemPresenter must be accepted.
         xaml_unq_tn = (
             '<ControlTemplate TargetType="Button">\n'

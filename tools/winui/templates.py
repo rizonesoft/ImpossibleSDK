@@ -140,28 +140,35 @@ ATTACHED_PROPS = {
 # XAML directives legal only with the x: namespace (not assignable via VisualState.Setters).
 XAML_DIRECTIVE_ATTRS = {"DeferLoadStrategy", "Key", "Load"}
 
-# Properties inherited by all UIElement / FrameworkElement controls and panels (from WinUI XamlOM).
-COMMON_UI_PROPS = {
-    "AccessKey", "AccessKeyScopeOwner", "AllowDrop", "AllowFocusOnInteraction", "AllowFocusWhenDisabled",
-    "CacheMode", "CanBeScrollAnchor", "CanDrag", "CenterPoint", "Clip", "CompositeMode",
-    "ContextFlyout", "DataContext", "ExitDisplayModeOnAccessKeyInvoked", "FlowDirection",
-    "FocusVisualMargin", "FocusVisualPrimaryBrush", "FocusVisualPrimaryThickness",
-    "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness", "Height",
-    "HighContrastAdjustment", "HorizontalAlignment", "IsAccessKeyScope",
+# Properties declared on UIElement (from WinUI XamlOM).
+UI_ELEMENT_PROPS = {
+    "AccessKey", "AccessKeyScopeOwner", "AllowDrop", "CacheMode", "CanBeScrollAnchor",
+    "CanDrag", "CenterPoint", "Clip", "CompositeMode", "ContextFlyout",
+    "ExitDisplayModeOnAccessKeyInvoked", "HighContrastAdjustment", "IsAccessKeyScope",
     "IsDoubleTapEnabled", "IsHitTestVisible", "IsHoldingEnabled", "IsRightTapEnabled",
     "IsTabStop", "IsTapEnabled", "KeyTipHorizontalOffset", "KeyTipPlacementMode",
     "KeyTipTarget", "KeyTipVerticalOffset", "KeyboardAcceleratorPlacementMode",
-    "KeyboardAcceleratorPlacementTarget", "Language", "ManipulationMode", "Margin",
-    "MaxHeight", "MaxWidth", "MinHeight", "MinWidth", "Opacity", "OpacityTransition",
-    "Projection", "RenderTransform", "RenderTransformOrigin", "RequestedTheme",
-    "Rotation", "RotationAxis", "RotationTransition", "Scale", "ScaleTransition",
-    "Shadow", "Style", "TabFocusNavigation", "TabIndex", "Tag", "Transform3D",
-    "TransformMatrix", "Transitions", "Translation", "TranslationTransition",
-    "UseLayoutRounding", "UseSystemFocusVisuals", "VerticalAlignment", "Visibility",
-    "Width", "XYFocusDown", "XYFocusDownNavigationStrategy", "XYFocusKeyboardNavigation",
+    "KeyboardAcceleratorPlacementTarget", "ManipulationMode", "Opacity", "OpacityTransition",
+    "Projection", "RenderTransform", "RenderTransformOrigin", "Rotation", "RotationAxis",
+    "RotationTransition", "Scale", "ScaleTransition", "Shadow", "TabFocusNavigation",
+    "TabIndex", "Transform3D", "TransformMatrix", "Transitions", "Translation",
+    "TranslationTransition", "UseLayoutRounding", "UseSystemFocusVisuals", "Visibility",
+    "XYFocusDown", "XYFocusDownNavigationStrategy", "XYFocusKeyboardNavigation",
     "XYFocusLeft", "XYFocusLeftNavigationStrategy", "XYFocusRight",
     "XYFocusRightNavigationStrategy", "XYFocusUp", "XYFocusUpNavigationStrategy",
 }
+
+# Properties declared on FrameworkElement (from WinUI XamlOM).
+FRAMEWORK_ELEMENT_PROPS = {
+    "AllowFocusOnInteraction", "AllowFocusWhenDisabled", "DataContext", "FlowDirection",
+    "FocusVisualMargin", "FocusVisualPrimaryBrush", "FocusVisualPrimaryThickness",
+    "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness", "Height",
+    "HorizontalAlignment", "Language", "Margin", "MaxHeight", "MaxWidth",
+    "MinHeight", "MinWidth", "RequestedTheme", "Style", "Tag", "VerticalAlignment", "Width",
+}
+
+# Properties inherited by all UIElement / FrameworkElement controls and panels.
+COMMON_UI_PROPS = UI_ELEMENT_PROPS | FRAMEWORK_ELEMENT_PROPS
 
 # Properties inherited by all Control subclasses (from WinUI XamlOM).
 CONTROL_PROPS = {
@@ -619,12 +626,53 @@ def c_str(text):
 
 ALL_OWNER_TYPES = set().union(*ELEMENT_TYPES.values())
 
+# Properties valid on each XAML base or concrete owner type for (Owner.Prop) validation.
+TYPE_PROPS = {
+    "UIElement": UI_ELEMENT_PROPS,
+    "FrameworkElement": COMMON_UI_PROPS,
+    "Panel": COMMON_UI_PROPS | PANEL_PROPS,
+    "Shape": COMMON_UI_PROPS | (ELEMENT_OWN_PROPS["Rectangle"] - {"RadiusX", "RadiusY"}),
+    "Control": COMMON_UI_PROPS | CONTROL_PROPS,
+    "ContentControl": COMMON_UI_PROPS | CONTENT_CONTROL_PROPS,
+    "ButtonBase": COMMON_UI_PROPS | CONTENT_CONTROL_PROPS | {"ClickMode", "Command", "CommandParameter"},
+    "ItemsControl": COMMON_UI_PROPS | CONTROL_PROPS | {
+        "DisplayMemberPath", "GroupStyleSelector", "ItemContainerStyle",
+        "ItemContainerStyleSelector", "ItemContainerTransitions", "ItemTemplate",
+        "ItemTemplateSelector", "ItemsPanel", "ItemsSource",
+    },
+    "Selector": COMMON_UI_PROPS | CONTROL_PROPS | {
+        "DisplayMemberPath", "GroupStyleSelector", "IsSynchronizedWithCurrentItem",
+        "ItemContainerStyle", "ItemContainerStyleSelector", "ItemContainerTransitions",
+        "ItemTemplate", "ItemTemplateSelector", "ItemsPanel", "ItemsSource",
+        "SelectedIndex", "SelectedItem", "SelectedValue", "SelectedValuePath",
+    },
+    "SelectorItem": COMMON_UI_PROPS | CONTENT_CONTROL_PROPS | {"IsSelected"},
+    "ListViewBase": COMMON_UI_PROPS | ELEMENT_OWN_PROPS["ListView"],
+    "IconElement": COMMON_UI_PROPS | {"Foreground"},
+    "Transform": set(),
+    "Geometry": set(),
+    "Transition": set(),
+}
+for _tag in ELEMENT_OWN_PROPS:
+    TYPE_PROPS[_tag] = allowed_props_for(_tag)
+
 BRUSH_PROPS = {
     "Background", "BorderBrush", "Foreground", "Fill", "Stroke",
     "FocusVisualPrimaryBrush", "FocusVisualSecondaryBrush",
     "PlaceholderForeground", "SelectionHighlightColor",
     "SelectionHighlightColorWhenNotFocused",
 }
+
+
+def is_valid_qualified_member(owner, member, target_tag=None):
+    """Return True iff (owner.member) is a valid attached or owner-declared property (and valid on target_tag)."""
+    if f"{owner}.{member}" in ATTACHED_PROPS:
+        return target_tag is None or target_tag not in NON_UI_ELEMENTS
+    if owner not in TYPE_PROPS or member not in TYPE_PROPS[owner]:
+        return False
+    if target_tag is not None and owner not in ELEMENT_TYPES.get(target_tag, {target_tag}):
+        return False
+    return True
 
 
 def clean_target_property(prop, file, line):
@@ -639,7 +687,7 @@ def clean_target_property(prop, file, line):
     cm = re.fullmatch(r"\((\w+)\.(\w+)\)(?:\.\((\w+)\.(\w+)\))?", raw)
     if cm:
         owner, member, sub_owner, sub_member = cm.groups()
-        valid_head = (f"{owner}.{member}" in ATTACHED_PROPS) or (owner in ALL_OWNER_TYPES and member in KNOWN_PROPS)
+        valid_head = is_valid_qualified_member(owner, member)
         valid_tail = (sub_owner is None) or (
             sub_owner == "SolidColorBrush" and sub_member == "Color" and member in BRUSH_PROPS
         )
@@ -894,9 +942,7 @@ class Compiler:
                             f"{node.file}:{node.attr_line(target_prop_key)}: unsupported TargetProperty {target_prop!r}"
                         )
                     owner, prop = cm.group(1), cm.group(2)
-                    attached = f"{owner}.{prop}" in ATTACHED_PROPS and target_tag not in NON_UI_ELEMENTS
-                    owned = owner in ELEMENT_TYPES.get(target_tag, {target_tag}) and prop in allowed_props_for(target_tag)
-                    if not (attached or owned):
+                    if not is_valid_qualified_member(owner, prop, target_tag):
                         raise TemplateError(
                             f"{node.file}:{node.attr_line(target_prop_key)}: TargetProperty {target_prop!r} is not supported on {target_tag} ({target_name})"
                         )
@@ -1060,6 +1106,9 @@ class Compiler:
                                         raise TemplateError(f"{s.file}:{s.attr_line('Target')}: invalid VisualState Setter Target {tgt!r}")
                                     part_name, prop_part = tgt.split(".", 1)
                                     prop_line = s.attr_line("Target")
+                                    part_tag = named_elements.get(part_name)
+                                    if part_tag is None:
+                                        raise TemplateError(f"{s.file}:{prop_line}: unknown target element {part_name!r} in Setter Target {tgt!r}")
                                     if prop_part.startswith("(") and prop_part.endswith(")"):
                                         inner_prop = prop_part[1:-1]
                                         if ":" in inner_prop:
@@ -1069,15 +1118,17 @@ class Compiler:
                                             prop = rest_prop
                                         elif inner_prop in ATTACHED_PROPS:
                                             prop = inner_prop
+                                        elif "." in inner_prop:
+                                            owner, member = inner_prop.split(".", 1)
+                                            if not is_valid_qualified_member(owner, member, part_tag):
+                                                raise TemplateError(f"{s.file}:{prop_line}: unsupported qualified Setter Target {tgt!r}")
+                                            prop = member
                                         else:
                                             raise TemplateError(f"{s.file}:{prop_line}: unsupported attached Setter Target {tgt!r}")
                                     elif ":" in prop_part:
                                         raise TemplateError(f"{s.file}:{prop_line}: unsupported prefixed Setter Target {tgt!r}")
                                     else:
                                         prop = prop_part
-                                    part_tag = named_elements.get(part_name)
-                                    if part_tag is None:
-                                        raise TemplateError(f"{s.file}:{prop_line}: unknown target element {part_name!r} in Setter Target {tgt!r}")
                                     if prop not in allowed_props_for(part_tag):
                                         raise TemplateError(f"{s.file}:{prop_line}: property {prop!r} is not supported on {part_tag} ({part_name})")
                                 else:
