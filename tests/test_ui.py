@@ -483,6 +483,39 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_mc.returncode, 0)
         self.assertIn(f"{path_mc}:6:", res_mc.stderr)
 
+        # Conditional XAML namespace (presentation?UnknownPredicate()) and implicit xml: prefix must be rejected on exact lines.
+        xaml_cond = (
+            '<ControlTemplate xmlns:q="http://schemas.microsoft.com/winfx/2006/xaml/presentation?UnknownPredicate()" TargetType="Button">\n'
+            '  <Grid>\n'
+            '    <VisualStateManager.VisualStateGroups>\n'
+            '      <VisualStateGroup Name="CommonStates">\n'
+            '        <VisualState\n'
+            '          q:Name="Foreign" />\n'
+            '      </VisualStateGroup>\n'
+            '    </VisualStateManager.VisualStateGroups>\n'
+            '  </Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_cond, path_cond = self._run_fixture(xaml_cond)
+        self.assertNotEqual(res_cond.returncode, 0)
+        self.assertIn(f"{path_cond}:6:", res_cond.stderr)
+
+        xaml_xml = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid>\n'
+            '    <VisualStateManager.VisualStateGroups>\n'
+            '      <VisualStateGroup Name="CommonStates">\n'
+            '        <VisualState Name="Normal"\n'
+            '          xml:lang="en" />\n'
+            '      </VisualStateGroup>\n'
+            '    </VisualStateManager.VisualStateGroups>\n'
+            '  </Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_xml, path_xml = self._run_fixture(xaml_xml)
+        self.assertNotEqual(res_xml.returncode, 0)
+        self.assertIn(f"{path_xml}:6:", res_xml.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3

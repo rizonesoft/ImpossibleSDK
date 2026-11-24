@@ -189,7 +189,7 @@ def parse_xaml(text, filename):
     nl_offsets = [m.start() for m in re.finditer(rb"\n", raw)]
     parser = expat.ParserCreate(namespace_separator=" ")
     stack = []
-    ns_scopes = [{}]
+    ns_scopes = [{"xml": "http://www.w3.org/XML/1998/namespace", "xmlns": "http://www.w3.org/2000/xmlns/"}]
     pending_ns = {}
     root = None
 
@@ -279,8 +279,6 @@ def parse_xaml(text, filename):
                 elif ns == ns_ctrl:
                     if short not in KNOWN_PROPS:
                         raise TemplateError(f"{filename}:{line_no}: unsupported controls attribute {short!r}")
-                elif ns == ns_pres or ns.startswith(ns_pres + "?"):
-                    pass
                 else:
                     raise TemplateError(f"{filename}:{line_no}: unsupported attribute namespace {ns!r} for {short!r}")
             else:
