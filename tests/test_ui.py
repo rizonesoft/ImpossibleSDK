@@ -2288,15 +2288,25 @@ class ReferenceHarness(unittest.TestCase):
             ):
                 with self.assertRaises(check_pkg.PackageDrift):
                     check_pkg.check_missing_control_case(bad_case, committed_pkg, ROOT / "ui/template_data.c")
-            # Stock-label controls (ToggleSwitch omitting OnContent/OffContent, DatePicker without permitted font) are refused.
+            # Stock-label controls (ToggleSwitch omitting OnContent/OffContent, DatePicker without permitted font) are refused,
+            # and unverified/Microsoft fonts (Aptos, NoSuchFamily_For_Reference) are refused by the permitted-font allowlist.
             with self.assertRaises(ValueError) as cm_ts:
                 ref_run.check_no_prohibited_assets({"id": "ts-stock", "control": "ToggleSwitch", "properties": {"IsOn": True}})
             self.assertIn("OnContent/OffContent", str(cm_ts.exception))
             with self.assertRaises(ValueError):
                 ref_run.check_no_prohibited_assets({"id": "date-stock", "control": "DatePicker"})
+            for bad_font in ("Aptos", "NoSuchFamily_For_Reference"):
+                with self.assertRaises(ValueError):
+                    ref_run.check_no_prohibited_assets({"id": "tb-bad-font", "control": "TextBlock", "properties": {"Text": "Hi", "FontFamily": bad_font}})
+            ref_run.check_no_prohibited_assets({"id": "tb-ok-font", "control": "TextBlock", "properties": {"Text": "Hi", "FontFamily": "Inter"}})
             ref_run.check_no_prohibited_assets({
                 "id": "ts-empty", "control": "ToggleSwitch", "properties": {"IsOn": True, "OnContent": "", "OffContent": ""}
             })
+            # Nested missing-package control (DockPanel inside StackPanel) must be refused before launching WinUI.
+            nested_mc = {"nested-dock": {"id": "nested-dock", "control": "StackPanel", "children": [{"id": "ch-dock", "control": "DockPanel"}]}}
+            with self.assertRaises(ValueError) as cm_nmc:
+                ref_run.run_reference("unused-exe", Path(tmp) / "nmc_out", snapshotted_specs=nested_mc)
+            self.assertIn("DockPanel", str(cm_nmc.exception))
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},
@@ -2990,6 +3000,68 @@ class LiveReference(unittest.TestCase):
                             {"action": "pointer_up", "x": 38, "y": 16},
                         ],
                     },
+                    {
+                        "id": "child-state-normal",
+                        "control": "StackPanel",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Width": 140, "Height": 40, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "children": [
+                            {"id": "cs-btn-n", "control": "Button", "state": "Normal", "properties": {"Width": 100, "Height": 32}}
+                        ],
+                    },
+                    {
+                        "id": "child-state-pressed",
+                        "control": "StackPanel",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Width": 140, "Height": 40, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "children": [
+                            {"id": "cs-btn-p", "control": "Button", "state": "Pressed", "properties": {"Width": 100, "Height": 32}}
+                        ],
+                    },
+                    {
+                        "id": "tb-overlap-shift",
+                        "control": "TextBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 180, "height": 64},
+                        "properties": {"Name": "ShiftBox", "Text": "", "Width": 140, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [
+                            {"action": "focus"},
+                            {"action": "key_down", "key": "Shift"},
+                            {"action": "key_press", "key": "A", "modifiers": ["Shift"]},
+                            {"action": "key_press", "key": "B"},
+                            {"action": "key_up", "key": "Shift"},
+                            {"action": "key_press", "key": "C"},
+                        ],
+                    },
+                    {
+                        "id": "prop-togglebtn",
+                        "control": "ToggleButton",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"IsChecked": True, "Width": 100, "Height": 32, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                    },
+                    {
+                        "id": "prop-progressbar",
+                        "control": "ProgressBar",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Value": 50, "Width": 120, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                    },
+                    {
+                        "id": "prop-slider-vert",
+                        "control": "Slider",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 64, "height": 160},
+                        "properties": {"Orientation": "Vertical", "Value": 40, "Height": 120, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                    },
                 ]}), encoding="utf-8")
 
                 out1 = ref_run.run_reference(exe, Path(tmp) / "out1", cases_path=combo, work_dir=build_tmp)
@@ -3170,6 +3242,32 @@ class LiveReference(unittest.TestCase):
                 compare_frames_with_layout_mask(bytes(mut_txt), txt_px, 240, 96, 1.5, ind_txt, txt_rects, limit=0)
                 with self.assertRaises(ValueError):
                     compare_frames_with_layout_mask(bytes(mut_txt), txt_px, 240, 96, 1.5, [("RealLabel", 58.0, 23.0, 46.0, 19.0)], txt_rects, limit=0)
+
+                # Nested child visual state must take effect (Pressed child pixels differ from Normal child pixels).
+                self.assertNotEqual((out1 / "child-state-normal.bgra").read_bytes(), (out1 / "child-state-pressed.bgra").read_bytes())
+
+                # Overlapping Shift modifier: held Shift must remain held after chorded A so B is uppercase and C is lowercase.
+                self.assertEqual(by1["tb-overlap-shift"]["script_log"]["FinalState"]["text"], "ABc")
+
+                # Generic property dispatch works on ToggleButton (IsChecked), ProgressBar (Value), and Slider (Orientation).
+                self.assertEqual(by1["prop-togglebtn"]["automation"]["ControlType"], "Button")
+                self.assertEqual(by1["prop-progressbar"]["automation"]["ControlType"], "ProgressBar")
+                self.assertEqual(by1["prop-slider-vert"]["automation"]["ControlType"], "Slider")
+
+                # focus on Button(IsTabStop=False) must fail without silently mutating IsTabStop to True.
+                no_tab_case = Path(tmp) / "no_tab.json"
+                no_tab_case.write_text(json.dumps({"cases": [{
+                    "id": "btn-no-tabstop",
+                    "control": "Button",
+                    "theme": "Dark",
+                    "scale": 1.0,
+                    "frame": {"width": 160, "height": 64},
+                    "properties": {"Width": 120, "Height": 32, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                    "script": [{"action": "focus"}],
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as cm_nt:
+                    ref_run.run_reference(exe, Path(tmp) / "out_no_tab", cases_path=no_tab_case, work_dir=build_tmp)
+                self.assertIn("IsTabStop=False", cm_nt.exception.stderr)
 
                 # Scripted button gives identical event + focus log across two independent runs.
                 validate_script_log(by1["btn-script-live"]["script_log"])

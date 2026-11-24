@@ -247,7 +247,9 @@ public partial class App : Application
         {
             throw new InvalidOperationException($"{caseId}.control: missing control type");
         }
-        Type? type = typeof(Button).Assembly.GetType($"Microsoft.UI.Xaml.Controls.{controlName}", throwOnError: false, ignoreCase: false);
+        Type? type = typeof(Button).Assembly.GetType($"Microsoft.UI.Xaml.Controls.{controlName}", throwOnError: false, ignoreCase: false)
+            ?? typeof(Button).Assembly.GetType($"Microsoft.UI.Xaml.Controls.Primitives.{controlName}", throwOnError: false, ignoreCase: false)
+            ?? typeof(Button).Assembly.GetType($"Microsoft.UI.Xaml.Shapes.{controlName}", throwOnError: false, ignoreCase: false);
         if (type != null && typeof(FrameworkElement).IsAssignableFrom(type) && !type.IsAbstract)
         {
             var ctor = type.GetConstructor(Type.EmptyTypes);
@@ -259,10 +261,25 @@ public partial class App : Application
         throw new InvalidOperationException($"{caseId}.control: unknown control type '{controlName}'");
     }
 
-    private static FrameworkElement CreateElement(CaseSpec spec, double scaleFactor)
+    private static FrameworkElement CreateElement(CaseSpec spec, double scaleFactor, List<(CaseSpec Spec, FrameworkElement Element)>? pendingStates = null, bool isChild = false)
     {
         string caseId = spec.Id;
+        if (isChild)
+        {
+            if (spec.Script != null && spec.Script.Count > 0)
+                throw new InvalidOperationException($"{caseId}: child element cannot specify 'script'");
+            if (spec.ProbeBox != null || spec.ProbeRadii != null)
+                throw new InvalidOperationException($"{caseId}: child element cannot specify probe_box/probe_radii");
+            if (Math.Abs(spec.Scale - 1.0) > 1e-6)
+                throw new InvalidOperationException($"{caseId}: child element cannot override 'scale'");
+            if (!string.IsNullOrEmpty(spec.CaseGroup))
+                throw new InvalidOperationException($"{caseId}: child element cannot specify 'case_group'");
+        }
         FrameworkElement el = InstantiateControl(caseId, spec.Control);
+        if (!string.IsNullOrEmpty(spec.State))
+        {
+            pendingStates?.Add((spec, el));
+        }
 
         if (!string.IsNullOrEmpty(spec.Style))
         {
@@ -308,20 +325,20 @@ public partial class App : Application
                 foreach (var childSpec in spec.Children)
                 {
                     if (string.IsNullOrEmpty(childSpec.Id)) childSpec.Id = $"{caseId}.child";
-                    panel.Children.Add(CreateElement(childSpec, scaleFactor));
+                    panel.Children.Add(CreateElement(childSpec, scaleFactor, pendingStates, isChild: true));
                 }
             }
             else if (el is ContentControl cc && spec.Children.Count == 1)
             {
                 var childSpec = spec.Children[0];
                 if (string.IsNullOrEmpty(childSpec.Id)) childSpec.Id = $"{caseId}.content";
-                cc.Content = CreateElement(childSpec, scaleFactor);
+                cc.Content = CreateElement(childSpec, scaleFactor, pendingStates, isChild: true);
             }
             else if (el is Border border && spec.Children.Count == 1)
             {
                 var childSpec = spec.Children[0];
                 if (string.IsNullOrEmpty(childSpec.Id)) childSpec.Id = $"{caseId}.child";
-                border.Child = CreateElement(childSpec, scaleFactor);
+                border.Child = CreateElement(childSpec, scaleFactor, pendingStates, isChild: true);
             }
             else
             {
@@ -444,28 +461,28 @@ public partial class App : Application
                 else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
                 break;
             case "IsChecked":
-                if (el is CheckBox cbChk) cbChk.IsChecked = val.ValueKind == JsonValueKind.Null ? null : val.GetBoolean();
-                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                if (el is Microsoft.UI.Xaml.Controls.Primitives.ToggleButton tbChk) tbChk.IsChecked = val.ValueKind == JsonValueKind.Null ? null : val.GetBoolean();
+                else goto default;
                 break;
             case "Value":
-                if (el is Slider slVal) slVal.Value = val.GetDouble();
-                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                if (el is Microsoft.UI.Xaml.Controls.Primitives.RangeBase rbVal) rbVal.Value = val.GetDouble();
+                else goto default;
                 break;
             case "Minimum":
-                if (el is Slider slMin) slMin.Minimum = val.GetDouble();
-                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                if (el is Microsoft.UI.Xaml.Controls.Primitives.RangeBase rbMin) rbMin.Minimum = val.GetDouble();
+                else goto default;
                 break;
             case "Maximum":
-                if (el is Slider slMax) slMax.Maximum = val.GetDouble();
-                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                if (el is Microsoft.UI.Xaml.Controls.Primitives.RangeBase rbMax) rbMax.Maximum = val.GetDouble();
+                else goto default;
                 break;
             case "Orientation":
                 if (el is StackPanel sp) sp.Orientation = ParseEnum<Orientation>(caseId, prop, val.GetString() ?? "");
-                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                else goto default;
                 break;
             case "Spacing":
                 if (el is StackPanel spS) spS.Spacing = val.GetDouble();
-                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                else goto default;
                 break;
             case "Data":
                 if (el is PathIcon pi)
@@ -644,11 +661,12 @@ public partial class App : Application
             FrameworkElement element;
             Grid innerFrame;
             FrameworkElement captureTarget;
+            var pendingStates = new List<(CaseSpec Spec, FrameworkElement Element)>();
             if (isProbe)
             {
                 scaleMode = nativeScaleMatch ? "native-dpi" : "probe-dip";
                 double propScale = nativeScaleMatch ? 1.0 : scale;
-                element = CreateElement(spec, propScale);
+                element = CreateElement(spec, propScale, pendingStates);
                 innerFrame = new Grid
                 {
                     Width = nativeScaleMatch ? logicalW : pixelW,
@@ -663,7 +681,7 @@ public partial class App : Application
             else if (nativeScaleMatch)
             {
                 scaleMode = Math.Abs(scale - 1.0) < 1e-6 ? "native-1x" : "native-dpi";
-                element = CreateElement(spec, 1.0);
+                element = CreateElement(spec, 1.0, pendingStates);
                 innerFrame = new Grid
                 {
                     Width = logicalW,
@@ -678,7 +696,7 @@ public partial class App : Application
             else
             {
                 scaleMode = "viewbox-vector";
-                element = CreateElement(spec, 1.0);
+                element = CreateElement(spec, 1.0, pendingStates);
                 innerFrame = new Grid
                 {
                     Width = logicalW,
@@ -702,13 +720,17 @@ public partial class App : Application
             await Task.Delay(80);
 
             bool storyboardAwaited = false;
-            if (!string.IsNullOrEmpty(spec.State))
+            foreach (var (stSpec, stEl) in pendingStates)
             {
-                if (element is not Control ctrl)
+                if (stEl is not Control ctrl)
                 {
-                    throw new InvalidOperationException($"{spec.Id}.state: '{spec.Control}' is not a Control and has no visual states");
+                    throw new InvalidOperationException($"{stSpec.Id}.state: '{stSpec.Control}' is not a Control and has no visual states");
                 }
-                storyboardAwaited = await ApplyVisualStateAsync(spec.Id, ctrl, spec.State, spec.UseTransitions, spec.StoryboardTimeoutMs);
+                bool awaited = await ApplyVisualStateAsync(stSpec.Id, ctrl, stSpec.State!, stSpec.UseTransitions, stSpec.StoryboardTimeoutMs);
+                if (ReferenceEquals(stEl, element))
+                {
+                    storyboardAwaited = awaited;
+                }
             }
 
             ScriptResultDto? scriptResult = null;

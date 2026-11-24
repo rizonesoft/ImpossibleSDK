@@ -435,8 +435,8 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 **Build order:**
 
-1. Harden `reference/App.xaml.cs`, `reference/Dump.cs`, `reference/Script.cs`, `reference/run.py`, and `tools/winui/check_package.py` for plan-review findings (scale mode reporting, strict storyboard timeout, panel-root automation traversal, sequenced/chord/focused scripts with balanced input cleanup, stock-label refusal, strict missing-control field checks, package provenance binding, store unowned-file refusal, and 26-frame baseline comparison). Done when: `python3 reference/run.py --update-store --compare-baseline tests/reference` passes.
-2. Cover all new invariants in `tests/test_ui.py` (including 4-channel alpha-aware rectangle masking and live panel-root, script, and cleanup tests). Done when: `python3 tools/build.py`, `IMPOSSIBLE_LIVE_REFERENCE=1 python3 -m unittest tests.test_ui.LiveReference -v` (0 skipped), `python3 tools/winui/check_package.py --require-live`, and `python3 tools/site/build.py --check` all exit 0.
+1. Harden `reference/App.xaml.cs`, `reference/Dump.cs`, `reference/Script.cs`, `reference/run.py`, and `tools/winui/check_package.py` for plan-review findings (scale mode reporting, strict storyboard timeout, panel-root automation traversal, nested child states, preserved `IsTabStop`, non-clobbering overlapping modifiers, generic property resolution, nested missing-control refusal, verified permitted-font allowlist, strict missing-control field checks, package provenance binding, store unowned-file refusal, and 26-frame baseline comparison). Done when: `python3 reference/run.py --update-store` passes on a 100% Windows display host (single-scale `native-dpi` 150% capture is deferred to `D01 T01 §20`).
+2. Cover all new invariants in `tests/test_ui.py` (including 4-channel alpha-aware rectangle masking and live panel-root, child-state, script, and cleanup tests). Done when: `python3 reference/run.py --compare-baseline tests/reference`, `python3 tools/build.py`, `IMPOSSIBLE_LIVE_REFERENCE=1 python3 -m unittest tests.test_ui.LiveReference -v` (0 skipped), `python3 tools/winui/check_package.py --require-live`, and `python3 tools/site/build.py --check` all exit 0.
 
 - [x] Read cases from `reference/cases/*.json`: control, properties, state, theme, scale, flow direction. Done when: the present 16 cases come from a file with equal pixels. Cheaper substitute: C# per control.
 - [x] Force a visual state by name and wait for its storyboard in `reference/App.xaml.cs`. Done when: a state that does not exist stops the run with its name. Cheaper substitute: timed delays.
@@ -450,7 +450,7 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 - [x] Store frames compressed with one index in `tests/reference/`. Done when: a missing, extra or stale frame fails the suite. Cheaper substitute: loose files.
 - [ ] Commit: `reference: any control, any state`
 
-**Test checkpoint:** `python3 tools/build.py`, `IMPOSSIBLE_LIVE_REFERENCE=1 python3 -m unittest tests.test_ui.LiveReference -v` (0 skipped), `python3 tools/winui/check_package.py --require-live`, and `python3 tools/site/build.py --check` all exit 0 and the new tests fail when their production change is reverted.
+**Test checkpoint:** `python3 reference/run.py --compare-baseline tests/reference`, `python3 tools/build.py`, `IMPOSSIBLE_LIVE_REFERENCE=1 python3 -m unittest tests.test_ui.LiveReference -v` (0 skipped), `python3 tools/winui/check_package.py --require-live`, and `python3 tools/site/build.py --check` all exit 0 and the new tests fail when their production change is reverted.
 
 ## 18. Drawing speed budgets
 

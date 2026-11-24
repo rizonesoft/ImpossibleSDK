@@ -439,13 +439,15 @@ public static class Script
                 switch (step.Action)
                 {
                     case "focus":
-                        if (target is Control ctrl)
+                        if (target is not Control ctrl)
                         {
-                            ctrl.IsTabStop = true;
+                            throw new InvalidOperationException($"script step {currentStep}: target '{DescribeElement(target)}' is not a Control and cannot receive focus");
+                        }
+                        {
                             var fr = await FocusManager.TryFocusAsync(ctrl, FocusState.Keyboard);
                             if (!fr.Succeeded)
                             {
-                                throw new InvalidOperationException($"script step {currentStep}: TryFocusAsync failed");
+                                throw new InvalidOperationException($"script step {currentStep}: TryFocusAsync failed (IsTabStop={ctrl.IsTabStop}, IsEnabled={ctrl.IsEnabled})");
                             }
                             await Task.Delay(80);
                         }
@@ -559,11 +561,10 @@ public static class Script
                         }
                         if (!step.UseFocused && target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
                         {
-                            kCtrl.IsTabStop = true;
                             var fr = await FocusManager.TryFocusAsync(kCtrl, FocusState.Keyboard);
                             if (!fr.Succeeded)
                             {
-                                throw new InvalidOperationException($"script step {currentStep}: TryFocusAsync failed before {step.Action}");
+                                throw new InvalidOperationException($"script step {currentStep}: TryFocusAsync failed before {step.Action} (IsTabStop={kCtrl.IsTabStop})");
                             }
                             await Task.Delay(80);
                         }
@@ -583,12 +584,17 @@ public static class Script
                         }
                         else
                         {
+                            var addedMods = new List<ushort>();
                             foreach (var mvk in modVks)
                             {
-                                EnsureForeground(hwnd, currentStep);
-                                SendKey(mvk, false);
-                                heldKeys.Add(mvk);
-                                await Task.Delay(40);
+                                if (!heldKeys.Contains(mvk))
+                                {
+                                    EnsureForeground(hwnd, currentStep);
+                                    SendKey(mvk, false);
+                                    heldKeys.Add(mvk);
+                                    addedMods.Add(mvk);
+                                    await Task.Delay(40);
+                                }
                             }
                             EnsureForeground(hwnd, currentStep);
                             SendKey((ushort)vk, false);
@@ -598,11 +604,11 @@ public static class Script
                             SendKey((ushort)vk, true);
                             heldKeys.Remove((ushort)vk);
                             await Task.Delay(60);
-                            for (int mi = modVks.Count - 1; mi >= 0; mi--)
+                            for (int mi = addedMods.Count - 1; mi >= 0; mi--)
                             {
                                 EnsureForeground(hwnd, currentStep);
-                                SendKey(modVks[mi], true);
-                                heldKeys.Remove(modVks[mi]);
+                                SendKey(addedMods[mi], true);
+                                heldKeys.Remove(addedMods[mi]);
                                 await Task.Delay(40);
                             }
                             await Task.Delay(80);

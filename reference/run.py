@@ -268,11 +268,16 @@ def check_no_prohibited_assets(case_spec):
         or bool(items)
         or has_non_allowlisted_prop
     )
+    permitted_fonts = {
+        "inter", "jetbrains mono", "ibm plex sans", "ibm plex mono",
+        "dejavu sans", "dejavu sans mono", "liberation sans", "liberation mono",
+        "noto sans", "noto mono",
+    }
     if has_text:
-        ff = str(_ci_get(props, "fontfamily", "") or "").lower()
-        if not ff or any(bad in ff for bad in FORBIDDEN_FONT_SUBSTRINGS):
+        ff = str(_ci_get(props, "fontfamily", "") or "").strip().lower()
+        if not ff or ff not in permitted_fonts or any(bad in ff for bad in FORBIDDEN_FONT_SUBSTRINGS):
             raise ValueError(
-                f"{cid}: text-bearing property without a permitted non-Microsoft FontFamily cannot be persisted to tests/reference/"
+                f"{cid}: text-bearing property requires a verified permitted non-Microsoft FontFamily (got {ff!r}) to be persisted to tests/reference/"
             )
     for child in norm.get("children") or []:
         check_no_prohibited_assets(child)
@@ -992,11 +997,21 @@ def run_reference(program, out_dir, cases_path=None, work_dir=None, snapshotted_
             specs_to_partition = load_case_specs(cases_path if cases_path is not None else CASES_DIR)
         check_pkg = _load_missing_control_checker()
         tpl_c = ROOT / "ui/template_data.c"
+        def _check_no_nested_missing(node, root_id):
+            for ch in node.get("children") or []:
+                ch_ctrl = ch.get("control")
+                if ch_ctrl in missing_controls:
+                    raise ValueError(
+                        f"case {root_id!r}: nested missing-package control {ch_ctrl!r} inside live tree is not supported by compiled-template fallback"
+                    )
+                _check_no_nested_missing(ch, root_id)
+
         live_list = []
         for c in specs_to_partition.values():
             if c.get("control") in missing_controls:
                 missing_results.append(check_pkg.check_missing_control_case(c, pkg_data, tpl_c))
             else:
+                _check_no_nested_missing(c, c.get("id", "<unknown>"))
                 live_list.append(c)
         live_specs = live_list
 
