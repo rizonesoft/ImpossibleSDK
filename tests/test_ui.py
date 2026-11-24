@@ -902,6 +902,7 @@ class TemplateCompiler(unittest.TestCase):
             ("TextBox", "Text"),
             ("TextBox", "MaxHeight"),
             ("TextBox", "PlaceholderForeground"),
+            ("TextBox", "DataContext"),
         ):
             xaml_ok_setter = (
                 f'<ControlTemplate TargetType="{target_type}">\n'
@@ -948,6 +949,50 @@ class TemplateCompiler(unittest.TestCase):
         res_wc, path_wc = self._run_fixture(xaml_wrong_compound)
         self.assertNotEqual(res_wc.returncode, 0)
         self.assertIn(f"{path_wc}:4:", res_wc.stderr)
+
+        # Wrong animation attribute by kind, unqualified Ignorable, cross-control Style setter, and dotted brush TargetProperty.
+        xaml_bad_anim_attr = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <DoubleAnimation Storyboard.TargetName="R" Storyboard.TargetProperty="Opacity"\n'
+            '      Direction="Left" To="0" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_baa, path_baa = self._run_fixture(xaml_bad_anim_attr)
+        self.assertNotEqual(res_baa.returncode, 0)
+        self.assertIn(f"{path_baa}:4:", res_baa.stderr)
+
+        xaml_unq_ignorable = (
+            '<ResourceDictionary Ignorable="d">\n'
+            '  <Style TargetType="Button">\n'
+            '    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Grid /></ControlTemplate></Setter.Value></Setter>\n'
+            '  </Style>\n'
+            '</ResourceDictionary>\n'
+        )
+        res_ui, path_ui = self._run_fixture(xaml_unq_ignorable)
+        self.assertNotEqual(res_ui.returncode, 0)
+        self.assertIn(f"{path_ui}:1:", res_ui.stderr)
+
+        xaml_style_cross = (
+            '<Style TargetType="Button">\n'
+            '  <Setter Property="MaxLength" Value="1" />\n'
+            '  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Grid /></ControlTemplate></Setter.Value></Setter>\n'
+            '</Style>\n'
+        )
+        res_sc, path_sc = self._run_fixture(xaml_style_cross)
+        self.assertNotEqual(res_sc.returncode, 0)
+        self.assertIn(f"{path_sc}:2:", res_sc.stderr)
+
+        xaml_dotted_brush_ok = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Border Name="B"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <ColorAnimationUsingKeyFrames Storyboard.TargetName="B" Storyboard.TargetProperty="Background.Color" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Border>\n'
+            '</ControlTemplate>\n'
+        )
+        res_dbo, _ = self._run_fixture(xaml_dotted_brush_ok)
+        self.assertEqual(res_dbo.returncode, 0, res_dbo.stderr)
 
 
 EDGE_LIMIT = 1

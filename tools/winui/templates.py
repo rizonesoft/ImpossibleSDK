@@ -96,6 +96,25 @@ KEYFRAME_KINDS = {
     "LinearColorKeyFrame": "IM_KF_LINEAR_COLOR",
 }
 
+ANIMATION_ATTRS = {
+    "DoubleAnimation": {"Storyboard.TargetName", "TargetName", "Storyboard.TargetProperty", "TargetProperty", "Duration", "From", "To", "EnableDependentAnimation"},
+    "DoubleAnimationUsingKeyFrames": {"Storyboard.TargetName", "TargetName", "Storyboard.TargetProperty", "TargetProperty", "Duration", "EnableDependentAnimation"},
+    "ObjectAnimationUsingKeyFrames": {"Storyboard.TargetName", "TargetName", "Storyboard.TargetProperty", "TargetProperty", "Duration"},
+    "ColorAnimationUsingKeyFrames": {"Storyboard.TargetName", "TargetName", "Storyboard.TargetProperty", "TargetProperty", "Duration", "EnableDependentAnimation"},
+    "RepositionThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration", "FromHorizontalOffset", "FromVerticalOffset"},
+    "FadeInThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration"},
+    "FadeOutThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration"},
+    "DragItemThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration"},
+    "DragOverThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration", "Direction", "ToOffset"},
+    "DropTargetItemThemeAnimation": {"Storyboard.TargetName", "TargetName", "Duration"},
+}
+
+ANIMATION_KEYFRAMES = {
+    "ObjectAnimationUsingKeyFrames": {"DiscreteObjectKeyFrame"},
+    "DoubleAnimationUsingKeyFrames": {"LinearDoubleKeyFrame", "SplineDoubleKeyFrame", "EasingDoubleKeyFrame"},
+    "ColorAnimationUsingKeyFrames": {"LinearColorKeyFrame"},
+}
+
 BINDING_MODES = {"OneWay", "TwoWay", "OneTime"}
 
 # Attached properties legal on UI elements and as parenthesized targets in VisualState.Setters.
@@ -117,7 +136,7 @@ XAML_DIRECTIVE_ATTRS = {"DeferLoadStrategy", "Key", "Load"}
 COMMON_UI_PROPS = {
     "AccessKey", "AllowDrop", "AllowFocusOnInteraction", "AllowFocusWhenDisabled",
     "CacheMode", "CanBeScrollAnchor", "CanDrag", "CenterPoint", "Clip", "CompositeMode",
-    "ContextFlyout", "ExitDisplayModeOnAccessKeyInvoked", "FlowDirection",
+    "ContextFlyout", "DataContext", "ExitDisplayModeOnAccessKeyInvoked", "FlowDirection",
     "FocusVisualMargin", "FocusVisualPrimaryBrush", "FocusVisualPrimaryThickness",
     "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness", "Height",
     "HighContrastAdjustment", "HorizontalAlignment", "IsAccessKeyScope",
@@ -494,6 +513,8 @@ def parse_xaml(text, filename):
                 line_no = attr_lines.get(("", short), base_line)
                 if short in XAML_DIRECTIVE_ATTRS:
                     raise TemplateError(f"{filename}:{line_no}: XAML directive {short!r} must use the x: namespace")
+                if short == "Ignorable":
+                    raise TemplateError(f"{filename}:{line_no}: Ignorable must use the mc: namespace")
                 if short == "Name" and el_local not in NAME_PROP_ELEMENTS:
                     raise TemplateError(f"{filename}:{line_no}: Name on {el_local} must use the x: namespace")
             if "." in el_local:
@@ -822,6 +843,15 @@ class Compiler:
         node.visit()
         if node.tag not in ANIMATION_KINDS:
             raise TemplateError(f"{node.file}:{node.line}: unknown animation {node.tag!r}")
+        allowed_anim_attrs = ANIMATION_ATTRS[node.tag]
+        for attr_name in node.attrs:
+            if attr_name == "Name" and node.attr_ns.get("Name") == "http://schemas.microsoft.com/winfx/2006/xaml":
+                continue
+            if attr_name not in allowed_anim_attrs:
+                raise TemplateError(
+                    f"{node.file}:{node.attr_line(attr_name)}: property {attr_name!r} is not supported on {node.tag}"
+                )
+        node.take("Name")
         kind = ANIMATION_KINDS[node.tag]
         target_name_key, target_name = node.take_one_of("Storyboard.TargetName", "TargetName")
         if target_name is not None and target_name not in named_elements:
@@ -837,6 +867,12 @@ class Compiler:
                     if target_prop not in allowed_props_for(target_tag):
                         raise TemplateError(
                             f"{node.file}:{node.attr_line(target_prop_key)}: property {target_prop!r} is not supported on {target_tag} ({target_name})"
+                        )
+                elif target_prop in ("Background.Color", "Fill.Color", "Stroke.Color"):
+                    base_prop = target_prop.split(".", 1)[0]
+                    if base_prop not in allowed_props_for(target_tag):
+                        raise TemplateError(
+                            f"{node.file}:{node.attr_line(target_prop_key)}: TargetProperty {target_prop!r} is not supported on {target_tag} ({target_name})"
                         )
                 else:
                     cm = re.fullmatch(r"\((\w+)\.(\w+)\)(?:\.\((\w+)\.(\w+)\))?", target_prop)
@@ -883,10 +919,11 @@ class Compiler:
         node.take("EnableDependentAnimation")
 
         kf_start = len(self.keyframes)
+        allowed_kfs = ANIMATION_KEYFRAMES.get(node.tag, set())
         for child in node.children:
             child.visit()
-            if child.tag not in KEYFRAME_KINDS:
-                raise TemplateError(f"{child.file}:{child.line}: unknown keyframe {child.tag!r}")
+            if child.tag not in KEYFRAME_KINDS or child.tag not in allowed_kfs:
+                raise TemplateError(f"{child.file}:{child.line}: keyframe {child.tag!r} is not supported in {node.tag}")
             kf_kind = KEYFRAME_KINDS[child.tag]
             kt_ms = 0
             kt_raw = child.take("KeyTime")
@@ -1210,8 +1247,11 @@ class Compiler:
             if child.tag != "Setter":
                 raise TemplateError(f"{child.file}:{child.line}: expected Setter in Style, got {child.tag!r}")
             prop = child.take("Property", "")
-            if prop not in KNOWN_PROPS:
-                raise TemplateError(f"{child.file}:{child.attr_line('Property')}: unknown property {prop!r} in Style Setter")
+            style_allowed = allowed_props_for(target_type) if target_type in ELEMENT_OWN_PROPS else KNOWN_PROPS
+            if prop not in style_allowed:
+                raise TemplateError(
+                    f"{child.file}:{child.attr_line('Property')}: unknown property {prop!r} in Style Setter for {target_type or 'Style'}"
+                )
             if prop in ("Template", "ItemsPanel", "ItemContainerTransitions"):
                 if len(child.children) == 0:
                     raise TemplateError(f"{child.file}:{child.line}: Setter for {prop!r} missing Setter.Value")
