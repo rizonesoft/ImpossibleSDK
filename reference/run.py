@@ -28,7 +28,7 @@ STORE = ROOT / "tests/reference"
 CASES_DIR = HERE / "cases"
 PACKAGE_MANIFEST = HERE / "package.json"
 
-FORBIDDEN_ASSET_CONTROLS = {"fonticon", "symbolicon"}
+FORBIDDEN_ASSET_CONTROLS = {"fonticon", "symbolicon", "richeditbox"}
 FORBIDDEN_FONT_SUBSTRINGS = ("segoe", "calibri", "cambria", "consolas", "candara", "corbel", "constantia", "microsoft")
 OUT_MARKER = ".impossible-reference-out"
 STORE_MARKER = ".impossible-reference-store"
@@ -39,7 +39,7 @@ STORE_MARKER = ".impossible-reference-store"
 SAFE_NON_TEXT_PROPERTIES = {
     "name", "width", "height", "minwidth", "minheight", "maxwidth", "maxheight",
     "horizontalalignment", "verticalalignment", "margin", "padding",
-    "isenabled", "istabstop", "cornerradius", "background", "foreground",
+    "isenabled", "istabstop", "allowfocusoninteraction", "cornerradius", "background", "foreground",
     "borderbrush", "borderthickness", "opacity", "visibility",
     "ison", "ischecked", "isthreestate", "isopen", "isdropdownopen",
     "isreadonly", "isindeterminate", "isactive", "istextselectionenabled",
@@ -47,6 +47,7 @@ SAFE_NON_TEXT_PROPERTIES = {
     "orientation", "flowdirection", "spacing", "data", "selectedindex",
     "fill", "stroke", "strokethickness", "stretch", "zindex",
     "fontfamily", "fontsize", "fontweight",
+    "texttrimming", "textwrapping", "textalignment", "passwordrevealmode",
 }
 
 

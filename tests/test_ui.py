@@ -2377,11 +2377,11 @@ class ReferenceHarness(unittest.TestCase):
             self.assertIn("not covered by installed FontFamily", str(cm_scr_tb.exception))
             with self.assertRaises(ValueError) as cm_scr_reb:
                 ref_run.check_no_prohibited_assets(
-                    {"id": "reb-shift-bang", "control": "RichEditBox", "properties": {"FontFamily": "Inter"},
+                    {"id": "tb-shift-bang", "control": "TextBox", "properties": {"FontFamily": "Inter"},
                      "script": [{"action": "focus"}, {"action": "key_press", "key": "Number1", "modifiers": ["Shift"]}]},
                     require_installed=True, installed_fonts=["inter"],
                     installed_font_ranges={"inter": [[0x31, 0x31]]},
-                    captured_frame={"id": "reb-shift-bang", "rendered_text": []},
+                    captured_frame={"id": "tb-shift-bang", "rendered_text": []},
                 )
             self.assertIn("U+0021", str(cm_scr_reb.exception))
             ref_run.check_no_prohibited_assets(
@@ -2444,21 +2444,18 @@ class ReferenceHarness(unittest.TestCase):
             }}
             ref_run.check_no_prohibited_assets(
                 fit_case, require_installed=True, installed_fonts=["inter"],
-                installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                installed_font_ranges={"inter": [[0x41, 0x41]]},
                 captured_frame={"id": "tb-trim-fit", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "A"}]},
             )
-            # RichEditBox list marker with unverified bullet font must be refused.
-            with self.assertRaises(ValueError) as cm_reb_list:
+            # RichEditBox is refused outright from committed store publication (unbounded RTF/paragraph decorations).
+            with self.assertRaises(ValueError) as cm_reb_forbid:
                 ref_run.check_no_prohibited_assets(
-                    {"id": "reb-list", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
+                    {"id": "reb-forbid", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
                     require_installed=True, installed_fonts=["inter"],
                     installed_font_ranges={"inter": [[0x20, 0x7E]]},
-                    captured_frame={"id": "reb-list", "rendered_text": [
-                        {"element": "RichEditBox", "font": "__unverified_list_marker__", "text": "\u2022"},
-                        {"element": "RichEditBox", "font": "Inter", "text": "Item"},
-                    ]},
+                    captured_frame={"id": "reb-forbid", "rendered_text": [{"element": "RichEditBox", "font": "Inter", "text": "A\tB"}]},
                 )
-            self.assertIn("permitted non-Microsoft FontFamily", str(cm_reb_list.exception))
+            self.assertIn("cannot be persisted", str(cm_reb_forbid.exception))
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},

@@ -881,16 +881,6 @@ public partial class App : Application
                     int end = range.EndPosition;
                     range.GetText(Microsoft.UI.Text.TextGetOptions.None, out string runText);
                     runText = runText.TrimEnd('\r', '\n');
-                    if (range.ParagraphFormat != null
-                        && range.ParagraphFormat.ListType != Microsoft.UI.Text.MarkerType.None)
-                    {
-                        items.Add(new Dictionary<string, string>
-                        {
-                            ["element"] = elemName,
-                            ["font"] = "__unverified_list_marker__",
-                            ["text"] = "\u2022",
-                        });
-                    }
                     if (!string.IsNullOrEmpty(runText))
                     {
                         string runFont = range.CharacterFormat?.Name ?? "";
