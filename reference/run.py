@@ -257,8 +257,8 @@ def validate_store_dir(store_dir, expected_specs=None):
 
 @contextlib.contextmanager
 def _store_lock(store_dir):
-    lock_path = Path(store_dir).parent / f".{Path(store_dir).name}.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha256(str(Path(store_dir).resolve()).encode("utf-8")).hexdigest()[:16]
+    lock_path = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lock"
     fp = open(lock_path, "a+", encoding="utf-8")
     try:
         if os.name == "nt":
