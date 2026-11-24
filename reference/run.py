@@ -620,13 +620,49 @@ def _try_clear_dead_lock(lock_dir, my_token):
     return False
 
 
+def _acquire_single_lock_dir(lock_root, lock_dir, key, host, distro, token, deadline):
+    prep = Path(tempfile.mkdtemp(dir=lock_root, prefix=f".ref-{key}.prep-"))
+    try:
+        (prep / f"tok-{token}").write_text(
+            json.dumps({"pid": os.getpid(), "host": host, "distro": distro, "token": token, "created": time.time()}),
+            encoding="utf-8",
+        )
+        while True:
+            try:
+                os.rename(prep, lock_dir)
+                return
+            except OSError:
+                if lock_dir.is_dir() and _try_clear_dead_lock(lock_dir, token):
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"timed out waiting for store lock {lock_dir}")
+                time.sleep(0.02)
+    finally:
+        if prep.exists():
+            shutil.rmtree(prep, ignore_errors=True)
+
+
+def _release_single_lock_dir(lock_root, lock_dir, token):
+    if not (lock_dir / f"tok-{token}").is_file():
+        return
+    trash = lock_root / f"{lock_dir.name}.rel-{token}"
+    if _rename_dir_with_retry(lock_dir, trash):
+        shutil.rmtree(trash, ignore_errors=True)
+    else:
+        os.unlink(lock_dir / f"tok-{token}")
+        try:
+            os.rmdir(lock_dir)
+        except OSError:
+            pass
+
+
 @contextlib.contextmanager
 def _store_lock(store_dir, timeout=120.0):
-    """Cross-host exclusive lock using atomic pre-populated dir rename, CAS dead-lock clearing, and atomic rename release."""
+    """Cross-host exclusive lock holding both .lockdir and legacy .lockv2 in fixed order."""
     resolved = Path(store_dir).resolve()
     try:
         rel = resolved.relative_to(ROOT.resolve()).as_posix()
-        # Shared repo-relative lock dir under build/ (gitignored) so WSL and Windows hit the exact same VFS rename.
+        # Shared repo-relative lock dirs under build/ (gitignored) so WSL and Windows hit the exact same VFS rename.
         key = hashlib.sha256(rel.encode("utf-8")).hexdigest()[:16]
         lock_root = ROOT / "build"
         lock_root.mkdir(parents=True, exist_ok=True)
@@ -641,49 +677,20 @@ def _store_lock(store_dir, timeout=120.0):
     host = "nt" if os.name == "nt" else "posix"
     distro = os.environ.get("WSL_DISTRO_NAME", "") if host == "posix" else ""
     token = f"{host}.{os.getpid()}.{_encode_distro(distro)}.{time.time_ns()}"
-    # Prepare complete directory containing tok-<token> BEFORE renaming into lock_dir (zero writes during acquisition/takeover).
-    prep = Path(tempfile.mkdtemp(dir=lock_root, prefix=f".ref-{key}.prep-"))
-    acquired = False
+    deadline = time.monotonic() + timeout
+    acquired_main = False
+    acquired_v2 = False
     try:
-        (prep / f"tok-{token}").write_text(
-            json.dumps({"pid": os.getpid(), "host": host, "distro": distro, "token": token, "created": time.time()}),
-            encoding="utf-8",
-        )
-        deadline = time.monotonic() + timeout
-        while True:
-            # Coexist safely with any in-flight legacy .lockv2 publisher before acquiring .lockdir.
-            if legacy_v2_dir.is_dir():
-                if _try_clear_dead_lock(legacy_v2_dir, token):
-                    continue
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(f"timed out waiting for legacy store lock {legacy_v2_dir}")
-                time.sleep(0.02)
-                continue
-            try:
-                os.rename(prep, lock_dir)
-                acquired = True
-                break
-            except OSError:
-                if lock_dir.is_dir() and _try_clear_dead_lock(lock_dir, token):
-                    continue
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(f"timed out waiting for store lock {lock_dir}")
-                time.sleep(0.02)
+        _acquire_single_lock_dir(lock_root, lock_dir, key, host, distro, token, deadline)
+        acquired_main = True
+        _acquire_single_lock_dir(lock_root, legacy_v2_dir, key, host, distro, token, deadline)
+        acquired_v2 = True
         yield
     finally:
-        if prep.exists():
-            shutil.rmtree(prep, ignore_errors=True)
-        if acquired and (lock_dir / f"tok-{token}").is_file():
-            # Atomic single-syscall release via rename to trash; fall back to token unlink if rename hits sharing violation.
-            trash = lock_root / f"{lock_dir.name}.rel-{token}"
-            if _rename_dir_with_retry(lock_dir, trash):
-                shutil.rmtree(trash, ignore_errors=True)
-            else:
-                os.unlink(lock_dir / f"tok-{token}")
-                try:
-                    os.rmdir(lock_dir)
-                except OSError:
-                    pass
+        if acquired_v2:
+            _release_single_lock_dir(lock_root, legacy_v2_dir, token)
+        if acquired_main:
+            _release_single_lock_dir(lock_root, lock_dir, token)
 
 
 def publish_store(fresh_dir, store_dir, expected_specs):

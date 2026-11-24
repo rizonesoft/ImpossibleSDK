@@ -304,10 +304,19 @@ def verify_missing_controls(pkg_data, template_c_path, pkg_target_types=None, pi
 
 
 def _parse_thickness_inset(val):
-    """Parse an int/float or XAML thickness string ('4' or '4,2,4,2') into (left, top, right, bottom) ints."""
+    """Parse an int/float, 1/2/4-element number list, or XAML thickness string into (left, top, right, bottom) ints."""
     if isinstance(val, (int, float)) and not isinstance(val, bool):
         n = max(0, int(round(val)))
         return (n, n, n, n)
+    if isinstance(val, (list, tuple)):
+        if all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in val):
+            nums = [max(0, int(round(x))) for x in val]
+            if len(nums) == 1:
+                return (nums[0], nums[0], nums[0], nums[0])
+            if len(nums) == 2:
+                return (nums[0], nums[1], nums[0], nums[1])
+            if len(nums) == 4:
+                return tuple(nums)
     if isinstance(val, str):
         parts = [p.strip() for p in val.replace(" ", ",").split(",") if p.strip()]
         nums = [max(0, int(round(float(p)))) for p in parts]
@@ -338,12 +347,12 @@ def _validate_frame_dict(frame, cid):
         seen.add(fl)
         if fl == "background":
             continue
-        if not isinstance(fv, (int, float)) or isinstance(fv, bool) or fv <= 0:
-            raise PackageDrift(f"case {cid!r}: frame.{fk} must be positive (got {fv!r})")
+        if not isinstance(fv, int) or isinstance(fv, bool) or fv <= 0:
+            raise PackageDrift(f"case {cid!r}: frame.{fk} must be a positive integer (got {fv!r})")
         if fl == "width":
-            fw = int(fv)
+            fw = fv
         else:
-            fh = int(fv)
+            fh = fv
     return fw, fh
 
 
@@ -393,14 +402,13 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
     for idx, e in enumerate(raw_elems):
         children_by_parent.setdefault(e.get("parent", -1), []).append(idx)
 
-    auto_children = []
     elem_ctrl_types = {
         "IM_ELEM_SCROLL_VIEWER": ("Pane", ["Scroll"]),
         "IM_ELEM_ITEMS_PRESENTER": ("List", []),
         "IM_ELEM_CONTENT_PRESENTER": ("Group", []),
     }
 
-    def _build_layout_node(idx, cur_rect):
+    def _build_nodes(idx, cur_rect):
         e = raw_elems[idx]
         child_rect = cur_rect
         if e["type"] == "IM_ELEM_BORDER":
@@ -415,25 +423,39 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
                     "Width": max(0, cur_rect["Width"] - il - ir),
                     "Height": max(0, cur_rect["Height"] - it - ib),
                 }
+        child_layouts = []
+        child_autos = []
+        for c_idx in children_by_parent.get(idx, []):
+            cl, ca = _build_nodes(c_idx, child_rect)
+            child_layouts.append(cl)
+            child_autos.extend(ca)
+        layout_node = {
+            "Type": e["type"],
+            "Name": e["name"],
+            "Rect": dict(cur_rect),
+            "Children": child_layouts,
+        }
         if e["type"] in elem_ctrl_types:
             ctype, pats = elem_ctrl_types[e["type"]]
-            auto_children.append({
+            auto_nodes = [{
                 "ControlType": ctype,
                 "Name": e["name"] or ctype,
                 "Rect": dict(cur_rect),
                 "IsEnabled": is_enabled,
                 "HasKeyboardFocus": False,
                 "Patterns": pats,
-                "Children": [],
-            })
-        return {
-            "Type": e["type"],
-            "Name": e["name"],
-            "Rect": dict(cur_rect),
-            "Children": [_build_layout_node(c_idx, child_rect) for c_idx in children_by_parent.get(idx, [])],
-        }
+                "Children": child_autos,
+            }]
+        else:
+            auto_nodes = child_autos
+        return layout_node, auto_nodes
 
-    elem_children = [_build_layout_node(r_idx, root_rect) for r_idx in children_by_parent.get(-1, [])]
+    elem_children = []
+    auto_children = []
+    for r_idx in children_by_parent.get(-1, []):
+        rl, ra = _build_nodes(r_idx, root_rect)
+        elem_children.append(rl)
+        auto_children.extend(ra)
     auto_patterns = ["Scroll"] if any(e["type"] == "IM_ELEM_SCROLL_VIEWER" for e in raw_elems) else []
     return {
         "id": case_spec.get("id"),

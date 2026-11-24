@@ -1905,6 +1905,46 @@ class ReferenceHarness(unittest.TestCase):
                 self.assertEqual(len(recovered["cases"]), len(specs))
                 self.assertEqual(len(rframes["button-Normal-Dark.bgra"]), 160 * 64 * 4)
 
+        # 9b. Fault-injection tests for lock rename failure (claim rollback + release-by-unlink) and live .lockv2 exclusion.
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            tstore = Path(tmp) / "lock_fault_store"
+            tstore.mkdir()
+            key = hashlib.sha256(str(tstore.resolve()).encode("utf-8")).hexdigest()[:16]
+            host = "nt" if os.name == "nt" else "posix"
+            distro = os.environ.get("WSL_DISTRO_NAME", "") if host == "posix" else ""
+            # Force directory rename failure during dead-lock reclamation -> original dead marker must be restored.
+            dead_dir = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
+            dead_dir.mkdir(exist_ok=True)
+            dead_tok = f"{host}.99999999.{ref_run._encode_distro(distro)}.0"
+            (dead_dir / f"tok-{dead_tok}").write_text(json.dumps({
+                "pid": 99999999, "host": host, "distro": distro, "token": dead_tok, "created": 0,
+            }), encoding="utf-8")
+            with mock.patch.object(ref_run, "_rename_dir_with_retry", return_value=False):
+                self.assertFalse(ref_run._try_clear_dead_lock(dead_dir, "my-claim-tok"))
+                self.assertTrue((dead_dir / f"tok-{dead_tok}").is_file())
+            shutil.rmtree(dead_dir, ignore_errors=True)
+
+            # Force directory rename failure during release -> release falls back to unlinking token and removes lockdir.
+            with mock.patch.object(ref_run, "_rename_dir_with_retry", return_value=False):
+                with ref_run._store_lock(tstore, timeout=5.0):
+                    self.assertTrue(dead_dir.is_dir())
+            self.assertFalse(dead_dir.exists())
+
+            # Live .lockv2 owner blocks _store_lock acquisition (and _store_lock holds both .lockdir and .lockv2).
+            live_v2 = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockv2"
+            live_v2.mkdir(exist_ok=True)
+            live_tok = f"{host}.{os.getpid()}.{ref_run._encode_distro(distro)}.1"
+            (live_v2 / f"tok-{live_tok}").write_text(json.dumps({
+                "pid": os.getpid(), "host": host, "distro": distro, "token": live_tok, "created": 0,
+            }), encoding="utf-8")
+            try:
+                with self.assertRaises(TimeoutError):
+                    with ref_run._store_lock(tstore, timeout=0.15):
+                        pass
+            finally:
+                shutil.rmtree(live_v2, ignore_errors=True)
+
         # 10. Cross-host _store_lock contention: Windows prints READY after import, then blocks on _store_lock
         #     until WSL releases it, with a bounded READY deadline and clean process-tree teardown.
         if ref_run.is_wsl() and shutil.which("python.exe"):
@@ -2073,27 +2113,42 @@ class ReferenceHarness(unittest.TestCase):
             self.assertEqual(len(by_mc_id["mc-wrap"]["layout"]["Children"]), 1)
             self.assertEqual(by_mc_id["mc-wrap"]["layout"]["Children"][0]["Name"], "RootBorder")
             self.assertEqual(by_mc_id["mc-wrap"]["layout"]["Children"][0]["Children"][0]["Name"], "ItemsHost")
-            # DataGrid nests RootGrid -> RootBorder (1px inset) -> ScrollHost -> RowsHost and exposes Scroll pattern + automation children.
+            # DataGrid nests RootGrid -> RootBorder (1px inset) -> ScrollHost -> RowsHost and nests RowsHost inside ScrollHost in automation.
             dg_grid = by_mc_id["mc-dgrid"]["layout"]["Children"][0]
             dg_border = dg_grid["Children"][0]
             dg_scroll = dg_border["Children"][0]
             self.assertEqual((dg_grid["Name"], dg_border["Name"], dg_scroll["Name"]), ("RootGrid", "RootBorder", "ScrollHost"))
             self.assertEqual(dg_scroll["Rect"], {"X": 1, "Y": 1, "Width": 158, "Height": 62})
             self.assertIn("Scroll", by_mc_id["mc-dgrid"]["automation"]["Patterns"])
-            self.assertTrue(len(by_mc_id["mc-dgrid"]["automation"]["Children"]) >= 2)
-            # Configured BorderThickness=4 + Padding=3 must shift ScrollHost inset to (7, 7, 146, 50).
+            dg_auto_children = by_mc_id["mc-dgrid"]["automation"]["Children"]
+            self.assertEqual(len(dg_auto_children), 1)
+            self.assertEqual(dg_auto_children[0]["Name"], "ScrollHost")
+            self.assertEqual(len(dg_auto_children[0]["Children"]), 1)
+            self.assertEqual(dg_auto_children[0]["Children"][0]["Name"], "RowsHost")
+            # Configured BorderThickness=4 + Padding=3 -> (7, 7, 146, 50); asymmetric array Padding=[1,2,3,4] -> (2, 3, 154, 56).
             dg_custom = check_pkg.check_missing_control_case(
                 {"id": "mc-dgrid-custom", "control": "DataGrid", "properties": {"BorderThickness": 4, "Padding": 3}},
                 committed_pkg, ROOT / "ui/template_data.c",
             )
             dg_c_scroll = dg_custom["layout"]["Children"][0]["Children"][0]["Children"][0]
             self.assertEqual(dg_c_scroll["Rect"], {"X": 7, "Y": 7, "Width": 146, "Height": 50})
-            # Unknown frame key ("Widht") must fail in both normalize_case_spec and check_missing_control_case.
+            dg_asym = check_pkg.check_missing_control_case(
+                {"id": "mc-dgrid-asym", "control": "DataGrid", "properties": {"Padding": [1, 2, 3, 4]}},
+                committed_pkg, ROOT / "ui/template_data.c",
+            )
+            dg_a_scroll = dg_asym["layout"]["Children"][0]["Children"][0]["Children"][0]
+            self.assertEqual(dg_a_scroll["Rect"], {"X": 2, "Y": 3, "Width": 154, "Height": 56})
+            # Unknown frame key ("Widht") and fractional frame dimensions (0.5) must fail.
             with self.assertRaises(ValueError):
                 ref_run.normalize_case_spec({"id": "bad-frame", "control": "DataGrid", "frame": {"Widht": 80}})
             with self.assertRaises(check_pkg.PackageDrift):
                 check_pkg.check_missing_control_case(
                     {"id": "bad-frame", "control": "DataGrid", "frame": {"Widht": 80}},
+                    committed_pkg, ROOT / "ui/template_data.c",
+                )
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.check_missing_control_case(
+                    {"id": "bad-frac-frame", "control": "DataGrid", "frame": {"width": 0.5}},
                     committed_pkg, ROOT / "ui/template_data.c",
                 )
             # Case-insensitive frame dimensions ({"Width": 80, "Height": 40}) and IsEnabled: False must be honored.
