@@ -51,6 +51,7 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | 17 | §17 | Reference program for any control | -- | [ ] |
 | 18 | §18 | Drawing speed budgets | §9, §10, §12 | [ ] |
 | 19 | §19 | Corner smoothing doc polish | §1 | [x] |
+| 20 | §20 | Native 150% DPI fractional layout | §17 | [ ] |
 
 ## 1. Exact corner smoothing
 
@@ -420,7 +421,9 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 ## 17. Reference program for any control
 
-> **Started:** 2026-11-24T09:19Z
+> **Started:** 2026-11-24T10:16Z
+
+**Corrected 2026-11-24:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-24T09:19Z; its review chain is kept as `docs/reviews/01-interface/D01-T01-s17-chain2.md`.
 
 **Corrected 2026-11-24:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-24T05:45Z; its review chain is kept as `docs/reviews/01-interface/D01-T01-s17-chain1.md`. Clarified the store-lock contract for the compressed store item: current publishers expose `.lockdir` and `.lockv2` atomically with pre-populated `tok-*` owner records and never leave an empty `.lockdir` on release; empty `.lockdir` directories are always preserved regardless of age so mutual exclusion against mkdir-only lock holders is never broken, while dead locks with owner metadata (`tok-*`, `owner.json`) and empty or `.tok-*.tmp`-only `.lockv2` residue are reclaimed automatically on ordinary read-back.
 
@@ -438,6 +441,7 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 - [x] Read cases from `reference/cases/*.json`: control, properties, state, theme, scale, flow direction. Done when: the present 16 cases come from a file with equal pixels. Cheaper substitute: C# per control.
 - [x] Force a visual state by name and wait for its storyboard in `reference/App.xaml.cs`. Done when: a state that does not exist stops the run with its name. Cheaper substitute: timed delays.
 - [x] Draw at 100, 150, 200 and 300 percent in `reference/App.xaml.cs`. Done when: frames and `cases.json` record the scale. Cheaper substitute: scaling one picture.
+> **Deferred:** Live native-DPI 150% OS-scaling fractional-DIP layout-rounding capture (WinUI 3 `XamlRoot.RasterizationScale` is read-only and bound to the Windows monitor DPI = 1.0 on this unattended host; `reference/App.xaml.cs` already implements the `native-dpi` path when host DPI matches case scale and truthfully labels 100%-host vector captures as `viewbox-vector` with `effective_rasterization_scale=1.0`) -> XREF: D01 T01 §20
 - [x] Dump element rectangles and the automation tree per case in `reference/Dump.cs`. Done when: `tests/test_ui.py` reads both for the button. Cheaper substitute: pixels only.
 - [x] Play a recorded pointer, key and touch script and write the events and focus that follow, in `reference/Script.cs`. Done when: the script of a button gives the same log twice. Cheaper substitute: a person.
 - [x] Mask text and icon pixels by rectangle in `tests/test_ui.py`. Done when: text differences do not fail and a moved rectangle does. Cheaper substitute: a loose limit for everything.
@@ -491,6 +495,25 @@ Follow-up P3 documentation fixes filed from `D01 T01 §1` reconciliation (`docs/
 
 > **Verified:** 2026-11-24 | §19 | dd4d4e93a440d5b385372242c67e7cb0afb22abd
 > **Review:** `docs/reviews/d01-t01-s19.json`
+
+## 20. Native 150% DPI fractional layout
+
+Operator-only follow-up deferred from `D01 T01 §17` (`docs/reviews/01-interface/D01-T01-s17-chain2.md`): capture and commit a live WinUI `scale_mode="native-dpi"` 150% fractional-DIP layout case on a Windows display session explicitly configured to 150% OS scaling (where `XamlRoot.RasterizationScale == 1.5`), and verify that `tests/test_ui.py` accepts the native 150% rounded rectangle while rejecting its enlarged 100% counterpart.
+
+**Phase:** 99
+**Needs:** windows-host, display-session, operator
+**Surface:** no
+
+**Build order:**
+
+1. On a Windows display session configured to 150% OS scaling, capture a fractional-DIP layout case (`scale: 1.5`) via `reference/run.py` confirming `scale_mode == "native-dpi"` and `effective_rasterization_scale == 1.5`. Done when: the captured case records a native 150%-rounded rectangle that differs from an enlarged 100% layout.
+2. Add a regression test in `tests/test_ui.py` asserting the committed native-DPI 150% rectangle passes while an enlarged 100% layout fails. Done when: `python3 tools/build.py` exits 0 and substituting the enlarged 100% width fails the test.
+
+- [ ] Capture a live `native-dpi` 150% fractional-DIP layout case on a 150%-scaled Windows display session and verify `scale_mode == "native-dpi"` and `effective_rasterization_scale == 1.5`. Done when: the captured layout rectangle reflects native 150% WinUI rounding distinct from enlarged 100% geometry. Cheaper substitute: `viewbox-vector` capture on a 100% host.
+- [ ] Add a `tests/test_ui.py` check verifying the native 150% rectangle passes and an enlarged 100% rectangle fails. Done when: `python3 tools/build.py` exits 0 and substituting the enlarged 100% rectangle fails. Cheaper substitute: checking scale metadata without geometry.
+- [ ] Commit: `reference: native 150% DPI fractional-layout reference capture`
+
+**Test checkpoint:** `python3 tools/build.py` exits 0 and substituting an enlarged 100% rectangle fails the new test.
 
 ## Verification
 

@@ -237,12 +237,13 @@ Sections: 12 | Checklist items: 68
 
 ### Phase 99: Manual, operator only
 
-Sections: 1 | Checklist items: 3
+Sections: 2 | Checklist items: 6
 
-| Status | Reference   | Deliverable          | Needs    | Items |
-| ------ | ----------- | -------------------- | -------- | ----- |
-| [ ]    | D08 T01 §13 | First public release | operator | 3     |
+| Status | Reference   | Deliverable                       | Needs                                   | Items |
+| ------ | ----------- | --------------------------------- | --------------------------------------- | ----- |
+| [ ]    | D01 T01 §20 | Native 150% DPI fractional layout | windows-host, display-session, operator | 3     |
+| [ ]    | D08 T01 §13 | First public release              | operator                                | 3     |
 
-Progress: 4/188 verified sections, 17 ready to run now.
+Progress: 4/189 verified sections, 17 ready to run now.
 
-Checklist: 24/1541 items completed (includes Commit items).
+Checklist: 24/1544 items completed (includes Commit items).

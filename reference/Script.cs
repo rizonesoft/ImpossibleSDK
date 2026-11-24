@@ -344,9 +344,19 @@ public static class Script
 
     private static VirtualKey ParseNamedVirtualKey(string raw, int stepIndex, string field)
     {
-        if (string.IsNullOrWhiteSpace(raw) || int.TryParse(raw.Trim(), out _) || !Enum.TryParse<VirtualKey>(raw.Trim(), ignoreCase: true, out var vk) || !Enum.IsDefined(typeof(VirtualKey), vk))
+        string trimmed = raw?.Trim() ?? "";
+        bool allAlphaNum = trimmed.Length > 0;
+        for (int idx = 0; idx < trimmed.Length; idx++)
         {
-            throw new InvalidOperationException($"script step {stepIndex}: invalid {field} '{raw}' (must be a named VirtualKey)");
+            if (!char.IsLetterOrDigit(trimmed[idx]))
+            {
+                allAlphaNum = false;
+                break;
+            }
+        }
+        if (!allAlphaNum || int.TryParse(trimmed, out _) || !Enum.TryParse<VirtualKey>(trimmed, ignoreCase: true, out var vk) || !Enum.IsDefined(typeof(VirtualKey), vk))
+        {
+            throw new InvalidOperationException($"script step {stepIndex}: invalid {field} '{raw}' (must be a single named VirtualKey)");
         }
         return vk;
     }
@@ -530,19 +540,22 @@ public static class Script
                                 modVks.Add((ushort)mvk);
                             }
                         }
-                        bool ctrlActive = vk == VirtualKey.Control
-                            || vk == VirtualKey.LeftControl
-                            || vk == VirtualKey.RightControl
-                            || heldKeys.Contains((ushort)VirtualKey.Control)
-                            || heldKeys.Contains((ushort)VirtualKey.LeftControl)
-                            || heldKeys.Contains((ushort)VirtualKey.RightControl)
-                            || modVks.Contains((ushort)VirtualKey.Control)
-                            || modVks.Contains((ushort)VirtualKey.LeftControl)
-                            || modVks.Contains((ushort)VirtualKey.RightControl);
-                        bool escActive = vk == VirtualKey.Escape || heldKeys.Contains((ushort)VirtualKey.Escape);
-                        if (ctrlActive && escActive)
+                        if (step.Action != "key_up")
                         {
-                            throw new InvalidOperationException($"script step {i}: Control+Escape is disallowed in reference scripts (including across sequenced steps)");
+                            bool ctrlActive = vk == VirtualKey.Control
+                                || vk == VirtualKey.LeftControl
+                                || vk == VirtualKey.RightControl
+                                || heldKeys.Contains((ushort)VirtualKey.Control)
+                                || heldKeys.Contains((ushort)VirtualKey.LeftControl)
+                                || heldKeys.Contains((ushort)VirtualKey.RightControl)
+                                || modVks.Contains((ushort)VirtualKey.Control)
+                                || modVks.Contains((ushort)VirtualKey.LeftControl)
+                                || modVks.Contains((ushort)VirtualKey.RightControl);
+                            bool escActive = vk == VirtualKey.Escape || heldKeys.Contains((ushort)VirtualKey.Escape);
+                            if (ctrlActive && escActive)
+                            {
+                                throw new InvalidOperationException($"script step {i}: Control+Escape is disallowed in reference scripts (including across sequenced steps)");
+                            }
                         }
                         if (!step.UseFocused && target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
                         {

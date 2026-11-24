@@ -3083,22 +3083,36 @@ class LiveReference(unittest.TestCase):
                     self.assertIn(f"cleanup_releases=[{exp_rel}]", cm_seq.exception.stderr)
                     self.assertNotIn("cleanup_errors=", cm_seq.exception.stderr)
 
-                # Numeric VirtualKey bypass (e.g. "65563" = 0x1001B, low 16 bits = Escape) must be refused before SendInput.
-                num_vk = Path(tmp) / "num_vk.json"
-                num_vk.write_text(json.dumps({"cases": [{
-                    "id": "num-vk-bypass",
+                # Numeric ("65563") and comma-combined ("A, A") VirtualKey values must be refused before SendInput.
+                for bad_id, bad_key in (("num-vk-bypass", "65563"), ("comma-vk-bypass", "A, A")):
+                    num_vk = Path(tmp) / f"{bad_id}.json"
+                    num_vk.write_text(json.dumps({"cases": [{
+                        "id": bad_id,
+                        "control": "Button",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Width": 120, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [{"action": "key_down", "key": "Control"}, {"action": "key_press", "key": bad_key}],
+                    }]}), encoding="utf-8")
+                    with self.assertRaises(subprocess.CalledProcessError) as cm_num:
+                        ref_run.run_reference(exe, Path(tmp) / f"out_{bad_id}", cases_path=num_vk, work_dir=build_tmp)
+                    self.assertIn("must be a single named VirtualKey", cm_num.exception.stderr)
+                    self.assertIn("cleanup_releases=[key_up:Control]", cm_num.exception.stderr)
+                    self.assertNotIn("cleanup_errors=", cm_num.exception.stderr)
+
+                # Releasing Control while Escape is held (key_up) must NOT trip the Control+Escape press guard.
+                esc_rel_ctrl = Path(tmp) / "esc_rel_ctrl.json"
+                esc_rel_ctrl.write_text(json.dumps({"cases": [{
+                    "id": "esc-rel-ctrl",
                     "control": "Button",
                     "theme": "Dark",
                     "scale": 1.0,
                     "frame": {"width": 160, "height": 64},
                     "properties": {"Width": 120, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
-                    "script": [{"action": "key_down", "key": "Control"}, {"action": "key_press", "key": "65563"}],
+                    "script": [{"action": "key_down", "key": "Escape"}, {"action": "key_up", "key": "Control"}, {"action": "key_up", "key": "Escape"}],
                 }]}), encoding="utf-8")
-                with self.assertRaises(subprocess.CalledProcessError) as cm_num:
-                    ref_run.run_reference(exe, Path(tmp) / "out_num_vk", cases_path=num_vk, work_dir=build_tmp)
-                self.assertIn("must be a named VirtualKey", cm_num.exception.stderr)
-                self.assertIn("cleanup_releases=[key_up:Control]", cm_num.exception.stderr)
-                self.assertNotIn("cleanup_errors=", cm_num.exception.stderr)
+                ref_run.run_reference(exe, Path(tmp) / "out_esc_rel_ctrl", cases_path=esc_rel_ctrl, work_dir=build_tmp)
 
                 # Negative storyboard timeout with use_transitions=False must fail naming the case and state.
                 timeout_case = Path(tmp) / "sb_timeout.json"
