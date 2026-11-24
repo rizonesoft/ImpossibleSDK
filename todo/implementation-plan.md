@@ -14,7 +14,7 @@ Sections: 26 | Checklist items: 142
 | ------ | ----------- | ------------------------------------------------ | ----------------------------- | ----- |
 | [x]    | D01 T01 §1  | Exact corner smoothing                           | windows-host, display-session | 5     |
 | [x]    | D01 T01 §2  | Template compiler                                | none                          | 4     |
-| [ ]    | D01 T01 §17 | Reference program for any control                | windows-host, display-session | 10    |
+| [x]    | D01 T01 §17 | Reference program for any control                | windows-host, display-session | 10    |
 | [ ]    | D01 T01 §3  | Element tree and layout                          | windows-host                  | 4     |
 | [ ]    | D01 T01 §4  | Visual states and animation                      | none                          | 4     |
 | [ ]    | D01 T01 §5  | Text in fixed point                              | windows-host                  | 4     |
@@ -244,6 +244,6 @@ Sections: 2 | Checklist items: 6
 | [ ]    | D01 T01 §20 | Native 150% DPI fractional layout | windows-host, display-session, operator | 3     |
 | [ ]    | D08 T01 §13 | First public release              | operator                                | 3     |
 
-Progress: 5/189 verified sections, 16 ready to run now.
+Progress: 6/189 verified sections, 19 ready to run now.
 
-Checklist: 31/1547 items completed (includes Commit items).
+Checklist: 32/1547 items completed (includes Commit items).

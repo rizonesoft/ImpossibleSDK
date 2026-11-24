@@ -1,0 +1,90 @@
+{
+  "ref": "D01 T01 \u00a717",
+  "title": "Reference program for any control",
+  "implementation_sha": "8e6ca5b3a0cd97608a6ee58285c9a18289c145f6",
+  "date": "2026-11-25",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-interface/D01-T01-s17.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python3 tools/winvm/live.py --check",
+    "python3 tools/winui/check_package.py --require-live",
+    "bosun run -- python3 tools/build.py",
+    "python3 tools/site/build.py --check"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-interface/D01-T01-s17.md",
+    "verdict": "reconciled",
+    "candidate": "8e6ca5b3a0cd97608a6ee58285c9a18289c145f6",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-interface/D01-T01-s17.md",
+    "candidate": "a67725345b535fdeb1ffcd9f30fec4b4c9c8f0f2",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "a67725345b535fdeb1ffcd9f30fec4b4c9c8f0f2",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "lenses": {
+      "thread-safety": "Which state is reached from two threads (UI, worker, callback, timer) without one lock or atomic owning it, and which lock order, wait, cancellation or teardown can deadlock or run after its owner is gone?",
+      "memory-safety": "Which pointer, reference, view, handle or iterator can outlive what it refers to, and which size, index or cast is trusted unchecked?"
+    }
+  },
+  "passes_spent": 6,
+  "pass_cap": 33
+}

@@ -48,7 +48,7 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | 14 | §14 | Theme, accent and contrast changes while running | §4, §8 | [ ] |
 | 15 | §15 | Theme transitions | §4, §11 | [ ] |
 | 16 | §16 | Remaining panels | §3 | [ ] |
-| 17 | §17 | Reference program for any control | -- | [ ] |
+| 17 | §17 | Reference program for any control | -- | [x] |
 | 18 | §18 | Drawing speed budgets | §9, §10, §12 | [ ] |
 | 19 | §19 | Corner smoothing doc polish | §1 | [x] |
 | 20 | §20 | Native 150% DPI fractional layout | §17 | [ ] |
@@ -453,9 +453,12 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 - [x] Record which source commit the Windows App SDK package of `reference/Reference.csproj` was built from, and every template that differs from `tools/winui/pin.json`, in `reference/package.json`. Done when: moving either without the other fails `tests/test_ui.py`. Cheaper substitute: one version number.
 - [x] Name the controls the package lacks in `reference/package.json`. Done when: their cases are checked against the compiled template's own values and say so. Cheaper substitute: leaving them out.
 - [x] Store frames compressed with one index in `tests/reference/`. Done when: a missing, extra or stale frame fails the suite. Cheaper substitute: loose files.
-- [ ] Commit: `reference: any control, any state`
+- [x] Commit: `reference: any control, any state`
 
 **Test checkpoint:** `python3 tools/build.py`, `python3 tools/winvm/live.py --check` (a live pass in the test machine, `python3 tools/winvm/live.py`), `python3 tools/winui/check_package.py --require-live`, and `python3 tools/site/build.py --check` all exit 0 and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-25 | §17 | 8e6ca5b3a0cd97608a6ee58285c9a18289c145f6
+> **Review:** `docs/reviews/d01-t01-s17.json`
 
 ## 18. Drawing speed budgets
 
