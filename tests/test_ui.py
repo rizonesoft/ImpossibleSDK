@@ -1773,8 +1773,9 @@ class ReferenceHarness(unittest.TestCase):
         self.assertIn("refuses --cases", res.stderr)
 
         # 7. Prohibited Microsoft font, FontIcon, ListView items, reflected displayable props (OnContent string or numeric),
-        #    or case-colliding keys fail; allowlisted non-text properties (Opacity: 0.5, SelectedIndex: 1) pass.
+        #    or case-colliding keys fail; non-text numeric/layout properties (Opacity: 0.5, RowSpacing: 4, SelectedIndex: 1) pass.
         ref_run.check_no_prohibited_assets({"id": "num-prop", "control": "Button", "properties": {"Opacity": 0.5}})
+        ref_run.check_no_prohibited_assets({"id": "grid-row-spacing", "control": "Grid", "properties": {"RowSpacing": 4}})
         ref_run.check_no_prohibited_assets({"id": "cap-prop", "control": "ComboBox", "Properties": {"SelectedIndex": 1}})
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "bad-text", "control": "Button", "properties": {"Content": "Hi"}})
@@ -1791,7 +1792,7 @@ class ReferenceHarness(unittest.TestCase):
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "label", "Control": "Border", "control": "TextBlock"})
 
-        # 7b. load_case_specs accepts unambiguous uppercase top-level/case keys ("Cases", "Id") and rejects collisions.
+        # 7b. load_case_specs accepts unambiguous uppercase top-level/case keys ("Cases", "Id") and rejects identical/case-folded duplicates.
         with tempfile.TemporaryDirectory() as tmp:
             cap_file = Path(tmp) / "caps.json"
             cap_file.write_text(
@@ -1807,6 +1808,14 @@ class ReferenceHarness(unittest.TestCase):
             bad_top.write_text(json.dumps({"Cases": [], "cases": []}), encoding="utf-8")
             with self.assertRaises(ValueError):
                 ref_run.load_case_specs(bad_top)
+
+            dup_exact = Path(tmp) / "dup_exact.json"
+            dup_exact.write_text(
+                '{"cases": [{"id": "first", "control": "Button"}], "cases": [{"id": "second", "control": "Button"}]}',
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                ref_run.load_case_specs(dup_exact)
 
         # 8. --out refuses unrelated files, foreign capture-like dirs, unrelated .<name>.backup siblings, and handles empty --out cleanly.
         with tempfile.TemporaryDirectory() as tmp:
@@ -1851,18 +1860,28 @@ class ReferenceHarness(unittest.TestCase):
                 ref_run.read_reference_snapshot(Path(tmp) / "mystore")
             self.assertEqual((fake_raw_bak / "extra.txt").read_text(encoding="utf-8"), "user notes")
 
-        # 9. Interrupted swap (store missing, owned .<name>.backup present) is recovered atomically by read_reference_snapshot.
+        # 9. Interrupted swap (store missing, owned .<name>.backup present, AND stale lockdir from killed publisher)
+        #    is recovered atomically by read_reference_snapshot.
         with tempfile.TemporaryDirectory() as tmp:
             tstore = Path(tmp) / "reference"
             tbackup = Path(tmp) / ".reference.backup"
             shutil.copytree(ROOT / "tests/reference", tbackup)
+            key = hashlib.sha256(str(tstore.resolve()).encode("utf-8")).hexdigest()[:16]
+            stale_lock = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
+            stale_lock.mkdir(exist_ok=True)
+            (stale_lock / "owner.json").write_text(
+                json.dumps({"pid": 99999999, "host": "nt" if os.name == "nt" else "posix", "created": 0}),
+                encoding="utf-8",
+            )
             self.assertFalse(tstore.exists())
             recovered, rframes = ref_run.read_reference_snapshot(tstore, filenames=["button-Normal-Dark.bgra"])
             self.assertTrue(tstore.is_dir())
+            self.assertFalse(stale_lock.exists())
             self.assertEqual(len(recovered["cases"]), len(specs))
             self.assertEqual(len(rframes["button-Normal-Dark.bgra"]), 160 * 64 * 4)
 
-        # 10. Cross-host _store_lock contention: on WSL with Windows python.exe, Windows blocks until WSL releases the lock.
+        # 10. Cross-host _store_lock contention: Windows prints READY after import, then blocks on _store_lock
+        #     until WSL releases it, proving real overlapping cross-host mutual exclusion with clean teardown.
         if ref_run.is_wsl() and shutil.which("python.exe"):
             import time
             win_ref = ref_run.to_win_path(ROOT / "reference")
@@ -1871,22 +1890,37 @@ class ReferenceHarness(unittest.TestCase):
                 "import sys\n"
                 "sys.path.insert(0, sys.argv[1])\n"
                 "import run\n"
+                "print('READY', flush=True)\n"
                 "with run._store_lock(sys.argv[2]):\n"
-                "    print('WIN_LOCKED')\n"
+                "    print('WIN_LOCKED', flush=True)\n"
             )
-            with ref_run._store_lock(ROOT / "tests/reference"):
-                proc = subprocess.Popen(
-                    ["python.exe", "-c", probe_code, win_ref, win_store],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                )
-                time.sleep(0.5)
-                rc = proc.poll()
-                if rc is not None:
-                    out, err = proc.communicate(timeout=10)
-                    self.fail(f"Windows python.exe exited early ({rc}) while WSL held _store_lock: out={out!r} err={err!r}")
-            out, err = proc.communicate(timeout=30)
-            self.assertEqual(proc.returncode, 0, msg=err)
-            self.assertIn("WIN_LOCKED", out)
+            proc = None
+            try:
+                with ref_run._store_lock(ROOT / "tests/reference"):
+                    proc = subprocess.Popen(
+                        ["python.exe", "-c", probe_code, win_ref, win_store],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                        start_new_session=True,
+                    )
+                    ready_line = proc.stdout.readline().strip()
+                    self.assertEqual(ready_line, "READY", msg=f"unexpected probe startup: {ready_line!r}")
+                    time.sleep(0.5)
+                    rc = proc.poll()
+                    if rc is not None:
+                        out, err = proc.communicate(timeout=10)
+                        self.fail(f"Windows python.exe exited early ({rc}) while WSL held _store_lock: out={out!r} err={err!r}")
+                out, err = proc.communicate(timeout=30)
+                self.assertEqual(proc.returncode, 0, msg=err)
+                self.assertIn("WIN_LOCKED", out)
+            finally:
+                if proc is not None:
+                    if proc.poll() is None:
+                        ref_run._kill_process_tree(proc)
+                        proc.communicate()
+                    if proc.stdout:
+                        proc.stdout.close()
+                    if proc.stderr:
+                        proc.stderr.close()
 
     def test_package_provenance_and_missing_controls(self):
         ref_run, check_pkg = self._ref_modules()
@@ -1897,7 +1931,9 @@ class ReferenceHarness(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fake = Path(tmp) / "repo"
             for rel in ("reference/package.json", "reference/Reference.csproj", "reference/packages.lock.json",
-                        "tools/winui/pin.json", "ui/template_data.c"):
+                        "tools/winui/pin.json", "ui/template_data.c",
+                        "reference/templates/WrapPanel.xaml", "reference/templates/UniformGrid.xaml",
+                        "reference/templates/DataGrid.xaml", "reference/templates/DockPanel.xaml"):
                 dst = fake / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / rel, dst)
@@ -1950,6 +1986,33 @@ class ReferenceHarness(unittest.TestCase):
             hollow_mc = {**orig_pkg, "missing_controls": [{"control": "WrapPanel", "basis": "compiled-template", "compiled_template": None}]}
             with self.assertRaises(check_pkg.PackageDrift):
                 check_pkg.verify_missing_controls(hollow_mc, fake / "ui/template_data.c")
+
+            # 5b. All four committed missing controls (WrapPanel, UniformGrid, DataGrid, DockPanel) route end-to-end
+            #     through reference/run.py (including store publication + validation) against their own compiled templates.
+            committed_pkg = json.loads((ROOT / "reference/package.json").read_text(encoding="utf-8"))
+            real_missing_cases = [
+                {"id": "mc-wrap", "control": "WrapPanel", "expected_elements": 2, "expected_states": 0, "expected_setters": 3},
+                {"id": "mc-ugrid", "control": "UniformGrid", "expected_elements": 3, "expected_states": 0, "expected_setters": 3},
+                {"id": "mc-dgrid", "control": "DataGrid", "expected_elements": 4, "expected_states": 2, "expected_setters": 4},
+                {"id": "mc-dock", "control": "DockPanel", "expected_elements": 3, "expected_states": 0, "expected_setters": 3},
+            ]
+            mc_cases_path = Path(tmp) / "real_mc_cases.json"
+            mc_cases_path.write_text(json.dumps({"cases": real_missing_cases}), encoding="utf-8")
+            mc_out = Path(tmp) / "mc_out"
+            mc_store = Path(tmp) / "mc_store"
+            mc_specs = ref_run.load_case_specs(mc_cases_path)
+            ref_run.run_reference("unused-exe", mc_out, snapshotted_specs=mc_specs, store_dir=mc_store)
+            mc_manifest = ref_run.validate_store_dir(mc_store, expected_specs=mc_specs)
+            self.assertEqual(len(mc_manifest["cases"]), 4)
+            by_mc_id = {c["id"]: c for c in mc_manifest["cases"]}
+            self.assertEqual(by_mc_id["mc-wrap"]["basis"], "compiled-template")
+            self.assertEqual(by_mc_id["mc-wrap"]["template"], "DefaultWrapPanelStyle")
+            self.assertEqual(by_mc_id["mc-dgrid"]["verified_states"], 2)
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.check_missing_control_case(
+                    {"id": "mc-wrap-bad", "control": "WrapPanel", "expected_elements": 99},
+                    committed_pkg, ROOT / "ui/template_data.c",
+                )
 
             # Real compiled-template fallback routed end-to-end through reference/run.py (ToggleSwitch -> DefaultToggleSwitchStyle).
             sim_ok = {
@@ -2052,16 +2115,15 @@ class ReferenceHarness(unittest.TestCase):
 
     def test_package_provenance_live_dll_and_template_diffs(self):
         _, check_pkg = self._ref_modules()
-        if os.environ.get("GITHUB_ACTIONS") == "true" and not os.environ.get("IMPOSSIBLE_WINUI"):
-            if not ((WINUI / "LICENSE").is_file() and check_pkg.find_nuget_winui_pkg("1.8.260803003") is not None):
-                self.skipTest("GitHub Actions runner does not restore the Windows App SDK NuGet package")
         info = check_pkg.verify_package(ROOT, require_live=True)
         self.assertTrue(info["checked_live"])
         self.assertEqual(info["template_diffs"], {"changed": 25, "pin_only": 32, "package_only": 73})
         with tempfile.TemporaryDirectory() as tmp:
             fake = Path(tmp) / "repo"
             for rel in ("reference/package.json", "reference/Reference.csproj", "reference/packages.lock.json",
-                        "tools/winui/pin.json", "ui/template_data.c", "ui/theme_data.c"):
+                        "tools/winui/pin.json", "ui/template_data.c", "ui/theme_data.c",
+                        "reference/templates/WrapPanel.xaml", "reference/templates/UniformGrid.xaml",
+                        "reference/templates/DataGrid.xaml", "reference/templates/DockPanel.xaml"):
                 dst = fake / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / rel, dst)

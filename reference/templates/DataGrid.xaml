@@ -1,0 +1,30 @@
+<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+       x:Key="DefaultDataGridStyle"
+       TargetType="DataGrid">
+  <Setter Property="HorizontalAlignment" Value="Stretch" />
+  <Setter Property="VerticalAlignment" Value="Stretch" />
+  <Setter Property="BorderThickness" Value="1" />
+  <Setter Property="Padding" Value="0" />
+  <Setter Property="Template">
+    <Setter.Value>
+      <ControlTemplate TargetType="DataGrid">
+        <Grid x:Name="RootGrid">
+          <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="CommonStates">
+              <VisualState x:Name="Normal" />
+              <VisualState x:Name="Disabled" />
+            </VisualStateGroup>
+          </VisualStateManager.VisualStateGroups>
+          <Border x:Name="RootBorder"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  Padding="{TemplateBinding Padding}">
+            <ScrollViewer x:Name="ScrollHost">
+              <ItemsPresenter x:Name="RowsHost" />
+            </ScrollViewer>
+          </Border>
+        </Grid>
+      </ControlTemplate>
+    </Setter.Value>
+  </Setter>
+</Style>

@@ -37,16 +37,14 @@ jobs:
           key: tools-${{ matrix.os }}-${{ hashFiles('toolchain.json') }}
       - name: Install the pinned toolchain
         run: python tools/bootstrap.py
-      - name: Cache pinned WinUI sources (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Cache pinned WinUI sources
         uses: actions/cache@v6
         with:
           path: ~/.cache/impossible-sdk/winui
           key: winui-${{ hashFiles('tools/winui/pin.json') }}
-      - name: Fetch pinned WinUI sparse checkout (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Fetch pinned WinUI sparse checkout
         run: |
-          python3 - <<'EOF'
+          python - <<'EOF'
           import json, shutil, subprocess
           from pathlib import Path
           pin = json.loads(Path("tools/winui/pin.json").read_text(encoding="utf-8"))
@@ -66,6 +64,38 @@ jobs:
               subprocess.run(["git", "-C", str(dst), "sparse-checkout", "set", "controls/dev/CommonStyles", "dxaml/xcp/dxaml/themes"], check=True)
               subprocess.run(["git", "-C", str(dst), "fetch", "--filter=blob:none", "--depth", "1", "origin", pin["commit"]], check=True)
               subprocess.run(["git", "-C", str(dst), "checkout", pin["commit"]], check=True)
+          EOF
+      - name: Cache pinned WinUI NuGet package
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages/microsoft.windowsappsdk.winui
+          key: winui-nuget-${{ hashFiles('reference/packages.lock.json') }}
+      - name: Fetch pinned WinUI NuGet package
+        run: |
+          python - <<'EOF'
+          import base64, hashlib, json, urllib.request, zipfile
+          from pathlib import Path
+          lock = json.loads(Path("reference/packages.lock.json").read_text(encoding="utf-8"))
+          deps = next(iter(lock["dependencies"].values()))
+          info = deps["Microsoft.WindowsAppSDK.WinUI"]
+          ver = info["resolved"]
+          want_hash = info["contentHash"]
+          dst = Path.home() / ".nuget/packages/microsoft.windowsappsdk.winui" / ver
+          dll = dst / "runtimes-framework/win-x64/native/Microsoft.ui.xaml.dll"
+          gx = dst / "lib/native/Microsoft.UI/Themes/generic.xaml"
+          if not (dll.is_file() and gx.is_file()):
+              url = f"https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.winui/{ver}/microsoft.windowsappsdk.winui.{ver}.nupkg"
+              dst.mkdir(parents=True, exist_ok=True)
+              nupkg = dst / f"microsoft.windowsappsdk.winui.{ver}.nupkg"
+              urllib.request.urlretrieve(url, nupkg)
+              got_hash = base64.b64encode(hashlib.sha512(nupkg.read_bytes()).digest()).decode("ascii")
+              if got_hash != want_hash:
+                  nupkg.unlink(missing_ok=True)
+                  raise SystemExit(f"NuGet contentHash mismatch: {got_hash} != {want_hash}")
+              with zipfile.ZipFile(nupkg) as zf:
+                  for member in ("runtimes-framework/win-x64/native/Microsoft.ui.xaml.dll", "lib/native/Microsoft.UI/Themes/generic.xaml"):
+                      zf.extract(member, dst)
+              nupkg.unlink(missing_ok=True)
           EOF
       - name: Build and test
         run: python tools/build.py

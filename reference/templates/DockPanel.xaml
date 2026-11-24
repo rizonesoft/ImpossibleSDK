@@ -1,0 +1,19 @@
+<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+       x:Key="DefaultDockPanelStyle"
+       TargetType="DockPanel">
+  <Setter Property="HorizontalAlignment" Value="Stretch" />
+  <Setter Property="VerticalAlignment" Value="Stretch" />
+  <Setter Property="Padding" Value="0" />
+  <Setter Property="Template">
+    <Setter.Value>
+      <ControlTemplate TargetType="DockPanel">
+        <Border x:Name="RootBorder" Padding="{TemplateBinding Padding}">
+          <Grid x:Name="DockHost">
+            <ContentPresenter x:Name="ContentHost" />
+          </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter.Value>
+  </Setter>
+</Style>

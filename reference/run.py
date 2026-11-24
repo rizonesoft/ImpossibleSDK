@@ -49,8 +49,25 @@ SAFE_NON_TEXT_PROPERTIES = {
 }
 
 
+# Displayable content/text properties that render glyphs even when given a numeric or boolean value (e.g. OnContent: 123).
+DISPLAYABLE_CONTENT_PROPERTIES = {
+    "content", "text", "header", "footer", "oncontent", "offcontent",
+    "placeholdertext", "description", "tooltip", "title", "subtitle",
+    "message", "label", "caption", "paneheader", "panetitle", "panefooter",
+    "displaymemberpath", "selectedvalue", "selecteditem", "accesskey",
+}
+DISPLAYABLE_CONTENT_SUFFIXES = (
+    "text", "content", "header", "footer", "title", "label", "caption", "message", "description", "tooltip",
+)
+
+
+def _is_displayable_content_property(prop_name):
+    pl = prop_name.lower()
+    return pl in DISPLAYABLE_CONTENT_PROPERTIES or any(pl.endswith(sfx) for sfx in DISPLAYABLE_CONTENT_SUFFIXES)
+
+
 def is_wsl():
-    return os.name != "nt"
+    return os.name != "nt" and shutil.which("wslpath") is not None and shutil.which("pwsh.exe") is not None
 
 
 def _kill_process_tree(proc):
@@ -112,13 +129,25 @@ def canonical_case_hash(case_spec):
     return hashlib.sha256(blob).hexdigest()
 
 
+def _reject_duplicate_json_keys(pairs):
+    out = {}
+    seen = {}
+    for k, v in pairs:
+        kl = k.lower()
+        if kl in seen:
+            raise ValueError(f"duplicate JSON key {k!r} (collides with {seen[kl]!r})")
+        seen[kl] = k
+        out[k] = v
+    return out
+
+
 def load_case_specs(cases_path):
     path = Path(cases_path)
     files = sorted(path.glob("*.json")) if path.is_dir() else [path]
     specs = {}
     seen_lower = {}
     for fp in files:
-        data = json.loads(fp.read_text(encoding="utf-8"))
+        data = json.loads(fp.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
         if not isinstance(data, dict):
             raise ValueError(f"{fp}: top-level JSON must be an object")
         top = {}
@@ -194,12 +223,16 @@ def check_no_prohibited_assets(case_spec):
         raise ValueError(f"{cid}: control {ctrl!r} uses a prohibited Microsoft glyph font and cannot be persisted")
     props = norm.get("properties") or {}
     items = norm.get("items")
-    # Any non-None property outside SAFE_NON_TEXT_PROPERTIES (including displayable content properties like
-    # Content, Text, Header, OnContent, OffContent — whether string or numeric) requires a permitted font.
+    # Any displayable content/text property (even numeric/bool like OnContent: 123) or any non-scalar/string property
+    # outside SAFE_NON_TEXT_PROPERTIES requires a permitted font; numeric/bool layout/appearance properties (e.g.
+    # Opacity: 0.5, RowSpacing: 4) cannot render text.
     has_non_allowlisted_prop = any(
         isinstance(k, str)
-        and k.lower() not in SAFE_NON_TEXT_PROPERTIES
         and v is not None
+        and (
+            _is_displayable_content_property(k)
+            or (k.lower() not in SAFE_NON_TEXT_PROPERTIES and not isinstance(v, (int, float, bool)))
+        )
         for k, v in props.items()
     )
     has_text = (
@@ -354,12 +387,18 @@ def _validate_store_dir_unlocked(store, expected_specs=None):
     indexed_ids = {}
     for c in cases:
         cid = c.get("id")
-        fname = c.get("file")
-        if not cid or not fname:
-            raise ValueError(f"{index_path}: case missing id or file")
+        if not cid:
+            raise ValueError(f"{index_path}: case missing id")
         if cid in indexed_ids:
             raise ValueError(f"{index_path}: duplicate case id {cid!r}")
         indexed_ids[cid] = c
+        if c.get("basis") == "compiled-template":
+            if not c.get("template") or "verified_elements" not in c or "verified_states" not in c:
+                raise ValueError(f"{index_path}: compiled-template case {cid!r} missing template or verified counts")
+            continue
+        fname = c.get("file")
+        if not fname:
+            raise ValueError(f"{index_path}: case {cid!r} missing file")
         zname = f"{fname}.z"
         if zname in indexed_files:
             raise ValueError(f"{index_path}: duplicate frame file {zname!r}")
@@ -397,9 +436,69 @@ def _validate_store_dir_unlocked(store, expected_specs=None):
     return manifest
 
 
+def _pid_is_alive_same_host(pid):
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong(0)
+            if ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return code.value == 259  # STILL_ACTIVE
+            return False
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _try_reclaim_stale_lock(lock_dir, stale_seconds=60.0):
+    """Atomically reclaim a lock directory left behind by a killed or rebooted process."""
+    owner_file = lock_dir / "owner.json"
+    now = time.time()
+    is_stale = False
+    try:
+        st = lock_dir.stat()
+    except FileNotFoundError:
+        return False
+    age = now - st.st_mtime
+    if owner_file.is_file():
+        try:
+            owner = json.loads(owner_file.read_text(encoding="utf-8"))
+            host = "nt" if os.name == "nt" else "posix"
+            if owner.get("host") == host:
+                if not _pid_is_alive_same_host(owner.get("pid")):
+                    is_stale = True
+            elif age > stale_seconds:
+                is_stale = True
+        except (OSError, ValueError):
+            if age > 2.0:
+                is_stale = True
+    elif age > 2.0:
+        is_stale = True
+    if not is_stale:
+        return False
+    reclaim = lock_dir.parent / f"{lock_dir.name}.stale-{os.getpid()}-{time.time_ns()}"
+    try:
+        os.rename(lock_dir, reclaim)
+    except OSError:
+        return False
+    shutil.rmtree(reclaim, ignore_errors=True)
+    return True
+
+
 @contextlib.contextmanager
-def _store_lock(store_dir, timeout=120.0):
-    """Cross-host exclusive lock using atomic mkdir so WSL and Windows share mutual exclusion."""
+def _store_lock(store_dir, timeout=120.0, stale_seconds=60.0):
+    """Cross-host exclusive lock using atomic mkdir with stale-lock reclamation on crash."""
     resolved = Path(store_dir).resolve()
     try:
         rel = resolved.relative_to(ROOT.resolve()).as_posix()
@@ -417,16 +516,20 @@ def _store_lock(store_dir, timeout=120.0):
             os.mkdir(lock_dir)
             break
         except FileExistsError:
+            if _try_reclaim_stale_lock(lock_dir, stale_seconds=stale_seconds):
+                continue
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"timed out waiting for store lock {lock_dir}")
             time.sleep(0.02)
+    owner_file = lock_dir / "owner.json"
     try:
+        owner_file.write_text(
+            json.dumps({"pid": os.getpid(), "host": "nt" if os.name == "nt" else "posix", "created": time.time()}),
+            encoding="utf-8",
+        )
         yield
     finally:
-        try:
-            os.rmdir(lock_dir)
-        except FileNotFoundError:
-            pass
+        shutil.rmtree(lock_dir, ignore_errors=True)
 
 
 def publish_store(fresh_dir, store_dir, expected_specs):
@@ -448,6 +551,9 @@ def publish_store(fresh_dir, store_dir, expected_specs):
                 cid = case["id"]
                 if cid not in expected_specs:
                     raise ValueError(f"fresh capture contains unexpected case {cid!r}")
+                if case.get("basis") == "compiled-template":
+                    case["case_sha256"] = canonical_case_hash(expected_specs[cid])
+                    continue
                 raw_path = fresh / case["file"]
                 raw = raw_path.read_bytes()
                 zbytes = zlib.compress(raw, 9)

@@ -77,8 +77,10 @@ def find_nuget_winui_pkg(version):
         home = Path(os.environ.get("USERPROFILE", str(Path.home())))
         candidates.append(home / ".nuget/packages/microsoft.windowsappsdk.winui" / version)
     else:
-        for user_dir in sorted(Path("/mnt/c/Users").glob("*")):
-            candidates.append(user_dir / ".nuget/packages/microsoft.windowsappsdk.winui" / version)
+        candidates.append(Path.home() / ".nuget/packages/microsoft.windowsappsdk.winui" / version)
+        if Path("/mnt/c/Users").is_dir():
+            for user_dir in sorted(Path("/mnt/c/Users").glob("*")):
+                candidates.append(user_dir / ".nuget/packages/microsoft.windowsappsdk.winui" / version)
     for c in candidates:
         if c.is_dir():
             return c
@@ -151,11 +153,64 @@ def compute_provenance_sha256(pkg_data):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
+def compile_standalone_template(xaml_path):
+    """Compile a standalone XAML Style template using tools/winui/templates.py and return its compiled metadata."""
+    path = Path(xaml_path)
+    if not path.is_file():
+        raise PackageDrift(f"missing-control template source not found: {path}")
+    winui_dir = str(Path(__file__).resolve().parent)
+    if winui_dir not in sys.path:
+        sys.path.insert(0, winui_dir)
+    import templates as tpl_compiler
+    doc = tpl_compiler.parse_xaml(path.read_text(encoding="utf-8"), str(path))
+    comp = tpl_compiler.Compiler()
+    if doc.tag != "Style":
+        raise PackageDrift(f"{path}: standalone missing-control template root must be <Style>, got <{doc.tag}>")
+    comp.compile_style(doc)
+    tpl_compiler.verify_fully_consumed(doc)
+    if not comp.templates:
+        raise PackageDrift(f"{path}: compiled zero templates")
+    t = comp.templates[0]
+    gstart = t["group_start"]
+    gcount = t["group_count"]
+    state_count = sum(comp.groups[g]["state_count"] for g in range(gstart, gstart + gcount))
+    return {
+        t["key"]: {
+            "target": t["target_type"],
+            "setter_count": t["style_setter_count"],
+            "elem_count": t["elem_count"],
+            "group_count": gcount,
+            "state_count": state_count,
+        }
+    }
+
+
+def _resolve_missing_control_template(entry, compiled_c, repo_root):
+    tpl = entry.get("compiled_template")
+    src = entry.get("template_source")
+    if src:
+        src_path = Path(src)
+        if not src_path.is_absolute():
+            src_path = Path(repo_root) / src_path
+        standalone = compile_standalone_template(src_path)
+        if tpl not in standalone:
+            raise PackageDrift(
+                f"reference/package.json: missing_controls {entry.get('control')!r} template {tpl!r} not found in {src}"
+            )
+        return standalone[tpl]
+    if tpl not in compiled_c:
+        raise PackageDrift(
+            f"reference/package.json: missing_controls {entry.get('control')!r} names unknown compiled template {tpl!r}"
+        )
+    return compiled_c[tpl]
+
+
 def verify_missing_controls(pkg_data, template_c_path, pkg_target_types=None, pin_target_types=None):
     """Verify every missing_controls entry is absent from the package and backed by its own compiled template."""
     missing = pkg_data.get("missing_controls")
     if not isinstance(missing, list):
         raise PackageDrift("reference/package.json: missing_controls must be a list")
+    repo_root = Path(template_c_path).resolve().parent.parent
     compiled = parse_compiled_templates(template_c_path)
     by_name = {}
     results = []
@@ -169,9 +224,7 @@ def verify_missing_controls(pkg_data, template_c_path, pkg_target_types=None, pi
             raise PackageDrift(f"reference/package.json: duplicate missing_controls entry {ctrl!r}")
         if pkg_target_types is not None and ctrl in pkg_target_types:
             raise PackageDrift(f"reference/package.json: {ctrl!r} is listed as missing but exists in package generic.xaml")
-        if tpl not in compiled:
-            raise PackageDrift(f"reference/package.json: missing_controls {ctrl!r} names unknown compiled template {tpl!r}")
-        info = compiled[tpl]
+        info = _resolve_missing_control_template(entry, compiled, repo_root)
         if info["target"] != ctrl:
             raise PackageDrift(
                 f"reference/package.json: missing_controls {ctrl!r} points to unrelated template {tpl!r} (target={info['target']!r})"
@@ -213,7 +266,7 @@ def verify_missing_controls(pkg_data, template_c_path, pkg_target_types=None, pi
 
 
 def check_missing_control_case(case_spec, pkg_data, template_c_path):
-    """Route a case targeting a missing control to its own compiled template in ui/template_data.c."""
+    """Route a case targeting a missing control to its own compiled template (ui/template_data.c or reference/templates/)."""
     ctrl = case_spec.get("control")
     missing_by_ctrl = {e.get("control"): e for e in pkg_data.get("missing_controls", []) if isinstance(e, dict)}
     if ctrl not in missing_by_ctrl:
@@ -221,11 +274,12 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
     entry = missing_by_ctrl[ctrl]
     tpl = entry.get("compiled_template")
     if entry.get("basis") != "compiled-template" or not tpl:
-        raise PackageDrift(f"case {case_spec.get('id')!r}: missing control {ctrl!r} has no compiled template in ui/template_data.c")
+        raise PackageDrift(f"case {case_spec.get('id')!r}: missing control {ctrl!r} has no compiled template")
+    repo_root = Path(template_c_path).resolve().parent.parent
     compiled = parse_compiled_templates(template_c_path)
-    if tpl not in compiled or compiled[tpl]["target"] != ctrl:
+    info = _resolve_missing_control_template(entry, compiled, repo_root)
+    if info["target"] != ctrl:
         raise PackageDrift(f"case {case_spec.get('id')!r}: compiled template {tpl!r} does not target {ctrl!r}")
-    info = compiled[tpl]
     for field, actual in (("expected_elements", info["elem_count"]), ("expected_states", info["state_count"]), ("expected_setters", info["setter_count"])):
         if field in case_spec and case_spec[field] != actual:
             raise PackageDrift(f"case {case_spec.get('id')!r}: {field}={case_spec[field]} != compiled {tpl!r} ({actual})")

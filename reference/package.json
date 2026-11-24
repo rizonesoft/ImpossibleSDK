@@ -148,6 +148,47 @@
       "primitives:TabViewListView"
     ]
   },
-  "missing_controls": [],
+  "missing_controls": [
+    {
+      "control": "WrapPanel",
+      "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI 1.8.260803003",
+      "basis": "compiled-template",
+      "compiled_template": "DefaultWrapPanelStyle",
+      "template_source": "reference/templates/WrapPanel.xaml",
+      "expected_elements": 2,
+      "expected_states": 0,
+      "expected_setters": 3
+    },
+    {
+      "control": "UniformGrid",
+      "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI 1.8.260803003",
+      "basis": "compiled-template",
+      "compiled_template": "DefaultUniformGridStyle",
+      "template_source": "reference/templates/UniformGrid.xaml",
+      "expected_elements": 3,
+      "expected_states": 0,
+      "expected_setters": 3
+    },
+    {
+      "control": "DataGrid",
+      "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI 1.8.260803003",
+      "basis": "compiled-template",
+      "compiled_template": "DefaultDataGridStyle",
+      "template_source": "reference/templates/DataGrid.xaml",
+      "expected_elements": 4,
+      "expected_states": 2,
+      "expected_setters": 4
+    },
+    {
+      "control": "DockPanel",
+      "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI 1.8.260803003",
+      "basis": "compiled-template",
+      "compiled_template": "DefaultDockPanelStyle",
+      "template_source": "reference/templates/DockPanel.xaml",
+      "expected_elements": 3,
+      "expected_states": 0,
+      "expected_setters": 3
+    }
+  ],
   "provenance_sha256": "543eb9938f8e6d226227aa1aaae002aeb2870e3f1874461f0a6f3b1eab572ea5"
 }
