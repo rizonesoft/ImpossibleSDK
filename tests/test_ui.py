@@ -2416,6 +2416,22 @@ class ReferenceHarness(unittest.TestCase):
                 installed_font_ranges={"inter": [[0x20, 0x7E]]},
                 captured_frame={"id": "grid-dp", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "March"}]},
             )
+            # TextTrimming=CharacterEllipsis requires U+2026 ellipsis glyph coverage.
+            trim_case = {"id": "tb-trim", "control": "TextBlock", "properties": {
+                "Text": "A" * 80, "Width": 40, "TextTrimming": "CharacterEllipsis", "FontFamily": "Inter",
+            }}
+            with self.assertRaises(ValueError) as cm_trim:
+                ref_run.check_no_prohibited_assets(
+                    trim_case, require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                    captured_frame={"id": "tb-trim", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "A" * 80}]},
+                )
+            self.assertIn("U+2026", str(cm_trim.exception))
+            ref_run.check_no_prohibited_assets(
+                trim_case, require_installed=True, installed_fonts=["inter"],
+                installed_font_ranges={"inter": [[0x20, 0x7E], [0x2026, 0x2026]]},
+                captured_frame={"id": "tb-trim", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "A" * 80 + "\u2026"}]},
+            )
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},

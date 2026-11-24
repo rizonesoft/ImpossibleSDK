@@ -368,6 +368,9 @@ def check_no_prohibited_assets(
                     text_values.append((k, v))
             if ctrl_l == "passwordbox" and not pw_visible and _ci_get(props, "passwordchar", None) is None:
                 text_values.append(("PasswordChar(default)", "\u25CF"))
+            trim_mode = str(_ci_get(props, "texttrimming", "") or "").strip().lower()
+            if trim_mode in ("characterellipsis", "wordellipsis"):
+                text_values.append(("TextTrimming(ellipsis)", "\u2026"))
             if ctrl_l == "numberbox":
                 text_values.append(("NumberBox(digits)", "0123456789.-+"))
             elif ctrl_l in ("datepicker", "timepicker", "calendarview", "calendardatepicker"):

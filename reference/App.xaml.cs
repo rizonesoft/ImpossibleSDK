@@ -815,11 +815,18 @@ public partial class App : Application
             {
                 if (!string.IsNullOrEmpty(tb.Text))
                 {
+                    string tbText = tb.Text;
+                    if (tb.IsTextTrimmed
+                        || tb.TextTrimming == TextTrimming.CharacterEllipsis
+                        || tb.TextTrimming == TextTrimming.WordEllipsis)
+                    {
+                        tbText += "\u2026";
+                    }
                     items.Add(new Dictionary<string, string>
                     {
                         ["element"] = string.IsNullOrEmpty(tb.Name) ? "TextBlock" : $"TextBlock:{tb.Name}",
                         ["font"] = tb.FontFamily?.Source ?? "",
-                        ["text"] = tb.Text,
+                        ["text"] = tbText,
                     });
                 }
             }
@@ -827,6 +834,10 @@ public partial class App : Application
             {
                 string font = rtb.FontFamily?.Source ?? "";
                 string elemName = string.IsNullOrEmpty(rtb.Name) ? "RichTextBlock" : $"RichTextBlock:{rtb.Name}";
+                bool rtbEllipsis = rtb.IsTextTrimmed
+                    || rtb.TextTrimming == TextTrimming.CharacterEllipsis
+                    || rtb.TextTrimming == TextTrimming.WordEllipsis;
+                bool addedAny = false;
                 foreach (var block in rtb.Blocks)
                 {
                     if (block is Microsoft.UI.Xaml.Documents.Paragraph para)
@@ -835,6 +846,7 @@ public partial class App : Application
                         {
                             if (inline is Microsoft.UI.Xaml.Documents.Run run && !string.IsNullOrEmpty(run.Text))
                             {
+                                addedAny = true;
                                 items.Add(new Dictionary<string, string>
                                 {
                                     ["element"] = elemName,
@@ -844,6 +856,15 @@ public partial class App : Application
                             }
                         }
                     }
+                }
+                if (addedAny && rtbEllipsis)
+                {
+                    items.Add(new Dictionary<string, string>
+                    {
+                        ["element"] = elemName,
+                        ["font"] = font,
+                        ["text"] = "\u2026",
+                    });
                 }
             }
             else if (obj is TextBox tbox)
@@ -871,7 +892,7 @@ public partial class App : Application
                     runText = runText.TrimEnd('\r', '\n');
                     if (!string.IsNullOrEmpty(runText))
                     {
-                        string runFont = range.CharacterFormat?.Name;
+                        string runFont = range.CharacterFormat?.Name ?? "";
                         if (string.IsNullOrEmpty(runFont)) runFont = fallbackFont;
                         items.Add(new Dictionary<string, string>
                         {
