@@ -461,77 +461,102 @@ def _pid_is_alive_same_host(pid):
         return True
 
 
-def _pid_is_alive_cross_host(pid, owner_host):
+def _pid_is_alive_cross_host(pid, owner_host, owner_distro=""):
     """Check whether a lock owner PID is alive on the same host or across the WSL/Windows boundary."""
     if not isinstance(pid, int) or pid <= 0:
         return False
     cur_host = "nt" if os.name == "nt" else "posix"
     if owner_host == cur_host:
+        if cur_host == "posix":
+            cur_distro = os.environ.get("WSL_DISTRO_NAME", "")
+            if owner_distro and cur_distro and owner_distro != cur_distro:
+                return True  # different WSL distro; do not guess
         return _pid_is_alive_same_host(pid)
     if cur_host == "posix" and owner_host == "nt" and shutil.which("tasklist.exe"):
         res = subprocess.run(
             ["tasklist.exe", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
             capture_output=True, text=True, timeout=10,
         )
-        if res.returncode == 0:
-            return f'"{pid}"' in res.stdout
-        return True  # conservatively assume alive if query failed
-    if cur_host == "nt" and owner_host == "posix" and shutil.which("wsl.exe"):
+        if res.returncode == 0 and f'"{pid}"' not in res.stdout and "INFO:" in res.stdout:
+            return False
+        return True  # conservatively assume alive unless Windows explicitly confirms no matching task
+    if cur_host == "nt" and owner_host == "posix" and owner_distro and shutil.which("wsl.exe"):
         res = subprocess.run(
-            ["wsl.exe", "test", "-d", f"/proc/{pid}"],
+            ["wsl.exe", "-d", owner_distro, "--", "sh", "-c", 'test -d "/proc/$1" && echo ALIVE || echo DEAD', "_", str(pid)],
             capture_output=True, text=True, timeout=10,
         )
-        return res.returncode == 0
-    # Unknown foreign host without interop: never steal a potentially live lock based on wall-clock age.
+        if res.returncode == 0 and res.stdout.strip() == "DEAD":
+            return False
+        return True  # conservatively assume alive on any distro/interop error
+    # Unknown foreign host without exact distro/interop: never steal a potentially live lock.
     return True
 
 
-def _owner_is_dead(lock_dir):
+def _write_owner_atomic(lock_dir, token):
+    """Write complete owner metadata atomically via temp file + os.replace so owner.json is never truncated."""
+    payload = json.dumps({
+        "pid": os.getpid(),
+        "host": "nt" if os.name == "nt" else "posix",
+        "distro": os.environ.get("WSL_DISTRO_NAME", "") if os.name != "nt" else "",
+        "token": token,
+        "created": time.time(),
+    })
+    tmp = lock_dir / f".owner-{os.getpid()}-{time.time_ns()}.tmp"
+    owner_file = lock_dir / "owner.json"
+    with open(tmp, "w", encoding="utf-8") as fp:
+        fp.write(payload)
+        fp.flush()
+    os.replace(tmp, owner_file)
+
+
+def _read_dead_owner_token(lock_dir):
+    """Return owner token if lock_dir has a complete owner.json whose PID is provably dead; else None."""
     owner_file = lock_dir / "owner.json"
     if not owner_file.is_file():
-        try:
-            age = time.time() - lock_dir.stat().st_mtime
-        except FileNotFoundError:
-            return False
-        # Only reclaim an uninitialized lock dir if the creator crashed before writing owner.json.
-        return age > 5.0
+        return None
     try:
         owner = json.loads(owner_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return False
-    return not _pid_is_alive_cross_host(owner.get("pid"), owner.get("host"))
+        return None
+    if not _pid_is_alive_cross_host(owner.get("pid"), owner.get("host"), owner.get("distro", "")):
+        return owner.get("token")
+    return None
 
 
 def _try_reclaim_stale_lock(lock_dir):
-    """Serialize stale-lock reclamation via a guard dir and re-verify owner liveness before removing."""
-    if not _owner_is_dead(lock_dir):
+    """Serialize stale-lock reclamation behind a liveness-checked guard dir; never steal by wall-clock age."""
+    dead_token = _read_dead_owner_token(lock_dir)
+    if dead_token is None:
         return False
     guard = lock_dir.parent / f"{lock_dir.name}.reclaim"
+    guard_token = f"reclaim-{os.getpid()}-{time.time_ns()}"
     try:
         os.mkdir(guard)
     except FileExistsError:
-        try:
-            if time.time() - guard.stat().st_mtime > 30.0:
-                os.rmdir(guard)
-        except OSError:
-            pass
+        # Only remove a reclaim guard if its own owner PID is provably dead (never by age).
+        if _read_dead_owner_token(guard) is not None:
+            shutil.rmtree(guard, ignore_errors=True)
         return False
     try:
-        # Re-check under the reclaim guard so a concurrent reclaimer can never delete a fresh live lock.
-        if lock_dir.is_dir() and _owner_is_dead(lock_dir):
+        _write_owner_atomic(guard, guard_token)
+        # Re-verify under the guard that lock_dir still belongs to the exact same dead owner token.
+        if lock_dir.is_dir() and _read_dead_owner_token(lock_dir) == dead_token:
             shutil.rmtree(lock_dir, ignore_errors=True)
             return True
         return False
     finally:
         try:
-            os.rmdir(guard)
-        except OSError:
-            pass
+            cur = json.loads((guard / "owner.json").read_text(encoding="utf-8"))
+            if cur.get("token") == guard_token:
+                shutil.rmtree(guard, ignore_errors=True)
+        except (OSError, ValueError):
+            if guard.is_dir() and not (guard / "owner.json").is_file():
+                shutil.rmtree(guard, ignore_errors=True)
 
 
 @contextlib.contextmanager
 def _store_lock(store_dir, timeout=120.0):
-    """Cross-host exclusive lock using atomic mkdir with liveness-checked, serialized stale-lock reclamation."""
+    """Cross-host exclusive lock using atomic mkdir + atomic owner.json + liveness-checked reclamation."""
     resolved = Path(store_dir).resolve()
     try:
         rel = resolved.relative_to(ROOT.resolve()).as_posix()
@@ -555,25 +580,21 @@ def _store_lock(store_dir, timeout=120.0):
                 raise TimeoutError(f"timed out waiting for store lock {lock_dir}")
             time.sleep(0.02)
     token = f"{os.getpid()}-{time.time_ns()}"
-    owner_file = lock_dir / "owner.json"
+    owner_written = False
     try:
-        owner_file.write_text(
-            json.dumps({
-                "pid": os.getpid(),
-                "host": "nt" if os.name == "nt" else "posix",
-                "token": token,
-                "created": time.time(),
-            }),
-            encoding="utf-8",
-        )
+        _write_owner_atomic(lock_dir, token)
+        owner_written = True
         yield
     finally:
-        try:
-            cur = json.loads(owner_file.read_text(encoding="utf-8"))
-            if cur.get("token") == token:
-                shutil.rmtree(lock_dir, ignore_errors=True)
-        except (OSError, ValueError):
-            pass
+        if not owner_written:
+            shutil.rmtree(lock_dir, ignore_errors=True)
+        else:
+            try:
+                cur = json.loads((lock_dir / "owner.json").read_text(encoding="utf-8"))
+                if cur.get("token") == token:
+                    shutil.rmtree(lock_dir, ignore_errors=True)
+            except (OSError, ValueError):
+                pass
 
 
 def publish_store(fresh_dir, store_dir, expected_specs):
@@ -628,6 +649,9 @@ def publish_store(fresh_dir, store_dir, expected_specs):
                 raise RuntimeError(f"{store}: cases.json missing after swap")
             if backup.exists():
                 shutil.rmtree(backup, ignore_errors=True)
+            frame_count = sum(1 for c in manifest["cases"] if c.get("basis") != "compiled-template")
+            fallback_count = sum(1 for c in manifest["cases"] if c.get("basis") == "compiled-template")
+            return frame_count, fallback_count
         except Exception:
             shutil.rmtree(stage, ignore_errors=True)
             raise
@@ -737,9 +761,12 @@ def run_reference(program, out_dir, cases_path=None, work_dir=None, snapshotted_
 
         # Publish store directly from the private per-run capture directory so concurrent runs touching `out`
         # can never mix another run's pixels with this run's snapshotted case hashes.
+        publish_counts = None
         if store_dir is not None:
-            publish_store(rt_out, store_dir, snapshotted_specs)
+            publish_counts = publish_store(rt_out, store_dir, snapshotted_specs)
         _publish_capture_output(rt_out, out)
+    if store_dir is not None:
+        return out, publish_counts
     return out
 
 
@@ -766,13 +793,14 @@ def main(argv=None):
 
     # Snapshot case specifications BEFORE capture so publication hashes the exact private capture rendered by Reference.exe.
     specs = load_case_specs(CASES_DIR) if args.update_store else None
-    out = capture(args.out, args.cases, snapshotted_specs=specs, store_dir=STORE if args.update_store else None)
+    result = capture(args.out, args.cases, snapshotted_specs=specs, store_dir=STORE if args.update_store else None)
+    if args.update_store:
+        out, (frame_count, fallback_count) = result
+    else:
+        out = result
     frames = list(out.glob("*.bgra"))
     print(f"{len(frames)} frames in {out}")
     if args.update_store:
-        manifest = open_reference_manifest(STORE)
-        frame_count = sum(1 for c in manifest.get("cases", []) if c.get("basis") != "compiled-template")
-        fallback_count = sum(1 for c in manifest.get("cases", []) if c.get("basis") == "compiled-template")
         if fallback_count:
             print(f"published {frame_count} validated compressed frames and {fallback_count} compiled-template fallbacks to {STORE}")
         else:

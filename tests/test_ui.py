@@ -1876,7 +1876,13 @@ class ReferenceHarness(unittest.TestCase):
             stale_lock = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
             stale_lock.mkdir(exist_ok=True)
             (stale_lock / "owner.json").write_text(
-                json.dumps({"pid": 99999999, "host": "nt" if os.name == "nt" else "posix", "created": 0}),
+                json.dumps({
+                    "pid": 99999999,
+                    "host": "nt" if os.name == "nt" else "posix",
+                    "distro": os.environ.get("WSL_DISTRO_NAME", "") if os.name != "nt" else "",
+                    "token": "dead-token-999",
+                    "created": 0,
+                }),
                 encoding="utf-8",
             )
             self.assertFalse(tstore.exists())
@@ -2034,13 +2040,18 @@ class ReferenceHarness(unittest.TestCase):
                     committed_pkg, ROOT / "ui/template_data.c",
                 )
             self.assertIn("MissingState", str(cm_state.exception))
-            # Downstream drawing manifest validator must accept a manifest containing fallback entries alongside frames.
+            # Downstream drawing manifest validator and dump assertions must both accept a manifest containing fallback entries.
             committed_manifest = ref_run.open_reference_manifest(ROOT / "tests/reference")
             combined_manifest = {
                 **committed_manifest,
                 "cases": list(committed_manifest["cases"]) + [by_mc_id["mc-wrap"]],
             }
             validate_manifest(combined_manifest)
+            self.assertTrue(all(
+                ("layout" in c and "automation" in c)
+                for c in combined_manifest["cases"]
+                if c.get("basis") != "compiled-template"
+            ))
 
             # Real compiled-template fallback routed end-to-end through reference/run.py (ToggleSwitch -> DefaultToggleSwitchStyle).
             sim_ok = {
@@ -2174,8 +2185,12 @@ class ReferenceHarness(unittest.TestCase):
         ref_run, _ = self._ref_modules()
         folder = ROOT / "tests/reference"
         manifest, frames = ref_run.read_reference_snapshot(folder)
-        # Every stored case must include both layout and automation dumps.
-        self.assertTrue(all("layout" in c and "automation" in c for c in manifest["cases"]))
+        # Every rendered capture case must include both layout and automation dumps.
+        self.assertTrue(all(
+            "layout" in c and "automation" in c
+            for c in manifest["cases"]
+            if c.get("basis") != "compiled-template"
+        ))
         by_id = {c["id"]: c for c in manifest["cases"]}
 
         # 1. Button layout + automation dumps have frame-relative coords, Invoke pattern, and correct hierarchy.
