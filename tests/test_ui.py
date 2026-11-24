@@ -1230,9 +1230,79 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_npb.returncode, 0)
         self.assertIn(f"{path_npb}:3:", res_npb.stderr)
 
-        # BrushTransition belongs to Microsoft.UI.Xaml (not Microsoft.UI.Xaml.Media).
-        self.assertEqual(tpl_mod.OWNER_NAMESPACE["BrushTransition"], "using:Microsoft.UI.Xaml")
+        # Full OWNER_NAMESPACE table invariant: changing any owner's WinUI namespace must fail this test.
+        expected_owner_ns = {
+            "UIElement": "using:Microsoft.UI.Xaml",
+            "FrameworkElement": "using:Microsoft.UI.Xaml",
+            "BrushTransition": "using:Microsoft.UI.Xaml",
+            "Panel": "using:Microsoft.UI.Xaml.Controls",
+            "Grid": "using:Microsoft.UI.Xaml.Controls",
+            "Border": "using:Microsoft.UI.Xaml.Controls",
+            "ContentPresenter": "using:Microsoft.UI.Xaml.Controls",
+            "TextBlock": "using:Microsoft.UI.Xaml.Controls",
+            "Button": "using:Microsoft.UI.Xaml.Controls",
+            "ScrollViewer": "using:Microsoft.UI.Xaml.Controls",
+            "ToggleSwitch": "using:Microsoft.UI.Xaml.Controls",
+            "TextBox": "using:Microsoft.UI.Xaml.Controls",
+            "ListView": "using:Microsoft.UI.Xaml.Controls",
+            "ListViewItem": "using:Microsoft.UI.Xaml.Controls",
+            "FontIcon": "using:Microsoft.UI.Xaml.Controls",
+            "IconElement": "using:Microsoft.UI.Xaml.Controls",
+            "ItemsStackPanel": "using:Microsoft.UI.Xaml.Controls",
+            "ItemsPresenter": "using:Microsoft.UI.Xaml.Controls",
+            "RowDefinition": "using:Microsoft.UI.Xaml.Controls",
+            "ColumnDefinition": "using:Microsoft.UI.Xaml.Controls",
+            "Control": "using:Microsoft.UI.Xaml.Controls",
+            "ContentControl": "using:Microsoft.UI.Xaml.Controls",
+            "ItemsControl": "using:Microsoft.UI.Xaml.Controls",
+            "ListViewBase": "using:Microsoft.UI.Xaml.Controls",
+            "Canvas": "using:Microsoft.UI.Xaml.Controls",
+            "AnimatedIcon": "using:Microsoft.UI.Xaml.Controls",
+            "ButtonBase": "using:Microsoft.UI.Xaml.Controls.Primitives",
+            "Selector": "using:Microsoft.UI.Xaml.Controls.Primitives",
+            "SelectorItem": "using:Microsoft.UI.Xaml.Controls.Primitives",
+            "Thumb": "using:Microsoft.UI.Xaml.Controls.Primitives",
+            "ListViewItemPresenter": "using:Microsoft.UI.Xaml.Controls.Primitives",
+            "Shape": "using:Microsoft.UI.Xaml.Shapes",
+            "Rectangle": "using:Microsoft.UI.Xaml.Shapes",
+            "Geometry": "using:Microsoft.UI.Xaml.Media",
+            "RectangleGeometry": "using:Microsoft.UI.Xaml.Media",
+            "Transform": "using:Microsoft.UI.Xaml.Media",
+            "TranslateTransform": "using:Microsoft.UI.Xaml.Media",
+            "ScaleTransform": "using:Microsoft.UI.Xaml.Media",
+            "CompositeTransform": "using:Microsoft.UI.Xaml.Media",
+            "SolidColorBrush": "using:Microsoft.UI.Xaml.Media",
+            "Transition": "using:Microsoft.UI.Xaml.Media.Animation",
+            "AddDeleteThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+            "ContentThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+            "ReorderThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+            "EntranceThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+            "AutomationProperties": "using:Microsoft.UI.Xaml.Automation",
+        }
+        self.assertEqual(tpl_mod.OWNER_NAMESPACE, expected_owner_ns)
         self.assertTrue(tpl_mod.ALL_OWNER_TYPES <= set(tpl_mod.OWNER_NAMESPACE))
+
+        # Double-dotted R.(c:Grid.Grid.Row) must be rejected; R.(c:TextBlock.TextTrimming) must be accepted.
+        xaml_double_dot = (
+            '<ControlTemplate xmlns:c="using:Microsoft.UI.Xaml.Controls" TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(c:Grid.Grid.Row)" Value="1" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_dd, path_dd = self._run_fixture(xaml_double_dot)
+        self.assertNotEqual(res_dd.returncode, 0)
+        self.assertIn(f"{path_dd}:3:", res_dd.stderr)
+
+        xaml_tb_trim = (
+            '<ControlTemplate xmlns:c="using:Microsoft.UI.Xaml.Controls" TargetType="Button">\n'
+            '  <TextBlock Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(c:TextBlock.TextTrimming)" Value="CharacterEllipsis" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></TextBlock>\n'
+            '</ControlTemplate>\n'
+        )
+        res_tbt, _ = self._run_fixture(xaml_tb_trim)
+        self.assertEqual(res_tbt.returncode, 0, res_tbt.stderr)
         xaml_bt_ok = (
             '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:c="using:Microsoft.UI.Xaml" TargetType="Button">\n'
             '  <ContentPresenter><ContentPresenter.BackgroundTransition><BrushTransition x:Name="R" /></ContentPresenter.BackgroundTransition><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'

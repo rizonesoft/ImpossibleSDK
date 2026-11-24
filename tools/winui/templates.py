@@ -229,7 +229,11 @@ ELEMENT_OWN_PROPS = {
     },
     "TextBlock": {
         "CharacterSpacing", "FontFamily", "FontSize", "FontStretch", "FontStyle", "FontWeight",
-        "Foreground", "IsTextScaleFactorEnabled", "Padding", "Text", "TextAlignment", "TextWrapping",
+        "Foreground", "HorizontalTextAlignment", "IsColorFontEnabled", "IsTextScaleFactorEnabled",
+        "IsTextSelectionEnabled", "LineHeight", "LineStackingStrategy", "MaxLines",
+        "OpticalMarginAlignment", "Padding", "SelectionFlyout", "SelectionHighlightColor",
+        "Text", "TextAlignment", "TextDecorations", "TextLineBounds", "TextReadingOrder",
+        "TextTrimming", "TextWrapping",
     },
     "Button": CONTENT_CONTROL_PROPS | {"ClickMode", "Command", "CommandParameter", "Flyout"},
     "ScrollViewer": CONTENT_CONTROL_PROPS | {
@@ -661,8 +665,8 @@ TYPE_PROPS = {
     "Geometry": {"Transform"},
     "Transition": set(),
 }
-for _tag in ELEMENT_OWN_PROPS:
-    TYPE_PROPS[_tag] = allowed_props_for(_tag)
+for _tag, _own in ELEMENT_OWN_PROPS.items():
+    TYPE_PROPS[_tag] = _own if _tag in NON_UI_ELEMENTS else (COMMON_UI_PROPS | _own)
 
 BRUSH_PROPS = {
     "Background", "BorderBrush", "Foreground", "Fill", "Stroke",
@@ -734,6 +738,8 @@ def is_valid_owner_ns(ns, owner):
 
 def is_valid_qualified_member(owner, member, target_tag=None):
     """Return True iff (owner.member) is a valid attached or owner-declared property (and valid on target_tag)."""
+    if "." in member:
+        return False
     if f"{owner}.{member}" in ATTACHED_PROPS:
         return target_tag is None or target_tag not in NON_UI_ELEMENTS
     if owner not in TYPE_PROPS or member not in TYPE_PROPS[owner]:
