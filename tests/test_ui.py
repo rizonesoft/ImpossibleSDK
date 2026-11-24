@@ -2302,11 +2302,31 @@ class ReferenceHarness(unittest.TestCase):
             ref_run.check_no_prohibited_assets({
                 "id": "ts-empty", "control": "ToggleSwitch", "properties": {"IsOn": True, "OnContent": "", "OffContent": ""}
             })
-            # Nested missing-package control (DockPanel inside StackPanel) must be refused before launching WinUI.
+            # Nested missing-package control (DockPanel inside StackPanel) must be refused before launching WinUI with follow-up ref.
             nested_mc = {"nested-dock": {"id": "nested-dock", "control": "StackPanel", "children": [{"id": "ch-dock", "control": "DockPanel"}]}}
             with self.assertRaises(ValueError) as cm_nmc:
                 ref_run.run_reference("unused-exe", Path(tmp) / "nmc_out", snapshotted_specs=nested_mc)
             self.assertIn("DockPanel", str(cm_nmc.exception))
+            self.assertIn("D01 T01", str(cm_nmc.exception))
+            # Malformed non-list children must fail during normalization naming case ID and field.
+            with self.assertRaises(ValueError) as cm_ch:
+                ref_run.normalize_case_spec({"id": "bad-ch", "control": "StackPanel", "children": {"control": "Button"}})
+            self.assertIn("bad-ch", str(cm_ch.exception))
+            self.assertIn("children", str(cm_ch.exception))
+            # Allowlisted-but-uninstalled font must fail publish_store and preserve the prior store.
+            uninst_store = Path(tmp) / "uninst_store"
+            shutil.copytree(ROOT / "tests/reference", uninst_store)
+            prev_uninst = (uninst_store / "cases.json").read_text(encoding="utf-8")
+            uninst_fresh = Path(tmp) / "uninst_fresh"
+            uninst_fresh.mkdir()
+            (uninst_fresh / "cases.json").write_text(json.dumps({"installed_fonts": ["dejavu sans"], "cases": []}), encoding="utf-8")
+            with self.assertRaises(ValueError) as cm_uf:
+                ref_run.publish_store(
+                    uninst_fresh, uninst_store,
+                    {"tb-inter": {"id": "tb-inter", "control": "TextBlock", "properties": {"Text": "Hi", "FontFamily": "Inter"}}},
+                )
+            self.assertIn("not installed", str(cm_uf.exception))
+            self.assertEqual((uninst_store / "cases.json").read_text(encoding="utf-8"), prev_uninst)
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},
@@ -3055,6 +3075,25 @@ class LiveReference(unittest.TestCase):
                         "properties": {"Value": 50, "Width": 120, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
                     },
                     {
+                        "id": "child-theme-light",
+                        "control": "StackPanel",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Width": 140, "Height": 40, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "children": [
+                            {"id": "cs-btn-light", "control": "Button", "theme": "Light", "state": "Normal", "properties": {"Width": 100, "Height": 32}}
+                        ],
+                    },
+                    {
+                        "id": "prop-combobox-hdr",
+                        "control": "ComboBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 180, "height": 80},
+                        "properties": {"PlaceholderText": "Pick", "Header": "Choice", "Width": 140, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                    },
+                    {
                         "id": "prop-slider-vert",
                         "control": "Slider",
                         "theme": "Dark",
@@ -3064,8 +3103,24 @@ class LiveReference(unittest.TestCase):
                     },
                 ]}), encoding="utf-8")
 
+                script_only = Path(tmp) / "script_only.json"
+                script_only.write_text(json.dumps({"cases": [{
+                    "id": "btn-script-live",
+                    "control": "Button",
+                    "theme": "Dark",
+                    "scale": 1.0,
+                    "frame": {"width": 160, "height": 64},
+                    "properties": {"Name": "ScriptedButton", "Width": 120, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                    "script": [
+                        {"action": "pointer_click"},
+                        {"action": "focus"},
+                        {"action": "key_press", "key": "Space"},
+                        {"action": "touch_tap"},
+                    ],
+                }]}), encoding="utf-8")
+
                 out1 = ref_run.run_reference(exe, Path(tmp) / "out1", cases_path=combo, work_dir=build_tmp)
-                out2 = ref_run.run_reference(exe, Path(tmp) / "out2", cases_path=combo, work_dir=build_tmp)
+                out2 = ref_run.run_reference(exe, Path(tmp) / "out2", cases_path=script_only, work_dir=build_tmp)
 
                 m1 = json.loads((out1 / "cases.json").read_text(encoding="utf-8"))
                 m2 = json.loads((out2 / "cases.json").read_text(encoding="utf-8"))
@@ -3243,16 +3298,24 @@ class LiveReference(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     compare_frames_with_layout_mask(bytes(mut_txt), txt_px, 240, 96, 1.5, [("RealLabel", 58.0, 23.0, 46.0, 19.0)], txt_rects, limit=0)
 
-                # Nested child visual state must take effect (Pressed child pixels differ from Normal child pixels).
-                self.assertNotEqual((out1 / "child-state-normal.bgra").read_bytes(), (out1 / "child-state-pressed.bgra").read_bytes())
+                # Nested child visual state and child theme override must both take effect in rendered pixels.
+                norm_child_px = (out1 / "child-state-normal.bgra").read_bytes()
+                self.assertNotEqual(norm_child_px, (out1 / "child-state-pressed.bgra").read_bytes())
+                self.assertNotEqual(norm_child_px, (out1 / "child-theme-light.bgra").read_bytes())
 
-                # Overlapping Shift modifier: held Shift must remain held after chorded A so B is uppercase and C is lowercase.
-                self.assertEqual(by1["tb-overlap-shift"]["script_log"]["FinalState"]["text"], "ABc")
+                # Overlapping Shift modifier: held Shift stays active across chorded A and plain B, then flips for C (Caps Lock independent).
+                shift_text = by1["tb-overlap-shift"]["script_log"]["FinalState"]["text"]
+                self.assertIn(shift_text, ("ABc", "abC"))
+                self.assertEqual(shift_text[0].isupper(), shift_text[1].isupper())
+                self.assertNotEqual(shift_text[1].isupper(), shift_text[2].isupper())
 
-                # Generic property dispatch works on ToggleButton (IsChecked), ProgressBar (Value), and Slider (Orientation).
-                self.assertEqual(by1["prop-togglebtn"]["automation"]["ControlType"], "Button")
-                self.assertEqual(by1["prop-progressbar"]["automation"]["ControlType"], "ProgressBar")
-                self.assertEqual(by1["prop-slider-vert"]["automation"]["ControlType"], "Slider")
+                # Generic property dispatch verifies actual configured values on ToggleButton, ProgressBar, Slider, and ComboBox.
+                self.assertIs(by1["prop-togglebtn"].get("is_checked"), True)
+                self.assertEqual(by1["prop-progressbar"].get("range_value"), 50.0)
+                self.assertEqual(by1["prop-slider-vert"].get("orientation"), "Vertical")
+                self.assertEqual(by1["prop-slider-vert"].get("range_value"), 40.0)
+                self.assertEqual(by1["prop-combobox-hdr"].get("placeholder_text"), "Pick")
+                self.assertEqual(by1["prop-combobox-hdr"].get("header"), "Choice")
 
                 # focus on Button(IsTabStop=False) must fail without silently mutating IsTabStop to True.
                 no_tab_case = Path(tmp) / "no_tab.json"

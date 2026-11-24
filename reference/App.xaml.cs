@@ -41,7 +41,7 @@ public sealed class CaseSpec
     [JsonPropertyName("case_group")] public string? CaseGroup { get; set; }
     [JsonPropertyName("control")] public string Control { get; set; } = "";
     [JsonPropertyName("style")] public string? Style { get; set; }
-    [JsonPropertyName("theme")] public string Theme { get; set; } = "Dark";
+    [JsonPropertyName("theme")] public string? Theme { get; set; }
     [JsonPropertyName("scale")] public double Scale { get; set; } = 1.0;
     [JsonPropertyName("flow_direction")] public string? FlowDirection { get; set; }
     [JsonPropertyName("state")] public string? State { get; set; }
@@ -295,6 +295,11 @@ public partial class App : Application
             el.FlowDirection = ParseEnum<FlowDirection>(caseId, "flow_direction", spec.FlowDirection);
         }
 
+        if (isChild && !string.IsNullOrEmpty(spec.Theme))
+        {
+            el.RequestedTheme = ParseEnum<ElementTheme>(caseId, "theme", spec.Theme);
+        }
+
         if (spec.Items != null)
         {
             if (el is ItemsControl ic)
@@ -448,13 +453,13 @@ public partial class App : Application
                 break;
             case "PlaceholderText":
                 if (el is TextBox tboxP) tboxP.PlaceholderText = val.GetString() ?? "";
-                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                else goto default;
                 break;
             case "Header":
                 if (el is ToggleSwitch tsH) tsH.Header = val.GetString() ?? "";
                 else if (el is TextBox tboxH) tboxH.Header = val.GetString() ?? "";
                 else if (el is Slider slH) slH.Header = val.GetString() ?? "";
-                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                else goto default;
                 break;
             case "IsOn":
                 if (el is ToggleSwitch tsOn) tsOn.IsOn = val.GetBoolean();
@@ -629,7 +634,8 @@ public partial class App : Application
 
         foreach (var spec in specs)
         {
-            var theme = ParseEnum<ElementTheme>(spec.Id, "theme", spec.Theme);
+            string themeName = string.IsNullOrEmpty(spec.Theme) ? "Dark" : spec.Theme;
+            var theme = ParseEnum<ElementTheme>(spec.Id, "theme", themeName);
             if (double.IsNaN(spec.Scale) || double.IsInfinity(spec.Scale) || spec.Scale <= 0)
             {
                 throw new InvalidOperationException($"{spec.Id}.scale: scale must be positive (got {spec.Scale})");
@@ -754,7 +760,7 @@ public partial class App : Application
                 ["id"] = spec.Id,
                 ["control"] = spec.CaseGroup ?? spec.Control,
                 ["xaml_control"] = spec.Control,
-                ["theme"] = spec.Theme,
+                ["theme"] = themeName,
                 ["scale"] = scale,
                 ["host_rasterization_scale"] = hostDpi,
                 ["effective_rasterization_scale"] = hostDpi,
@@ -775,6 +781,23 @@ public partial class App : Application
             {
                 entry["selected_index"] = sel.SelectedIndex;
                 entry["selected_item"] = sel.SelectedItem?.ToString();
+            }
+            if (element is Microsoft.UI.Xaml.Controls.Primitives.ToggleButton tbEl)
+            {
+                entry["is_checked"] = tbEl.IsChecked;
+            }
+            if (element is Microsoft.UI.Xaml.Controls.Primitives.RangeBase rbEl)
+            {
+                entry["range_value"] = rbEl.Value;
+            }
+            if (element is Slider slEl)
+            {
+                entry["orientation"] = slEl.Orientation.ToString();
+            }
+            if (element is ComboBox cbEl)
+            {
+                if (!string.IsNullOrEmpty(cbEl.PlaceholderText)) entry["placeholder_text"] = cbEl.PlaceholderText;
+                if (cbEl.Header != null) entry["header"] = cbEl.Header.ToString();
             }
             if (isProbe)
             {
@@ -804,10 +827,26 @@ public partial class App : Application
             accents[type.ToString()] = $"{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
         }
 
+        var installedFonts = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rootKey in new[] { Microsoft.Win32.Registry.LocalMachine, Microsoft.Win32.Registry.CurrentUser })
+        {
+            using var fk = rootKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts");
+            if (fk == null) continue;
+            foreach (var vname in fk.GetValueNames())
+            {
+                string clean = vname;
+                int paren = clean.IndexOf('(');
+                if (paren > 0) clean = clean.Substring(0, paren);
+                clean = clean.Trim().ToLowerInvariant();
+                if (!string.IsNullOrEmpty(clean)) installedFonts.Add(clean);
+            }
+        }
+
         var manifest = new
         {
             scale = canvas.XamlRoot.RasterizationScale,
             accents,
+            installed_fonts = installedFonts.ToArray(),
             cases = results,
         };
         File.WriteAllText(

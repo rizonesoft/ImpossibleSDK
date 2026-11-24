@@ -694,6 +694,10 @@ public static class Script
                 catch (Exception cex) { cleanupErrors.Add($"touch_up:{cex.Message}"); }
                 activeTouchPt = null;
             }
+            if (runError == null && GetForegroundWindow() == hwnd)
+            {
+                try { SendMouse(outside, MOUSEEVENTF_MOVE); } catch (Exception cex) { cleanupErrors.Add($"park_mouse:{cex.Message}"); }
+            }
             target.GotFocus -= gotFocus;
             target.LostFocus -= lostFocus;
             target.RemoveHandler(UIElement.PointerEnteredEvent, ptrEntered);

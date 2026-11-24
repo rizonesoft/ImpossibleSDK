@@ -221,13 +221,15 @@ def normalize_case_spec(case_spec):
                 raise ValueError(f"case {out.get('id', '<unknown>')!r}: duplicate case-folded frame key {fk!r}")
             norm_frame[fl] = fv
         out["frame"] = norm_frame
-    if isinstance(out.get("children"), list):
+    if "children" in out and out["children"] is not None:
+        if not isinstance(out["children"], list):
+            raise ValueError(f"case {out.get('id', '<unknown>')!r}: 'children' must be a JSON array")
         out["children"] = [normalize_case_spec(ch) for ch in out["children"]]
     return out
 
 
-def check_no_prohibited_assets(case_spec):
-    """Refuse unknown/colliding keys, Microsoft fonts, or stock Microsoft glyph controls in committed store cases."""
+def check_no_prohibited_assets(case_spec, require_installed=False, installed_fonts=None):
+    """Refuse unknown/colliding keys, Microsoft fonts, unverified/uninstalled fonts, or stock Microsoft glyph controls."""
     norm = normalize_case_spec(case_spec)
     cid = norm.get("id", "<unknown>")
     ctrl = str(norm.get("control", "") or "")
@@ -279,8 +281,14 @@ def check_no_prohibited_assets(case_spec):
             raise ValueError(
                 f"{cid}: text-bearing property requires a verified permitted non-Microsoft FontFamily (got {ff!r}) to be persisted to tests/reference/"
             )
+        if require_installed:
+            inst = {str(n).strip().lower() for n in (installed_fonts or []) if isinstance(n, str)}
+            if not any(n == ff or n.startswith(ff + " ") for n in inst):
+                raise ValueError(
+                    f"{cid}: permitted FontFamily {ff!r} is not installed on the capture host (WinUI would fall back to a system font)"
+                )
     for child in norm.get("children") or []:
-        check_no_prohibited_assets(child)
+        check_no_prohibited_assets(child, require_installed=require_installed, installed_fonts=installed_fonts)
 
 
 def _is_owned_backup(backup_path, is_store):
@@ -901,8 +909,9 @@ def publish_store(fresh_dir, store_dir, expected_specs):
     store = Path(store_dir)
     manifest = json.loads((fresh / "cases.json").read_text(encoding="utf-8"))
 
+    installed_fonts = manifest.get("installed_fonts")
     for spec in expected_specs.values():
-        check_no_prohibited_assets(spec)
+        check_no_prohibited_assets(spec, require_installed=True, installed_fonts=installed_fonts)
 
     with _store_lock(store):
         backup = store.parent / f".{store.name}.backup"
@@ -1002,7 +1011,7 @@ def run_reference(program, out_dir, cases_path=None, work_dir=None, snapshotted_
                 ch_ctrl = ch.get("control")
                 if ch_ctrl in missing_controls:
                     raise ValueError(
-                        f"case {root_id!r}: nested missing-package control {ch_ctrl!r} inside live tree is not supported by compiled-template fallback"
+                        f"case {root_id!r}: nested missing-package control {ch_ctrl!r} inside live tree is not supported by compiled-template fallback (see D01 T01 §16 / D01 T01 §7)"
                     )
                 _check_no_nested_missing(ch, root_id)
 
