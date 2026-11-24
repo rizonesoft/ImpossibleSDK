@@ -1868,14 +1868,13 @@ class ReferenceHarness(unittest.TestCase):
 
         # 9. Interrupted swap (store missing, owned .<name>.backup present) is recovered atomically across all
         #    dead lock formats: current tok-*, legacy tokenless owner.json, legacy tokenized owner.json,
-        #    legacy two-file (owner.json + plain tok-*), stale empty .lockdir (767b006 sharing-violation residue),
-        #    legacy b78e066 hyphenated .lockv2, empty .lockv2, and .tok-*.tmp residue in .lockv2.
+        #    legacy two-file (owner.json + plain tok-*), legacy b78e066 hyphenated .lockv2, empty .lockv2,
+        #    and .tok-*.tmp residue in .lockv2.
         for mode in (
             "current",
             "legacy-tokenless",
             "legacy-tokenized",
             "legacy-two-file",
-            "legacy-empty-stale",
             "legacy-v2",
             "legacy-v2-empty",
             "legacy-v2-tmp-residue",
@@ -1904,9 +1903,6 @@ class ReferenceHarness(unittest.TestCase):
                     }), encoding="utf-8")
                 elif mode == "legacy-v2-tmp-residue":
                     (stale_lock / ".tok-posix-99999999-none-1.tmp").write_text("{", encoding="utf-8")
-                elif mode == "legacy-empty-stale":
-                    old_ts = ref_run.time.time() - (ref_run._EMPTY_LOCKDIR_GRACE_SECONDS + 10.0)
-                    os.utime(stale_lock, (old_ts, old_ts))
                 elif mode == "legacy-tokenless":
                     (stale_lock / "owner.json").write_text(json.dumps({
                         "pid": 99999999, "host": host, "distro": distro, "created": 0,
@@ -1938,9 +1934,13 @@ class ReferenceHarness(unittest.TestCase):
             host = "nt" if os.name == "nt" else "posix"
             distro = os.environ.get("WSL_DISTRO_NAME", "") if host == "posix" else ""
             dead_dir = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
-            # Empty .lockdir (held by older mkdir-only publisher) must block acquisition and never be overwritten.
+            # Empty .lockdir (held by older mkdir-only publisher for the entire critical section) must always
+            # block acquisition regardless of age and never be overwritten or removed.
             dead_dir.mkdir(exist_ok=True)
             try:
+                old_ts = ref_run.time.time() - 3600.0
+                os.utime(dead_dir, (old_ts, old_ts))
+                self.assertFalse(ref_run._try_clear_dead_lock(dead_dir, "claim-aged-empty"))
                 with self.assertRaises(TimeoutError):
                     with ref_run._store_lock(tstore, timeout=0.15):
                         pass

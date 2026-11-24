@@ -593,9 +593,6 @@ def _rename_dir_with_retry(src, dst, attempts=5):
     return False
 
 
-_EMPTY_LOCKDIR_GRACE_SECONDS = 5.0
-
-
 def _try_clear_dead_lock(lock_dir, my_token):
     """Atomically clear a provably dead lockdir (current tok-*, legacy b78e066 tok-*, two-file tok+owner.json, or owner.json)."""
     try:
@@ -604,19 +601,9 @@ def _try_clear_dead_lock(lock_dir, my_token):
         return False
     if not entries:
         # .lockv2 is never created empty by a live owner (only an interrupted b78e066 release leaves it empty).
-        # .lockdir may be briefly empty while a live c5ae204 mkdir-only publisher writes owner.json, or left
-        # permanently empty by a 767b006 release after a sharing violation; only rmdir .lockdir once past the grace window.
+        # .lockdir is held empty for the entire critical section by a live c5ae204 mkdir-only publisher, so
+        # never remove an empty .lockdir regardless of age (current publishers never create or leave .lockdir empty).
         if lock_dir.name.endswith(".lockv2"):
-            try:
-                os.rmdir(lock_dir)
-                return True
-            except OSError:
-                return False
-        try:
-            age = time.time() - lock_dir.stat().st_mtime
-        except OSError:
-            return False
-        if age >= _EMPTY_LOCKDIR_GRACE_SECONDS:
             try:
                 os.rmdir(lock_dir)
                 return True
