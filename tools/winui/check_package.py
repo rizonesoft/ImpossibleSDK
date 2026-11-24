@@ -456,6 +456,8 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
             it = bt[1] + pad[1]
             ir = bt[2] + pad[2]
             ib = bt[3] + pad[3]
+            if req_flow == "RightToLeft":
+                il, ir = ir, il
             if il or it or ir or ib:
                 nx = cur_rect["X"] + il
                 ny = cur_rect["Y"] + it
@@ -506,6 +508,7 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
         "control": ctrl,
         "basis": "compiled-template",
         "template": tpl,
+        "flow_direction": req_flow or "LeftToRight",
         "verified_elements": info["elem_count"],
         "verified_states": info["state_count"],
         "verified_setters": info["setter_count"],

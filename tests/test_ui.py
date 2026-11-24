@@ -2297,6 +2297,42 @@ class ReferenceHarness(unittest.TestCase):
             ref_run.check_no_prohibited_assets({
                 "id": "ts-empty", "control": "ToggleSwitch", "properties": {"IsOn": True, "OnContent": "", "OffContent": ""}
             })
+            # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
+            dg_ltr = check_pkg.check_missing_control_case(
+                {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},
+                committed_pkg, ROOT / "ui/template_data.c",
+            )
+            dg_rtl = check_pkg.check_missing_control_case(
+                {"id": "mc-dg-rtl", "control": "DataGrid", "flow_direction": "RightToLeft", "properties": {"Padding": [2, 0, 8, 0]}},
+                committed_pkg, ROOT / "ui/template_data.c",
+            )
+            ltr_scroll = dg_ltr["layout"]["Children"][0]["Children"][0]["Children"][0]["Rect"]
+            rtl_scroll = dg_rtl["layout"]["Children"][0]["Children"][0]["Children"][0]["Rect"]
+            self.assertEqual(ltr_scroll["X"], 3)  # 1px border + 2px left padding
+            self.assertEqual(rtl_scroll["X"], 9)  # 1px border + 8px mirrored right padding
+            self.assertEqual(dg_rtl["flow_direction"], "RightToLeft")
+            # Fractional-DPI layout verifier: accepts native-dpi 150% rounded rect (10.667 DIPs = 16px) and rejects
+            # both an enlarged 100% layout (11.0 DIPs) and any viewbox-vector capture (effective_rasterization_scale=1.0).
+            def _verify_native_fractional_layout(entry, expected_native_w, tol=0.05):
+                req_s = float(entry.get("scale", 1.0))
+                eff_s = float(entry.get("effective_rasterization_scale", 1.0))
+                if entry.get("scale_mode") != "native-dpi" or abs(eff_s - req_s) > 1e-6:
+                    raise ValueError(f"{entry.get('id')}: not a native-dpi capture (mode={entry.get('scale_mode')}, eff={eff_s}, req={req_s})")
+                got_w = float(entry["layout"]["Children"][0]["Rect"]["Width"])
+                if abs(got_w - expected_native_w) > tol:
+                    raise ValueError(f"{entry.get('id')}: width {got_w} != native expected {expected_native_w}")
+            native_150_entry = {
+                "id": "frac-150-native", "scale": 1.5, "host_rasterization_scale": 1.5,
+                "effective_rasterization_scale": 1.5, "scale_mode": "native-dpi",
+                "layout": {"Children": [{"Rect": {"X": 0, "Y": 0, "Width": round(16 / 1.5, 3), "Height": round(16 / 1.5, 3)}}]},
+            }
+            _verify_native_fractional_layout(native_150_entry, 16 / 1.5)
+            enlarged_100_entry = {**native_150_entry, "id": "frac-150-enlarged", "layout": {"Children": [{"Rect": {"X": 0, "Y": 0, "Width": 11.0, "Height": 11.0}}]}}
+            with self.assertRaises(ValueError):
+                _verify_native_fractional_layout(enlarged_100_entry, 16 / 1.5)
+            s150_committed = next(c for c in ref_run.open_reference_manifest(ROOT / "tests/reference")["cases"] if c["id"] == "button-Normal-Dark-s150")
+            with self.assertRaises(ValueError):
+                _verify_native_fractional_layout(s150_committed, 120.0)
             # Committed probe-r4-s15 layout child and automation root must agree in normalized logical coordinates.
             probe15 = next(c for c in ref_run.open_reference_manifest(ROOT / "tests/reference")["cases"] if c["id"] == "probe-r4-s15")
             self.assertEqual(probe15["layout"]["Children"][0]["Rect"], probe15["automation"]["Rect"])
@@ -2948,6 +2984,19 @@ class LiveReference(unittest.TestCase):
                             {"action": "key_press", "key": "Z", "modifiers": ["Control"]},
                         ],
                     },
+                    {
+                        "id": "ts-drag-live",
+                        "control": "ToggleSwitch",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Name": "DragSwitch", "IsOn": False, "OnContent": "", "OffContent": "", "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [
+                            {"action": "pointer_down", "x": 12, "y": 16},
+                            {"action": "pointer_move", "x": 38, "y": 16},
+                            {"action": "pointer_up", "x": 38, "y": 16},
+                        ],
+                    },
                 ]}), encoding="utf-8")
 
                 out1 = ref_run.run_reference(exe, Path(tmp) / "out1", cases_path=combo, work_dir=build_tmp)
@@ -2974,7 +3023,7 @@ class LiveReference(unittest.TestCase):
                 self.assertEqual(by1["lv-rtl"]["flow_direction"], "RightToLeft")
                 self.assertEqual(by1["lv-rtl"]["automation"]["ControlType"], "List")
 
-                # Panel-root without an automation peer must still expose descendant Button peer with Name, Invoke, and frame-relative bounds.
+                # Panel-root without an automation peer must still expose descendant Button peer matching its layout child rect.
                 panel_auto = by1["panel-root-auto"]["automation"]
                 self.assertEqual(panel_auto["ControlType"], "StackPanel")
                 self.assertGreaterEqual(len(panel_auto["Children"]), 1)
@@ -2982,21 +3031,56 @@ class LiveReference(unittest.TestCase):
                 self.assertEqual(inner_btn["ControlType"], "Button")
                 self.assertEqual(inner_btn["Name"], "Go")
                 self.assertIn("Invoke", inner_btn["Patterns"])
-                self.assertGreaterEqual(inner_btn["Rect"]["X"], 0)
-                self.assertLessEqual(inner_btn["Rect"]["X"] + inner_btn["Rect"]["Width"], 160.5)
-                self.assertGreaterEqual(inner_btn["Rect"]["Y"], 0)
-                self.assertLessEqual(inner_btn["Rect"]["Y"] + inner_btn["Rect"]["Height"], 64.5)
+                def _find_layout_name(node, want):
+                    if node.get("Name") == want:
+                        return node
+                    for ch in node.get("Children", []):
+                        f = _find_layout_name(ch, want)
+                        if f is not None:
+                            return f
+                    return None
+                inner_layout = _find_layout_name(by1["panel-root-auto"]["layout"], "InnerBtn")
+                self.assertIsNotNone(inner_layout)
+                self.assertGreaterEqual(inner_btn["Rect"]["Width"], 99.0)
+                self.assertGreaterEqual(inner_btn["Rect"]["Height"], 31.0)
+                for axis in ("X", "Y", "Width", "Height"):
+                    self.assertAlmostEqual(inner_btn["Rect"][axis], inner_layout["Rect"][axis], delta=1.0)
 
                 # Cancelled click must have received PointerPressed and produced 0 clicks.
                 cancel_events = by1["btn-cancel-click"]["script_log"]["Events"]
                 self.assertTrue(any(ev["Event"] == "PointerPressed" for ev in cancel_events))
                 self.assertEqual(by1["btn-cancel-click"]["script_log"]["FinalState"]["clicks"], 0)
 
+                # Switch drag must toggle IsOn from False to True and emit Toggled.
+                drag_log = by1["ts-drag-live"]["script_log"]
+                self.assertTrue(any(ev["Event"] == "Toggled" for ev in drag_log["Events"]))
+                self.assertTrue(drag_log["FinalState"]["is_on"])
+
                 # Tab traversal with use_focused must move focus from FirstBtn to SecondBtn.
                 self.assertIn("SecondBtn", by1["panel-tab-traversal"]["script_log"]["FinalState"]["focused"])
 
-                # TextBox Ctrl+A -> Backspace -> Ctrl+Z undo must restore "Hello".
+                # TextBox Ctrl+A -> Backspace -> Ctrl+Z must prove selection (Sel=0:5), deletion (Text=;Sel=0:0), and undo restoration ("Hello").
+                tb_events = by1["textbox-select-undo"]["script_log"]["Events"]
+                self.assertTrue(any("Sel=0:5" in ev.get("State", "") for ev in tb_events), msg=tb_events)
+                self.assertTrue(any("Text=;Sel=0:0" in ev.get("State", "") for ev in tb_events), msg=tb_events)
                 self.assertEqual(by1["textbox-select-undo"]["script_log"]["FinalState"]["text"], "Hello")
+
+                # Cross-step desktop shortcut refusal (key_down Control + key_press Escape) must fail and release Control cleanly.
+                seq_shortcut = Path(tmp) / "seq_shortcut.json"
+                seq_shortcut.write_text(json.dumps({"cases": [{
+                    "id": "seq-ctrl-esc",
+                    "control": "Button",
+                    "theme": "Dark",
+                    "scale": 1.0,
+                    "frame": {"width": 160, "height": 64},
+                    "properties": {"Width": 120, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                    "script": [{"action": "key_down", "key": "Control"}, {"action": "key_press", "key": "Escape"}],
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as cm_seq:
+                    ref_run.run_reference(exe, Path(tmp) / "out_seq_shortcut", cases_path=seq_shortcut, work_dir=build_tmp)
+                self.assertIn("Control+Escape is disallowed", cm_seq.exception.stderr)
+                self.assertIn("cleanup_releases=[key_up:Control]", cm_seq.exception.stderr)
+                self.assertNotIn("cleanup_errors=", cm_seq.exception.stderr)
 
                 # Negative storyboard timeout with use_transitions=False must fail naming the case and state.
                 timeout_case = Path(tmp) / "sb_timeout.json"

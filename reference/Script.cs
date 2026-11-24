@@ -527,9 +527,16 @@ public static class Script
                                 modVks.Add((ushort)mvk);
                             }
                         }
-                        if (modVks.Contains((ushort)VirtualKey.Control) && vk == VirtualKey.Escape)
+                        bool ctrlActive = heldKeys.Contains((ushort)VirtualKey.Control)
+                            || heldKeys.Contains((ushort)VirtualKey.LeftControl)
+                            || heldKeys.Contains((ushort)VirtualKey.RightControl)
+                            || modVks.Contains((ushort)VirtualKey.Control)
+                            || modVks.Contains((ushort)VirtualKey.LeftControl)
+                            || modVks.Contains((ushort)VirtualKey.RightControl);
+                        bool escActive = vk == VirtualKey.Escape || heldKeys.Contains((ushort)VirtualKey.Escape);
+                        if (ctrlActive && escActive)
                         {
-                            throw new InvalidOperationException($"script step {i}: Control+Escape is disallowed in reference scripts");
+                            throw new InvalidOperationException($"script step {i}: Control+Escape is disallowed in reference scripts (including across sequenced steps)");
                         }
                         if (!step.UseFocused && target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
                         {
