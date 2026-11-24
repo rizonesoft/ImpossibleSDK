@@ -55,6 +55,8 @@ public sealed class CaseSpec
     [JsonPropertyName("dump_tree")] public bool DumpTree { get; set; } = true;
     [JsonPropertyName("probe_box")] public int[]? ProbeBox { get; set; }
     [JsonPropertyName("probe_radii")] public double[]? ProbeRadii { get; set; }
+    [JsonPropertyName("template_xaml")] public string? TemplateXaml { get; set; }
+    [JsonPropertyName("rich_text_rtf")] public string? RichTextRtf { get; set; }
 }
 
 public partial class App : Application
@@ -75,6 +77,20 @@ public partial class App : Application
                 acc = acc == null ? r : IntersectRanges(acc, r);
             }
             Console.WriteLine(JsonSerializer.Serialize(acc ?? new List<int[]>()));
+            Environment.Exit(0);
+            return;
+        }
+        if (cli.Length >= 3 && cli[1] == "--dump-font-info")
+        {
+            var faces = new List<object>();
+            for (int i = 2; i < cli.Length; i++)
+            {
+                foreach (var (fams, rngs) in ReadFontFileFaces(cli[i]))
+                {
+                    faces.Add(new { families = fams, ranges = rngs });
+                }
+            }
+            Console.WriteLine(JsonSerializer.Serialize(faces));
             Environment.Exit(0);
             return;
         }
@@ -301,6 +317,22 @@ public partial class App : Application
             }
             el.Style = style;
         }
+        if (!string.IsNullOrEmpty(spec.TemplateXaml))
+        {
+            if (el is not Control tplCtrl)
+            {
+                throw new InvalidOperationException($"{caseId}.template_xaml: '{spec.Control}' is not a Control");
+            }
+            tplCtrl.Template = (ControlTemplate)XamlReader.Load(spec.TemplateXaml);
+        }
+        if (!string.IsNullOrEmpty(spec.RichTextRtf))
+        {
+            if (el is not RichEditBox rtfBox)
+            {
+                throw new InvalidOperationException($"{caseId}.rich_text_rtf: only supported on RichEditBox");
+            }
+            rtfBox.Document.SetText(Microsoft.UI.Text.TextSetOptions.FormatRtf, spec.RichTextRtf);
+        }
 
         if (!string.IsNullOrEmpty(spec.FlowDirection))
         {
@@ -511,6 +543,55 @@ public partial class App : Application
                 }
                 else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
                 break;
+            case "RowDefinitions":
+                if (el is Grid grRows && val.ValueKind == JsonValueKind.Array)
+                {
+                    grRows.RowDefinitions.Clear();
+                    foreach (var item in val.EnumerateArray())
+                    {
+                        grRows.RowDefinitions.Add(new RowDefinition { Height = ParseGridLength(caseId, prop, item) });
+                    }
+                }
+                else throw new InvalidOperationException($"{caseId}.{prop}: requires a Grid and JSON array");
+                break;
+            case "ColumnDefinitions":
+                if (el is Grid grCols && val.ValueKind == JsonValueKind.Array)
+                {
+                    grCols.ColumnDefinitions.Clear();
+                    foreach (var item in val.EnumerateArray())
+                    {
+                        grCols.ColumnDefinitions.Add(new ColumnDefinition { Width = ParseGridLength(caseId, prop, item) });
+                    }
+                }
+                else throw new InvalidOperationException($"{caseId}.{prop}: requires a Grid and JSON array");
+                break;
+            case "Grid.Row":
+                Grid.SetRow(el, val.GetInt32());
+                break;
+            case "Grid.Column":
+                Grid.SetColumn(el, val.GetInt32());
+                break;
+            case "Grid.RowSpan":
+                Grid.SetRowSpan(el, val.GetInt32());
+                break;
+            case "Grid.ColumnSpan":
+                Grid.SetColumnSpan(el, val.GetInt32());
+                break;
+            case "Canvas.Left":
+                Canvas.SetLeft(el, val.GetDouble() * scaleFactor);
+                break;
+            case "Canvas.Top":
+                Canvas.SetTop(el, val.GetDouble() * scaleFactor);
+                break;
+            case "Canvas.ZIndex":
+                Canvas.SetZIndex(el, val.GetInt32());
+                break;
+            case "VariableSizedWrapGrid.RowSpan":
+                VariableSizedWrapGrid.SetRowSpan(el, val.GetInt32());
+                break;
+            case "VariableSizedWrapGrid.ColumnSpan":
+                VariableSizedWrapGrid.SetColumnSpan(el, val.GetInt32());
+                break;
             default:
             {
                 var propInfo = el.GetType().GetProperty(prop);
@@ -538,6 +619,50 @@ public partial class App : Application
                 break;
             }
         }
+    }
+
+    private static GridLength ParseGridLength(string caseId, string prop, JsonElement val)
+    {
+        if (val.ValueKind == JsonValueKind.Number)
+        {
+            return new GridLength(val.GetDouble(), GridUnitType.Pixel);
+        }
+        string s = (val.GetString() ?? "").Trim();
+        if (string.Equals(s, "Auto", StringComparison.OrdinalIgnoreCase))
+        {
+            return GridLength.Auto;
+        }
+        if (s.EndsWith("*", StringComparison.Ordinal))
+        {
+            string prefix = s.Substring(0, s.Length - 1).Trim();
+            double weight = string.IsNullOrEmpty(prefix) ? 1.0 : double.Parse(prefix, CultureInfo.InvariantCulture);
+            return new GridLength(weight, GridUnitType.Star);
+        }
+        if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double px))
+        {
+            return new GridLength(px, GridUnitType.Pixel);
+        }
+        throw new InvalidOperationException($"{caseId}.{prop}: invalid GridLength '{s}'");
+    }
+
+    private static VisualTransition? FindMatchingTransition(VisualStateGroup group, string? fromState, string toState)
+    {
+        VisualTransition? exact = null;
+        VisualTransition? toOnly = null;
+        VisualTransition? fromOnly = null;
+        VisualTransition? fallback = null;
+        foreach (var t in group.Transitions)
+        {
+            bool matchFrom = !string.IsNullOrEmpty(t.From) && string.Equals(t.From, fromState, StringComparison.Ordinal);
+            bool emptyFrom = string.IsNullOrEmpty(t.From);
+            bool matchTo = !string.IsNullOrEmpty(t.To) && string.Equals(t.To, toState, StringComparison.Ordinal);
+            bool emptyTo = string.IsNullOrEmpty(t.To);
+            if (matchFrom && matchTo) exact = t;
+            else if (emptyFrom && matchTo) toOnly = t;
+            else if (matchFrom && emptyTo) fromOnly = t;
+            else if (emptyFrom && emptyTo) fallback = t;
+        }
+        return exact ?? toOnly ?? fromOnly ?? fallback;
     }
 
     private static async Task<bool> ApplyVisualStateAsync(string caseId, Control control, string stateName, bool useTransitions, int timeoutMs = 3000)
@@ -574,17 +699,31 @@ public partial class App : Application
             throw new InvalidOperationException($"{caseId}: visual state '{stateName}' not found on {control.GetType().Name}");
         }
 
-        bool alreadyActive = foundGroup != null && string.Equals(foundGroup.CurrentState?.Name, stateName, StringComparison.Ordinal);
-        Storyboard? sb = foundState.Storyboard;
-        TaskCompletionSource<bool>? completed = null;
-        EventHandler<object>? onCompleted = null;
+        string? fromState = foundGroup?.CurrentState?.Name;
+        bool alreadyActive = foundGroup != null && string.Equals(fromState, stateName, StringComparison.Ordinal);
+        Storyboard? stateSb = foundState.Storyboard;
+        VisualTransition? transition = (!alreadyActive && useTransitions && foundGroup != null)
+            ? FindMatchingTransition(foundGroup, fromState, stateName)
+            : null;
+        Storyboard? transSb = transition?.Storyboard;
+
+        TaskCompletionSource<bool>? stateCompleted = null;
+        EventHandler<object>? onStateCompleted = null;
+        TaskCompletionSource<bool>? transCompleted = null;
+        EventHandler<object>? onTransCompleted = null;
         bool storyboardCompleted = false;
 
-        if (!alreadyActive && sb != null)
+        if (!alreadyActive && stateSb != null)
         {
-            completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            onCompleted = (_, _) => completed.TrySetResult(true);
-            sb.Completed += onCompleted;
+            stateCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            onStateCompleted = (_, _) => stateCompleted.TrySetResult(true);
+            stateSb.Completed += onStateCompleted;
+        }
+        if (!alreadyActive && transSb != null)
+        {
+            transCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            onTransCompleted = (_, _) => transCompleted.TrySetResult(true);
+            transSb.Completed += onTransCompleted;
         }
 
         try
@@ -594,10 +733,33 @@ public partial class App : Application
                 throw new InvalidOperationException($"{caseId}: GoToState('{stateName}') returned false on {control.GetType().Name}");
             }
 
-            if (completed != null)
+            if (transCompleted != null)
             {
-                var finished = await Task.WhenAny(completed.Task, Task.Delay(timeoutMs));
-                if (finished == completed.Task)
+                var finished = await Task.WhenAny(transCompleted.Task, Task.Delay(timeoutMs));
+                if (finished == transCompleted.Task)
+                {
+                    storyboardCompleted = true;
+                }
+                else
+                {
+                    throw new InvalidOperationException($"{caseId}: transition storyboard for state '{stateName}' did not complete within {timeoutMs}ms (use_transitions={useTransitions})");
+                }
+            }
+            else if (transition != null && transition.GeneratedDuration.HasTimeSpan && transition.GeneratedDuration.TimeSpan > TimeSpan.Zero)
+            {
+                int genMs = (int)Math.Ceiling(transition.GeneratedDuration.TimeSpan.TotalMilliseconds);
+                if (genMs > timeoutMs)
+                {
+                    throw new InvalidOperationException($"{caseId}: transition duration ({genMs}ms) for state '{stateName}' exceeds timeout {timeoutMs}ms");
+                }
+                await Task.Delay(genMs + 40);
+                storyboardCompleted = true;
+            }
+
+            if (stateCompleted != null)
+            {
+                var finished = await Task.WhenAny(stateCompleted.Task, Task.Delay(timeoutMs));
+                if (finished == stateCompleted.Task)
                 {
                     storyboardCompleted = true;
                 }
@@ -609,9 +771,13 @@ public partial class App : Application
         }
         finally
         {
-            if (sb != null && onCompleted != null)
+            if (stateSb != null && onStateCompleted != null)
             {
-                sb.Completed -= onCompleted;
+                stateSb.Completed -= onStateCompleted;
+            }
+            if (transSb != null && onTransCompleted != null)
+            {
+                transSb.Completed -= onTransCompleted;
             }
         }
 
@@ -802,6 +968,95 @@ public partial class App : Application
         return ReadSingleFaceCmapRanges(data, 0);
     }
 
+    private static List<string> ReadSingleFaceFamilyNames(byte[] data, int sfntOffset)
+    {
+        var names16 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var names1 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (sfntOffset < 0 || sfntOffset + 12 > data.Length) return new List<string>();
+        static ushort U16(byte[] b, int o) => (ushort)((b[o] << 8) | b[o + 1]);
+        static uint U32(byte[] b, int o) => ((uint)b[o] << 24) | ((uint)b[o + 1] << 16) | ((uint)b[o + 2] << 8) | b[o + 3];
+        int numTables = U16(data, sfntOffset + 4);
+        int nameOff = -1;
+        int nameLen = 0;
+        for (int i = 0; i < numTables; i++)
+        {
+            int rec = sfntOffset + 12 + i * 16;
+            if (rec + 16 > data.Length) break;
+            if (data[rec] == (byte)'n' && data[rec + 1] == (byte)'a' && data[rec + 2] == (byte)'m' && data[rec + 3] == (byte)'e')
+            {
+                nameOff = (int)U32(data, rec + 8);
+                nameLen = (int)U32(data, rec + 12);
+                break;
+            }
+        }
+        if (nameOff < 0 || nameOff + 6 > data.Length || nameOff + nameLen > data.Length) return new List<string>();
+        int count = U16(data, nameOff + 2);
+        int strBase = nameOff + U16(data, nameOff + 4);
+        for (int i = 0; i < count; i++)
+        {
+            int r = nameOff + 6 + i * 12;
+            if (r + 12 > nameOff + nameLen) break;
+            ushort platformId = U16(data, r);
+            ushort encodingId = U16(data, r + 2);
+            ushort nameId = U16(data, r + 6);
+            if (nameId != 1 && nameId != 16) continue;
+            ushort len = U16(data, r + 8);
+            ushort off = U16(data, r + 10);
+            int start = strBase + off;
+            if (start < 0 || start + len > nameOff + nameLen || len == 0) continue;
+            string? decoded = null;
+            if ((platformId == 3 && (encodingId == 1 || encodingId == 10)) || platformId == 0)
+            {
+                decoded = System.Text.Encoding.BigEndianUnicode.GetString(data, start, len);
+            }
+            else if (platformId == 1 && encodingId == 0)
+            {
+                decoded = System.Text.Encoding.Latin1.GetString(data, start, len);
+            }
+            if (string.IsNullOrWhiteSpace(decoded)) continue;
+            string norm = decoded.Trim().ToLowerInvariant();
+            if (nameId == 16) names16.Add(norm);
+            else names1.Add(norm);
+        }
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var n in names16) result.Add(n);
+        foreach (var n in names1) result.Add(n);
+        return result.OrderBy(s => s, StringComparer.Ordinal).ToList();
+    }
+
+    private static List<(List<string> Families, List<int[]> Ranges)> ReadFontFileFaces(string fontPath)
+    {
+        var outFaces = new List<(List<string>, List<int[]>)>();
+        if (!File.Exists(fontPath)) return outFaces;
+        byte[] data;
+        try { data = File.ReadAllBytes(fontPath); }
+        catch { return outFaces; }
+        if (data.Length < 12) return outFaces;
+        static uint U32(byte[] b, int o) => ((uint)b[o] << 24) | ((uint)b[o + 1] << 16) | ((uint)b[o + 2] << 8) | b[o + 3];
+        if (data[0] == (byte)'t' && data[1] == (byte)'t' && data[2] == (byte)'c' && data[3] == (byte)'f')
+        {
+            if (data.Length < 16) return outFaces;
+            uint numFonts = U32(data, 8);
+            if (numFonts == 0 || 12 + numFonts * 4 > (uint)data.Length) return outFaces;
+            for (uint fi = 0; fi < numFonts; fi++)
+            {
+                int off = (int)U32(data, 12 + (int)fi * 4);
+                var fams = ReadSingleFaceFamilyNames(data, off);
+                if (fams.Count > 0)
+                {
+                    outFaces.Add((fams, ReadSingleFaceCmapRanges(data, off)));
+                }
+            }
+            return outFaces;
+        }
+        var singleFams = ReadSingleFaceFamilyNames(data, 0);
+        if (singleFams.Count > 0)
+        {
+            outFaces.Add((singleFams, ReadSingleFaceCmapRanges(data, 0)));
+        }
+        return outFaces;
+    }
+
     private static List<Dictionary<string, string>> CollectRenderedText(DependencyObject root)
     {
         var items = new List<Dictionary<string, string>>();
@@ -881,7 +1136,9 @@ public partial class App : Application
                     int end = range.EndPosition;
                     range.GetText(Microsoft.UI.Text.TextGetOptions.None, out string runText);
                     runText = runText.TrimEnd('\r', '\n');
-                    var pf = range.ParagraphFormat;
+                    var paraRange = reb.Document.GetRange(range.StartPosition, range.StartPosition);
+                    paraRange.Expand(Microsoft.UI.Text.TextRangeUnit.Paragraph);
+                    var pf = paraRange.ParagraphFormat;
                     if (pf != null)
                     {
                         if (pf.ListType != Microsoft.UI.Text.MarkerType.None)
@@ -905,7 +1162,13 @@ public partial class App : Application
                                     Microsoft.UI.Text.VerticalCharacterAlignment.Top,
                                     Microsoft.UI.Text.PointOptions.ClientCoordinates,
                                     out var tabPt);
-                                double tabXPt = tabPt.X * 72.0 / 96.0;
+                                var paraStartRange = reb.Document.GetRange(paraRange.StartPosition, paraRange.StartPosition);
+                                paraStartRange.GetPoint(
+                                    Microsoft.UI.Text.HorizontalCharacterAlignment.Left,
+                                    Microsoft.UI.Text.VerticalCharacterAlignment.Top,
+                                    Microsoft.UI.Text.PointOptions.ClientCoordinates,
+                                    out var lineStartPt);
+                                double tabXPt = Math.Max(0.0, (tabPt.X - lineStartPt.X) * 72.0 / 96.0);
                                 float bestPos = float.MaxValue;
                                 var bestLeader = Microsoft.UI.Text.TabLeader.Spaces;
                                 for (int ti = 0; ti < pf.TabCount; ti++)
@@ -1214,43 +1477,47 @@ public partial class App : Application
             "dejavu sans", "dejavu sans mono", "liberation sans", "liberation mono",
             "noto sans", "noto mono",
         };
-        string[] styleSuffixes =
-        {
-            " bold italic", " bold oblique", " semibold italic", " extrabold italic", " extralight italic",
-            " light italic", " medium italic", " thin italic", " black italic", " semilight italic",
-            " regular", " bold", " italic", " oblique", " light", " medium", " semibold",
-            " extrabold", " extralight", " semilight", " thin", " black", " book", " roman",
-        };
+        var fontFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string winFontsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts");
+        string userFontsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "Windows", "Fonts");
+        foreach (var dir in new[] { winFontsDir, userFontsDir })
+        {
+            if (!Directory.Exists(dir)) continue;
+            foreach (var ext in new[] { "*.ttf", "*.otf", "*.ttc" })
+            {
+                foreach (var fp in Directory.GetFiles(dir, ext))
+                {
+                    fontFiles.Add(fp);
+                }
+            }
+        }
         foreach (var rootKey in new[] { Microsoft.Win32.Registry.LocalMachine, Microsoft.Win32.Registry.CurrentUser })
         {
             using var fk = rootKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts");
             if (fk == null) continue;
             foreach (var vname in fk.GetValueNames())
             {
-                string clean = vname;
-                int paren = clean.IndexOf('(');
-                if (paren > 0) clean = clean.Substring(0, paren);
-                clean = clean.Trim().ToLowerInvariant();
-                foreach (var suf in styleSuffixes)
+                string rawVal = fk.GetValue(vname)?.ToString() ?? "";
+                if (string.IsNullOrEmpty(rawVal)) continue;
+                string full = Path.IsPathRooted(rawVal) ? rawVal : Path.Combine(winFontsDir, rawVal);
+                if (File.Exists(full)) fontFiles.Add(full);
+            }
+        }
+        foreach (var fp in fontFiles)
+        {
+            foreach (var (famNames, faceRanges) in ReadFontFileFaces(fp))
+            {
+                foreach (var fam in famNames)
                 {
-                    if (clean.EndsWith(suf, StringComparison.Ordinal))
+                    string clean = fam.Trim().ToLowerInvariant();
+                    if (string.IsNullOrEmpty(clean)) continue;
+                    installedFonts.Add(clean);
+                    if (permittedFamilies.Contains(clean))
                     {
-                        clean = clean.Substring(0, clean.Length - suf.Length).Trim();
-                        break;
+                        installedFontRanges[clean] = installedFontRanges.TryGetValue(clean, out var prev)
+                            ? IntersectRanges(prev, faceRanges)
+                            : faceRanges;
                     }
-                }
-                if (string.IsNullOrEmpty(clean)) continue;
-                installedFonts.Add(clean);
-                if (permittedFamilies.Contains(clean))
-                {
-                    string rawVal = fk.GetValue(vname)?.ToString() ?? "";
-                    var ranges = string.IsNullOrEmpty(rawVal)
-                        ? new List<int[]>()
-                        : ReadFontCmapRanges(Path.IsPathRooted(rawVal) ? rawVal : Path.Combine(winFontsDir, rawVal));
-                    installedFontRanges[clean] = installedFontRanges.TryGetValue(clean, out var prev)
-                        ? IntersectRanges(prev, ranges)
-                        : ranges;
                 }
             }
         }

@@ -223,6 +223,42 @@
       "dump_tree": true
     },
     {
+      "id": "button-Normal-Light-s150",
+      "case_group": "button-scaled",
+      "control": "Button",
+      "theme": "Light",
+      "scale": 1.5,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "dump_tree": true
+    },
+    {
+      "id": "button-Normal-Light-s200",
+      "case_group": "button-scaled",
+      "control": "Button",
+      "theme": "Light",
+      "scale": 2.0,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "dump_tree": true
+    },
+    {
+      "id": "button-Normal-Light-s300",
+      "case_group": "button-scaled",
+      "control": "Button",
+      "theme": "Light",
+      "scale": 3.0,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "dump_tree": true
+    },
+    {
       "id": "button-ReallyDisabled-Dark",
       "case_group": "button-disabled-prop",
       "control": "Button",

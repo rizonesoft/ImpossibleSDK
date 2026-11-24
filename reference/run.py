@@ -192,7 +192,7 @@ def _ci_get(mapping, key, default=None):
 ALLOWED_CASE_KEYS = {
     "id", "case_group", "control", "style", "theme", "scale", "flow_direction",
     "state", "use_transitions", "storyboard_timeout_ms", "frame", "properties", "items", "children",
-    "script", "dump_tree", "probe_box", "probe_radii",
+    "script", "dump_tree", "probe_box", "probe_radii", "template_xaml", "rich_text_rtf",
     "expected_elements", "expected_states", "expected_setters",
 }
 
@@ -242,6 +242,7 @@ _SHIFTED_DIGITS = {
 
 def _check_no_clipboard_paste(cid, script):
     held = set()
+    copied_in_script = False
     ctrl_keys = {"control", "leftcontrol", "rightcontrol"}
     shift_keys = {"shift", "leftshift", "rightshift"}
     for idx, step in enumerate(script or []):
@@ -256,8 +257,11 @@ def _check_no_clipboard_paste(cid, script):
             continue
         mods = {str(m).lower() for m in (step.get("modifiers") or [])}
         active = held | mods | ({key_l} if key_l else set())
+        if bool(active & ctrl_keys) and key_l in ("c", "x", "insert"):
+            copied_in_script = True
         if (bool(active & ctrl_keys) and "v" in active) or (bool(active & shift_keys) and "insert" in active):
-            raise ValueError(f"{cid}.script[{idx}]: clipboard paste (Control+V / Shift+Insert) is disallowed in reference scripts")
+            if not copied_in_script:
+                raise ValueError(f"{cid}.script[{idx}]: clipboard paste (Control+V / Shift+Insert) without prior same-script copy/cut is disallowed in reference scripts")
         if act == "key_down" and key_l:
             held.add(key_l)
         elif act == "key_press" and key_l:

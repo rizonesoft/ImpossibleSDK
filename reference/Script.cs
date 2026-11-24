@@ -148,6 +148,78 @@ public static class Script
     [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool InitializeTouchInjection(uint maxCount, uint dwMode);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool InjectTouchInput(uint count, POINTER_TOUCH_INFO[] contacts);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool OpenClipboard(IntPtr hWndNewOwner);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool CloseClipboard();
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool EmptyClipboard();
+    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr GetClipboardData(uint uFormat);
+    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GlobalLock(IntPtr hMem);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GlobalUnlock(IntPtr hMem);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GlobalFree(IntPtr hMem);
+
+    private const uint CF_UNICODETEXT = 13;
+    private const uint GMEM_MOVEABLE = 0x0002;
+
+    private static string? SaveAndClearClipboard(IntPtr hwnd)
+    {
+        if (!OpenClipboard(hwnd)) return null;
+        try
+        {
+            string? saved = null;
+            IntPtr handle = GetClipboardData(CF_UNICODETEXT);
+            if (handle != IntPtr.Zero)
+            {
+                IntPtr ptr = GlobalLock(handle);
+                if (ptr != IntPtr.Zero)
+                {
+                    try { saved = Marshal.PtrToStringUni(ptr); }
+                    finally { GlobalUnlock(handle); }
+                }
+            }
+            EmptyClipboard();
+            return saved;
+        }
+        finally
+        {
+            CloseClipboard();
+        }
+    }
+
+    private static void RestoreClipboard(IntPtr hwnd, string? saved)
+    {
+        if (!OpenClipboard(hwnd)) return;
+        try
+        {
+            EmptyClipboard();
+            if (saved != null)
+            {
+                byte[] bytes = System.Text.Encoding.Unicode.GetBytes(saved + "\0");
+                IntPtr hGlobal = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)bytes.Length);
+                if (hGlobal != IntPtr.Zero)
+                {
+                    IntPtr ptr = GlobalLock(hGlobal);
+                    if (ptr != IntPtr.Zero)
+                    {
+                        try { Marshal.Copy(bytes, 0, ptr, bytes.Length); }
+                        finally { GlobalUnlock(hGlobal); }
+                        if (SetClipboardData(CF_UNICODETEXT, hGlobal) == IntPtr.Zero)
+                        {
+                            GlobalFree(hGlobal);
+                        }
+                    }
+                    else
+                    {
+                        GlobalFree(hGlobal);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            CloseClipboard();
+        }
+    }
 
     private static async Task WaitSettleAsync(Microsoft.UI.Dispatching.DispatcherQueue? dq, int minDelayMs)
     {
@@ -445,6 +517,8 @@ public static class Script
         POINT lastMousePt = outside;
         var heldKeys = new List<ushort>();
         POINT? activeTouchPt = null;
+        bool copiedInScript = false;
+        string? savedClipboard = SaveAndClearClipboard(hwnd);
 
         Exception? runError = null;
         try
@@ -587,9 +661,16 @@ public static class Script
                                 || modVks.Contains((ushort)VirtualKey.RightShift);
                             bool vActive = vk == VirtualKey.V || heldKeys.Contains((ushort)VirtualKey.V);
                             bool insActive = vk == VirtualKey.Insert || heldKeys.Contains((ushort)VirtualKey.Insert);
+                            if (ctrlActive && (vk == VirtualKey.C || vk == VirtualKey.X || vk == VirtualKey.Insert))
+                            {
+                                copiedInScript = true;
+                            }
                             if ((ctrlActive && vActive) || (shiftActive && insActive))
                             {
-                                throw new InvalidOperationException($"script step {i}: clipboard paste (Control+V / Shift+Insert) is disallowed in reference scripts (ambient clipboard state is non-deterministic)");
+                                if (!copiedInScript)
+                                {
+                                    throw new InvalidOperationException($"script step {i}: clipboard paste (Control+V / Shift+Insert) without prior same-script copy/cut is disallowed in reference scripts (ambient clipboard state is non-deterministic)");
+                                }
                             }
                         }
                         if (!step.UseFocused && target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
@@ -756,6 +837,7 @@ public static class Script
             {
                 try { SendMouse(outside, MOUSEEVENTF_MOVE); } catch (Exception cex) { cleanupErrors.Add($"park_mouse:{cex.Message}"); }
             }
+            RestoreClipboard(hwnd, savedClipboard);
             target.GotFocus -= gotFocus;
             target.LostFocus -= lostFocus;
             target.RemoveHandler(UIElement.PointerEnteredEvent, ptrEntered);

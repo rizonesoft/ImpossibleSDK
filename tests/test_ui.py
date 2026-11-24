@@ -1498,14 +1498,19 @@ def check_scaled_control_capture(case, raw):
     scale = float(case["scale"])
     if scale <= 1.0:
         return
-    # 1. Straight vertical edge at x = round(20 * scale), y = h // 2 must jump cleanly from background 32 to border >= 45
-    #    with zero bilinear pre-edge blur at x - 1.
+    # 1. Straight vertical edge at x = round(20 * scale), y = h // 2 must jump cleanly from background
+    #    (Dark: 32 -> >= 46; Light: 243 -> <= 235) with zero bilinear pre-edge blur at x - 1.
     y_mid = h // 2
     x_edge = round(20 * scale)
     bg_before = raw[(y_mid * w + (x_edge - 1)) * 4]
     edge_px = raw[(y_mid * w + x_edge) * 4]
-    if bg_before != 32 or edge_px < 46:
-        raise ValueError(f"{case['id']}: blurry edge at ({x_edge},{y_mid}): before={bg_before}, edge={edge_px}")
+    is_light = case.get("theme") == "Light"
+    if is_light:
+        if bg_before != 243 or edge_px > 235:
+            raise ValueError(f"{case['id']}: blurry edge at ({x_edge},{y_mid}): before={bg_before}, edge={edge_px}")
+    else:
+        if bg_before != 32 or edge_px < 46:
+            raise ValueError(f"{case['id']}: blurry edge at ({x_edge},{y_mid}): before={bg_before}, edge={edge_px}")
 
     # 2. Catch nearest-neighbour block enlargement:
     #    - At 1.5x, a 1px logical border has fractional 1.5px coverage at x_edge+1 (between 45 and 48, not solid 48).
@@ -2486,7 +2491,8 @@ class ReferenceHarness(unittest.TestCase):
                         captured_frame={"id": "reb-paste", "rendered_text": []},
                     )
                 self.assertIn("clipboard paste", str(cm_paste.exception))
-            # key_press Control releases a previously held Control, so a subsequent plain key_press V is allowed.
+            # key_press Control releases a previously held Control, so a subsequent plain key_press V is allowed;
+            # same-script Control+C followed by Control+V is also allowed.
             ref_run.check_no_prohibited_assets(
                 {"id": "reb-plain-v-after-ctrl-press", "control": "RichEditBox", "properties": {"FontFamily": "Inter"},
                  "script": [
@@ -2497,6 +2503,18 @@ class ReferenceHarness(unittest.TestCase):
                 require_installed=True, installed_fonts=["inter"],
                 installed_font_ranges={"inter": [[0x56, 0x56], [0x76, 0x76]]},
                 captured_frame={"id": "reb-plain-v-after-ctrl-press", "rendered_text": [{"element": "RichEditBox", "font": "Inter", "text": "v"}]},
+            )
+            ref_run.check_no_prohibited_assets(
+                {"id": "tb-copy-paste-ok", "control": "TextBox", "properties": {"FontFamily": "Inter"},
+                 "script": [
+                     {"action": "focus"},
+                     {"action": "key_press", "key": "A"},
+                     {"action": "key_press", "key": "C", "modifiers": ["Control"]},
+                     {"action": "key_press", "key": "V", "modifiers": ["Control"]},
+                 ]},
+                require_installed=True, installed_fonts=["inter"],
+                installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                captured_frame={"id": "tb-copy-paste-ok", "rendered_text": [{"element": "TextBox", "font": "Inter", "text": "AA"}]},
             )
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
@@ -2765,23 +2783,28 @@ class ReferenceHarness(unittest.TestCase):
         self.assertTrue(by_id["button-Disabled-Dark"]["automation"]["IsEnabled"])
         self.assertFalse(by_id["button-ReallyDisabled-Dark"]["automation"]["IsEnabled"])
 
-        # 3. Scaled captures at 150%, 200%, 300% pass crispness/anti-stairstep checks, while bilinear & nearest fail.
-        s100 = frames["button-Normal-Dark.bgra"]
-        for cid, scale, w, h in [
-            ("button-Normal-Dark-s150", 1.5, 240, 96),
-            ("button-Normal-Dark-s200", 2.0, 320, 128),
-            ("button-Normal-Dark-s300", 3.0, 480, 192),
+        # 3. Scaled captures at 150%, 200%, 300% (both Dark and Light) pass crispness/anti-stairstep checks, while bilinear & nearest fail.
+        s100_dark = frames["button-Normal-Dark.bgra"]
+        s100_light = frames["button-Normal-Light.bgra"]
+        for cid, theme, base100, scale, w, h in [
+            ("button-Normal-Dark-s150", "Dark", s100_dark, 1.5, 240, 96),
+            ("button-Normal-Dark-s200", "Dark", s100_dark, 2.0, 320, 128),
+            ("button-Normal-Dark-s300", "Dark", s100_dark, 3.0, 480, 192),
+            ("button-Normal-Light-s150", "Light", s100_light, 1.5, 240, 96),
+            ("button-Normal-Light-s200", "Light", s100_light, 2.0, 320, 128),
+            ("button-Normal-Light-s300", "Light", s100_light, 3.0, 480, 192),
         ]:
             case = by_id[cid]
-            self.assertEqual((case["scale"], case["width"], case["height"]), (scale, w, h))
+            self.assertEqual((case["theme"], case["scale"], case["width"], case["height"]), (theme, scale, w, h))
+            self.assertIn(case["scale_mode"], ("viewbox-vector", "native-dpi"))
             ar = case["automation"]["Rect"]
             self.assertEqual((ar["X"], ar["Y"], ar["Width"], ar["Height"]), (20, 16, 120, 32))
             real = frames[case["file"]]
             check_scaled_control_capture(case, real)
             with self.assertRaises(ValueError):
-                check_scaled_control_capture(case, bilinear_upscale(s100, 160, 64, w, h))
+                check_scaled_control_capture(case, bilinear_upscale(base100, 160, 64, w, h))
             with self.assertRaises(ValueError):
-                check_scaled_control_capture(case, nearest_upscale(s100, 160, 64, w, h))
+                check_scaled_control_capture(case, nearest_upscale(base100, 160, 64, w, h))
 
         # 4. RTL capture mirrors HorizontalAlignment=Left to the right edge of the 160px frame.
         rtl_case = by_id["button-Normal-Dark-RTL"]
@@ -3264,6 +3287,138 @@ class LiveReference(unittest.TestCase):
                         "script": [{"action": "focus"}, {"action": "key_press", "key": "A"}],
                     },
                     {
+                        "id": "grid-rows-live",
+                        "control": "Grid",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 100},
+                        "properties": {"Name": "RowGrid", "Width": 120, "Height": 80, "RowDefinitions": ["40", "40"]},
+                        "children": [
+                            {"id": "gr-r0", "control": "Border", "properties": {"Name": "Row0", "Grid.Row": 0, "Width": 80, "Height": 20}},
+                            {"id": "gr-r1", "control": "Border", "properties": {"Name": "Row1", "Grid.Row": 1, "Width": 80, "Height": 20}},
+                        ],
+                    },
+                    {
+                        "id": "canvas-left-live",
+                        "control": "Canvas",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 80},
+                        "properties": {"Name": "PosCanvas", "Width": 160, "Height": 80},
+                        "children": [
+                            {"id": "cv-a", "control": "Border", "properties": {"Name": "Left10", "Canvas.Left": 10, "Canvas.Top": 12, "Width": 20, "Height": 20}},
+                            {"id": "cv-b", "control": "Border", "properties": {"Name": "Left50", "Canvas.Left": 50, "Canvas.Top": 12, "Width": 20, "Height": 20}},
+                        ],
+                    },
+                    {
+                        "id": "vswg-span-live",
+                        "control": "VariableSizedWrapGrid",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 200, "height": 80},
+                        "properties": {"Name": "SpanGrid", "Width": 200, "Height": 80, "ItemWidth": 40, "ItemHeight": 30, "Orientation": "Horizontal"},
+                        "children": [
+                            {"id": "vs-1", "control": "Border", "properties": {"Name": "Span1", "VariableSizedWrapGrid.ColumnSpan": 1}},
+                            {"id": "vs-2", "control": "Border", "properties": {"Name": "Span2", "VariableSizedWrapGrid.ColumnSpan": 2}},
+                        ],
+                    },
+                    {
+                        "id": "tb-copy-paste-live",
+                        "control": "TextBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 180, "height": 64},
+                        "properties": {"Name": "CopyBox", "Text": "", "FontFamily": "Inter", "Width": 140, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [
+                            {"action": "focus"},
+                            {"action": "key_press", "key": "A"},
+                            {"action": "key_press", "key": "A", "modifiers": ["Control"]},
+                            {"action": "key_press", "key": "C", "modifiers": ["Control"]},
+                            {"action": "key_press", "key": "Right"},
+                            {"action": "key_press", "key": "V", "modifiers": ["Control"]},
+                        ],
+                    },
+                    {
+                        "id": "tb-copy-paste-undo-live",
+                        "control": "TextBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 180, "height": 64},
+                        "properties": {"Name": "UndoBox", "Text": "", "FontFamily": "Inter", "Width": 140, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [
+                            {"action": "focus"},
+                            {"action": "key_press", "key": "A"},
+                            {"action": "key_press", "key": "A", "modifiers": ["Control"]},
+                            {"action": "key_press", "key": "C", "modifiers": ["Control"]},
+                            {"action": "key_press", "key": "Right"},
+                            {"action": "key_press", "key": "V", "modifiers": ["Control"]},
+                            {"action": "key_press", "key": "Z", "modifiers": ["Control"]},
+                        ],
+                    },
+                    {
+                        "id": "reb-allcaps-live",
+                        "control": "RichEditBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 180, "height": 64},
+                        "properties": {"Name": "CapsRich", "FontFamily": "Inter", "Width": 140, "Height": 32},
+                        "rich_text_rtf": r"{\rtf1\ansi{\fonttbl{\f0 Inter;}}\f0\caps a}",
+                    },
+                    {
+                        "id": "reb-used-leader-live",
+                        "control": "RichEditBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 220, "height": 64},
+                        "properties": {"Name": "UsedLeaderRich", "FontFamily": "Inter", "Width": 180, "Height": 32},
+                        "rich_text_rtf": r"{\rtf1\ansi{\fonttbl{\f0 Inter;}}\pard\tldot\tx1440\f0 A\tab B\par}",
+                    },
+                    {
+                        "id": "reb-unused-leader-live",
+                        "control": "RichEditBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 220, "height": 64},
+                        "properties": {"Name": "UnusedLeaderRich", "FontFamily": "Inter", "Width": 180, "Height": 32},
+                        "rich_text_rtf": r"{\rtf1\ansi{\fonttbl{\f0 Inter;}}\pard\tldot\tx1440\f0 Heading\par}",
+                    },
+                    {
+                        "id": "btn-trans-only-live",
+                        "control": "Button",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "state": "Pressed",
+                        "use_transitions": True,
+                        "storyboard_timeout_ms": 2000,
+                        "frame": {"width": 120, "height": 60},
+                        "properties": {"Width": 80, "Height": 40, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "template_xaml": (
+                            "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' "
+                            "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>"
+                            "<Border x:Name='RootBorder' Background='#FFFF0000'>"
+                            "<VisualStateManager.VisualStateGroups>"
+                            "<VisualStateGroup x:Name='CommonStates'>"
+                            "<VisualStateGroup.Transitions>"
+                            "<VisualTransition To='Pressed'>"
+                            "<Storyboard>"
+                            "<ObjectAnimationUsingKeyFrames Storyboard.TargetName='RootBorder' Storyboard.TargetProperty='Background'>"
+                            "<DiscreteObjectKeyFrame KeyTime='0:0:0.35' Value='#FF0000FF'/>"
+                            "</ObjectAnimationUsingKeyFrames>"
+                            "</Storyboard>"
+                            "</VisualTransition>"
+                            "</VisualStateGroup.Transitions>"
+                            "<VisualState x:Name='Normal'/>"
+                            "<VisualState x:Name='Pressed'>"
+                            "<VisualState.Setters>"
+                            "<Setter Target='RootBorder.Background' Value='#FF0000FF'/>"
+                            "</VisualState.Setters>"
+                            "</VisualState>"
+                            "</VisualStateGroup>"
+                            "</VisualStateManager.VisualStateGroups>"
+                            "</Border></ControlTemplate>"
+                        ),
+                    },
+                    {
                         "id": "prop-togglebtn",
                         "control": "ToggleButton",
                         "theme": "Dark",
@@ -3577,6 +3732,88 @@ class LiveReference(unittest.TestCase):
                     )
                 self.assertIn("not covered by installed FontFamily", str(cm_reb_live.exception))
 
+                # Attached layout properties (Grid.Row, Canvas.Left, VariableSizedWrapGrid.ColumnSpan) move/resize child rects.
+                def _find_layout_rect(node, name):
+                    if node.get("Name") == name:
+                        return node["Rect"]
+                    for ch in node.get("Children", []):
+                        got = _find_layout_rect(ch, name)
+                        if got is not None:
+                            return got
+                    return None
+                r0 = _find_layout_rect(by1["grid-rows-live"]["layout"], "Row0")
+                r1 = _find_layout_rect(by1["grid-rows-live"]["layout"], "Row1")
+                self.assertAlmostEqual(r1["Y"] - r0["Y"], 40.0, delta=1.0)
+                c_a = _find_layout_rect(by1["canvas-left-live"]["layout"], "Left10")
+                c_b = _find_layout_rect(by1["canvas-left-live"]["layout"], "Left50")
+                self.assertAlmostEqual(c_b["X"] - c_a["X"], 40.0, delta=1.0)
+                vs1 = _find_layout_rect(by1["vswg-span-live"]["layout"], "Span1")
+                vs2 = _find_layout_rect(by1["vswg-span-live"]["layout"], "Span2")
+                self.assertAlmostEqual(vs1["Width"], 40.0, delta=1.0)
+                self.assertAlmostEqual(vs2["Width"], 80.0, delta=1.0)
+
+                # Deterministic same-script copy/paste and undo verify text and selection state.
+                cp_state = by1["tb-copy-paste-live"]["script_log"]["FinalState"]
+                self.assertIn(cp_state["text"], ("AA", "aa"))
+                self.assertEqual(cp_state["selection_start"], 2)
+                self.assertEqual(cp_state["selection_length"], 0)
+                undo_state = by1["tb-copy-paste-undo-live"]["script_log"]["FinalState"]
+                self.assertIn(undo_state["text"], ("A", "a"))
+
+                # Live RichEditBox formatting: AllCaps -> 'A', used dotted TabLeader -> refused, unused TabLeader -> accepted.
+                caps_rt = by1["reb-allcaps-live"].get("rendered_text", [])
+                self.assertTrue(any(r.get("text") == "A" for r in caps_rt), f"expected uppercase 'A' in {caps_rt!r}")
+                with self.assertRaises(ValueError) as cm_caps:
+                    ref_run.check_no_prohibited_assets(
+                        {"id": "reb-allcaps-live", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
+                        require_installed=True, installed_fonts=["inter"],
+                        installed_font_ranges={"inter": [[0x61, 0x61]]},
+                        captured_frame=by1["reb-allcaps-live"],
+                    )
+                self.assertIn("U+0041", str(cm_caps.exception))
+                ref_run.check_no_prohibited_assets(
+                    {"id": "reb-allcaps-live", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
+                    require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x41, 0x41]]},
+                    captured_frame=by1["reb-allcaps-live"],
+                )
+                used_rt = by1["reb-used-leader-live"].get("rendered_text", [])
+                self.assertTrue(any(r.get("font") == "__unverified_rich_decoration__" for r in used_rt), f"expected TabLeader sentinel in {used_rt!r}")
+                with self.assertRaises(ValueError):
+                    ref_run.check_no_prohibited_assets(
+                        {"id": "reb-used-leader-live", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
+                        require_installed=True, installed_fonts=["inter"],
+                        installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                        captured_frame=by1["reb-used-leader-live"],
+                    )
+                unused_rt = by1["reb-unused-leader-live"].get("rendered_text", [])
+                self.assertFalse(any(r.get("font") == "__unverified_rich_decoration__" for r in unused_rt), f"unexpected sentinel in {unused_rt!r}")
+                ref_run.check_no_prohibited_assets(
+                    {"id": "reb-unused-leader-live", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
+                    require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                    captured_frame=by1["reb-unused-leader-live"],
+                )
+
+                # Transition-only delayed storyboard settles to Blue (#FF0000FF -> BGRA 255,0,0) and fails on short timeout.
+                self.assertTrue(by1["btn-trans-only-live"].get("storyboard_awaited"))
+                tr_px = (out1 / "btn-trans-only-live.bgra").read_bytes()
+                center_off = (30 * 120 + 60) * 4
+                self.assertEqual(tuple(tr_px[center_off:center_off + 3]), (255, 0, 0))
+                tr_to_case = Path(tmp) / "trans_timeout.json"
+                tr_to_case.write_text(json.dumps({"cases": [{
+                    **next(c for c in json.loads(combo.read_text(encoding="utf-8"))["cases"] if c["id"] == "btn-trans-only-live"),
+                    "id": "btn-trans-timeout",
+                    "storyboard_timeout_ms": 50,
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as cm_trto:
+                    ref_run.run_reference(exe, Path(tmp) / "out_trto", cases_path=tr_to_case, work_dir=build_tmp)
+                self.assertIn("btn-trans-timeout", cm_trto.exception.stderr)
+                self.assertIn("Pressed", cm_trto.exception.stderr)
+
+                # OpenType name-table discovery on the capture host populates real installed family names.
+                self.assertTrue(any(f in m1.get("installed_fonts", []) for f in ("segoe ui", "arial", "tahoma")))
+
                 # Generic property dispatch verifies actual configured values on ToggleButton, ProgressBar, Slider, and ComboBox.
                 self.assertIs(by1["prop-togglebtn"].get("is_checked"), True)
                 self.assertEqual(by1["prop-progressbar"].get("range_value"), 50.0)
@@ -3658,6 +3895,37 @@ class LiveReference(unittest.TestCase):
                 self.assertEqual(json.loads(r_both.stdout), [[0x41, 0x46]])
                 r_ttc = ref_run.run_cmd(str(exe), "--dump-cmap", ref_run.to_win_path(ttc), capture_output=True, text=True)
                 self.assertEqual(json.loads(r_ttc.stdout), [[0x41, 0x46]])
+                # Build synthetic .ttf with an OpenType name table ("Inter") + cmap (A..Z excluding 'M') and verify
+                # --dump-font-info resolves family+ranges directly from the font binary and feeds publish_store.
+                def _make_name_table(family):
+                    enc = family.encode("utf-16-be")
+                    rec = struct.pack(">HHHHHH", 3, 1, 0x0409, 16, len(enc), 0)
+                    return struct.pack(">HHH", 0, 1, 6 + 12) + rec + enc
+                nm = _make_name_table("Inter")
+                nm_off = 12 + 32
+                cm_off = nm_off + len(nm)
+                hdr2 = struct.pack(">IHHHH", 0x00010000, 2, 32, 1, 0)
+                rec_c = b"cmap" + struct.pack(">III", 0, cm_off, len(c1))
+                rec_n = b"name" + struct.pack(">III", 0, nm_off, len(nm))
+                f_named = Path(build_tmp) / "inter_named.ttf"
+                f_named.write_bytes(hdr2 + rec_c + rec_n + nm + c1)
+                r_info = ref_run.run_cmd(str(exe), "--dump-font-info", ref_run.to_win_path(f_named), capture_output=True, text=True)
+                finfo = json.loads(r_info.stdout)
+                self.assertEqual(finfo[0]["families"], ["inter"])
+                self.assertEqual(finfo[0]["ranges"], [[0x41, 0x4C], [0x4E, 0x5A]])
+                # Covered 'A' passes; gid==0 fallback 'M' fails publication guard using the extracted face inventory.
+                ref_run.check_no_prohibited_assets(
+                    {"id": "font-ok", "control": "TextBlock", "properties": {"Text": "A", "FontFamily": "Inter"}},
+                    require_installed=True, installed_fonts=finfo[0]["families"],
+                    installed_font_ranges={"inter": finfo[0]["ranges"]},
+                )
+                with self.assertRaises(ValueError) as cm_gid0:
+                    ref_run.check_no_prohibited_assets(
+                        {"id": "font-miss", "control": "TextBlock", "properties": {"Text": "M", "FontFamily": "Inter"}},
+                        require_installed=True, installed_fonts=finfo[0]["families"],
+                        installed_font_ranges={"inter": finfo[0]["ranges"]},
+                    )
+                self.assertIn("U+004D", str(cm_gid0.exception))
 
                 # Scripted button gives identical event + focus log across two independent runs,
                 # with touch_tap GotFocus settled before Click (deterministic ordering across refreshes).
