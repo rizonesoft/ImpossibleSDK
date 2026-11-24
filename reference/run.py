@@ -116,15 +116,39 @@ def _ci_get(mapping, key, default=None):
     return default
 
 
+ALLOWED_CASE_KEYS = {
+    "id", "case_group", "control", "style", "theme", "scale", "flow_direction",
+    "state", "use_transitions", "frame", "properties", "items", "children",
+    "script", "dump_tree", "probe_box", "probe_radii",
+}
+
+
+def validate_case_keys(case_spec):
+    """Reject unknown, differently cased, or case-colliding keys so Python and C# enforce one exact schema."""
+    if not isinstance(case_spec, dict):
+        raise ValueError("case specification must be a JSON object")
+    seen_lower = set()
+    for k in case_spec:
+        if not isinstance(k, str) or k not in ALLOWED_CASE_KEYS:
+            raise ValueError(f"case {case_spec.get('id', '<unknown>')!r}: unknown or non-canonical key {k!r}")
+        kl = k.lower()
+        if kl in seen_lower:
+            raise ValueError(f"case {case_spec.get('id', '<unknown>')!r}: duplicate case-folded key {k!r}")
+        seen_lower.add(kl)
+    for child in case_spec.get("children") or []:
+        validate_case_keys(child)
+
+
 def check_no_prohibited_assets(case_spec):
-    """Refuse Microsoft fonts or stock Microsoft glyph controls in committed store cases (case-insensitive keys)."""
-    cid = _ci_get(case_spec, "id", "<unknown>")
-    ctrl = str(_ci_get(case_spec, "control", "") or "")
+    """Refuse unknown/non-canonical keys, Microsoft fonts, or stock Microsoft glyph controls in committed store cases."""
+    validate_case_keys(case_spec)
+    cid = case_spec.get("id", "<unknown>")
+    ctrl = str(case_spec.get("control", "") or "")
     ctrl_l = ctrl.lower()
     if ctrl_l in FORBIDDEN_ASSET_CONTROLS:
         raise ValueError(f"{cid}: control {ctrl!r} uses a prohibited Microsoft glyph font and cannot be persisted")
-    props = _ci_get(case_spec, "properties") or {}
-    items = _ci_get(case_spec, "items")
+    props = case_spec.get("properties") or {}
+    items = case_spec.get("items")
     has_text = (
         ctrl_l in ("textblock", "textbox")
         or bool(items)
@@ -136,70 +160,117 @@ def check_no_prohibited_assets(case_spec):
             raise ValueError(
                 f"{cid}: text-bearing case without a permitted non-Microsoft FontFamily cannot be persisted to tests/reference/"
             )
-    for child in _ci_get(case_spec, "children") or []:
+    for child in case_spec.get("children") or []:
         check_no_prohibited_assets(child)
 
 
-def recover_dir_if_needed(target_dir):
-    """Recover a directory from its fixed .<name>.backup sibling if a prior swap was interrupted."""
+def _is_owned_backup(backup_path, is_store):
+    if not backup_path.is_dir():
+        return False
+    if not is_store:
+        return (backup_path / OUT_MARKER).is_file()
+    idx = backup_path / "cases.json"
+    if not idx.is_file():
+        return False
+    try:
+        data = json.loads(idx.read_text(encoding="utf-8"))
+        return isinstance(data, dict) and isinstance(data.get("cases"), list) and isinstance(data.get("accents"), dict)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
+def _recover_dir_unlocked(target_dir, is_store):
+    """Recover an owned .<name>.backup sibling if a prior swap was interrupted (caller must hold _store_lock)."""
     target = Path(target_dir)
     backup = target.parent / f".{target.name}.backup"
-    if not target.exists() and backup.exists():
+    if not backup.exists():
+        return False
+    if not _is_owned_backup(backup, is_store=is_store):
+        raise ValueError(f"{backup}: refuses to touch unrelated sibling backup directory")
+    if not target.exists():
         backup.rename(target)
         return True
     return False
 
 
+def open_reference_manifest(store_dir):
+    """Read tests/reference/cases.json under the store lock, recovering an interrupted swap if needed."""
+    store = Path(store_dir)
+    with _store_lock(store):
+        _recover_dir_unlocked(store, is_store=True)
+        return json.loads((store / "cases.json").read_text(encoding="utf-8"))
+
+
 def _ensure_safe_capture_dir(out_dir):
-    """Refuse to overwrite any existing non-empty output directory not owned by reference/run.py."""
+    """Refuse to overwrite any existing non-empty output directory or unrelated sibling backup not owned by reference/run.py."""
     out = Path(out_dir)
-    recover_dir_if_needed(out)
-    if not out.exists():
-        return
-    if not out.is_dir():
-        raise ValueError(f"{out}: output path exists and is not a directory")
-    entries = list(out.iterdir())
-    if not entries:
-        return
-    if not (out / OUT_MARKER).is_file():
-        raise ValueError(f"{out}: refuses to overwrite existing non-empty directory without {OUT_MARKER} ownership marker")
-    for entry in entries:
-        if entry.is_dir() or (entry.suffix != ".bgra" and entry.name not in ("cases.json", "error.txt", OUT_MARKER)):
-            raise ValueError(f"{out}: refuses to overwrite directory containing unrelated entry {entry.name!r}")
+    with _store_lock(out):
+        _recover_dir_unlocked(out, is_store=False)
+        if not out.exists():
+            return
+        if not out.is_dir():
+            raise ValueError(f"{out}: output path exists and is not a directory")
+        entries = list(out.iterdir())
+        if not entries:
+            return
+        if not (out / OUT_MARKER).is_file():
+            raise ValueError(f"{out}: refuses to overwrite existing non-empty directory without {OUT_MARKER} ownership marker")
+        for entry in entries:
+            if entry.is_dir() or (entry.suffix != ".bgra" and entry.name not in ("cases.json", "error.txt", OUT_MARKER)):
+                raise ValueError(f"{out}: refuses to overwrite directory containing unrelated entry {entry.name!r}")
 
 
 def _publish_capture_output(src_dir, out_dir):
-    """Safely publish fresh capture files with ownership marker and crash-recoverable fixed backup."""
+    """Safely publish fresh capture files with ownership marker and crash-recoverable fixed backup under lock."""
     src = Path(src_dir)
     out = Path(out_dir)
-    _ensure_safe_capture_dir(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    stage = out.parent / f".{out.name}.stage-{os.getpid()}"
-    backup = out.parent / f".{out.name}.backup"
-    shutil.rmtree(stage, ignore_errors=True)
-    try:
-        shutil.copytree(src, stage)
-        (stage / OUT_MARKER).write_text("impossible-sdk-reference-output\n", encoding="utf-8")
-        shutil.rmtree(backup, ignore_errors=True)
-        had_out = out.exists()
-        if had_out:
-            out.rename(backup)
-        try:
-            stage.rename(out)
-        except Exception:
-            if had_out and backup.exists() and not out.exists():
-                backup.rename(out)
-            raise
-        if backup.exists():
-            shutil.rmtree(backup, ignore_errors=True)
-    finally:
+    with _store_lock(out):
+        _recover_dir_unlocked(out, is_store=False)
+        if out.exists():
+            if not out.is_dir():
+                raise ValueError(f"{out}: output path exists and is not a directory")
+            entries = list(out.iterdir())
+            if entries and not (out / OUT_MARKER).is_file():
+                raise ValueError(f"{out}: refuses to overwrite existing non-empty directory without {OUT_MARKER} ownership marker")
+            for entry in entries:
+                if entry.is_dir() or (entry.suffix != ".bgra" and entry.name not in ("cases.json", "error.txt", OUT_MARKER)):
+                    raise ValueError(f"{out}: refuses to overwrite directory containing unrelated entry {entry.name!r}")
+        stage = out.parent / f".{out.name}.stage-{os.getpid()}"
+        backup = out.parent / f".{out.name}.backup"
         shutil.rmtree(stage, ignore_errors=True)
+        try:
+            shutil.copytree(src, stage)
+            (stage / OUT_MARKER).write_text("impossible-sdk-reference-output\n", encoding="utf-8")
+            if backup.exists():
+                if not _is_owned_backup(backup, is_store=False):
+                    raise ValueError(f"{backup}: refuses to delete unrelated sibling backup directory")
+                shutil.rmtree(backup)
+            had_out = out.exists()
+            if had_out:
+                out.rename(backup)
+            try:
+                stage.rename(out)
+            except Exception:
+                if had_out and backup.exists() and not out.exists():
+                    backup.rename(out)
+                raise
+            if backup.exists():
+                shutil.rmtree(backup, ignore_errors=True)
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
 
 
-def validate_store_dir(store_dir, expected_specs=None):
+def validate_store_dir(store_dir, expected_specs=None, _locked=False):
     """Validate that store_dir has a self-consistent index, no missing/extra/stale frames, and valid digests."""
     store = Path(store_dir)
-    recover_dir_if_needed(store)
+    ctx = contextlib.nullcontext() if _locked else _store_lock(store)
+    with ctx:
+        _recover_dir_unlocked(store, is_store=True)
+        return _validate_store_dir_unlocked(store, expected_specs)
+
+
+def _validate_store_dir_unlocked(store, expected_specs=None):
     index_path = store / "cases.json"
     if not index_path.is_file():
         raise ValueError(f"{store}: missing cases.json")
@@ -291,9 +362,7 @@ def publish_store(fresh_dir, store_dir, expected_specs):
 
     with _store_lock(store):
         backup = store.parent / f".{store.name}.backup"
-        # Startup recovery: if a prior crash left backup present while store is missing, restore it first.
-        if not store.exists() and backup.exists():
-            backup.rename(store)
+        _recover_dir_unlocked(store, is_store=True)
 
         stage = store.parent / f".{store.name}.staging-{os.getpid()}"
         shutil.rmtree(stage, ignore_errors=True)
@@ -313,9 +382,12 @@ def publish_store(fresh_dir, store_dir, expected_specs):
                 case["case_sha256"] = canonical_case_hash(expected_specs[cid])
 
             (stage / "cases.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
-            validate_store_dir(stage, expected_specs)
+            validate_store_dir(stage, expected_specs, _locked=True)
 
-            shutil.rmtree(backup, ignore_errors=True)
+            if backup.exists():
+                if not _is_owned_backup(backup, is_store=True):
+                    raise ValueError(f"{backup}: refuses to delete unrelated sibling backup directory")
+                shutil.rmtree(backup)
             had_store = store.exists()
             if had_store:
                 store.rename(backup)

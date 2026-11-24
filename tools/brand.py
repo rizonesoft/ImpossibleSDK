@@ -101,7 +101,9 @@ def badge(light):
 
 def comparison(out):
     """Our buttons beside real WinUI's, from the frames the tests compare: rest, hover, pressed and disabled, dark and light."""
-    manifest = json.loads((ROOT / "tests/reference/cases.json").read_text(encoding="utf-8"))
+    sys.path.insert(0, str(ROOT / "reference"))
+    import run as ref_run
+    manifest = ref_run.open_reference_manifest(ROOT / "tests/reference")
     legacy_ids = [
         f"{kind}-{state}-{theme}"
         for theme in ("Dark", "Light")

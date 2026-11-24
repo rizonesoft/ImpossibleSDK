@@ -13,6 +13,7 @@ using WinRT.Interop;
 
 namespace Reference;
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class ScriptActionSpec
 {
     [JsonPropertyName("action")] public string Action { get; set; } = "";

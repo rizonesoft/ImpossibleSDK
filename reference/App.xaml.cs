@@ -20,11 +20,13 @@ using Windows.UI.ViewManagement;
 
 namespace Reference;
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CaseFileSpec
 {
     [JsonPropertyName("cases")] public List<CaseSpec> Cases { get; set; } = new();
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class FrameSpec
 {
     [JsonPropertyName("width")] public int Width { get; set; } = 160;
@@ -32,6 +34,7 @@ public sealed class FrameSpec
     [JsonPropertyName("background")] public string? Background { get; set; }
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CaseSpec
 {
     [JsonPropertyName("id")] public string Id { get; set; } = "";
