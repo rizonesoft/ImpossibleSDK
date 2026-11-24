@@ -110,12 +110,12 @@ ATTACHED_PROPS = {
     "ScrollViewer.ZoomMode",
 }
 
-# XAML directives legal on UI elements (not assignable via VisualState.Setters).
-XAML_DIRECTIVE_ATTRS = {"DeferLoadStrategy", "Load"}
+# XAML directives legal only with the x: namespace (not assignable via VisualState.Setters).
+XAML_DIRECTIVE_ATTRS = {"DeferLoadStrategy", "Key", "Load"}
 
 # Properties inherited by all UIElement / FrameworkElement controls and panels.
 COMMON_UI_PROPS = {
-    "AllowDrop", "AllowFocusOnInteraction", "Clip",
+    "AllowDrop", "AllowFocusOnInteraction", "Clip", "ContextFlyout",
     "FocusVisualMargin", "FocusVisualPrimaryBrush", "FocusVisualPrimaryThickness",
     "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness", "Height",
     "HighContrastAdjustment", "HorizontalAlignment", "IsHitTestVisible",
@@ -124,12 +124,12 @@ COMMON_UI_PROPS = {
     "Style", "UseSystemFocusVisuals", "VerticalAlignment", "Visibility", "Width",
 }
 
-# Properties inherited by all Control subclasses (Button, ScrollViewer, Thumb).
+# Properties inherited by all Control subclasses (Button, ScrollViewer, Thumb, ToggleSwitch, TextBox, ListView, ListViewItem).
 CONTROL_PROPS = {
     "Background", "BackgroundSizing", "BorderBrush", "BorderThickness", "CharacterSpacing",
     "CornerRadius", "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground",
-    "HorizontalContentAlignment", "IsTabStop", "Padding", "TabNavigation", "Template",
-    "VerticalContentAlignment",
+    "HorizontalContentAlignment", "IsTabStop", "IsTextScaleFactorEnabled", "Padding",
+    "TabNavigation", "Template", "VerticalContentAlignment",
 }
 
 # Properties inherited by ContentControl subclasses (Button, ScrollViewer).
@@ -874,7 +874,7 @@ class Compiler:
             "kf_count": kf_count,
         })
 
-    def compile_vsm_groups(self, groups_node, named_elements=None):
+    def compile_vsm_groups(self, groups_node, named_elements=None, target_type=""):
         named_elements = named_elements or {}
         groups_node.visit()
         group_start = len(self.groups)
@@ -940,8 +940,9 @@ class Compiler:
                                     tgt = ""
                                     prop = raw_tp.strip()
                                     prop_line = s.attr_line("Property")
-                                    if not prop or prop not in KNOWN_PROPS:
-                                        raise TemplateError(f"{s.file}:{prop_line}: unknown property {prop!r}")
+                                    allowed_owner = allowed_props_for(target_type) if target_type in ELEMENT_OWN_PROPS else (COMMON_UI_PROPS | CONTROL_PROPS | ATTACHED_PROPS)
+                                    if not prop or prop not in allowed_owner:
+                                        raise TemplateError(f"{s.file}:{prop_line}: property {prop!r} is not supported on {target_type or 'target'}")
                                 val = self.parse_value(val_raw, prop, s.file, s.attr_line("Value"))
                                 self.style_setters.append({"target": tgt, "property": prop, "value": val})
                         elif sc.tag == "Storyboard":
@@ -1022,7 +1023,8 @@ class Compiler:
                             raise TemplateError(f"{res_node.file}:{res_node.line}: unknown resource element {res_node.tag!r}")
 
             # Collect attributes on this element (validated against this element's allowed property set)
-            allowed_elem = allowed_props_for(node.tag) | (set() if node.tag in NON_UI_ELEMENTS else XAML_DIRECTIVE_ATTRS)
+            elem_directives = {"DeferLoadStrategy", "Load"}
+            allowed_elem = allowed_props_for(node.tag) | (set() if node.tag in NON_UI_ELEMENTS else elem_directives)
             for k in list(node.attrs):
                 if k == "Name":
                     continue
@@ -1101,7 +1103,7 @@ class Compiler:
         group_start = len(self.groups)
         group_count = 0
         for vsm in vsm_nodes:
-            gs, gc = self.compile_vsm_groups(vsm, named_elements=named_elements)
+            gs, gc = self.compile_vsm_groups(vsm, named_elements=named_elements, target_type=target_type)
             if group_count == 0:
                 group_start = gs
             group_count += gc

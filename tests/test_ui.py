@@ -400,11 +400,11 @@ class TemplateCompiler(unittest.TestCase):
 
     def test_grid_resources_do_not_leak_to_sibling_styles(self):
         xaml = (
-            '<ResourceDictionary>\n'
-            '  <Style Key="S1" TargetType="Button"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">\n'
-            '    <Grid><Grid.Resources><Style Key="Local" TargetType="Button"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border /></ControlTemplate></Setter.Value></Setter></Style></Grid.Resources></Grid>\n'
+            '<ResourceDictionary xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">\n'
+            '  <Style x:Key="S1" TargetType="Button"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">\n'
+            '    <Grid><Grid.Resources><Style x:Key="Local" TargetType="Button"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border /></ControlTemplate></Setter.Value></Setter></Style></Grid.Resources></Grid>\n'
             '  </ControlTemplate></Setter.Value></Setter></Style>\n'
-            '  <Style Key="S2" TargetType="Button"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">\n'
+            '  <Style x:Key="S2" TargetType="Button"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">\n'
             '    <Button Style="{StaticResource Local}" />\n'
             '  </ControlTemplate></Setter.Value></Setter></Style>\n'
             '</ResourceDictionary>\n'
@@ -835,16 +835,18 @@ class TemplateCompiler(unittest.TestCase):
             self.assertNotEqual(res_inc.returncode, 0, f"{bad_target} should be rejected on Grid")
             self.assertIn(f"{path_inc}:4:", res_inc.stderr)
 
-        # Inherited Control/ContentControl/Panel properties on Thumb, ScrollViewer, and ItemsStackPanel must be accepted.
+        # Inherited Control/ContentControl/Panel properties on Thumb, ScrollViewer, ItemsStackPanel, and Button must be accepted.
         res_thumb, _ = self._run_fixture('<ControlTemplate TargetType="Button"><Thumb Padding="0" /></ControlTemplate>\n')
         self.assertEqual(res_thumb.returncode, 0, res_thumb.stderr)
         res_sv_c, _ = self._run_fixture('<ControlTemplate TargetType="Button"><ScrollViewer Content="hello" /></ControlTemplate>\n')
         self.assertEqual(res_sv_c.returncode, 0, res_sv_c.stderr)
         res_isp, _ = self._run_fixture('<ControlTemplate TargetType="Button"><ItemsStackPanel Background="Red" /></ControlTemplate>\n')
         self.assertEqual(res_isp.returncode, 0, res_isp.stderr)
+        res_btn_ts, _ = self._run_fixture('<ControlTemplate TargetType="Button"><Button IsTextScaleFactorEnabled="True" /></ControlTemplate>\n')
+        self.assertEqual(res_btn_ts.returncode, 0, res_btn_ts.stderr)
 
-        # Property-only VisualState.Setters must reject directives/Duration, and unqualified Load on Grid must be rejected.
-        for bad_prop in ("Load", "Duration"):
+        # Property-only VisualState.Setters must reject directives, Duration, and owner-incompatible properties; unqualified Load/Key must be rejected.
+        for bad_prop in ("Load", "Duration", "RadiusX", "Glyph", "Rect"):
             xaml_vp = (
                 '<ControlTemplate TargetType="Button">\n'
                 '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
@@ -861,6 +863,16 @@ class TemplateCompiler(unittest.TestCase):
         res_ul, path_ul = self._run_fixture(xaml_unq_load)
         self.assertNotEqual(res_ul.returncode, 0)
         self.assertIn(f"{path_ul}:3:", res_ul.stderr)
+
+        xaml_unq_key = (
+            '<Style\n'
+            '  Key="Bogus" TargetType="Button">\n'
+            '  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Grid /></ControlTemplate></Setter.Value></Setter>\n'
+            '</Style>\n'
+        )
+        res_uk, path_uk = self._run_fixture(xaml_unq_key)
+        self.assertNotEqual(res_uk.returncode, 0)
+        self.assertIn(f"{path_uk}:2:", res_uk.stderr)
 
 
 EDGE_LIMIT = 1
