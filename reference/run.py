@@ -485,8 +485,8 @@ def _pid_is_alive_cross_host(pid, owner_host, owner_distro=""):
     if owner_host == cur_host:
         if cur_host == "posix":
             cur_distro = os.environ.get("WSL_DISTRO_NAME", "")
-            if owner_distro and cur_distro and owner_distro != cur_distro:
-                return True  # different WSL distro; do not guess
+            if (cur_distro or owner_distro) and owner_distro != cur_distro:
+                return True  # different or unknown WSL distro; do not guess
         return _pid_is_alive_same_host(pid)
     if cur_host == "posix" and owner_host == "nt" and shutil.which("tasklist.exe"):
         res = subprocess.run(
@@ -524,6 +524,27 @@ def _decode_distro(tag):
         return ""
 
 
+def _resolve_legacy_distro_tag(tag):
+    """Resolve a b78e066 hyphen-to-underscore distro tag to an exact distro name if unambiguous, else None."""
+    if not tag or tag == "none":
+        return ""
+    if "_" not in tag:
+        return tag
+    if os.name != "nt":
+        cur_distro = os.environ.get("WSL_DISTRO_NAME", "")
+        if cur_distro and cur_distro.replace("-", "_") == tag:
+            return cur_distro
+        return None
+    if shutil.which("wsl.exe"):
+        res = subprocess.run(["wsl.exe", "-l", "-q"], capture_output=True, timeout=10)
+        if res.returncode == 0:
+            text = res.stdout.decode("utf-16-le", errors="ignore").replace("\x00", "")
+            matches = [d.strip() for d in text.splitlines() if d.strip() and d.strip().replace("-", "_") == tag]
+            if len(matches) == 1:
+                return matches[0]
+    return None
+
+
 def _parse_token_identity(token):
     parts = token.split(".")
     if len(parts) == 4 and parts[0] in ("nt", "posix") and parts[1].isdigit():
@@ -532,12 +553,12 @@ def _parse_token_identity(token):
     hparts = token.split("-")
     if len(hparts) >= 4 and hparts[0] in ("nt", "posix") and hparts[1].isdigit():
         fhost, fpid = hparts[0], int(hparts[1])
-        fdistro = hparts[2] if (fhost == "posix" and hparts[2] not in ("none", "win")) else ""
-        # Underscore in legacy distro_tag is ambiguous (could be a substituted hyphen); mark as ambiguous so
-        # cross-distro and cross-host callers conservatively treat the mid-takeover owner as alive.
-        if "_" in fdistro:
+        if fhost == "nt":
+            return fhost, fpid, ""
+        resolved = _resolve_legacy_distro_tag(hparts[2])
+        if resolved is None:
             return "__ambiguous__", fpid, ""
-        return fhost, fpid, fdistro
+        return fhost, fpid, resolved
     return None, None, ""
 
 
@@ -682,11 +703,9 @@ def _release_single_lock_dir(lock_root, lock_dir, token):
     if _rename_dir_with_retry(lock_dir, trash):
         shutil.rmtree(trash, ignore_errors=True)
     else:
-        os.unlink(lock_dir / f"tok-{token}")
-        try:
-            os.rmdir(lock_dir)
-        except OSError:
-            pass
+        # Never unlink tok-<token> while leaving lock_dir behind (which would strand an empty directory);
+        # raise immediately so the caller observes the release failure and tok-<token> stays recoverable.
+        raise OSError(f"failed to release store lock {lock_dir} after retries")
 
 
 @contextlib.contextmanager

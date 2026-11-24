@@ -1932,8 +1932,44 @@ class ReferenceHarness(unittest.TestCase):
                 self.assertTrue(dead_dir.is_dir())
             finally:
                 dead_dir.rmdir()
-            # Ambiguous hyphenated legacy token (e.g. Ubuntu_24.04 during mid-takeover) must not be reclaimed.
-            self.assertEqual(ref_run._parse_token_identity("posix-123-Ubuntu_24.04-1")[0], "__ambiguous__")
+            # Mid-takeover mismatched-JSON legacy token from Ubuntu-24.04: refused from Debian (different distro),
+            # reclaimed from Ubuntu-24.04 when PID is dead; matching JSON passes exact "Ubuntu-24.04" to Windows wsl.exe.
+            mid_dir = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.midtest"
+            mid_dir.mkdir(exist_ok=True)
+            try:
+                (mid_dir / "tok-posix-99999999-Ubuntu_24.04-1").write_text(
+                    json.dumps({"pid": 88888888, "host": "posix", "distro": "Ubuntu-24.04", "token": "old"}),
+                    encoding="utf-8",
+                )
+                with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Debian"}):
+                    self.assertFalse(ref_run._try_clear_dead_lock(mid_dir, "claim-deb"))
+                self.assertTrue(mid_dir.is_dir())
+                with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu-24.04"}):
+                    self.assertTrue(ref_run._try_clear_dead_lock(mid_dir, "claim-ubu"))
+                self.assertFalse(mid_dir.exists())
+            finally:
+                shutil.rmtree(mid_dir, ignore_errors=True)
+
+            win_probe_dir = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.wintest"
+            win_probe_dir.mkdir(exist_ok=True)
+            try:
+                wtok = "posix-99999999-Ubuntu_24.04-2"
+                (win_probe_dir / f"tok-{wtok}").write_text(
+                    json.dumps({"pid": 99999999, "host": "posix", "distro": "Ubuntu-24.04", "token": wtok}),
+                    encoding="utf-8",
+                )
+                seen_cmds = []
+                def _fake_run(cmd, **kw):
+                    seen_cmds.append(cmd)
+                    return subprocess.CompletedProcess(cmd, 0, "DEAD\n", "")
+                with mock.patch.object(ref_run.os, "name", "nt"), \
+                     mock.patch.object(ref_run.shutil, "which", return_value="wsl.exe"), \
+                     mock.patch.object(ref_run.subprocess, "run", side_effect=_fake_run):
+                    self.assertTrue(ref_run._try_clear_dead_lock(win_probe_dir, "claim-win"))
+                self.assertTrue(any("-d" in c and "Ubuntu-24.04" in c for c in seen_cmds), msg=seen_cmds)
+            finally:
+                shutil.rmtree(win_probe_dir, ignore_errors=True)
+
             # Force directory rename failure during dead-lock reclamation -> original dead marker must be restored.
             dead_dir.mkdir(exist_ok=True)
             dead_tok = f"{host}.99999999.{ref_run._encode_distro(distro)}.0"
@@ -1945,14 +1981,18 @@ class ReferenceHarness(unittest.TestCase):
                 self.assertTrue((dead_dir / f"tok-{dead_tok}").is_file())
             shutil.rmtree(dead_dir, ignore_errors=True)
 
-            # Force directory rename failure during release -> release falls back to unlinking token and removes BOTH locks.
+            # Force directory rename failure during release -> raises OSError and leaves tok-* intact (never an empty dir).
             live_v2 = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockv2"
-            with mock.patch.object(ref_run, "_rename_dir_with_retry", return_value=False):
-                with ref_run._store_lock(tstore, timeout=5.0):
-                    self.assertTrue(dead_dir.is_dir())
-                    self.assertTrue(live_v2.is_dir())
-            self.assertFalse(dead_dir.exists())
-            self.assertFalse(live_v2.exists())
+            try:
+                with mock.patch.object(ref_run, "_rename_dir_with_retry", return_value=False):
+                    with self.assertRaises(OSError):
+                        with ref_run._store_lock(tstore, timeout=5.0):
+                            self.assertTrue(dead_dir.is_dir())
+                            self.assertTrue(live_v2.is_dir())
+                self.assertTrue(any(p.name.startswith("tok-") for p in dead_dir.iterdir()))
+            finally:
+                shutil.rmtree(dead_dir, ignore_errors=True)
+                shutil.rmtree(live_v2, ignore_errors=True)
 
             # PermissionError while releasing .lockv2 must still release .lockdir so the primary lock is never stranded.
             real_rel = ref_run._release_single_lock_dir
