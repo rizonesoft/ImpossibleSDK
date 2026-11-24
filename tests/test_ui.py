@@ -1868,8 +1868,8 @@ class ReferenceHarness(unittest.TestCase):
 
         # 9. Interrupted swap (store missing, owned .<name>.backup present) is recovered atomically across all
         #    dead lock formats: current tok-*, legacy tokenless owner.json, legacy tokenized owner.json,
-        #    legacy two-file (owner.json + plain tok-*), legacy .lockv2, and empty lockdir.
-        for mode in ("current", "legacy-tokenless", "legacy-tokenized", "legacy-two-file", "legacy-v2", "empty"):
+        #    legacy two-file (owner.json + plain tok-*), and legacy b78e066 hyphenated .lockv2.
+        for mode in ("current", "legacy-tokenless", "legacy-tokenized", "legacy-two-file", "legacy-v2"):
             with tempfile.TemporaryDirectory() as tmp:
                 tstore = Path(tmp) / "reference"
                 tbackup = Path(tmp) / ".reference.backup"
@@ -1880,8 +1880,15 @@ class ReferenceHarness(unittest.TestCase):
                 stale_lock.mkdir(exist_ok=True)
                 host = "nt" if os.name == "nt" else "posix"
                 distro = os.environ.get("WSL_DISTRO_NAME", "") if host == "posix" else ""
-                if mode in ("current", "legacy-v2"):
+                if mode == "current":
                     dead_tok = f"{host}.99999999.{ref_run._encode_distro(distro)}.0"
+                    (stale_lock / f"tok-{dead_tok}").write_text(json.dumps({
+                        "pid": 99999999, "host": host, "distro": distro, "token": dead_tok, "created": 0,
+                    }), encoding="utf-8")
+                elif mode == "legacy-v2":
+                    # Actual b78e066 hyphenated token format with matching JSON owner record.
+                    dtag = (distro or "none").replace("-", "_") if host == "posix" else "win"
+                    dead_tok = f"{host}-99999999-{dtag}-0"
                     (stale_lock / f"tok-{dead_tok}").write_text(json.dumps({
                         "pid": 99999999, "host": host, "distro": distro, "token": dead_tok, "created": 0,
                     }), encoding="utf-8")
@@ -1905,7 +1912,9 @@ class ReferenceHarness(unittest.TestCase):
                 self.assertEqual(len(recovered["cases"]), len(specs))
                 self.assertEqual(len(rframes["button-Normal-Dark.bgra"]), 160 * 64 * 4)
 
-        # 9b. Fault-injection tests for lock rename failure (claim rollback + release-by-unlink) and live .lockv2 exclusion.
+        # 9b. Fault-injection tests: empty legacy .lockdir blocks entry (never overwritten by rename), ambiguous
+        #     mid-takeover hyphenated token is conservatively preserved, claim rollback + release-by-unlink work,
+        #     and live .lockv2 blocks entry.
         from unittest import mock
         with tempfile.TemporaryDirectory() as tmp:
             tstore = Path(tmp) / "lock_fault_store"
@@ -1913,8 +1922,19 @@ class ReferenceHarness(unittest.TestCase):
             key = hashlib.sha256(str(tstore.resolve()).encode("utf-8")).hexdigest()[:16]
             host = "nt" if os.name == "nt" else "posix"
             distro = os.environ.get("WSL_DISTRO_NAME", "") if host == "posix" else ""
-            # Force directory rename failure during dead-lock reclamation -> original dead marker must be restored.
             dead_dir = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
+            # Empty .lockdir (held by older mkdir-only publisher) must block acquisition and never be overwritten.
+            dead_dir.mkdir(exist_ok=True)
+            try:
+                with self.assertRaises(TimeoutError):
+                    with ref_run._store_lock(tstore, timeout=0.15):
+                        pass
+                self.assertTrue(dead_dir.is_dir())
+            finally:
+                dead_dir.rmdir()
+            # Ambiguous hyphenated legacy token (e.g. Ubuntu_24.04 during mid-takeover) must not be reclaimed.
+            self.assertEqual(ref_run._parse_token_identity("posix-123-Ubuntu_24.04-1")[0], "__ambiguous__")
+            # Force directory rename failure during dead-lock reclamation -> original dead marker must be restored.
             dead_dir.mkdir(exist_ok=True)
             dead_tok = f"{host}.99999999.{ref_run._encode_distro(distro)}.0"
             (dead_dir / f"tok-{dead_tok}").write_text(json.dumps({

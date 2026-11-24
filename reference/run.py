@@ -533,11 +533,32 @@ def _parse_token_identity(token):
     if len(hparts) >= 4 and hparts[0] in ("nt", "posix") and hparts[1].isdigit():
         fhost, fpid = hparts[0], int(hparts[1])
         fdistro = hparts[2] if (fhost == "posix" and hparts[2] not in ("none", "win")) else ""
-        # Underscore in legacy distro_tag may be a substituted hyphen; pass "" so cross-host check stays conservative.
+        # Underscore in legacy distro_tag is ambiguous (could be a substituted hyphen); mark as ambiguous so
+        # cross-distro and cross-host callers conservatively treat the mid-takeover owner as alive.
         if "_" in fdistro:
-            fdistro = ""
+            return "__ambiguous__", fpid, ""
         return fhost, fpid, fdistro
     return None, None, ""
+
+
+def _rename_dir_noreplace(src, dst):
+    """Atomically rename src -> dst, failing with FileExistsError if dst exists (even if dst is an empty directory)."""
+    if os.name == "nt":
+        os.rename(src, dst)
+        return
+    if sys.platform.startswith("linux"):
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        AT_FDCWD = -100
+        RENAME_NOREPLACE = 1
+        rc = libc.renameat2(AT_FDCWD, os.fsencode(src), AT_FDCWD, os.fsencode(dst), RENAME_NOREPLACE)
+        if rc == 0:
+            return
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err), str(src), None, str(dst))
+    if Path(dst).exists():
+        raise FileExistsError(str(dst))
+    os.rename(src, dst)
 
 
 def _rename_dir_with_retry(src, dst, attempts=5):
@@ -552,39 +573,42 @@ def _rename_dir_with_retry(src, dst, attempts=5):
 
 
 def _try_clear_dead_lock(lock_dir, my_token):
-    """Atomically clear a provably dead lockdir (current tok-*, two-file tok+owner.json, or legacy owner.json)."""
+    """Atomically clear a provably dead lockdir (current tok-*, legacy b78e066 tok-*, two-file tok+owner.json, or owner.json)."""
     try:
         entries = list(lock_dir.iterdir())
     except OSError:
         return False
     if not entries:
-        # Empty directory left by an interrupted legacy release: rmdir removes ONLY an empty directory.
-        try:
-            os.rmdir(lock_dir)
-            return True
-        except OSError:
-            return False
+        # Never remove an empty directory: an older mkdir-only publisher (c5ae204) holds an empty .lockdir while live.
+        return False
 
     owner_file = lock_dir / "owner.json"
-    # Case 1: current-format tok-<token>, interrupted .reclaimed-<token>, or two-file legacy tok-* + owner.json.
+    # Case 1: current-format tok-<token>, interrupted .reclaimed-<token>, legacy b78e066 tok-*, or two-file tok-* + owner.json.
     tok_files = [p for p in entries if p.is_file() and (p.name.startswith("tok-") or p.name.startswith(".reclaimed-"))]
     if tok_files:
         target = tok_files[0]
         raw_tok = target.name[4:] if target.name.startswith("tok-") else target.name[11:]
-        host, pid, distro = _parse_token_identity(raw_tok)
+        host = pid = None
+        distro = ""
+        # Prefer the complete JSON record inside target when its token matches the filename (preserves exact hyphenated distro).
+        try:
+            owner = json.loads(target.read_text(encoding="utf-8"))
+            if isinstance(owner, dict) and owner.get("token") == raw_tok:
+                host, pid, distro = owner.get("host"), owner.get("pid"), owner.get("distro", "")
+        except (OSError, ValueError):
+            pass
         if host is None:
+            host, pid, distro = _parse_token_identity(raw_tok)
+        if host == "__ambiguous__":
+            return False
+        if host is None and owner_file.is_file():
             try:
-                owner = json.loads(target.read_text(encoding="utf-8"))
+                owner = json.loads(owner_file.read_text(encoding="utf-8"))
                 host, pid, distro = owner.get("host"), owner.get("pid"), owner.get("distro", "")
             except (OSError, ValueError):
-                if owner_file.is_file():
-                    try:
-                        owner = json.loads(owner_file.read_text(encoding="utf-8"))
-                        host, pid, distro = owner.get("host"), owner.get("pid"), owner.get("distro", "")
-                    except (OSError, ValueError):
-                        return False
-                else:
-                    return False
+                return False
+        if host is None:
+            return False
         if _pid_is_alive_cross_host(pid, host, distro):
             return False
         # CAS claim via rename on the exact dead marker filename; roll back if directory rename fails.
@@ -638,7 +662,7 @@ def _acquire_single_lock_dir(lock_root, lock_dir, key, host, distro, token, dead
         )
         while True:
             try:
-                os.rename(prep, lock_dir)
+                _rename_dir_noreplace(prep, lock_dir)
                 return
             except OSError:
                 if lock_dir.is_dir() and _try_clear_dead_lock(lock_dir, token):
