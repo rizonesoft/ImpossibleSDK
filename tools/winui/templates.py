@@ -170,6 +170,16 @@ ELEMENT_OWN_PROPS = {
         "VerticalScrollMode", "ZoomMode",
     },
     "Thumb": CONTROL_PROPS,
+    "ToggleSwitch": CONTROL_PROPS | {"Header", "HeaderTemplate", "OffContent", "OffContentTemplate", "OnContent", "OnContentTemplate"},
+    "TextBox": CONTROL_PROPS | {
+        "Description", "Header", "HeaderTemplate", "IsSpellCheckEnabled", "IsTextPredictionEnabled",
+        "PlaceholderText", "SelectionFlyout", "SelectionHighlightColor", "Text", "TextAlignment", "TextWrapping",
+    },
+    "ListView": CONTROL_PROPS | {
+        "Footer", "FooterTemplate", "FooterTransitions", "Header", "HeaderTemplate", "HeaderTransitions",
+        "IsSwipeEnabled", "ItemContainerTransitions", "ItemsPanel",
+    },
+    "ListViewItem": CONTENT_CONTROL_PROPS,
     "FontIcon": {"FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground", "Glyph"},
     "ListViewItemPresenter": PANEL_PROPS | {
         "CheckBoxBorderBrush", "CheckBoxBrush", "CheckBoxCornerRadius", "CheckBoxDisabledBorderBrush",
@@ -281,7 +291,7 @@ class TemplateError(Exception):
 class Node:
     """XML node with exact source file, namespace, opening line, and consumption tracking."""
 
-    def __init__(self, tag, ns, attrs, file, line, attr_lines, ns_map=None):
+    def __init__(self, tag, ns, attrs, file, line, attr_lines, ns_map=None, attr_ns=None):
         self.tag = tag
         self.ns = ns
         self.attrs = attrs
@@ -289,6 +299,7 @@ class Node:
         self.line = line
         self.attr_lines = attr_lines
         self.ns_map = ns_map or {}
+        self.attr_ns = attr_ns or {}
         self.children = []
         self.text = ""
         self.visited = False
@@ -430,6 +441,7 @@ def parse_xaml(text, filename):
             el_local = local_name(tag)
         xaml_allowed = {"Name", "Key", "DeferLoadStrategy", "Load"}
         clean_attrs = {}
+        attr_ns = {}
         for k, v in attrs.items():
             if " " in k:
                 ns, short = k.rsplit(" ", 1)
@@ -456,8 +468,9 @@ def parse_xaml(text, filename):
             if short in clean_attrs:
                 raise TemplateError(f"{filename}:{line_no}: duplicate attribute {short!r}")
             clean_attrs[short] = v
+            attr_ns[short] = ns
             attr_lines[short] = line_no
-        node = Node(el_local, el_ns, clean_attrs, filename, base_line, attr_lines, ns_map=cur_ns)
+        node = Node(el_local, el_ns, clean_attrs, filename, base_line, attr_lines, ns_map=cur_ns, attr_ns=attr_ns)
         if stack:
             stack[-1].children.append(node)
         stack.append(node)
@@ -771,7 +784,8 @@ class Compiler:
 
         return {"kind": "IM_TVAL_ENUM_STR", "a": 0, "b": 0, "c": 0, "d": 0, "text": text, "fallback": None}
 
-    def compile_animation(self, node):
+    def compile_animation(self, node, named_elements=None):
+        named_elements = named_elements or {}
         node.visit()
         if node.tag not in ANIMATION_KINDS:
             raise TemplateError(f"{node.file}:{node.line}: unknown animation {node.tag!r}")
@@ -780,6 +794,12 @@ class Compiler:
         target_prop_key, target_prop = node.take_one_of("Storyboard.TargetProperty", "TargetProperty")
         if target_prop is not None:
             target_prop = clean_target_property(target_prop, node.file, node.attr_line(target_prop_key))
+            if target_name and target_name in named_elements and "(" not in target_prop and "." not in target_prop:
+                target_tag = named_elements[target_name]
+                if target_prop not in allowed_props_for(target_tag):
+                    raise TemplateError(
+                        f"{node.file}:{node.attr_line(target_prop_key)}: property {target_prop!r} is not supported on {target_tag} ({target_name})"
+                    )
         duration_ms = 0
         dur_raw = node.take("Duration")
         if dur_raw is not None:
@@ -949,7 +969,7 @@ class Compiler:
                             sc.visit()
                             sc.take("Name")
                             for anim in sc.children:
-                                self.compile_animation(anim)
+                                self.compile_animation(anim, named_elements=named_elements)
                         else:
                             raise TemplateError(f"{sc.file}:{sc.line}: unexpected element {sc.tag!r} in VisualState")
                     self.states.append({
@@ -980,7 +1000,7 @@ class Compiler:
                         tc.visit()
                         tc.take("Name")
                         for anim in tc.children:
-                            self.compile_animation(anim)
+                            self.compile_animation(anim, named_elements=named_elements)
                     else:
                         raise TemplateError(f"{tc.file}:{tc.line}: unexpected element {tc.tag!r} in VisualTransition")
                 self.transitions.append({
@@ -1125,6 +1145,8 @@ class Compiler:
     def compile_style(self, style_node, key_override=None, enum_id=None):
         style_node.visit()
         style_key = style_node.take("Key")
+        if "Name" in style_node.attrs and style_node.attr_ns.get("Name") != "http://schemas.microsoft.com/winfx/2006/xaml":
+            raise TemplateError(f"{style_node.file}:{style_node.attr_line('Name')}: Style Name must use the x: namespace")
         style_name = style_node.take("Name")
         target_type = style_node.take("TargetType", "")
         style_node.take("BasedOn")

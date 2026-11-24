@@ -874,6 +874,40 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_uk.returncode, 0)
         self.assertIn(f"{path_uk}:2:", res_uk.stderr)
 
+        # Unqualified Name on Style and storyboard animating RadiusX on a Grid must be rejected; ListViewItem.Content and TextBox.Text setters must be accepted.
+        xaml_unq_sname = (
+            '<Style\n'
+            '  Name="Bogus" TargetType="Button">\n'
+            '  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Grid /></ControlTemplate></Setter.Value></Setter>\n'
+            '</Style>\n'
+        )
+        res_usn, path_usn = self._run_fixture(xaml_unq_sname)
+        self.assertNotEqual(res_usn.returncode, 0)
+        self.assertIn(f"{path_usn}:2:", res_usn.stderr)
+
+        xaml_anim_owner = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <DoubleAnimation Storyboard.TargetName="R"\n'
+            '      Storyboard.TargetProperty="RadiusX" To="4" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_ao, path_ao = self._run_fixture(xaml_anim_owner)
+        self.assertNotEqual(res_ao.returncode, 0)
+        self.assertIn(f"{path_ao}:4:", res_ao.stderr)
+
+        for target_type, prop_name in (("ListViewItem", "Content"), ("TextBox", "Text")):
+            xaml_ok_setter = (
+                f'<ControlTemplate TargetType="{target_type}">\n'
+                '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+                f'    <Setter Property="{prop_name}" Value="hi" />\n'
+                '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+                '</ControlTemplate>\n'
+            )
+            res_ok, _ = self._run_fixture(xaml_ok_setter)
+            self.assertEqual(res_ok.returncode, 0, res_ok.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3
