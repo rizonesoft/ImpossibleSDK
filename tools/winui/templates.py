@@ -98,7 +98,7 @@ KEYFRAME_KINDS = {
 
 BINDING_MODES = {"OneWay", "TwoWay", "OneTime"}
 
-# Known properties on elements, styles, and setters across the four controls.
+# Known properties on UI elements, styles, and visual-state setters across the four controls.
 KNOWN_PROPS = {
     "AnimatedIcon.State", "AutomationProperties.AccessibilityView", "Background", "BackgroundSizing",
     "BorderBrush", "BorderThickness", "BringIntoViewOnFocusChange", "CheckBoxBorderBrush",
@@ -108,19 +108,19 @@ KNOWN_PROPS = {
     "CheckBoxSelectedPointerOverBrush", "CheckBoxSelectedPressedBrush", "CheckBrush",
     "CheckDisabledBrush", "CheckMode", "CheckPressedBrush", "Content", "ContentMargin",
     "ContentTemplate", "ContentTransitions", "Control.IsTemplateFocusTarget", "CornerRadius",
-    "DeferLoadStrategy", "Direction", "DisabledOpacity", "DragBackground", "DragForeground",
-    "DragOpacity", "Duration", "EnableDependentAnimation", "Fill", "FocusBorderBrush",
+    "DeferLoadStrategy", "DisabledOpacity", "DragBackground", "DragForeground",
+    "DragOpacity", "Duration", "Fill", "FocusBorderBrush",
     "FocusSecondaryBorderBrush", "FocusVisualMargin", "FocusVisualPrimaryBrush",
     "FocusVisualPrimaryThickness", "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness",
     "FontFamily", "FontSize", "FontStyle", "FontWeight", "Footer", "FooterTemplate",
-    "FooterTransitions", "Foreground", "From", "FromHorizontalOffset", "GeneratedDuration",
+    "FooterTransitions", "Foreground",
     "Glyph", "Grid.Column", "Grid.ColumnSpan", "Grid.Row", "Grid.RowSpan", "Header",
     "HeaderTemplate", "HeaderTransitions", "Height", "HorizontalAlignment",
     "HorizontalContentAlignment", "HorizontalScrollBarVisibility", "HorizontalScrollMode",
     "IsDeferredScrollingEnabled", "IsHorizontalRailEnabled", "IsHorizontalScrollChainingEnabled",
     "IsHitTestVisible", "IsStaggeringEnabled", "IsSwipeEnabled", "IsTabStop",
     "IsTextScaleFactorEnabled", "IsVerticalRailEnabled", "IsVerticalScrollChainingEnabled",
-    "ItemContainerTransitions", "ItemsPanel", "Key", "KeySpline", "KeyTime", "Load",
+    "ItemContainerTransitions", "ItemsPanel", "Load",
     "ManipulationMode", "Margin", "MaxWidth", "MinHeight", "MinWidth", "Name", "Opacity",
     "Orientation", "Padding", "PlaceholderBackground", "PointerOverBackground",
     "PointerOverForeground", "PressedBackground", "RadiusX", "RadiusY", "Rect",
@@ -135,8 +135,8 @@ KNOWN_PROPS = {
     "SelectionIndicatorCornerRadius", "SelectionIndicatorDisabledBrush",
     "SelectionIndicatorPointerOverBrush", "SelectionIndicatorPressedBrush",
     "SelectionIndicatorVisualEnabled", "SelectionHighlightColor", "Stroke", "StrokeThickness",
-    "Style", "TabNavigation", "Target", "TargetName", "TargetType", "Template", "Text",
-    "TextAlignment", "TextWrapping", "To", "ToOffset", "UseSystemFocusVisuals", "Value",
+    "Style", "TabNavigation", "Template", "Text",
+    "TextAlignment", "TextWrapping", "UseSystemFocusVisuals",
     "VerticalAlignment", "VerticalContentAlignment", "VerticalScrollBarVisibility",
     "VerticalScrollMode", "Visibility", "Width", "ZoomMode", "Clip", "BackgroundTransition",
     "X", "Y", "ScaleX", "ScaleY", "TranslateX", "TranslateY", "CenterX", "CenterY",
@@ -805,6 +805,8 @@ class Compiler:
                                             if s.ns_map.get(pfx) != "using:Microsoft.UI.Xaml.Controls" or rest_prop != "AnimatedIcon.State":
                                                 raise TemplateError(f"{s.file}:{prop_line}: unsupported prefixed Setter Target {tgt!r}")
                                             prop = rest_prop
+                                        elif "." in inner_prop and inner_prop in KNOWN_PROPS:
+                                            prop = inner_prop
                                         else:
                                             raise TemplateError(f"{s.file}:{prop_line}: unsupported Setter Target {tgt!r}")
                                     elif ":" in prop_part:

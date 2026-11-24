@@ -798,6 +798,29 @@ class TemplateCompiler(unittest.TestCase):
         res_bbg, _ = self._run_fixture(xaml_border_bg)
         self.assertEqual(res_bbg.returncode, 0, res_bbg.stderr)
 
+        # Keyframe-only property (KeyTime) must be rejected on VisualState Setter Target, while attached (Grid.Row) is accepted.
+        xaml_kt = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter\n'
+            '      Target="R.KeyTime" Value="0" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_kt, path_kt = self._run_fixture(xaml_kt)
+        self.assertNotEqual(res_kt.returncode, 0)
+        self.assertIn(f"{path_kt}:4:", res_kt.stderr)
+
+        xaml_grid_row = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(Grid.Row)" Value="1" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_gr, _ = self._run_fixture(xaml_grid_row)
+        self.assertEqual(res_gr.returncode, 0, res_gr.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3
