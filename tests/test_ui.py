@@ -2516,6 +2516,19 @@ class ReferenceHarness(unittest.TestCase):
                 installed_font_ranges={"inter": [[0x20, 0x7E]]},
                 captured_frame={"id": "tb-copy-paste-ok", "rendered_text": [{"element": "TextBox", "font": "Inter", "text": "AA"}]},
             )
+            # Grid RowDefinitions/ColumnDefinitions and attached layout props are non-text and publish without FontFamily;
+            # custom template_xaml is refused from committed store publication.
+            ref_run.check_no_prohibited_assets(
+                {"id": "row-grid", "control": "Grid", "properties": {"RowDefinitions": [40, 40], "ColumnDefinitions": ["*", "Auto"]}},
+                require_installed=True, installed_fonts=[], installed_font_ranges={},
+            )
+            with self.assertRaises(ValueError) as cm_tpl:
+                ref_run.check_no_prohibited_assets(
+                    {"id": "tpl-img", "control": "Button", "template_xaml": "<ControlTemplate><Image/></ControlTemplate>"},
+                    require_installed=True, installed_fonts=[], installed_font_ranges={},
+                    captured_frame={"id": "tpl-img", "rendered_text": []},
+                )
+            self.assertIn("template_xaml", str(cm_tpl.exception))
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},
@@ -3759,6 +3772,8 @@ class LiveReference(unittest.TestCase):
                 self.assertEqual(cp_state["selection_length"], 0)
                 undo_state = by1["tb-copy-paste-undo-live"]["script_log"]["FinalState"]
                 self.assertIn(undo_state["text"], ("A", "a"))
+                self.assertEqual(undo_state["selection_start"], 1)
+                self.assertEqual(undo_state["selection_length"], 0)
 
                 # Live RichEditBox formatting: AllCaps -> 'A', used dotted TabLeader -> refused, unused TabLeader -> accepted.
                 caps_rt = by1["reb-allcaps-live"].get("rendered_text", [])
@@ -3811,8 +3826,10 @@ class LiveReference(unittest.TestCase):
                 self.assertIn("btn-trans-timeout", cm_trto.exception.stderr)
                 self.assertIn("Pressed", cm_trto.exception.stderr)
 
-                # OpenType name-table discovery on the capture host populates real installed family names.
-                self.assertTrue(any(f in m1.get("installed_fonts", []) for f in ("segoe ui", "arial", "tahoma")))
+                # OpenType name-table discovery on the capture host populates real registered installed family names.
+                host_fonts = set(m1.get("installed_fonts", []))
+                self.assertTrue(any(f in host_fonts for f in ("segoe ui", "arial", "tahoma")))
+                self.assertTrue(set(m1.get("installed_font_ranges", {}).keys()).issubset(host_fonts))
 
                 # Generic property dispatch verifies actual configured values on ToggleButton, ProgressBar, Slider, and ComboBox.
                 self.assertIs(by1["prop-togglebtn"].get("is_checked"), True)
@@ -3913,17 +3930,35 @@ class LiveReference(unittest.TestCase):
                 finfo = json.loads(r_info.stdout)
                 self.assertEqual(finfo[0]["families"], ["inter"])
                 self.assertEqual(finfo[0]["ranges"], [[0x41, 0x4C], [0x4E, 0x5A]])
-                # Covered 'A' passes; gid==0 fallback 'M' fails publication guard using the extracted face inventory.
-                ref_run.check_no_prohibited_assets(
-                    {"id": "font-ok", "control": "TextBlock", "properties": {"Text": "A", "FontFamily": "Inter"}},
-                    require_installed=True, installed_fonts=finfo[0]["families"],
-                    installed_font_ranges={"inter": finfo[0]["ranges"]},
+                # Covered 'A' passes publish_store; gid==0 fallback 'M' fails publish_store using the extracted face inventory.
+                pub_f_fresh = Path(tmp) / "pub_font_fresh"
+                pub_f_fresh.mkdir()
+                sample_bgra = by1["tb-trim-fit-live"]["file"]
+                shutil.copy2(out1 / sample_bgra, pub_f_fresh / sample_bgra)
+                ok_frame = {**by1["tb-trim-fit-live"], "id": "font-ok", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "A"}]}
+                (pub_f_fresh / "cases.json").write_text(json.dumps({
+                    "scale": 1.0,
+                    "installed_fonts": finfo[0]["families"],
+                    "installed_font_ranges": {"inter": finfo[0]["ranges"]},
+                    "cases": [ok_frame],
+                }), encoding="utf-8")
+                pub_f_store = Path(tmp) / "pub_font_store"
+                ref_run.publish_store(
+                    pub_f_fresh, pub_f_store,
+                    {"font-ok": {"id": "font-ok", "control": "TextBlock", "properties": {"Text": "A", "FontFamily": "Inter"}}},
                 )
+                self.assertTrue((pub_f_store / "cases.json").is_file())
+                miss_frame = {**by1["tb-trim-fit-live"], "id": "font-miss", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "M"}]}
+                (pub_f_fresh / "cases.json").write_text(json.dumps({
+                    "scale": 1.0,
+                    "installed_fonts": finfo[0]["families"],
+                    "installed_font_ranges": {"inter": finfo[0]["ranges"]},
+                    "cases": [miss_frame],
+                }), encoding="utf-8")
                 with self.assertRaises(ValueError) as cm_gid0:
-                    ref_run.check_no_prohibited_assets(
-                        {"id": "font-miss", "control": "TextBlock", "properties": {"Text": "M", "FontFamily": "Inter"}},
-                        require_installed=True, installed_fonts=finfo[0]["families"],
-                        installed_font_ranges={"inter": finfo[0]["ranges"]},
+                    ref_run.publish_store(
+                        pub_f_fresh, pub_f_store,
+                        {"font-miss": {"id": "font-miss", "control": "TextBlock", "properties": {"Text": "M", "FontFamily": "Inter"}}},
                     )
                 self.assertIn("U+004D", str(cm_gid0.exception))
 

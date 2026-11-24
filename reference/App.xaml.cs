@@ -733,6 +733,7 @@ public partial class App : Application
                 throw new InvalidOperationException($"{caseId}: GoToState('{stateName}') returned false on {control.GetType().Name}");
             }
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             if (transCompleted != null)
             {
                 var finished = await Task.WhenAny(transCompleted.Task, Task.Delay(timeoutMs));
@@ -745,14 +746,18 @@ public partial class App : Application
                     throw new InvalidOperationException($"{caseId}: transition storyboard for state '{stateName}' did not complete within {timeoutMs}ms (use_transitions={useTransitions})");
                 }
             }
-            else if (transition != null && transition.GeneratedDuration.HasTimeSpan && transition.GeneratedDuration.TimeSpan > TimeSpan.Zero)
+            if (transition != null && transition.GeneratedDuration.HasTimeSpan && transition.GeneratedDuration.TimeSpan > TimeSpan.Zero)
             {
                 int genMs = (int)Math.Ceiling(transition.GeneratedDuration.TimeSpan.TotalMilliseconds);
                 if (genMs > timeoutMs)
                 {
                     throw new InvalidOperationException($"{caseId}: transition duration ({genMs}ms) for state '{stateName}' exceeds timeout {timeoutMs}ms");
                 }
-                await Task.Delay(genMs + 40);
+                int remaining = genMs - (int)sw.ElapsedMilliseconds;
+                if (remaining > 0)
+                {
+                    await Task.Delay(remaining + 40);
+                }
                 storyboardCompleted = true;
             }
 
@@ -1011,7 +1016,13 @@ public partial class App : Application
             }
             else if (platformId == 1 && encodingId == 0)
             {
-                decoded = System.Text.Encoding.Latin1.GetString(data, start, len);
+                bool pureAscii = true;
+                for (int bi = 0; bi < len; bi++)
+                {
+                    byte b = data[start + bi];
+                    if (b < 0x20 || b > 0x7E) { pureAscii = false; break; }
+                }
+                if (pureAscii) decoded = System.Text.Encoding.ASCII.GetString(data, start, len);
             }
             if (string.IsNullOrWhiteSpace(decoded)) continue;
             string norm = decoded.Trim().ToLowerInvariant();
@@ -1024,7 +1035,7 @@ public partial class App : Application
         return result.OrderBy(s => s, StringComparer.Ordinal).ToList();
     }
 
-    private static List<(List<string> Families, List<int[]> Ranges)> ReadFontFileFaces(string fontPath)
+    private static List<(List<string> Families, List<int[]> Ranges)> ReadFontFileFaces(string fontPath, HashSet<string>? parseCmapOnlyFor = null)
     {
         var outFaces = new List<(List<string>, List<int[]>)>();
         if (!File.Exists(fontPath)) return outFaces;
@@ -1044,7 +1055,8 @@ public partial class App : Application
                 var fams = ReadSingleFaceFamilyNames(data, off);
                 if (fams.Count > 0)
                 {
-                    outFaces.Add((fams, ReadSingleFaceCmapRanges(data, off)));
+                    bool needCmap = parseCmapOnlyFor == null || fams.Any(f => parseCmapOnlyFor.Contains(f));
+                    outFaces.Add((fams, needCmap ? ReadSingleFaceCmapRanges(data, off) : new List<int[]>()));
                 }
             }
             return outFaces;
@@ -1052,7 +1064,8 @@ public partial class App : Application
         var singleFams = ReadSingleFaceFamilyNames(data, 0);
         if (singleFams.Count > 0)
         {
-            outFaces.Add((singleFams, ReadSingleFaceCmapRanges(data, 0)));
+            bool needCmap = parseCmapOnlyFor == null || singleFams.Any(f => parseCmapOnlyFor.Contains(f));
+            outFaces.Add((singleFams, needCmap ? ReadSingleFaceCmapRanges(data, 0) : new List<int[]>()));
         }
         return outFaces;
     }
@@ -1168,7 +1181,7 @@ public partial class App : Application
                                     Microsoft.UI.Text.VerticalCharacterAlignment.Top,
                                     Microsoft.UI.Text.PointOptions.ClientCoordinates,
                                     out var lineStartPt);
-                                double tabXPt = Math.Max(0.0, (tabPt.X - lineStartPt.X) * 72.0 / 96.0);
+                                double tabXPt = Math.Abs(tabPt.X - lineStartPt.X) * 72.0 / 96.0;
                                 float bestPos = float.MaxValue;
                                 var bestLeader = Microsoft.UI.Text.TabLeader.Spaces;
                                 for (int ti = 0; ti < pf.TabCount; ti++)
@@ -1250,6 +1263,24 @@ public partial class App : Application
                     ["element"] = string.IsNullOrEmpty(fi.Name) ? "FontIcon" : $"FontIcon:{fi.Name}",
                     ["font"] = fi.FontFamily?.Source ?? "",
                     ["text"] = fi.Glyph,
+                });
+            }
+            else if (obj is Image img && img.Source != null)
+            {
+                items.Add(new Dictionary<string, string>
+                {
+                    ["element"] = string.IsNullOrEmpty(img.Name) ? "Image" : $"Image:{img.Name}",
+                    ["font"] = "__unverified_image__",
+                    ["text"] = "Image",
+                });
+            }
+            else if (obj is BitmapIcon bi && bi.UriSource != null)
+            {
+                items.Add(new Dictionary<string, string>
+                {
+                    ["element"] = string.IsNullOrEmpty(bi.Name) ? "BitmapIcon" : $"BitmapIcon:{bi.Name}",
+                    ["font"] = "__unverified_image__",
+                    ["text"] = "BitmapIcon",
                 });
             }
             int count = VisualTreeHelper.GetChildrenCount(obj);
@@ -1479,18 +1510,7 @@ public partial class App : Application
         };
         var fontFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string winFontsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts");
-        string userFontsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "Windows", "Fonts");
-        foreach (var dir in new[] { winFontsDir, userFontsDir })
-        {
-            if (!Directory.Exists(dir)) continue;
-            foreach (var ext in new[] { "*.ttf", "*.otf", "*.ttc" })
-            {
-                foreach (var fp in Directory.GetFiles(dir, ext))
-                {
-                    fontFiles.Add(fp);
-                }
-            }
-        }
+        // Only scan font files registered in Windows Fonts registry keys (HKLM/HKCU); never trust unregistered stray files on disk.
         foreach (var rootKey in new[] { Microsoft.Win32.Registry.LocalMachine, Microsoft.Win32.Registry.CurrentUser })
         {
             using var fk = rootKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts");
@@ -1505,7 +1525,7 @@ public partial class App : Application
         }
         foreach (var fp in fontFiles)
         {
-            foreach (var (famNames, faceRanges) in ReadFontFileFaces(fp))
+            foreach (var (famNames, faceRanges) in ReadFontFileFaces(fp, permittedFamilies))
             {
                 foreach (var fam in famNames)
                 {

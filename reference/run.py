@@ -48,6 +48,11 @@ SAFE_NON_TEXT_PROPERTIES = {
     "fill", "stroke", "strokethickness", "stretch", "zindex",
     "fontfamily", "fontsize", "fontweight",
     "texttrimming", "textwrapping", "textalignment", "passwordrevealmode",
+    "rowdefinitions", "columndefinitions",
+    "grid.row", "grid.column", "grid.rowspan", "grid.columnspan",
+    "canvas.left", "canvas.top", "canvas.zindex",
+    "variablesizedwrapgrid.rowspan", "variablesizedwrapgrid.columnspan",
+    "itemwidth", "itemheight",
 }
 
 
@@ -317,6 +322,8 @@ def check_no_prohibited_assets(
     ctrl_l = ctrl.lower()
     if ctrl_l in FORBIDDEN_ASSET_CONTROLS:
         raise ValueError(f"{cid}: control {ctrl!r} uses a prohibited Microsoft glyph font and cannot be persisted")
+    if norm.get("template_xaml"):
+        raise ValueError(f"{cid}: custom template_xaml cannot be persisted to tests/reference/ without artwork/font provenance")
     _check_no_clipboard_paste(cid, norm.get("script"))
     props = norm.get("properties") or {}
     items = norm.get("items")
