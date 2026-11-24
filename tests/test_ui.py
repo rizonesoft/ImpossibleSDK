@@ -2473,6 +2473,19 @@ class ReferenceHarness(unittest.TestCase):
                     ]},
                 )
             self.assertIn("permitted non-Microsoft FontFamily", str(cm_reb_dec.exception))
+            # Clipboard paste chords (Control+V / Shift+Insert) are disallowed in reference scripts.
+            for bad_paste in (
+                [{"action": "focus"}, {"action": "key_press", "key": "V", "modifiers": ["Control"]}],
+                [{"action": "focus"}, {"action": "key_down", "key": "Shift"}, {"action": "key_press", "key": "Insert"}],
+            ):
+                with self.assertRaises(ValueError) as cm_paste:
+                    ref_run.check_no_prohibited_assets(
+                        {"id": "reb-paste", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}, "script": bad_paste},
+                        require_installed=True, installed_fonts=["inter"],
+                        installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                        captured_frame={"id": "reb-paste", "rendered_text": []},
+                    )
+                self.assertIn("clipboard paste", str(cm_paste.exception))
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},
@@ -3574,6 +3587,21 @@ class LiveReference(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError) as cm_nt:
                     ref_run.run_reference(exe, Path(tmp) / "out_no_tab", cases_path=no_tab_case, work_dir=build_tmp)
                 self.assertIn("IsTabStop=False", cm_nt.exception.stderr)
+
+                # Clipboard paste (Control+V) must be refused live by Script.cs (ambient clipboard is non-deterministic).
+                paste_case = Path(tmp) / "paste_refused.json"
+                paste_case.write_text(json.dumps({"cases": [{
+                    "id": "reb-paste-refused",
+                    "control": "RichEditBox",
+                    "theme": "Dark",
+                    "scale": 1.0,
+                    "frame": {"width": 180, "height": 64},
+                    "properties": {"FontFamily": "Inter", "Width": 140, "Height": 32, "IsTabStop": True},
+                    "script": [{"action": "focus"}, {"action": "key_press", "key": "V", "modifiers": ["Control"]}],
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as cm_lp:
+                    ref_run.run_reference(exe, Path(tmp) / "out_paste", cases_path=paste_case, work_dir=build_tmp)
+                self.assertIn("clipboard paste", cm_lp.exception.stderr)
 
                 # Verify C# ReadFontCmapRanges + IntersectRanges on real synthetic SFNT format-4 .ttf and 2-face .ttc:
                 # face 1 maps A..Z with 'M' (0x4D) explicitly mapped to glyph ID 0; face 2 maps A..F.

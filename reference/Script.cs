@@ -576,6 +576,21 @@ public static class Script
                             {
                                 throw new InvalidOperationException($"script step {i}: Control+Escape is disallowed in reference scripts (including across sequenced steps)");
                             }
+                            bool shiftActive = vk == VirtualKey.Shift
+                                || vk == VirtualKey.LeftShift
+                                || vk == VirtualKey.RightShift
+                                || heldKeys.Contains((ushort)VirtualKey.Shift)
+                                || heldKeys.Contains((ushort)VirtualKey.LeftShift)
+                                || heldKeys.Contains((ushort)VirtualKey.RightShift)
+                                || modVks.Contains((ushort)VirtualKey.Shift)
+                                || modVks.Contains((ushort)VirtualKey.LeftShift)
+                                || modVks.Contains((ushort)VirtualKey.RightShift);
+                            bool vActive = vk == VirtualKey.V || heldKeys.Contains((ushort)VirtualKey.V);
+                            bool insActive = vk == VirtualKey.Insert || heldKeys.Contains((ushort)VirtualKey.Insert);
+                            if ((ctrlActive && vActive) || (shiftActive && insActive))
+                            {
+                                throw new InvalidOperationException($"script step {i}: clipboard paste (Control+V / Shift+Insert) is disallowed in reference scripts (ambient clipboard state is non-deterministic)");
+                            }
                         }
                         if (!step.UseFocused && target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
                         {

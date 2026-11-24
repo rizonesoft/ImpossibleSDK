@@ -893,18 +893,21 @@ public partial class App : Application
                                 ["text"] = "ListMarker",
                             });
                         }
-                        for (int ti = 0; ti < pf.TabCount; ti++)
+                        if (runText.Contains('\t'))
                         {
-                            pf.GetTab(ti, out _, out _, out var leader);
-                            if (leader != Microsoft.UI.Text.TabLeader.Spaces)
+                            for (int ti = 0; ti < pf.TabCount; ti++)
                             {
-                                items.Add(new Dictionary<string, string>
+                                pf.GetTab(ti, out _, out _, out var leader);
+                                if (leader != Microsoft.UI.Text.TabLeader.Spaces)
                                 {
-                                    ["element"] = elemName,
-                                    ["font"] = "__unverified_rich_decoration__",
-                                    ["text"] = "TabLeader",
-                                });
-                                break;
+                                    items.Add(new Dictionary<string, string>
+                                    {
+                                        ["element"] = elemName,
+                                        ["font"] = "__unverified_rich_decoration__",
+                                        ["text"] = "TabLeader",
+                                    });
+                                    break;
+                                }
                             }
                         }
                     }
@@ -921,11 +924,18 @@ public partial class App : Application
                     {
                         string runFont = range.CharacterFormat?.Name ?? "";
                         if (string.IsNullOrEmpty(runFont)) runFont = fallbackFont;
+                        string emitText = runText;
+                        if (range.CharacterFormat != null
+                            && (range.CharacterFormat.AllCaps == Microsoft.UI.Text.FormatEffect.On
+                                || range.CharacterFormat.SmallCaps == Microsoft.UI.Text.FormatEffect.On))
+                        {
+                            emitText = runText.ToUpperInvariant();
+                        }
                         items.Add(new Dictionary<string, string>
                         {
                             ["element"] = elemName,
                             ["font"] = runFont,
-                            ["text"] = runText,
+                            ["text"] = emitText,
                         });
                     }
                     if (end <= pos) break;

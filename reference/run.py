@@ -240,6 +240,34 @@ _SHIFTED_DIGITS = {
 }
 
 
+def _check_no_clipboard_paste(cid, script):
+    ctrl_held = False
+    shift_held = False
+    for idx, step in enumerate(script or []):
+        if not isinstance(step, dict):
+            continue
+        act = str(step.get("action") or "").lower()
+        key_l = str(step.get("key") or "").lower()
+        if act == "key_up":
+            if key_l in ("control", "leftcontrol", "rightcontrol"):
+                ctrl_held = False
+            elif key_l in ("shift", "leftshift", "rightshift"):
+                shift_held = False
+            continue
+        if act not in ("key_press", "key_down"):
+            continue
+        mods = {str(m).lower() for m in (step.get("modifiers") or [])}
+        ctrl = ctrl_held or key_l in ("control", "leftcontrol", "rightcontrol") or bool(mods & {"control", "leftcontrol", "rightcontrol"})
+        shift = shift_held or key_l in ("shift", "leftshift", "rightshift") or bool(mods & {"shift", "leftshift", "rightshift"})
+        if (ctrl and key_l == "v") or (shift and key_l == "insert"):
+            raise ValueError(f"{cid}.script[{idx}]: clipboard paste (Control+V / Shift+Insert) is disallowed in reference scripts")
+        if act == "key_down":
+            if key_l in ("control", "leftcontrol", "rightcontrol"):
+                ctrl_held = True
+            elif key_l in ("shift", "leftshift", "rightshift"):
+                shift_held = True
+
+
 def _script_typed_chars(script):
     """Extract characters that key_press/key_down script actions may type into a control."""
     chars = []
@@ -288,6 +316,7 @@ def check_no_prohibited_assets(
     ctrl_l = ctrl.lower()
     if ctrl_l in FORBIDDEN_ASSET_CONTROLS:
         raise ValueError(f"{cid}: control {ctrl!r} uses a prohibited Microsoft glyph font and cannot be persisted")
+    _check_no_clipboard_paste(cid, norm.get("script"))
     props = norm.get("properties") or {}
     items = norm.get("items")
     if ctrl_l == "toggleswitch":
