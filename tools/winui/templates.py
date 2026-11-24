@@ -412,39 +412,34 @@ def strip_xml_prefix(name):
     return re.sub(r"\b[a-zA-Z_][\w-]*:", "", name)
 
 
-KNOWN_OWNERS = {
-    "UIElement", "FrameworkElement", "Control", "Panel", "Border", "Shape",
-    "SolidColorBrush", "TranslateTransform", "ScaleTransform", "CompositeTransform",
-    "Canvas", "Grid", "ScrollViewer", "ContentPresenter", "TextBlock",
-    "Rectangle", "Button", "Thumb", "FontIcon", "AnimatedIcon", "AutomationProperties",
-    "ListViewItemPresenter", "VisualStateManager",
+KNOWN_COMPOUND_TARGET_PROPS = {
+    "(Panel.Background).(SolidColorBrush.Color)",
+    "(Border.Background).(SolidColorBrush.Color)",
+    "(Shape.Fill).(SolidColorBrush.Color)",
+    "(Shape.Stroke).(SolidColorBrush.Color)",
+    "(UIElement.Opacity)",
+    "(UIElement.Visibility)",
+    "(TranslateTransform.X)",
+    "(TranslateTransform.Y)",
+    "(ScaleTransform.ScaleX)",
+    "(ScaleTransform.ScaleY)",
+    "(CompositeTransform.ScaleX)",
+    "(CompositeTransform.ScaleY)",
+    "(CompositeTransform.TranslateX)",
+    "(CompositeTransform.TranslateY)",
 }
 
 
 def clean_target_property(prop, file, line):
-    """Validate every segment of Storyboard.TargetProperty (e.g. '(Panel.Background).(SolidColorBrush.Color)')."""
-    stripped = strip_xml_prefix(prop.strip())
-    if not stripped:
+    """Validate Storyboard.TargetProperty against exact known properties and supported compound paths."""
+    raw = prop.strip()
+    if not raw:
         raise TemplateError(f"{file}:{line}: empty TargetProperty {prop!r}")
-    if stripped in KNOWN_PROPS:
-        return stripped
-    # Split compound property path into segments while preserving parenthesized Owner.Prop groups.
-    segments = [s for s in re.split(r"\)\.\(|\)\.|(?<!\()\.(?=\()", stripped) if s]
-    if not segments:
-        raise TemplateError(f"{file}:{line}: empty TargetProperty {prop!r}")
-    for raw_seg in segments:
-        seg = raw_seg.strip("()")
-        if not seg:
-            raise TemplateError(f"{file}:{line}: invalid TargetProperty {prop!r}")
-        if seg in KNOWN_PROPS:
-            continue
-        if "." in seg:
-            owner, member = seg.split(".", 1)
-            if owner not in KNOWN_OWNERS or member not in KNOWN_PROPS:
-                raise TemplateError(f"{file}:{line}: unknown property segment {seg!r} in {prop!r}")
-        else:
-            raise TemplateError(f"{file}:{line}: unknown property {seg!r} in {prop!r}")
-    return stripped
+    if ":" in raw:
+        raise TemplateError(f"{file}:{line}: unsupported prefixed TargetProperty {prop!r}")
+    if raw in KNOWN_PROPS or raw in KNOWN_COMPOUND_TARGET_PROPS:
+        return raw
+    raise TemplateError(f"{file}:{line}: unknown TargetProperty {prop!r}")
 
 
 class Compiler:
@@ -718,9 +713,6 @@ class Compiler:
                     sub.visit()
                     if len(sub.children) == 0:
                         raise TemplateError(f"{sub.file}:{sub.line}: expected value element in {sub.tag}")
-                    if len(sub.children) > 1:
-                        extra = sub.children[1]
-                        raise TemplateError(f"{extra.file}:{extra.line}: unexpected extra element {extra.tag!r} in {sub.tag}")
                     inner = sub.children[0]
                     inner.visit()
                     if inner.children:
@@ -730,6 +722,9 @@ class Compiler:
                         has_val = True
                     else:
                         raise TemplateError(f"{inner.file}:{inner.line}: unknown keyframe value element {inner.tag!r}")
+                    if len(sub.children) > 1:
+                        extra = sub.children[1]
+                        raise TemplateError(f"{extra.file}:{extra.line}: unexpected extra element {extra.tag!r} in {sub.tag}")
                 else:
                     raise TemplateError(f"{sub.file}:{sub.line}: unknown element {sub.tag!r} in {child.tag}")
             self.keyframes.append({
@@ -900,12 +895,12 @@ class Compiler:
                     child.visit()
                     if len(child.children) == 0:
                         raise TemplateError(f"{child.file}:{child.line}: expected ControlTemplate in Thumb.Template")
-                    if len(child.children) > 1:
-                        extra = child.children[1]
-                        raise TemplateError(f"{extra.file}:{extra.line}: unexpected extra element {extra.tag!r} in Thumb.Template")
                     ct = child.children[0]
                     if ct.tag != "ControlTemplate":
                         raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate in Thumb.Template, got {ct.tag!r}")
+                    if len(child.children) > 1:
+                        extra = child.children[1]
+                        raise TemplateError(f"{extra.file}:{extra.line}: unexpected extra element {extra.tag!r} in Thumb.Template")
                     nested_idx = self.compile_control_template(ct, key=f"{name or 'Thumb'}.Template", target_type="Thumb", style_setters=(0, 0), enum_id=None)
                     out_props.append({"name": "Template", "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{name or 'Thumb'}.Template", "fallback": None}})
                 elif child.tag in PROP_ELEMENT_TAGS:
@@ -1005,24 +1000,21 @@ class Compiler:
                 sv.visit()
                 if len(sv.children) == 0:
                     raise TemplateError(f"{sv.file}:{sv.line}: empty Setter.Value for {prop!r}")
+                inner = sv.children[0]
+                expected_tag = {"Template": "ControlTemplate", "ItemsPanel": "ItemsPanelTemplate", "ItemContainerTransitions": "TransitionCollection"}[prop]
+                if inner.tag != expected_tag:
+                    raise TemplateError(f"{inner.file}:{inner.line}: expected {expected_tag}, got {inner.tag!r}")
                 if len(sv.children) > 1:
                     extra = sv.children[1]
                     raise TemplateError(f"{extra.file}:{extra.line}: unexpected extra element {extra.tag!r} in Setter.Value")
-                inner = sv.children[0]
                 if prop == "Template":
                     if ct_node is not None:
                         raise TemplateError(f"{child.file}:{child.line}: duplicate Template Setter in Style")
-                    if inner.tag != "ControlTemplate":
-                        raise TemplateError(f"{inner.file}:{inner.line}: expected ControlTemplate, got {inner.tag!r}")
                     ct_node = inner
                 elif prop == "ItemsPanel":
-                    if inner.tag != "ItemsPanelTemplate":
-                        raise TemplateError(f"{inner.file}:{inner.line}: expected ItemsPanelTemplate, got {inner.tag!r}")
                     nested_idx = self.compile_control_template(inner, key=f"{key}.ItemsPanel", target_type=target_type, style_setters=(0, 0), enum_id=None)
                     local_setters.append({"target": None, "property": prop, "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{key}.ItemsPanel", "fallback": None}})
                 else:
-                    if inner.tag != "TransitionCollection":
-                        raise TemplateError(f"{inner.file}:{inner.line}: expected TransitionCollection, got {inner.tag!r}")
                     nested_idx = self.compile_control_template(inner, key=f"{key}.ItemContainerTransitions", target_type=target_type, style_setters=(0, 0), enum_id=None)
                     local_setters.append({"target": None, "property": prop, "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{key}.ItemContainerTransitions", "fallback": None}})
             elif "Value" in child.attrs:

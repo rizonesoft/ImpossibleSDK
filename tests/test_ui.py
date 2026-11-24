@@ -734,6 +734,45 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_dkf.returncode, 0)
         self.assertIn(f"{path_dkf}:6:", res_dkf.stderr)
 
+        # Invalid owner/member pairing, vendor-prefixed TargetProperty, and unknown first child before valid ControlTemplate must fail on exact lines.
+        xaml_bad_pair = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <ColorAnimationUsingKeyFrames Storyboard.TargetName="R"\n'
+            '      Storyboard.TargetProperty="(SolidColorBrush.Padding).(SolidColorBrush.Color)" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_bp, path_bp = self._run_fixture(xaml_bad_pair)
+        self.assertNotEqual(res_bp.returncode, 0)
+        self.assertIn(f"{path_bp}:4:", res_bp.stderr)
+
+        xaml_vtp = (
+            '<ControlTemplate xmlns:vendor="urn:vendor" TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <ColorAnimationUsingKeyFrames Storyboard.TargetName="R"\n'
+            '      Storyboard.TargetProperty="(vendor:Border.Background).(SolidColorBrush.Color)" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_vtp, path_vtp = self._run_fixture(xaml_vtp)
+        self.assertNotEqual(res_vtp.returncode, 0)
+        self.assertIn(f"{path_vtp}:4:", res_vtp.stderr)
+
+        xaml_first_bad = (
+            '<Style TargetType="Button">\n'
+            '  <Setter Property="Template">\n'
+            '    <Setter.Value>\n'
+            '      <Unknown />\n'
+            '      <ControlTemplate TargetType="Button"><Grid /></ControlTemplate>\n'
+            '    </Setter.Value>\n'
+            '  </Setter>\n'
+            '</Style>\n'
+        )
+        res_fb, path_fb = self._run_fixture(xaml_first_bad)
+        self.assertNotEqual(res_fb.returncode, 0)
+        self.assertIn(f"{path_fb}:4:", res_fb.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3
