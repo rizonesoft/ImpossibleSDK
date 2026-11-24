@@ -386,26 +386,41 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
         raise PackageDrift(
             f"case {case_spec.get('id')!r}: visual state {req_state!r} does not exist in compiled template {tpl!r}"
         )
+    cid = case_spec.get("id")
+    allowed_case_keys = {
+        "id", "case_group", "control", "style", "theme", "scale", "flow_direction",
+        "state", "use_transitions", "frame", "properties", "dump_tree",
+        "expected_elements", "expected_states", "expected_setters",
+    }
+    for ck, cv in case_spec.items():
+        if not isinstance(ck, str) or ck.lower() not in allowed_case_keys:
+            if cv is not None:
+                raise PackageDrift(f"case {cid!r}: compiled-template fallback does not support field {ck!r}")
     for field, actual in (("expected_elements", info["elem_count"]), ("expected_states", info["state_count"]), ("expected_setters", info["setter_count"])):
         if field in case_spec and case_spec[field] != actual:
-            raise PackageDrift(f"case {case_spec.get('id')!r}: {field}={case_spec[field]} != compiled {tpl!r} ({actual})")
-    fw, fh = _validate_frame_dict(case_spec.get("frame"), case_spec.get("id"))
+            raise PackageDrift(f"case {cid!r}: {field}={case_spec[field]} != compiled {tpl!r} ({actual})")
+    fw, fh = _validate_frame_dict(case_spec.get("frame"), cid)
     props = case_spec.get("properties") or {}
+    if not isinstance(props, dict):
+        raise PackageDrift(f"case {cid!r}: properties must be a JSON object")
     is_enabled = True
     def_bt = int(info.get("border_inset", 0))
     bt = (def_bt, def_bt, def_bt, def_bt)
     pad = (0, 0, 0, 0)
-    if isinstance(props, dict):
-        for pk, pv in props.items():
-            if not isinstance(pk, str):
-                continue
-            pl = pk.lower()
-            if pl == "isenabled" and isinstance(pv, bool):
-                is_enabled = pv
-            elif pl == "borderthickness":
-                bt = _parse_thickness_inset(pv)
-            elif pl == "padding":
-                pad = _parse_thickness_inset(pv)
+    for pk, pv in props.items():
+        if not isinstance(pk, str):
+            raise PackageDrift(f"case {cid!r}: non-string property key {pk!r}")
+        pl = pk.lower()
+        if pl == "isenabled":
+            if not isinstance(pv, bool):
+                raise PackageDrift(f"case {cid!r}: property {pk!r} must be a boolean")
+            is_enabled = pv
+        elif pl == "borderthickness":
+            bt = _parse_thickness_inset(pv)
+        elif pl == "padding":
+            pad = _parse_thickness_inset(pv)
+        else:
+            raise PackageDrift(f"case {cid!r}: compiled-template fallback does not support property {pk!r}")
     root_rect = {"X": 0, "Y": 0, "Width": fw, "Height": fh}
     raw_elems = info.get("elements", [])
     children_by_parent = {}

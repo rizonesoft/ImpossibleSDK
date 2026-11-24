@@ -120,11 +120,12 @@ public static class Dump
         }
         else
         {
-            var targetPeer = FrameworkElementAutomationPeer.CreatePeerForElement(targetRoot);
-            if (targetPeer != null)
+            var anchor = FindFirstPeerElement(targetRoot);
+            if (anchor.HasValue)
             {
-                var tb = targetPeer.GetBoundingRectangle();
-                var rel = targetRoot.TransformToVisual(frameRoot).TransformBounds(new Rect(0, 0, targetRoot.ActualWidth, targetRoot.ActualHeight));
+                var (anchorEl, anchorPeer) = anchor.Value;
+                var tb = anchorPeer.GetBoundingRectangle();
+                var rel = anchorEl.TransformToVisual(frameRoot).TransformBounds(new Rect(0, 0, anchorEl.ActualWidth, anchorEl.ActualHeight));
                 if (!tb.IsEmpty && !double.IsInfinity(tb.X) && !double.IsInfinity(tb.Y))
                 {
                     frameOrigin = new Point(tb.X - rel.X * totalScale, tb.Y - rel.Y * totalScale);
@@ -135,15 +136,66 @@ public static class Dump
         var peer = FrameworkElementAutomationPeer.CreatePeerForElement(targetRoot);
         if (peer == null)
         {
-            return new AutomationNode
+            var relBounds = targetRoot.TransformToVisual(frameRoot).TransformBounds(new Rect(0, 0, targetRoot.ActualWidth, targetRoot.ActualHeight));
+            var synthetic = new AutomationNode
             {
                 ControlType = targetRoot.GetType().Name,
                 Name = targetRoot.Name ?? "",
+                Rect = new RectDto
+                {
+                    X = Math.Round(relBounds.X, 3),
+                    Y = Math.Round(relBounds.Y, 3),
+                    Width = Math.Round(relBounds.Width, 3),
+                    Height = Math.Round(relBounds.Height, 3),
+                },
                 IsEnabled = targetRoot is Control c ? c.IsEnabled : true,
             };
+            CollectDescendantPeers(targetRoot, frameOrigin, inv, synthetic.Children);
+            return synthetic;
         }
 
         return WalkPeer(peer, frameOrigin, inv);
+    }
+
+    private static (FrameworkElement Element, AutomationPeer Peer)? FindFirstPeerElement(DependencyObject root)
+    {
+        if (root is FrameworkElement fe)
+        {
+            var p = FrameworkElementAutomationPeer.CreatePeerForElement(fe);
+            if (p != null)
+            {
+                return (fe, p);
+            }
+        }
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var found = FindFirstPeerElement(VisualTreeHelper.GetChild(root, i));
+            if (found.HasValue)
+            {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private static void CollectDescendantPeers(DependencyObject parent, Point frameOrigin, double invScale, List<AutomationNode> into)
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is FrameworkElement fe)
+            {
+                var p = FrameworkElementAutomationPeer.CreatePeerForElement(fe);
+                if (p != null)
+                {
+                    into.Add(WalkPeer(p, frameOrigin, invScale));
+                    continue;
+                }
+            }
+            CollectDescendantPeers(child, frameOrigin, invScale, into);
+        }
     }
 
     private static AutomationNode WalkPeer(AutomationPeer peer, Point frameOrigin, double invScale)

@@ -236,12 +236,20 @@ def check_no_prohibited_assets(case_spec):
         raise ValueError(f"{cid}: control {ctrl!r} uses a prohibited Microsoft glyph font and cannot be persisted")
     props = norm.get("properties") or {}
     items = norm.get("items")
+    if ctrl_l == "toggleswitch":
+        on_val = _ci_get(props, "oncontent", None)
+        off_val = _ci_get(props, "offcontent", None)
+        if on_val is None or off_val is None:
+            raise ValueError(
+                f"{cid}: ToggleSwitch omits OnContent/OffContent and would render stock Microsoft template labels; "
+                "set both to '' or provide explicit permitted content with a non-Microsoft FontFamily"
+            )
     # Any displayable content/text property (even numeric/bool like OnContent: 123) or any non-scalar/string property
-    # outside SAFE_NON_TEXT_PROPERTIES requires a permitted font; numeric/bool layout/appearance properties (e.g.
-    # Opacity: 0.5, RowSpacing: 4) cannot render text.
+    # outside SAFE_NON_TEXT_PROPERTIES requires a permitted font; empty strings ("") render no glyphs.
     has_non_allowlisted_prop = any(
         isinstance(k, str)
         and v is not None
+        and v != ""
         and (
             _is_displayable_content_property(k)
             or (k.lower() not in SAFE_NON_TEXT_PROPERTIES and not isinstance(v, (int, float, bool)))
@@ -378,20 +386,86 @@ def _publish_capture_output(src_dir, out_dir):
             shutil.rmtree(stage, ignore_errors=True)
 
 
-def validate_store_dir(store_dir, expected_specs=None, _locked=False):
+def compute_package_fingerprint(pkg_path=None, pin_path=None, template_c_path=None):
+    """Compute a deterministic provenance fingerprint binding stored frames to the WinUI package and template inputs."""
+    p_pkg = Path(pkg_path) if pkg_path else (HERE / "package.json")
+    p_pin = Path(pin_path) if pin_path else (ROOT / "tools/winui/pin.json")
+    p_tpl = Path(template_c_path) if template_c_path else (ROOT / "ui/template_data.c")
+    pkg = json.loads(p_pkg.read_text(encoding="utf-8"))
+    return {
+        "version": pkg.get("version"),
+        "winui_component": pkg.get("winui_component"),
+        "package_source_commit": pkg.get("package_source_commit"),
+        "package_sha256": hashlib.sha256(p_pkg.read_bytes()).hexdigest(),
+        "pin_sha256": hashlib.sha256(p_pin.read_bytes()).hexdigest(),
+        "template_data_sha256": hashlib.sha256(p_tpl.read_bytes()).hexdigest(),
+    }
+
+
+LEGACY_BASELINE_IDS = (
+    "accent-Disabled-Dark", "accent-Disabled-Light",
+    "accent-Normal-Dark", "accent-Normal-Light",
+    "accent-PointerOver-Dark", "accent-PointerOver-Light",
+    "accent-Pressed-Dark", "accent-Pressed-Light",
+    "button-Disabled-Dark", "button-Disabled-Light",
+    "button-Normal-Dark", "button-Normal-Light",
+    "button-PointerOver-Dark", "button-PointerOver-Light",
+    "button-Pressed-Dark", "button-Pressed-Light",
+    "probe-asym-s1",
+    "probe-r4-s1", "probe-r4-s15", "probe-r4-s2",
+    "probe-r8-s1", "probe-r8-s15", "probe-r8-s2",
+    "probe-r16-s1", "probe-r16-s15", "probe-r16-s2",
+)
+
+
+def compare_baseline_frames(fresh_dir, baseline_store_dir, baseline_ids=None):
+    """Compare fresh capture frames against a baseline store by ID, dimensions, and decoded BGRA pixels."""
+    fresh = Path(fresh_dir)
+    fresh_manifest = json.loads((fresh / "cases.json").read_text(encoding="utf-8"))
+    fresh_by_id = {c["id"]: c for c in fresh_manifest.get("cases", []) if "id" in c}
+    base_manifest, base_frames = read_reference_snapshot(baseline_store_dir)
+    base_by_id = {c["id"]: c for c in base_manifest.get("cases", []) if "id" in c and "file" in c}
+    ids = list(baseline_ids) if baseline_ids is not None else list(LEGACY_BASELINE_IDS)
+    if not ids:
+        raise ValueError("baseline comparison has no frame IDs to verify")
+    for cid in ids:
+        if cid not in base_by_id:
+            raise ValueError(f"baseline store missing expected frame {cid!r}")
+        if cid not in fresh_by_id:
+            raise ValueError(f"fresh capture missing baseline frame {cid!r}")
+        bc = base_by_id[cid]
+        fc = fresh_by_id[cid]
+        if (fc.get("width"), fc.get("height")) != (bc.get("width"), bc.get("height")):
+            raise ValueError(
+                f"baseline frame {cid!r} dimension mismatch: fresh=({fc.get('width')},{fc.get('height')}) "
+                f"vs baseline=({bc.get('width')},{bc.get('height')})"
+            )
+        fraw = (fresh / fc["file"]).read_bytes()
+        braw = base_frames[bc["file"]]
+        if fraw != braw:
+            raise ValueError(f"baseline frame {cid!r} pixel mismatch against {baseline_store_dir}")
+    return len(ids)
+
+
+def validate_store_dir(store_dir, expected_specs=None, _locked=False, expected_provenance=None):
     """Validate that store_dir has a self-consistent index, no missing/extra/stale frames, and valid digests."""
     store = Path(store_dir)
     ctx = contextlib.nullcontext() if _locked else _store_lock(store)
     with ctx:
         _recover_dir_unlocked(store, is_store=True)
-        return _validate_store_dir_unlocked(store, expected_specs)
+        return _validate_store_dir_unlocked(store, expected_specs, expected_provenance=expected_provenance)
 
 
-def _validate_store_dir_unlocked(store, expected_specs=None):
+def _validate_store_dir_unlocked(store, expected_specs=None, expected_provenance=None):
     index_path = store / "cases.json"
     if not index_path.is_file():
         raise ValueError(f"{store}: missing cases.json")
     manifest = json.loads(index_path.read_text(encoding="utf-8"))
+    if expected_provenance is not None:
+        if manifest.get("provenance") != expected_provenance:
+            raise ValueError(
+                f"{index_path}: package/template provenance mismatch (store is stale relative to reference/package.json or pin.json)"
+            )
     cases = manifest.get("cases")
     if not isinstance(cases, list) or not cases:
         raise ValueError(f"{index_path}: cases must be a non-empty list")
@@ -790,6 +864,11 @@ def publish_store(fresh_dir, store_dir, expected_specs):
     with _store_lock(store):
         backup = store.parent / f".{store.name}.backup"
         _recover_dir_unlocked(store, is_store=True)
+        if store.exists():
+            if not store.is_dir():
+                raise ValueError(f"{store}: store path exists and is not a directory")
+            if any(store.iterdir()) and not _is_owned_backup(store, is_store=True):
+                raise ValueError(f"{store}: refuses to replace non-empty store containing unowned or unrelated files")
 
         stage = Path(tempfile.mkdtemp(dir=store.parent, prefix=f".{store.name}.staging-"))
         try:
@@ -808,9 +887,11 @@ def publish_store(fresh_dir, store_dir, expected_specs):
                 case["raw_sha256"] = hashlib.sha256(raw).hexdigest()
                 case["case_sha256"] = canonical_case_hash(expected_specs[cid])
 
+            prov = compute_package_fingerprint()
+            manifest["provenance"] = prov
             (stage / "cases.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
             (stage / STORE_MARKER).write_text("impossible-sdk-reference-store\n", encoding="utf-8", newline="\n")
-            validate_store_dir(stage, expected_specs, _locked=True)
+            validate_store_dir(stage, expected_specs, _locked=True, expected_provenance=prov)
 
             if backup.exists():
                 if not _is_owned_backup(backup, is_store=True):
@@ -855,7 +936,7 @@ def _load_missing_control_checker():
 
 
 def run_reference(program, out_dir, cases_path=None, work_dir=None, snapshotted_specs=None,
-                  store_dir=None, pkg_manifest_path=None):
+                  store_dir=None, pkg_manifest_path=None, compare_baseline=None):
     out = Path(out_dir)
     _ensure_safe_capture_dir(out)
     pkg_path = Path(pkg_manifest_path) if pkg_manifest_path is not None else PACKAGE_MANIFEST
@@ -940,6 +1021,10 @@ def run_reference(program, out_dir, cases_path=None, work_dir=None, snapshotted_
                 manifest.setdefault("cases", []).extend(missing_results)
                 mpath.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 
+        # Compare fresh 26 legacy frames against baseline BEFORE any store update if requested.
+        if compare_baseline is not None:
+            compare_baseline_frames(rt_out, compare_baseline)
+
         # Publish store directly from the private per-run capture directory so concurrent runs touching `out`
         # can never mix another run's pixels with this run's snapshotted case hashes.
         publish_counts = None
@@ -951,13 +1036,14 @@ def run_reference(program, out_dir, cases_path=None, work_dir=None, snapshotted_
     return out
 
 
-def capture(out_dir, cases_path=None, snapshotted_specs=None, store_dir=None, pkg_manifest_path=None):
+def capture(out_dir, cases_path=None, snapshotted_specs=None, store_dir=None, pkg_manifest_path=None, compare_baseline=None):
     with tempfile.TemporaryDirectory(dir=host_temp_root(), prefix="impossible-reference-") as folder:
         program = build_reference(folder)
         return run_reference(
             program, out_dir, cases_path=cases_path, work_dir=folder,
             snapshotted_specs=snapshotted_specs, store_dir=store_dir,
             pkg_manifest_path=pkg_manifest_path,
+            compare_baseline=compare_baseline,
         )
 
 
@@ -966,6 +1052,7 @@ def main(argv=None):
     parser.add_argument("--cases", type=Path, default=None, help="single case JSON file or directory (cannot be combined with --update-store)")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output directory for fresh captures")
     parser.add_argument("--update-store", action="store_true", help="atomically publish validated compressed frames into tests/reference/")
+    parser.add_argument("--compare-baseline", type=Path, default=None, help="compare fresh 26 legacy frames against a baseline store before publishing")
     args = parser.parse_args(argv)
 
     if args.update_store and args.cases is not None:
@@ -974,7 +1061,15 @@ def main(argv=None):
 
     # Snapshot case specifications BEFORE capture so publication hashes the exact private capture rendered by Reference.exe.
     specs = load_case_specs(CASES_DIR) if args.update_store else None
-    result = capture(args.out, args.cases, snapshotted_specs=specs, store_dir=STORE if args.update_store else None)
+    result = capture(
+        args.out,
+        args.cases,
+        snapshotted_specs=specs,
+        store_dir=STORE if args.update_store else None,
+        compare_baseline=args.compare_baseline,
+    )
+    if args.compare_baseline is not None:
+        print(f"baseline comparison passed against {args.compare_baseline}")
     if args.update_store:
         out, (frame_count, fallback_count) = result
     else:

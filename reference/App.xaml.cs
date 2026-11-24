@@ -566,9 +566,9 @@ public partial class App : Application
                 {
                     storyboardCompleted = true;
                 }
-                else if (useTransitions)
+                else
                 {
-                    throw new InvalidOperationException($"{caseId}: storyboard for state '{stateName}' did not complete within 3000ms");
+                    throw new InvalidOperationException($"{caseId}: storyboard for state '{stateName}' did not complete within 3000ms (use_transitions={useTransitions})");
                 }
             }
         }
@@ -605,11 +605,7 @@ public partial class App : Application
 
     private static async Task RunCases(Window window, Grid canvas, string folder, string? casesPath)
     {
-        if (Math.Abs(canvas.XamlRoot.RasterizationScale - 1.0) > 1e-6)
-        {
-            throw new InvalidOperationException($"Reference captures require a 100% display scale (got {canvas.XamlRoot.RasterizationScale})");
-        }
-
+        double hostDpi = canvas.XamlRoot.RasterizationScale;
         var specs = LoadCases(casesPath);
         var results = new List<object>();
 
@@ -621,6 +617,13 @@ public partial class App : Application
                 throw new InvalidOperationException($"{spec.Id}.scale: scale must be positive (got {spec.Scale})");
             }
             double scale = spec.Scale;
+            bool nativeScaleMatch = Math.Abs(hostDpi - scale) < 1e-6;
+            if (!nativeScaleMatch && Math.Abs(hostDpi - 1.0) > 1e-6)
+            {
+                throw new InvalidOperationException(
+                    $"{spec.Id}: host display scale {hostDpi} matches neither 1.0 nor requested case scale {scale}"
+                );
+            }
             string flowDirName = string.IsNullOrEmpty(spec.FlowDirection) ? "LeftToRight" : spec.FlowDirection;
             var flowDir = ParseEnum<FlowDirection>(spec.Id, "flow_direction", flowDirName);
             int logicalW = spec.Frame.Width;
@@ -633,23 +636,57 @@ public partial class App : Application
                 : (theme == ElementTheme.Dark ? Color.FromArgb(255, 32, 32, 32) : Color.FromArgb(255, 243, 243, 243));
 
             bool isProbe = string.Equals(spec.CaseGroup, "probe", StringComparison.Ordinal);
-            // For probes (pure Border geometry), scale properties directly in DIPs (exact match to original probe renderer).
-            // For controls at scale != 1.0, wrap the logical-sized frame inside a Viewbox sized to pixelW x pixelH so
-            // WinUI re-rasterizes vector borders, corners, and templates at the target scale rather than enlarging a bitmap.
-            FrameworkElement element = CreateElement(spec, isProbe ? scale : 1.0);
-            var innerFrame = new Grid
-            {
-                Width = isProbe ? pixelW : logicalW,
-                Height = isProbe ? pixelH : logicalH,
-                RequestedTheme = theme,
-                FlowDirection = flowDir,
-                Background = new SolidColorBrush(ground),
-                Children = { element },
-            };
-
+            // When hostDpi matches spec.Scale (native-dpi), render innerFrame directly at logicalW x logicalH so
+            // WinUI measures and rounds layout natively at that DPI. Otherwise (hostDpi == 1.0 and scale != 1.0),
+            // wrap non-probe controls in a Viewbox sized to pixelW x pixelH (viewbox-vector) and record scale_mode.
+            string scaleMode;
+            FrameworkElement element;
+            Grid innerFrame;
             FrameworkElement captureTarget;
-            if (!isProbe && Math.Abs(scale - 1.0) > 1e-6)
+            if (isProbe)
             {
+                scaleMode = nativeScaleMatch ? "native-dpi" : "probe-dip";
+                double propScale = nativeScaleMatch ? 1.0 : scale;
+                element = CreateElement(spec, propScale);
+                innerFrame = new Grid
+                {
+                    Width = nativeScaleMatch ? logicalW : pixelW,
+                    Height = nativeScaleMatch ? logicalH : pixelH,
+                    RequestedTheme = theme,
+                    FlowDirection = flowDir,
+                    Background = new SolidColorBrush(ground),
+                    Children = { element },
+                };
+                captureTarget = innerFrame;
+            }
+            else if (nativeScaleMatch)
+            {
+                scaleMode = Math.Abs(scale - 1.0) < 1e-6 ? "native-1x" : "native-dpi";
+                element = CreateElement(spec, 1.0);
+                innerFrame = new Grid
+                {
+                    Width = logicalW,
+                    Height = logicalH,
+                    RequestedTheme = theme,
+                    FlowDirection = flowDir,
+                    Background = new SolidColorBrush(ground),
+                    Children = { element },
+                };
+                captureTarget = innerFrame;
+            }
+            else
+            {
+                scaleMode = "viewbox-vector";
+                element = CreateElement(spec, 1.0);
+                innerFrame = new Grid
+                {
+                    Width = logicalW,
+                    Height = logicalH,
+                    RequestedTheme = theme,
+                    FlowDirection = flowDir,
+                    Background = new SolidColorBrush(ground),
+                    Children = { element },
+                };
                 captureTarget = new Viewbox
                 {
                     Width = pixelW,
@@ -657,10 +694,6 @@ public partial class App : Application
                     Stretch = Stretch.Fill,
                     Child = innerFrame,
                 };
-            }
-            else
-            {
-                captureTarget = innerFrame;
             }
 
             canvas.Children.Clear();
@@ -688,8 +721,10 @@ public partial class App : Application
             File.WriteAllBytes(Path.Combine(folder, file), pixels);
 
             // Always dump element rectangles and automation tree per case (section contract).
-            LayoutNode layoutDump = Dump.DumpLayout(innerFrame, isProbe ? scale : 1.0);
-            AutomationNode automationDump = Dump.DumpAutomation(innerFrame, element, scale);
+            double dumpLayoutScale = (isProbe && !nativeScaleMatch) ? scale : 1.0;
+            double dumpAutoLogicalScale = nativeScaleMatch ? 1.0 : scale;
+            LayoutNode layoutDump = Dump.DumpLayout(innerFrame, dumpLayoutScale);
+            AutomationNode automationDump = Dump.DumpAutomation(innerFrame, element, dumpAutoLogicalScale);
 
             var entry = new Dictionary<string, object?>
             {
@@ -698,6 +733,9 @@ public partial class App : Application
                 ["xaml_control"] = spec.Control,
                 ["theme"] = spec.Theme,
                 ["scale"] = scale,
+                ["host_rasterization_scale"] = hostDpi,
+                ["effective_rasterization_scale"] = nativeScaleMatch ? hostDpi : scale,
+                ["scale_mode"] = scaleMode,
                 ["flow_direction"] = flowDirName,
                 ["logical_width"] = logicalW,
                 ["logical_height"] = logicalH,
@@ -708,7 +746,7 @@ public partial class App : Application
             if (!string.IsNullOrEmpty(spec.State))
             {
                 entry["state"] = spec.State;
-                if (spec.UseTransitions) entry["storyboard_awaited"] = storyboardAwaited;
+                entry["storyboard_awaited"] = storyboardAwaited;
             }
             if (element is Microsoft.UI.Xaml.Controls.Primitives.Selector sel && sel.SelectedIndex >= 0)
             {

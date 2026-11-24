@@ -424,7 +424,7 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 **Corrected 2026-11-24:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-24T05:45Z; its review chain is kept as `docs/reviews/01-interface/D01-T01-s17-chain1.md`. Clarified the store-lock contract for the compressed store item: current publishers expose `.lockdir` and `.lockv2` atomically with pre-populated `tok-*` owner records and never leave an empty `.lockdir` on release; empty `.lockdir` directories are always preserved regardless of age so mutual exclusion against mkdir-only lock holders is never broken, while dead locks with owner metadata (`tok-*`, `owner.json`) and empty or `.tok-*.tmp`-only `.lockv2` residue are reclaimed automatically on ordinary read-back.
 
-`reference/` draws buttons without text at one scale. Every control section needs it to draw any control, read its layout and drive it. Section §17 supplies 100, 150, 200 and 300 percent captures (`reference/App.xaml.cs` accepts any scale float); the fifth scale (125 percent) required by §3 and §16 is added in `D01 T01 §3`.
+`reference/` has been extended to data-driven `reference/cases/*.json`, `Dump.cs`, `Script.cs`, `reference/package.json`, and compressed `tests/reference/` captures for Light and Dark themes at 100, 150, 200 and 300 percent (`reference/App.xaml.cs` records `host_rasterization_scale`, `effective_rasterization_scale`, and `scale_mode`: native DPI when host matches case scale, or vector `Viewbox` scaling on a 100% host); the fifth scale (125 percent) required by §3 and §16 is added in `D01 T01 §3`, and Windows high-contrast palette capture is added in `D01 T01 §14` before contrast verification.
 
 **Phase:** 1
 **Needs:** windows-host, display-session
@@ -432,8 +432,8 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 **Build order:**
 
-1. Create `reference/cases/*.json` and the data-driven loader, state waiter, multi-scale renderer, `Dump.cs`, `Script.cs`, and `reference/package.json`, then verify fresh captures match the 26 legacy frames. Done when: `python3 reference/run.py` passes and the 16 legacy button and 10 probe frames match.
-2. Cover store integrity, package provenance, rectangle masking, multi-scale crispness, dumps, scripts, and live error paths in `tests/test_ui.py`. Done when: `python3 tools/build.py` and `python3 tools/site/build.py --check` pass and planted faults fail.
+1. Harden `reference/App.xaml.cs`, `reference/Dump.cs`, `reference/Script.cs`, `reference/run.py`, and `tools/winui/check_package.py` for plan-review findings (scale mode reporting, strict storyboard timeout, panel-root automation traversal, sequenced/chord/focused scripts with balanced input cleanup, stock-label refusal, strict missing-control field checks, package provenance binding, store unowned-file refusal, and 26-frame baseline comparison). Done when: `python3 reference/run.py --update-store --compare-baseline tests/reference` passes.
+2. Cover all new invariants in `tests/test_ui.py` (including 4-channel alpha-aware rectangle masking and live panel-root, script, and cleanup tests). Done when: `python3 tools/build.py`, `IMPOSSIBLE_LIVE_REFERENCE=1 python3 -m unittest tests.test_ui.LiveReference -v` (0 skipped), `python3 tools/winui/check_package.py --require-live`, and `python3 tools/site/build.py --check` all exit 0.
 
 - [x] Read cases from `reference/cases/*.json`: control, properties, state, theme, scale, flow direction. Done when: the present 16 cases come from a file with equal pixels. Cheaper substitute: C# per control.
 - [x] Force a visual state by name and wait for its storyboard in `reference/App.xaml.cs`. Done when: a state that does not exist stops the run with its name. Cheaper substitute: timed delays.
@@ -446,7 +446,7 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 - [x] Store frames compressed with one index in `tests/reference/`. Done when: a missing, extra or stale frame fails the suite. Cheaper substitute: loose files.
 - [ ] Commit: `reference: any control, any state`
 
-**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+**Test checkpoint:** `python3 tools/build.py`, `IMPOSSIBLE_LIVE_REFERENCE=1 python3 -m unittest tests.test_ui.LiveReference -v` (0 skipped), `python3 tools/winui/check_package.py --require-live`, and `python3 tools/site/build.py --check` all exit 0 and the new tests fail when their production change is reverted.
 
 ## 18. Drawing speed budgets
 

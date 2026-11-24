@@ -18,6 +18,8 @@ public sealed class ScriptActionSpec
 {
     [JsonPropertyName("action")] public string Action { get; set; } = "";
     [JsonPropertyName("key")] public string? Key { get; set; }
+    [JsonPropertyName("modifiers")] public List<string>? Modifiers { get; set; }
+    [JsonPropertyName("use_focused")] public bool UseFocused { get; set; }
     [JsonPropertyName("x")] public double? X { get; set; }
     [JsonPropertyName("y")] public double? Y { get; set; }
 }
@@ -36,6 +38,7 @@ public sealed class ScriptResultDto
 {
     public List<ScriptEventDto> Events { get; set; } = new();
     public Dictionary<string, object?> FinalState { get; set; } = new();
+    public List<string> CleanupReleases { get; set; } = new();
 }
 
 public static class Script
@@ -58,6 +61,7 @@ public static class Script
     private const uint POINTER_FLAG_INRANGE = 0x00000002;
     private const uint POINTER_FLAG_INCONTACT = 0x00000004;
     private const uint POINTER_FLAG_DOWN = 0x00010000;
+    private const uint POINTER_FLAG_UPDATE = 0x00020000;
     private const uint POINTER_FLAG_UP = 0x00040000;
     private const uint TOUCH_MASK_CONTACTAREA = 0x00000001;
     private const uint TOUCH_MASK_PRESSURE = 0x00000004;
@@ -380,6 +384,12 @@ public static class Script
         SendMouse(outside, MOUSEEVENTF_MOVE);
         await Task.Delay(80);
 
+        bool leftMouseDown = false;
+        POINT lastMousePt = outside;
+        var heldKeys = new List<ushort>();
+        POINT? activeTouchPt = null;
+
+        Exception? runError = null;
         try
         {
             for (int i = 0; i < actions.Count; i++)
@@ -402,24 +412,70 @@ public static class Script
                         }
                         break;
 
+                    case "pointer_move":
+                    {
+                        var pt = TargetScreenPoint(window, target, step.X, step.Y, requireInside: false, step: currentStep);
+                        EnsureForeground(hwnd, currentStep);
+                        SendMouse(pt, MOUSEEVENTF_MOVE);
+                        lastMousePt = pt;
+                        await Task.Delay(80);
+                        break;
+                    }
+
+                    case "pointer_down":
+                    {
+                        var pt = TargetScreenPoint(window, target, step.X, step.Y, requireInside: true, step: currentStep);
+                        EnsureForeground(hwnd, currentStep);
+                        SendMouse(pt, MOUSEEVENTF_MOVE);
+                        lastMousePt = pt;
+                        await Task.Delay(60);
+                        EnsureForeground(hwnd, currentStep);
+                        SendMouse(pt, MOUSEEVENTF_LEFTDOWN);
+                        leftMouseDown = true;
+                        await Task.Delay(80);
+                        break;
+                    }
+
+                    case "pointer_up":
+                    {
+                        var pt = (step.X.HasValue || step.Y.HasValue)
+                            ? TargetScreenPoint(window, target, step.X, step.Y, requireInside: false, step: currentStep)
+                            : lastMousePt;
+                        EnsureForeground(hwnd, currentStep);
+                        SendMouse(pt, MOUSEEVENTF_MOVE);
+                        lastMousePt = pt;
+                        await Task.Delay(40);
+                        EnsureForeground(hwnd, currentStep);
+                        SendMouse(pt, MOUSEEVENTF_LEFTUP);
+                        leftMouseDown = false;
+                        await Task.Delay(120);
+                        break;
+                    }
+
                     case "pointer_click":
                     {
                         var pt = TargetScreenPoint(window, target, step.X, step.Y, requireInside: true, step: currentStep);
                         EnsureForeground(hwnd, currentStep);
                         SendMouse(pt, MOUSEEVENTF_MOVE);
+                        lastMousePt = pt;
                         await Task.Delay(80);
                         EnsureForeground(hwnd, currentStep);
                         SendMouse(pt, MOUSEEVENTF_LEFTDOWN);
+                        leftMouseDown = true;
                         await Task.Delay(80);
                         EnsureForeground(hwnd, currentStep);
                         SendMouse(pt, MOUSEEVENTF_LEFTUP);
+                        leftMouseDown = false;
                         await Task.Delay(120);
                         EnsureForeground(hwnd, currentStep);
                         SendMouse(outside, MOUSEEVENTF_MOVE);
+                        lastMousePt = outside;
                         await Task.Delay(80);
                         break;
                     }
 
+                    case "key_down":
+                    case "key_up":
                     case "key_press":
                     {
                         string keyName = step.Key ?? "Space";
@@ -427,21 +483,99 @@ public static class Script
                         {
                             throw new InvalidOperationException($"script step {i}: unknown key '{keyName}'");
                         }
-                        if (target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
+                        var modVks = new List<ushort>();
+                        if (step.Modifiers != null)
+                        {
+                            foreach (var m in step.Modifiers)
+                            {
+                                if (!Enum.TryParse<VirtualKey>(m, ignoreCase: true, out var mvk))
+                                {
+                                    throw new InvalidOperationException($"script step {i}: unknown modifier '{m}'");
+                                }
+                                modVks.Add((ushort)mvk);
+                            }
+                        }
+                        if (!step.UseFocused && target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
                         {
                             kCtrl.IsTabStop = true;
                             var fr = await FocusManager.TryFocusAsync(kCtrl, FocusState.Keyboard);
                             if (!fr.Succeeded)
                             {
-                                throw new InvalidOperationException($"script step {currentStep}: TryFocusAsync failed before key_press");
+                                throw new InvalidOperationException($"script step {currentStep}: TryFocusAsync failed before {step.Action}");
                             }
                             await Task.Delay(80);
                         }
+                        if (step.Action == "key_down")
+                        {
+                            EnsureForeground(hwnd, currentStep);
+                            SendKey((ushort)vk, false);
+                            heldKeys.Add((ushort)vk);
+                            await Task.Delay(80);
+                        }
+                        else if (step.Action == "key_up")
+                        {
+                            EnsureForeground(hwnd, currentStep);
+                            SendKey((ushort)vk, true);
+                            heldKeys.Remove((ushort)vk);
+                            await Task.Delay(80);
+                        }
+                        else
+                        {
+                            foreach (var mvk in modVks)
+                            {
+                                EnsureForeground(hwnd, currentStep);
+                                SendKey(mvk, false);
+                                heldKeys.Add(mvk);
+                                await Task.Delay(40);
+                            }
+                            EnsureForeground(hwnd, currentStep);
+                            SendKey((ushort)vk, false);
+                            heldKeys.Add((ushort)vk);
+                            await Task.Delay(80);
+                            EnsureForeground(hwnd, currentStep);
+                            SendKey((ushort)vk, true);
+                            heldKeys.Remove((ushort)vk);
+                            await Task.Delay(60);
+                            for (int mi = modVks.Count - 1; mi >= 0; mi--)
+                            {
+                                EnsureForeground(hwnd, currentStep);
+                                SendKey(modVks[mi], true);
+                                heldKeys.Remove(modVks[mi]);
+                                await Task.Delay(40);
+                            }
+                            await Task.Delay(80);
+                        }
+                        break;
+                    }
+
+                    case "touch_down":
+                    {
+                        var pt = TargetScreenPoint(window, target, step.X, step.Y, requireInside: true, step: currentStep);
                         EnsureForeground(hwnd, currentStep);
-                        SendKey((ushort)vk, false);
+                        SendTouch(pt, POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT);
+                        activeTouchPt = pt;
                         await Task.Delay(80);
+                        break;
+                    }
+
+                    case "touch_move":
+                    {
+                        var pt = TargetScreenPoint(window, target, step.X, step.Y, requireInside: false, step: currentStep);
                         EnsureForeground(hwnd, currentStep);
-                        SendKey((ushort)vk, true);
+                        SendTouch(pt, POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT);
+                        activeTouchPt = pt;
+                        await Task.Delay(80);
+                        break;
+                    }
+
+                    case "touch_up":
+                    {
+                        var pt = (step.X.HasValue || step.Y.HasValue)
+                            ? TargetScreenPoint(window, target, step.X, step.Y, requireInside: false, step: currentStep)
+                            : (activeTouchPt ?? outside);
+                        EnsureForeground(hwnd, currentStep);
+                        SendTouch(pt, POINTER_FLAG_UP);
+                        activeTouchPt = null;
                         await Task.Delay(120);
                         break;
                     }
@@ -451,9 +585,11 @@ public static class Script
                         var pt = TargetScreenPoint(window, target, step.X, step.Y, requireInside: true, step: currentStep);
                         EnsureForeground(hwnd, currentStep);
                         SendTouch(pt, POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT);
+                        activeTouchPt = pt;
                         await Task.Delay(80);
                         EnsureForeground(hwnd, currentStep);
                         SendTouch(pt, POINTER_FLAG_UP);
+                        activeTouchPt = null;
                         await Task.Delay(140);
                         break;
                     }
@@ -463,8 +599,33 @@ public static class Script
                 }
             }
         }
+        catch (Exception ex)
+        {
+            runError = ex;
+        }
         finally
         {
+            // Balanced input cleanup: never leave desktop mouse, keyboard, or touch contacts held down on failure.
+            var cleanupErrors = new List<string>();
+            if (leftMouseDown)
+            {
+                try { SendMouse(lastMousePt, MOUSEEVENTF_LEFTUP); result.CleanupReleases.Add("mouse_left_up"); }
+                catch (Exception cex) { cleanupErrors.Add($"mouse_left_up:{cex.Message}"); }
+                leftMouseDown = false;
+            }
+            for (int hi = heldKeys.Count - 1; hi >= 0; hi--)
+            {
+                ushort hvk = heldKeys[hi];
+                try { SendKey(hvk, true); result.CleanupReleases.Add($"key_up:{(VirtualKey)hvk}"); }
+                catch (Exception cex) { cleanupErrors.Add($"key_up:{(VirtualKey)hvk}:{cex.Message}"); }
+            }
+            heldKeys.Clear();
+            if (activeTouchPt.HasValue)
+            {
+                try { SendTouch(activeTouchPt.Value, POINTER_FLAG_UP); result.CleanupReleases.Add("touch_up"); }
+                catch (Exception cex) { cleanupErrors.Add($"touch_up:{cex.Message}"); }
+                activeTouchPt = null;
+            }
             target.GotFocus -= gotFocus;
             target.LostFocus -= lostFocus;
             target.RemoveHandler(UIElement.PointerEnteredEvent, ptrEntered);
@@ -477,6 +638,16 @@ public static class Script
             if (target is ButtonBase bb2) bb2.Click -= clickHandler;
             if (target is ToggleSwitch ts2) ts2.Toggled -= toggledHandler;
             if (target is ToggleButton tb2) { tb2.Checked -= checkedHandler; tb2.Unchecked -= uncheckedHandler; }
+            if (runError != null)
+            {
+                string relInfo = $"cleanup_releases=[{string.Join(",", result.CleanupReleases)}]";
+                string errInfo = cleanupErrors.Count > 0 ? $"; cleanup_errors=[{string.Join(",", cleanupErrors)}]" : "";
+                throw new InvalidOperationException($"{runError.Message} ({relInfo}{errInfo})", runError);
+            }
+            if (cleanupErrors.Count > 0)
+            {
+                throw new InvalidOperationException($"script cleanup failed: {string.Join("; ", cleanupErrors)}");
+            }
         }
 
         result.FinalState = SnapshotState(target, clicks);

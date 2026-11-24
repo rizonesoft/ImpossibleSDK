@@ -1562,7 +1562,7 @@ def compare_frames_with_layout_mask(mine, real, width, height, scale, cand_rects
         for x in range(width):
             if any(x0 <= x < x1 and y0 <= y < y1 for x0, y0, x1, y1 in pixel_masks):
                 continue
-            off = max(abs(mine[(y * width + x) * 4 + k] - real[(y * width + x) * 4 + k]) for k in range(3))
+            off = max(abs(mine[(y * width + x) * 4 + k] - real[(y * width + x) * 4 + k]) for k in range(4))
             if off > worst:
                 worst = off
     if worst > limit:
@@ -1865,6 +1865,38 @@ class ReferenceHarness(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ref_run.read_reference_snapshot(Path(tmp) / "mystore")
             self.assertEqual((fake_raw_bak / "extra.txt").read_text(encoding="utf-8"), "user notes")
+
+            # Refreshing a store containing an unrelated file (e.g. diagnostic.txt) must be refused without deleting it.
+            mixed_store = Path(tmp) / "mixed_store"
+            shutil.copytree(ROOT / "tests/reference", mixed_store)
+            (mixed_store / "diagnostic.txt").write_text("keep me", encoding="utf-8")
+            prev_cases = (mixed_store / "cases.json").read_text(encoding="utf-8")
+            fake_fresh = Path(tmp) / "fake_fresh"
+            fake_fresh.mkdir()
+            bm, bf = ref_run.read_reference_snapshot(ROOT / "tests/reference")
+            (fake_fresh / "cases.json").write_text(json.dumps(bm), encoding="utf-8")
+            for fn, raw in bf.items():
+                (fake_fresh / fn).write_bytes(raw)
+            with self.assertRaises(ValueError):
+                ref_run.publish_store(fake_fresh, mixed_store, specs)
+            self.assertEqual((mixed_store / "diagnostic.txt").read_text(encoding="utf-8"), "keep me")
+            self.assertEqual((mixed_store / "cases.json").read_text(encoding="utf-8"), prev_cases)
+
+            # Baseline 26-frame comparison passes on matching frames and names the exact frame when 1 pixel byte changes.
+            self.assertEqual(ref_run.compare_baseline_frames(fake_fresh, ROOT / "tests/reference"), 26)
+            tampered = bytearray((fake_fresh / "button-Normal-Dark.bgra").read_bytes())
+            tampered[0] ^= 1
+            (fake_fresh / "button-Normal-Dark.bgra").write_bytes(bytes(tampered))
+            with self.assertRaises(ValueError) as cm_base:
+                ref_run.compare_baseline_frames(fake_fresh, ROOT / "tests/reference")
+            self.assertIn("button-Normal-Dark", str(cm_base.exception))
+
+            # Package provenance binding: validate_store_dir accepts matching provenance and rejects drift.
+            prov = ref_run.compute_package_fingerprint()
+            ref_run.validate_store_dir(ROOT / "tests/reference", expected_specs=specs, expected_provenance=prov)
+            drifted_prov = {**prov, "winui_component": "0.0.0.0"}
+            with self.assertRaises(ValueError):
+                ref_run.validate_store_dir(ROOT / "tests/reference", expected_specs=specs, expected_provenance=drifted_prov)
 
         # 9. Interrupted swap (store missing, owned .<name>.backup present) is recovered atomically across all
         #    dead lock formats: current tok-*, legacy tokenless owner.json, legacy tokenized owner.json,
@@ -2228,6 +2260,31 @@ class ReferenceHarness(unittest.TestCase):
                     committed_pkg, ROOT / "ui/template_data.c",
                 )
             self.assertIn("MissingState", str(cm_state.exception))
+            # Unsupported properties (e.g. Width) and unsupported fields (e.g. script) must be explicitly refused with case ID and field.
+            with self.assertRaises(check_pkg.PackageDrift) as cm_width:
+                check_pkg.check_missing_control_case(
+                    {"id": "mc-dg-width", "control": "DataGrid", "properties": {"Width": 32}},
+                    committed_pkg, ROOT / "ui/template_data.c",
+                )
+            self.assertIn("mc-dg-width", str(cm_width.exception))
+            self.assertIn("Width", str(cm_width.exception))
+            with self.assertRaises(check_pkg.PackageDrift) as cm_script:
+                check_pkg.check_missing_control_case(
+                    {"id": "mc-dg-script", "control": "DataGrid", "script": [{"action": "focus"}]},
+                    committed_pkg, ROOT / "ui/template_data.c",
+                )
+            self.assertIn("mc-dg-script", str(cm_script.exception))
+            self.assertIn("script", str(cm_script.exception))
+            # Stock-label ToggleSwitch (omitting OnContent/OffContent) is refused; explicit empty strings pass.
+            with self.assertRaises(ValueError) as cm_ts:
+                ref_run.check_no_prohibited_assets({"id": "ts-stock", "control": "ToggleSwitch", "properties": {"IsOn": True}})
+            self.assertIn("OnContent/OffContent", str(cm_ts.exception))
+            ref_run.check_no_prohibited_assets({
+                "id": "ts-empty", "control": "ToggleSwitch", "properties": {"IsOn": True, "OnContent": "", "OffContent": ""}
+            })
+            # Alpha difference outside mask must fail compare_frames_with_layout_mask (4-channel BGRA check).
+            with self.assertRaises(ValueError):
+                compare_frames_with_layout_mask(bytes([0, 0, 0, 0]), bytes([0, 0, 0, 255]), 1, 1, 1.0, [], [], limit=0)
             # Downstream drawing manifest validator and unfiltered per-case dump assertions must both accept fallbacks,
             # verifying real nested hierarchy, border inset, case-insensitive frame dimensions, and ControlType.
             committed_manifest = ref_run.open_reference_manifest(ROOT / "tests/reference")
@@ -2819,6 +2876,30 @@ class LiveReference(unittest.TestCase):
                             {"action": "touch_tap"},
                         ],
                     },
+                    {
+                        "id": "panel-root-auto",
+                        "control": "StackPanel",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Width": 140, "Height": 40, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "children": [
+                            {"id": "child-btn", "control": "Button", "properties": {"Name": "InnerBtn", "Content": "Go", "Width": 100, "Height": 32}}
+                        ],
+                    },
+                    {
+                        "id": "btn-cancel-click",
+                        "control": "Button",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Name": "CancelBtn", "Width": 120, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [
+                            {"action": "pointer_down"},
+                            {"action": "pointer_move", "x": -10, "y": -10},
+                            {"action": "pointer_up", "x": -10, "y": -10},
+                        ],
+                    },
                 ]}), encoding="utf-8")
 
                 out1 = ref_run.run_reference(exe, Path(tmp) / "out1", cases_path=combo, work_dir=build_tmp)
@@ -2845,8 +2926,43 @@ class LiveReference(unittest.TestCase):
                 self.assertEqual(by1["lv-rtl"]["flow_direction"], "RightToLeft")
                 self.assertEqual(by1["lv-rtl"]["automation"]["ControlType"], "List")
 
+                # Panel-root without an automation peer must still expose descendant Button peer with Invoke and bounds.
+                panel_auto = by1["panel-root-auto"]["automation"]
+                self.assertEqual(panel_auto["ControlType"], "StackPanel")
+                self.assertGreaterEqual(len(panel_auto["Children"]), 1)
+                inner_btn = panel_auto["Children"][0]
+                self.assertEqual(inner_btn["ControlType"], "Button")
+                self.assertIn("Invoke", inner_btn["Patterns"])
+                self.assertGreater(inner_btn["Rect"]["Width"], 0)
+                self.assertGreater(inner_btn["Rect"]["Height"], 0)
+
+                # Cancelled click (press -> move outside -> release) must produce 0 clicks.
+                self.assertEqual(by1["btn-cancel-click"]["script_log"]["FinalState"]["clicks"], 0)
+
+                # Forced failure after pointer_down / key_down / touch_down must run balanced input cleanup.
+                for down_action, expected_rel in (
+                    ({"action": "pointer_down"}, "mouse_left_up"),
+                    ({"action": "key_down", "key": "Shift"}, "key_up:Shift"),
+                    ({"action": "touch_down"}, "touch_up"),
+                ):
+                    abort_case = Path(tmp) / f"abort_{expected_rel.replace(':', '_')}.json"
+                    abort_case.write_text(json.dumps({"cases": [{
+                        "id": "abort-test",
+                        "control": "Button",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Width": 120, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [down_action, {"action": "force_abort_unknown"}],
+                    }]}), encoding="utf-8")
+                    with self.assertRaises(subprocess.CalledProcessError) as cm_abort:
+                        ref_run.run_reference(exe, Path(tmp) / f"out_{expected_rel.replace(':', '_')}", cases_path=abort_case, work_dir=build_tmp)
+                    self.assertIn(expected_rel, cm_abort.exception.stderr)
+
                 # Real transient TextBlock at 150% is discovered by Dump.cs and masked cleanly by compare_frames_with_layout_mask.
                 txt_case = by1["btn-text-transient-s150"]
+                self.assertIn("scale_mode", txt_case)
+                self.assertIn("host_rasterization_scale", txt_case)
                 txt_rects = extract_mask_rects(txt_case["layout"])
                 self.assertEqual(len(txt_rects), 1)
                 self.assertEqual(txt_rects[0][0], "RealLabel")
