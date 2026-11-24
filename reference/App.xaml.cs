@@ -881,6 +881,42 @@ public partial class App : Application
                     int end = range.EndPosition;
                     range.GetText(Microsoft.UI.Text.TextGetOptions.None, out string runText);
                     runText = runText.TrimEnd('\r', '\n');
+                    var pf = range.ParagraphFormat;
+                    if (pf != null)
+                    {
+                        if (pf.ListType != Microsoft.UI.Text.MarkerType.None)
+                        {
+                            items.Add(new Dictionary<string, string>
+                            {
+                                ["element"] = elemName,
+                                ["font"] = "__unverified_rich_decoration__",
+                                ["text"] = "ListMarker",
+                            });
+                        }
+                        for (int ti = 0; ti < pf.TabCount; ti++)
+                        {
+                            pf.GetTab(ti, out _, out _, out var leader);
+                            if (leader != Microsoft.UI.Text.TabLeader.Spaces)
+                            {
+                                items.Add(new Dictionary<string, string>
+                                {
+                                    ["element"] = elemName,
+                                    ["font"] = "__unverified_rich_decoration__",
+                                    ["text"] = "TabLeader",
+                                });
+                                break;
+                            }
+                        }
+                    }
+                    if (runText.Contains('\uFFFC'))
+                    {
+                        items.Add(new Dictionary<string, string>
+                        {
+                            ["element"] = elemName,
+                            ["font"] = "__unverified_rich_decoration__",
+                            ["text"] = "\uFFFC",
+                        });
+                    }
                     if (!string.IsNullOrEmpty(runText))
                     {
                         string runFont = range.CharacterFormat?.Name ?? "";
@@ -1116,7 +1152,12 @@ public partial class App : Application
             }
             if (layoutDump != null) entry["layout"] = layoutDump;
             if (automationDump != null) entry["automation"] = automationDump;
-            entry["rendered_text"] = CollectRenderedText(innerFrame);
+            var renderedText = CollectRenderedText(innerFrame);
+            entry["rendered_text"] = renderedText;
+            if (element is RichEditBox)
+            {
+                entry["rich_tabs_verified"] = !renderedText.Exists(r => r.TryGetValue("font", out var rf) && rf == "__unverified_rich_decoration__");
+            }
             if (scriptResult != null) entry["script_log"] = scriptResult;
             results.Add(entry);
         }

@@ -28,7 +28,7 @@ STORE = ROOT / "tests/reference"
 CASES_DIR = HERE / "cases"
 PACKAGE_MANIFEST = HERE / "package.json"
 
-FORBIDDEN_ASSET_CONTROLS = {"fonticon", "symbolicon", "richeditbox"}
+FORBIDDEN_ASSET_CONTROLS = {"fonticon", "symbolicon"}
 FORBIDDEN_FONT_SUBSTRINGS = ("segoe", "calibri", "cambria", "consolas", "candara", "corbel", "constantia", "microsoft")
 OUT_MARKER = ".impossible-reference-out"
 STORE_MARKER = ".impossible-reference-store"
@@ -429,6 +429,10 @@ def check_no_prohibited_assets(
                     )
                 for ch in tv:
                     cp = ord(ch)
+                    if cp == 0x09 and ctrl_l == "richeditbox" and captured_frame.get("rich_tabs_verified") is not True:
+                        raise ValueError(
+                            f"{cid}.rendered_text[{idx}]: RichEditBox tab requires capture-host verification that no unverified tab leader is drawn"
+                        )
                     if cp < 0x20:
                         continue
                     if not _codepoint_in_ranges(cp, rcmap):

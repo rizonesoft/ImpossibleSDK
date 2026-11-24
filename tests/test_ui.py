@@ -2447,15 +2447,32 @@ class ReferenceHarness(unittest.TestCase):
                 installed_font_ranges={"inter": [[0x41, 0x41]]},
                 captured_frame={"id": "tb-trim-fit", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "A"}]},
             )
-            # RichEditBox is refused outright from committed store publication (unbounded RTF/paragraph decorations).
-            with self.assertRaises(ValueError) as cm_reb_forbid:
+            # Plain RichEditBox with Inter 'A' passes; unverified tab leader or rich decoration is refused.
+            ref_run.check_no_prohibited_assets(
+                {"id": "reb-plain", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
+                require_installed=True, installed_fonts=["inter"],
+                installed_font_ranges={"inter": [[0x41, 0x41]]},
+                captured_frame={"id": "reb-plain", "rendered_text": [{"element": "RichEditBox", "font": "Inter", "text": "A"}]},
+            )
+            with self.assertRaises(ValueError) as cm_reb_tab:
                 ref_run.check_no_prohibited_assets(
-                    {"id": "reb-forbid", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
+                    {"id": "reb-tab", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
+                    require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x41, 0x42]]},
+                    captured_frame={"id": "reb-tab", "rendered_text": [{"element": "RichEditBox", "font": "Inter", "text": "A\tB"}]},
+                )
+            self.assertIn("tab leader", str(cm_reb_tab.exception))
+            with self.assertRaises(ValueError) as cm_reb_dec:
+                ref_run.check_no_prohibited_assets(
+                    {"id": "reb-dec", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
                     require_installed=True, installed_fonts=["inter"],
                     installed_font_ranges={"inter": [[0x20, 0x7E]]},
-                    captured_frame={"id": "reb-forbid", "rendered_text": [{"element": "RichEditBox", "font": "Inter", "text": "A\tB"}]},
+                    captured_frame={"id": "reb-dec", "rendered_text": [
+                        {"element": "RichEditBox", "font": "__unverified_rich_decoration__", "text": "TabLeader"},
+                        {"element": "RichEditBox", "font": "Inter", "text": "A"},
+                    ]},
                 )
-            self.assertIn("cannot be persisted", str(cm_reb_forbid.exception))
+            self.assertIn("permitted non-Microsoft FontFamily", str(cm_reb_dec.exception))
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},
@@ -3213,6 +3230,15 @@ class LiveReference(unittest.TestCase):
                         "properties": {"Name": "TrimFit", "Text": "A", "Width": 400, "TextTrimming": "CharacterEllipsis", "FontFamily": "Inter"},
                     },
                     {
+                        "id": "reb-plain-live",
+                        "control": "RichEditBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 180, "height": 64},
+                        "properties": {"Name": "PlainRich", "FontFamily": "Inter", "Width": 140, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [{"action": "focus"}, {"action": "key_press", "key": "A"}],
+                    },
+                    {
                         "id": "prop-togglebtn",
                         "control": "ToggleButton",
                         "theme": "Dark",
@@ -3509,6 +3535,22 @@ class LiveReference(unittest.TestCase):
                     installed_font_ranges={"inter": [[0x20, 0x7E]]},
                     captured_frame=by1["tb-trim-fit-live"],
                 )
+                # Live RichEditBox collector captures plain typed 'A'/'a' with Inter and feeds check_no_prohibited_assets.
+                reb_rt = by1["reb-plain-live"].get("rendered_text", [])
+                self.assertTrue(any(r.get("text") in ("A", "a") and r.get("font", "").strip().lower() == "inter" for r in reb_rt), f"unexpected reb_rt={reb_rt!r}")
+                reb_spec = {"id": "reb-plain-live", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}}
+                ref_run.check_no_prohibited_assets(
+                    reb_spec, require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x41, 0x41], [0x61, 0x61]]},
+                    captured_frame=by1["reb-plain-live"],
+                )
+                with self.assertRaises(ValueError) as cm_reb_live:
+                    ref_run.check_no_prohibited_assets(
+                        reb_spec, require_installed=True, installed_fonts=["inter"],
+                        installed_font_ranges={"inter": [[0x30, 0x39]]},
+                        captured_frame=by1["reb-plain-live"],
+                    )
+                self.assertIn("not covered by installed FontFamily", str(cm_reb_live.exception))
 
                 # Generic property dispatch verifies actual configured values on ToggleButton, ProgressBar, Slider, and ComboBox.
                 self.assertIs(by1["prop-togglebtn"].get("is_checked"), True)
