@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -150,8 +151,16 @@ class LivePass(unittest.TestCase):
                 live._run_with_tree_kill([sys.executable, "-c", script], cwd=tmp, timeout=1.0, check=True)
             if pid_file.is_file():
                 child_pid = int(pid_file.read_text().strip())
-                with self.assertRaises(ProcessLookupError):
-                    os.kill(child_pid, 0)
+                deadline = time.monotonic() + 2.0
+                gone = False
+                while time.monotonic() < deadline:
+                    try:
+                        os.kill(child_pid, 0)
+                    except ProcessLookupError:
+                        gone = True
+                        break
+                    time.sleep(0.02)
+                self.assertTrue(gone, f"grandchild pid {child_pid} still alive after process-group kill")
 
 
 if __name__ == "__main__":
