@@ -63,7 +63,7 @@ Parts are separate folders with their own tests and dependency list, so Impossib
 - [x] Define the part list in `parts.json` (name, folder, depends, sources). Done when: `python3 tools/check_parts.py` refuses an include that crosses an undeclared edge. Cheaper substitute: a comment.
 - [x] Define the picture type, limits and errors in `parts/image/image.h`. Done when: the fixture decoder in `tests/fixtures/` uses it. Cheaper substitute: one struct per format.
 - [x] Compile each part alone with the OS flags in `tests/test_parts.py`. Done when: adding a Windows call to a part fails the test. Cheaper substitute: compiling everything together.
-- [x] Commit: `parts: layout, image type and the check`
+- [ ] Commit: `parts: layout, image type and the check`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and `python3 tools/check_parts.py` refuses the fixture with a hidden dependency.
 

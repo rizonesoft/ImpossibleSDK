@@ -384,24 +384,6 @@ class PortableParts(unittest.TestCase):
             self.assertFalse(ok)
             self.assertIn("symlink", msg)
 
-    def test_site_header_reader_resolves_declared_part_include(self):
-        sys.path.insert(0, str(ROOT / "tools/site"))
-        import headers as site_headers
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            shutil.copytree(ROOT / "parts/image", root / "parts/image")
-            (root / "parts/demo").mkdir(parents=True)
-            (root / "parts/demo/demo.h").write_text(
-                "/* Demo decoder header. */\n"
-                "#pragma once\n"
-                '#include "image.h"\n'
-                "/* Decode a demo picture into out. */\n"
-                "im_image_error im_demo_decode(im_image *out);\n",
-                encoding="utf-8",
-            )
-            hdr = site_headers.read(LLVM / f"clang{EXE}", root, "parts/demo/demo.h", ["parts", "parts/image", "parts/demo"])
-            self.assertTrue(any("im_demo_decode" in e.names for e in hdr.entries))
-
 
 @unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
 class ImageFixture(unittest.TestCase):

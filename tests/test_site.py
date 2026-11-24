@@ -1,4 +1,5 @@
 """The site's own checks see what they are there to see."""
+import json
 import os
 import shutil
 import signal
@@ -224,6 +225,32 @@ class Site(unittest.TestCase):
         (out / "CNAME").write_text("example.invalid\n")
         self.assertEqual(self.build("--out", str(out)).returncode, 1)
         self.assertTrue((out / "keep.txt").is_file())
+
+    def test_part_header_including_declared_part_generates_api_page(self):
+        demo_dir = self.copy / "parts/demo"
+        demo_dir.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(shutil.rmtree, demo_dir, True)
+        (demo_dir / "demo.h").write_text(
+            "/* Demo decoder header. */\n"
+            "#pragma once\n"
+            '#include "image.h"\n'
+            "/* Decode a demo picture into out. */\n"
+            "im_image_error im_demo_decode(im_image *out);\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        manifest = self.copy / "parts.json"
+        original = manifest.read_text(encoding="utf-8")
+        self.addCleanup(manifest.write_text, original, encoding="utf-8", newline="\n")
+        data = json.loads(original)
+        data["parts"].append({"name": "demo", "folder": "parts/demo", "depends": ["image"], "sources": []})
+        manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+        out = Path(self.folder.name, "demo_part_site")
+        done = self.build("--out", str(out))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        page = (out / "docs/api-demo.html").read_text(encoding="utf-8")
+        self.assertIn("im_demo_decode", page)
 
 
 if __name__ == "__main__":
