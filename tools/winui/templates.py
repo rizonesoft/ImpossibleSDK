@@ -115,6 +115,14 @@ ANIMATION_KEYFRAMES = {
     "ColorAnimationUsingKeyFrames": {"LinearColorKeyFrame"},
 }
 
+KEYFRAME_ATTRS = {
+    "DiscreteObjectKeyFrame": {"KeyTime", "Value"},
+    "LinearDoubleKeyFrame": {"KeyTime", "Value"},
+    "SplineDoubleKeyFrame": {"KeyTime", "Value", "KeySpline"},
+    "EasingDoubleKeyFrame": {"KeyTime", "Value"},
+    "LinearColorKeyFrame": {"KeyTime", "Value"},
+}
+
 BINDING_MODES = {"OneWay", "TwoWay", "OneTime"}
 
 # Attached properties legal on UI elements and as parenthesized targets in VisualState.Setters.
@@ -173,7 +181,7 @@ CONTENT_CONTROL_PROPS = CONTROL_PROPS | {
 # Properties inherited by Panel subclasses (Grid, ItemsStackPanel) and Border.
 PANEL_PROPS = {
     "Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush",
-    "BorderThickness", "CornerRadius", "Padding",
+    "BorderThickness", "ChildrenTransitions", "CornerRadius", "Padding",
 }
 
 # Element-specific properties (UI elements also inherit COMMON_UI_PROPS | ATTACHED_PROPS).
@@ -185,15 +193,20 @@ NON_UI_ELEMENTS = {
 }
 
 ELEMENT_OWN_PROPS = {
-    "Grid": PANEL_PROPS,
-    "Border": PANEL_PROPS,
-    "ContentPresenter": PANEL_PROPS | {
-        "Content", "ContentTemplate", "ContentTemplateSelector", "ContentTransitions",
-        "FontFamily", "FontSize", "FontStretch", "FontStyle", "FontWeight", "Foreground",
-        "HorizontalContentAlignment", "IsTextScaleFactorEnabled", "TextWrapping",
-        "VerticalContentAlignment",
+    "Grid": PANEL_PROPS | {"ColumnSpacing", "RowSpacing"},
+    "Border": (PANEL_PROPS - {"ChildrenTransitions"}) | {"Child", "ChildTransitions"},
+    "ContentPresenter": (PANEL_PROPS - {"ChildrenTransitions"}) | {
+        "CharacterSpacing", "Content", "ContentTemplate", "ContentTemplateSelector",
+        "ContentTransitions", "FontFamily", "FontSize", "FontStretch", "FontStyle",
+        "FontWeight", "Foreground", "HorizontalContentAlignment", "IsTextScaleFactorEnabled",
+        "LineHeight", "LineStackingStrategy", "MaxLines", "OpticalMarginAlignment",
+        "TextLineBounds", "TextWrapping", "VerticalContentAlignment",
     },
-    "Rectangle": {"Fill", "RadiusX", "RadiusY", "Stroke", "StrokeThickness"},
+    "Rectangle": {
+        "Fill", "RadiusX", "RadiusY", "Stretch", "Stroke", "StrokeDashArray",
+        "StrokeDashCap", "StrokeDashOffset", "StrokeEndLineCap", "StrokeLineJoin",
+        "StrokeMiterLimit", "StrokeStartLineCap", "StrokeThickness",
+    },
     "TextBlock": {
         "CharacterSpacing", "FontFamily", "FontSize", "FontStretch", "FontStyle", "FontWeight",
         "Foreground", "IsTextScaleFactorEnabled", "Padding", "Text", "TextAlignment", "TextWrapping",
@@ -237,7 +250,10 @@ ELEMENT_OWN_PROPS = {
         "SelectionMode", "ShowsScrollingPlaceholders", "SingleSelectionFollowsFocus",
     },
     "ListViewItem": CONTENT_CONTROL_PROPS | {"IsSelected"},
-    "FontIcon": {"FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground", "Glyph"},
+    "FontIcon": {
+        "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground", "Glyph",
+        "IsTextScaleFactorEnabled", "MirroredWhenRightToLeft",
+    },
     "ListViewItemPresenter": PANEL_PROPS | {
         "CheckBoxBorderBrush", "CheckBoxBrush", "CheckBoxCornerRadius", "CheckBoxDisabledBorderBrush",
         "CheckBoxDisabledBrush", "CheckBoxPointerOverBorderBrush", "CheckBoxPointerOverBrush",
@@ -255,7 +271,10 @@ ELEMENT_OWN_PROPS = {
         "SelectionIndicatorPointerOverBrush", "SelectionIndicatorPressedBrush",
         "SelectionIndicatorVisualEnabled", "VerticalContentAlignment",
     },
-    "ItemsStackPanel": PANEL_PROPS | {"Orientation"},
+    "ItemsStackPanel": PANEL_PROPS | {
+        "AreStickyGroupHeadersEnabled", "CacheLength", "GroupHeaderPlacement",
+        "GroupPadding", "ItemsUpdatingScrollMode", "Orientation",
+    },
     "ItemsPresenter": {"Footer", "FooterTemplate", "FooterTransitions", "Header", "HeaderTemplate", "HeaderTransitions", "Padding"},
     "RowDefinition": {"Height", "MinHeight", "MaxHeight"},
     "ColumnDefinition": {"Width", "MinWidth", "MaxWidth"},
@@ -893,13 +912,31 @@ class Compiler:
             dv = self.parse_value(dur_raw, "Duration", node.file, node.attr_line("Duration"))
             duration_ms = dv["a"]
         empty_v = {"kind": "IM_TVAL_NONE", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
-        from_key, from_raw = node.take_one_of("From", "FromHorizontalOffset")
-        if from_key is not None:
-            has_from = True
-            from_v = self.parse_value(from_raw, from_key, node.file, node.attr_line(from_key))
+        if node.tag == "RepositionThemeAnimation":
+            fh_raw = node.take("FromHorizontalOffset")
+            fv_raw = node.take("FromVerticalOffset")
+            if fh_raw is not None and fv_raw is not None:
+                has_from = True
+                fh_v = self.parse_value(fh_raw, "FromHorizontalOffset", node.file, node.attr_line("FromHorizontalOffset"))
+                fv_v = self.parse_value(fv_raw, "FromVerticalOffset", node.file, node.attr_line("FromVerticalOffset"))
+                from_v = {"kind": "IM_TVAL_POINT", "a": fh_v["a"], "b": fv_v["a"], "c": 0, "d": 0, "text": None, "fallback": None}
+            elif fh_raw is not None:
+                has_from = True
+                from_v = self.parse_value(fh_raw, "FromHorizontalOffset", node.file, node.attr_line("FromHorizontalOffset"))
+            elif fv_raw is not None:
+                has_from = True
+                from_v = self.parse_value(fv_raw, "FromVerticalOffset", node.file, node.attr_line("FromVerticalOffset"))
+            else:
+                has_from = False
+                from_v = empty_v
         else:
-            has_from = False
-            from_v = empty_v
+            from_raw = node.take("From")
+            if from_raw is not None:
+                has_from = True
+                from_v = self.parse_value(from_raw, "From", node.file, node.attr_line("From"))
+            else:
+                has_from = False
+                from_v = empty_v
         to_key, to_raw = node.take_one_of("To", "ToOffset")
         if to_key is not None:
             has_to = True
@@ -924,6 +961,12 @@ class Compiler:
             child.visit()
             if child.tag not in KEYFRAME_KINDS or child.tag not in allowed_kfs:
                 raise TemplateError(f"{child.file}:{child.line}: keyframe {child.tag!r} is not supported in {node.tag}")
+            allowed_kf_attrs = KEYFRAME_ATTRS[child.tag]
+            for attr_name in child.attrs:
+                if attr_name not in allowed_kf_attrs:
+                    raise TemplateError(
+                        f"{child.file}:{child.attr_line(attr_name)}: property {attr_name!r} is not supported on {child.tag}"
+                    )
             kf_kind = KEYFRAME_KINDS[child.tag]
             kt_ms = 0
             kt_raw = child.take("KeyTime")

@@ -994,6 +994,40 @@ class TemplateCompiler(unittest.TestCase):
         res_dbo, _ = self._run_fixture(xaml_dotted_brush_ok)
         self.assertEqual(res_dbo.returncode, 0, res_dbo.stderr)
 
+        # KeySpline on LinearDoubleKeyFrame must be rejected; Grid.ChildrenTransitions and RepositionThemeAnimation.FromVerticalOffset must be accepted.
+        xaml_bad_kf_spline = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <DoubleAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="Opacity">\n'
+            '      <LinearDoubleKeyFrame KeyTime="0" Value="1" KeySpline="0,0 1,1" />\n'
+            '    </DoubleAnimationUsingKeyFrames>\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_bks, path_bks = self._run_fixture(xaml_bad_kf_spline)
+        self.assertNotEqual(res_bks.returncode, 0)
+        self.assertIn(f"{path_bks}:4:", res_bks.stderr)
+
+        xaml_grid_ct = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.ChildrenTransitions" Value="{x:Null}" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_gct, _ = self._run_fixture(xaml_grid_ct)
+        self.assertEqual(res_gct.returncode, 0, res_gct.stderr)
+
+        xaml_reposition_v = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <RepositionThemeAnimation TargetName="R" FromVerticalOffset="4" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_rv, _ = self._run_fixture(xaml_reposition_v)
+        self.assertEqual(res_rv.returncode, 0, res_rv.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3
