@@ -1073,21 +1073,58 @@ class TemplateCompiler(unittest.TestCase):
 
         c_h = compile_reposition('FromHorizontalOffset="4"')
         c_v = compile_reposition('FromVerticalOffset="4"')
-        self.assertTrue(c_h.anims[0]["has_from"])
-        self.assertFalse(c_h.anims[0]["has_from_y"])
-        self.assertFalse(c_v.anims[0]["has_from"])
-        self.assertTrue(c_v.anims[0]["has_from_y"])
-        self.assertNotEqual(tpl_mod.emit(c_h)["template_data.c"], tpl_mod.emit(c_v)["template_data.c"])
+        emitted_h = tpl_mod.emit(c_h)["template_data.c"]
+        emitted_v = tpl_mod.emit(c_v)["template_data.c"]
+        self.assertIn(
+            'true, false, false, {IM_TVAL_FIXED, 262144, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}',
+            emitted_h,
+        )
+        self.assertIn(
+            'false, true, false, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_FIXED, 262144, 0, 0, 0, NULL, NULL}',
+            emitted_v,
+        )
 
         c_bh = compile_reposition('FromHorizontalOffset="{Binding Offset}"')
         c_bv = compile_reposition('FromVerticalOffset="{Binding Offset}"')
-        self.assertNotEqual(tpl_mod.emit(c_bh)["template_data.c"], tpl_mod.emit(c_bv)["template_data.c"])
+        emitted_bh = tpl_mod.emit(c_bh)["template_data.c"]
+        emitted_bv = tpl_mod.emit(c_bv)["template_data.c"]
+        self.assertIn(
+            'true, false, false, {IM_TVAL_BINDING, IM_BIND_DATA, IM_BIND_ONE_WAY, 0, 0, "Offset", NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}',
+            emitted_bh,
+        )
+        self.assertIn(
+            'false, true, false, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_BINDING, IM_BIND_DATA, IM_BIND_ONE_WAY, 0, 0, "Offset", NULL}',
+            emitted_bv,
+        )
 
         c_mix = compile_reposition('FromHorizontalOffset="{Binding Offset}" FromVerticalOffset="4"')
-        self.assertTrue(c_mix.anims[0]["has_from"])
-        self.assertEqual(c_mix.anims[0]["from"]["kind"], "IM_TVAL_BINDING")
-        self.assertTrue(c_mix.anims[0]["has_from_y"])
-        self.assertEqual(c_mix.anims[0]["from_y"]["a"], 4 * 65536)
+        emitted_mix = tpl_mod.emit(c_mix)["template_data.c"]
+        self.assertIn(
+            'true, true, false, {IM_TVAL_BINDING, IM_BIND_DATA, IM_BIND_ONE_WAY, 0, 0, "Offset", NULL}, {IM_TVAL_FIXED, 262144, 0, 0, 0, NULL, NULL}',
+            emitted_mix,
+        )
+
+        # Read-only TextBox.ProofingMenuFlyout must be rejected; inherited (FrameworkElement.Width) animation on Grid must be accepted.
+        xaml_ro_prop = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="TextBox">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Property="ProofingMenuFlyout" Value="{x:Null}" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_ro, path_ro = self._run_fixture(xaml_ro_prop)
+        self.assertNotEqual(res_ro.returncode, 0)
+        self.assertIn(f"{path_ro}:3:", res_ro.stderr)
+
+        xaml_fe_width = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <DoubleAnimation Storyboard.TargetName="R" Storyboard.TargetProperty="(FrameworkElement.Width)" EnableDependentAnimation="True" To="40" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_fw, _ = self._run_fixture(xaml_fe_width)
+        self.assertEqual(res_fw.returncode, 0, res_fw.stderr)
 
         # Unqualified TargetName on DoubleAnimation must be rejected; UIElement.AccessKeyScopeOwner on ListViewItemPresenter must be accepted.
         xaml_unq_tn = (

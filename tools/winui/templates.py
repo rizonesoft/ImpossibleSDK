@@ -238,7 +238,7 @@ ELEMENT_OWN_PROPS = {
         "Header", "HeaderPlacement", "HeaderTemplate", "HorizontalTextAlignment", "InputScope",
         "IsColorFontEnabled", "IsReadOnly", "IsSpellCheckEnabled", "IsTextPredictionEnabled",
         "MaxLength", "PlaceholderForeground", "PlaceholderText",
-        "PreventKeyboardDisplayOnProgrammaticFocus", "ProofingMenuFlyout", "SelectedText",
+        "PreventKeyboardDisplayOnProgrammaticFocus", "SelectedText",
         "SelectionFlyout", "SelectionHighlightColor", "SelectionHighlightColorWhenNotFocused",
         "SelectionLength", "SelectionStart", "Text", "TextAlignment", "TextReadingOrder",
         "TextWrapping",
@@ -617,45 +617,34 @@ def c_str(text):
     return f'"{escaped}"'
 
 
-KNOWN_COMPOUND_TARGET_PROPS = {
-    "(Panel.Background)",
-    "(Border.Background)",
-    "(Border.BorderBrush)",
-    "(Control.Background)",
-    "(Control.BorderBrush)",
-    "(Control.Foreground)",
-    "(ContentPresenter.Background)",
-    "(ContentPresenter.BorderBrush)",
-    "(ContentPresenter.Foreground)",
-    "(TextBlock.Foreground)",
-    "(Shape.Fill)",
-    "(Shape.Stroke)",
-    "(Panel.Background).(SolidColorBrush.Color)",
-    "(Border.Background).(SolidColorBrush.Color)",
-    "(Shape.Fill).(SolidColorBrush.Color)",
-    "(Shape.Stroke).(SolidColorBrush.Color)",
-    "(UIElement.Opacity)",
-    "(UIElement.Visibility)",
-    "(TranslateTransform.X)",
-    "(TranslateTransform.Y)",
-    "(ScaleTransform.ScaleX)",
-    "(ScaleTransform.ScaleY)",
-    "(CompositeTransform.ScaleX)",
-    "(CompositeTransform.ScaleY)",
-    "(CompositeTransform.TranslateX)",
-    "(CompositeTransform.TranslateY)",
+ALL_OWNER_TYPES = set().union(*ELEMENT_TYPES.values())
+
+BRUSH_PROPS = {
+    "Background", "BorderBrush", "Foreground", "Fill", "Stroke",
+    "FocusVisualPrimaryBrush", "FocusVisualSecondaryBrush",
+    "PlaceholderForeground", "SelectionHighlightColor",
+    "SelectionHighlightColorWhenNotFocused",
 }
 
 
 def clean_target_property(prop, file, line):
-    """Validate Storyboard.TargetProperty against exact known properties and supported compound paths."""
+    """Validate Storyboard.TargetProperty against known properties and structural compound paths."""
     raw = prop.strip()
     if not raw:
         raise TemplateError(f"{file}:{line}: empty TargetProperty {prop!r}")
     if ":" in raw:
         raise TemplateError(f"{file}:{line}: unsupported prefixed TargetProperty {prop!r}")
-    if raw in KNOWN_PROPS or raw in KNOWN_COMPOUND_TARGET_PROPS:
+    if raw in KNOWN_PROPS:
         return raw
+    cm = re.fullmatch(r"\((\w+)\.(\w+)\)(?:\.\((\w+)\.(\w+)\))?", raw)
+    if cm:
+        owner, member, sub_owner, sub_member = cm.groups()
+        valid_head = (f"{owner}.{member}" in ATTACHED_PROPS) or (owner in ALL_OWNER_TYPES and member in KNOWN_PROPS)
+        valid_tail = (sub_owner is None) or (
+            sub_owner == "SolidColorBrush" and sub_member == "Color" and member in BRUSH_PROPS
+        )
+        if valid_head and valid_tail:
+            return raw
     raise TemplateError(f"{file}:{line}: unknown TargetProperty {prop!r}")
 
 
