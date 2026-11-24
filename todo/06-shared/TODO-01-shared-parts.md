@@ -126,8 +126,11 @@ The piece tree, encodings, line ends, undo, caret and search of Notepad, as a pa
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 
 ## 5. Unicode data
+> **Started:** 2026-11-24T20:48Z
 
-Categories, breaks, widths, case, normal forms and names from one pinned Unicode version.
+**Corrected 2026-11-24:** Pinned Unicode 16.0.0 in `tools/unicode/pin.json` (with SHA-256 hashes for all required UCD data and official test files and `licenses/UNICODE-LICENSE-V3.txt`), expanded Build order and checklist into concrete five-part micro-steps covering `parts/unicode/unicode.h`, `parts/unicode/unicode.c`, `parts/unicode/unicode_data.c`, `parts.json`, `cmake/ImpossibleSDK.cmake`, `tests/fixtures/unicode_tests.c`, and `tests/test_parts.py`, and specified caller-supplied scratch buffers so `parts/unicode/` stays freestanding with zero heap allocation, zero floats, and zero OS calls.
+
+Categories, breaks, widths, scripts, case, normal forms and names from one pinned Unicode version (16.0.0).
 
 **Phase:** 1
 **Needs:** none
@@ -135,15 +138,19 @@ Categories, breaks, widths, case, normal forms and names from one pinned Unicode
 
 **Build order:**
 
-1. Write `parts/unicode/unicode.c`. Done when: the published test sets pass
-2. Cover it in `tests/`. Done when: the checks fail on a planted fault.
+1. Pin Unicode 16.0.0 UCD and test files with SHA-256 hashes in `tools/unicode/pin.json`, add `licenses/UNICODE-LICENSE-V3.txt`, and write `tools/gen_unicode.py` (with `--check` drift mode) to generate deterministic compact tables in `parts/unicode/unicode_data.h` and `parts/unicode/unicode_data.c`. Done when: `python3 tools/gen_unicode.py --check` exits 0 and a clean regeneration produces identical bytes.
+2. Write `parts/unicode/unicode.h` (every public symbol documented for `tools/site/build.py`) and `parts/unicode/unicode.c` implementing property lookups (General Category, East Asian Width, Script, Combining Class, Bidi Class/Mirror/Bracket, exact Unicode Name), UAX #29 grapheme cluster and word breaking, UAX #14 line breaking, UAX #9 bidirectional algorithm (paragraph/line levels, visual ordering, and class-direct mode using caller-supplied scratch with zero heap allocation), UAX #15 normalization (NFD, NFC, NFKD, NFKC), and full/simple/Turkic case folding. Register `unicode` in `parts.json`, `cmake/ImpossibleSDK.cmake`, and `CMakeLists.txt`. Done when: `python3 tools/check_parts.py` exits 0 and `parts/unicode/` compiles alone with OS freestanding no-float flags.
+3. Add `tests/fixtures/unicode_tests.c` (`unicode-tests` Tier 0 console fixture) and `tests/test_parts.py` coverage running 100% of the pinned official UCD test suites (`GraphemeBreakTest.txt`, `WordBreakTest.txt`, `LineBreakTest.txt`, `BidiTest.txt`, `BidiCharacterTest.txt`, `NormalizationTest.txt`, `CaseFolding.txt`), property/name verification, error/buffer-too-small refusal paths, and generator determinism checks. Done when: `python3 tools/build.py`, `python3 tools/check_parts.py`, `python3 tools/gen_unicode.py --check`, and `python3 tools/site/build.py --check` all exit 0 and checks fail on a planted fault.
 
-- [ ] Generate tables by `tools/gen_unicode.py` from the pinned version. Done when: a rebuild gives the same bytes. Cheaper substitute: hand-typed.
-- [ ] Break lines, words and graphemes and resolve directions by the standard alone in `parts/unicode/unicode.c`, the only place these are written. Done when: LineBreakTest, WordBreakTest, GraphemeBreakTest, BidiTest and BidiCharacterTest pass. Cheaper substitute: spaces.
-- [ ] Normalise and fold case in `parts/unicode/unicode.c`. Done when: the published tests pass. Cheaper substitute: ASCII.
+- [ ] Pin Unicode 16.0.0 UCD data and test files with SHA-256 hashes in `tools/unicode/pin.json` and add `licenses/UNICODE-LICENSE-V3.txt`. Done when: every downloaded UCD file is hash-verified against `tools/unicode/pin.json` and cached under `~/.cache/impossible-sdk/unicode/16.0.0/`. Cheaper substitute: unpinned downloads or missing licence notice.
+- [ ] Generate deterministic C tables in `parts/unicode/unicode_data.h` and `parts/unicode/unicode_data.c` via `tools/gen_unicode.py` (with `--check`). Done when: a rebuild gives the same bytes and `python3 tools/gen_unicode.py --check` exits 0. Cheaper substitute: hand-typed tables.
+- [ ] Implement General Category, East Asian Width, Script, Canonical Combining Class, Bidi Class/Mirror/Bracket, and exact Unicode Name lookups in `parts/unicode/unicode.h` and `parts/unicode/unicode.c`. Done when: `unicode-tests.exe` matches pinned `UnicodeData.txt`, `EastAsianWidth.txt`, `Scripts.txt`, `BidiMirroring.txt`, and `BidiBrackets.txt` across all codepoints `0x0000..0x10FFFF` (including algorithmic CJK/Hangul/Tangut names and out-of-range refusals). Cheaper substitute: ASCII-only or stubbed names.
+- [ ] Implement UAX #29 grapheme cluster and word breaking, UAX #14 line breaking, and UAX #9 bidirectional resolution (with caller-supplied scratch and zero heap allocation) in `parts/unicode/unicode.c`, the only place these are written. Done when: 100% of pinned `GraphemeBreakTest.txt`, `WordBreakTest.txt`, `LineBreakTest.txt`, `BidiTest.txt`, and `BidiCharacterTest.txt` pass in `tests/test_parts.py` via `unicode-tests.exe`. Cheaper substitute: space splitting or simplified bidi.
+- [ ] Implement UAX #15 normalization (NFD, NFC, NFKD, NFKC) and full/simple/Turkic case folding in `parts/unicode/unicode.c` with caller-buffer sizing and `IM_UNICODE_BUFFER_TOO_SMALL` error reporting. Done when: 100% of pinned `NormalizationTest.txt` and `CaseFolding.txt` pass in `tests/test_parts.py` via `unicode-tests.exe`. Cheaper substitute: ASCII-only folding or partial normalization.
+- [ ] Register `unicode` in `parts.json`, `cmake/ImpossibleSDK.cmake`, and `CMakeLists.txt` (`unicode-tests`), and verify OS freestanding no-float isolation and site docs. Done when: `python3 tools/check_parts.py`, `python3 tools/build.py`, and `python3 tools/site/build.py --check` exit 0. Cheaper substitute: skipping `parts.json` or OS-flag compile check.
 - [ ] Commit: `parts: unicode`
 
-**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+**Test checkpoint:** `python3 tools/gen_unicode.py --check`, `python3 tools/check_parts.py`, `python3 tools/build.py`, and `python3 tools/site/build.py --check` all exit 0 and the new tests fail when their production change is reverted.
 
 ## 6. Time zones and recurrence
 
