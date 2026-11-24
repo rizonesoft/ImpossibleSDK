@@ -164,19 +164,53 @@ class TemplateError(Exception):
 
 
 class Node:
-    """XML node with exact source file, opening line, and per-attribute line numbers."""
+    """XML node with exact source file, namespace, opening line, and consumption tracking."""
 
-    def __init__(self, tag, attrs, file, line, attr_lines):
+    def __init__(self, tag, ns, attrs, file, line, attr_lines):
         self.tag = tag
+        self.ns = ns
         self.attrs = attrs
         self.file = file
         self.line = line
         self.attr_lines = attr_lines
         self.children = []
         self.text = ""
+        self.visited = False
+        self.consumed_attrs = set()
 
     def attr_line(self, name):
         return self.attr_lines.get(name, self.line)
+
+    def visit(self):
+        self.visited = True
+
+    def take(self, name, default=None):
+        if name in self.attrs:
+            self.consumed_attrs.add(name)
+            return self.attrs[name]
+        return default
+
+    def take_one_of(self, *names):
+        present = [n for n in names if n in self.attrs]
+        if len(present) > 1:
+            raise TemplateError(
+                f"{self.file}:{self.attr_line(present[1])}: conflicting properties {present[0]!r} and {present[1]!r} on {self.tag}"
+            )
+        if present:
+            self.consumed_attrs.add(present[0])
+            return present[0], self.attrs[present[0]]
+        return None, None
+
+
+def verify_fully_consumed(node):
+    """Fail if any parsed element or attribute in the compiled AST was silently ignored."""
+    if not node.visited:
+        raise TemplateError(f"{node.file}:{node.line}: unconsumed element {node.tag!r}")
+    for k in node.attrs:
+        if k not in node.consumed_attrs:
+            raise TemplateError(f"{node.file}:{node.attr_line(k)}: unconsumed property {k!r} on {node.tag}")
+    for child in node.children:
+        verify_fully_consumed(child)
 
 
 def local_name(name):
@@ -276,6 +310,7 @@ def parse_xaml(text, filename):
             else:
                 raise TemplateError(f"{filename}:{base_line}: unsupported element namespace {el_ns!r} for {el_local!r}")
         else:
+            el_ns = ""
             el_local = local_name(tag)
         xaml_allowed = {"Name", "Key", "DeferLoadStrategy", "Load"}
         clean_attrs = {}
@@ -304,7 +339,7 @@ def parse_xaml(text, filename):
                 raise TemplateError(f"{filename}:{line_no}: duplicate attribute {short!r}")
             clean_attrs[short] = v
             attr_lines[short] = line_no
-        node = Node(el_local, clean_attrs, filename, base_line, attr_lines)
+        node = Node(el_local, el_ns, clean_attrs, filename, base_line, attr_lines)
         if stack:
             stack[-1].children.append(node)
         stack.append(node)
@@ -599,84 +634,75 @@ class Compiler:
         return {"kind": "IM_TVAL_ENUM_STR", "a": 0, "b": 0, "c": 0, "d": 0, "text": text, "fallback": None}
 
     def compile_animation(self, node):
+        node.visit()
         if node.tag not in ANIMATION_KINDS:
             raise TemplateError(f"{node.file}:{node.line}: unknown animation {node.tag!r}")
         kind = ANIMATION_KINDS[node.tag]
-        target_name = node.attrs.get("TargetName") or node.attrs.get("Storyboard.TargetName")
-        target_prop_key = "Storyboard.TargetProperty" if "Storyboard.TargetProperty" in node.attrs else "TargetProperty"
-        target_prop = node.attrs.get(target_prop_key)
+        _, target_name = node.take_one_of("Storyboard.TargetName", "TargetName")
+        target_prop_key, target_prop = node.take_one_of("Storyboard.TargetProperty", "TargetProperty")
         if target_prop is not None:
             target_prop = clean_target_property(target_prop, node.file, node.attr_line(target_prop_key))
         duration_ms = 0
-        if "Duration" in node.attrs:
-            dv = self.parse_value(node.attrs["Duration"], "Duration", node.file, node.attr_line("Duration"))
+        dur_raw = node.take("Duration")
+        if dur_raw is not None:
+            dv = self.parse_value(dur_raw, "Duration", node.file, node.attr_line("Duration"))
             duration_ms = dv["a"]
         empty_v = {"kind": "IM_TVAL_NONE", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
-        if "From" in node.attrs:
+        from_key, from_raw = node.take_one_of("From", "FromHorizontalOffset")
+        if from_key is not None:
             has_from = True
-            from_v = self.parse_value(node.attrs["From"], "From", node.file, node.attr_line("From"))
-        elif "FromHorizontalOffset" in node.attrs:
-            has_from = True
-            from_v = self.parse_value(node.attrs["FromHorizontalOffset"], "FromHorizontalOffset", node.file, node.attr_line("FromHorizontalOffset"))
+            from_v = self.parse_value(from_raw, from_key, node.file, node.attr_line(from_key))
         else:
             has_from = False
             from_v = empty_v
-        if "To" in node.attrs:
+        to_key, to_raw = node.take_one_of("To", "ToOffset")
+        if to_key is not None:
             has_to = True
-            to_v = self.parse_value(node.attrs["To"], "To", node.file, node.attr_line("To"))
-        elif "ToOffset" in node.attrs:
-            has_to = True
-            to_v = self.parse_value(node.attrs["ToOffset"], "ToOffset", node.file, node.attr_line("ToOffset"))
+            to_v = self.parse_value(to_raw, to_key, node.file, node.attr_line(to_key))
         else:
             has_to = False
             to_v = empty_v
 
         direction = "IM_DIR_NONE"
-        if "Direction" in node.attrs:
+        raw_dir = node.take("Direction")
+        if raw_dir is not None:
             dir_map = {"Left": "IM_DIR_LEFT", "Right": "IM_DIR_RIGHT", "Top": "IM_DIR_TOP", "Bottom": "IM_DIR_BOTTOM"}
-            raw_dir = node.attrs["Direction"].strip()
+            raw_dir = raw_dir.strip()
             if raw_dir not in dir_map:
                 raise TemplateError(f"{node.file}:{node.attr_line('Direction')}: unknown Direction {raw_dir!r}")
             direction = dir_map[raw_dir]
+        node.take("EnableDependentAnimation")
 
-        # Validate any extra attributes on the animation element
-        allowed_anim_attrs = {"TargetName", "TargetProperty", "Storyboard.TargetName", "Storyboard.TargetProperty",
-                              "Duration", "From", "To", "EnableDependentAnimation", "FromHorizontalOffset",
-                              "ToOffset", "Direction"}
-        for k in node.attrs:
-            if k not in allowed_anim_attrs:
-                raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
-
-        allowed_kf_attrs = {"KeyTime", "Value", "KeySpline"}
         kf_start = len(self.keyframes)
         for child in node.children:
+            child.visit()
             if child.tag not in KEYFRAME_KINDS:
                 raise TemplateError(f"{child.file}:{child.line}: unknown keyframe {child.tag!r}")
-            for k in child.attrs:
-                if k not in allowed_kf_attrs:
-                    raise TemplateError(f"{child.file}:{child.attr_line(k)}: unknown property {k!r} on {child.tag}")
             kf_kind = KEYFRAME_KINDS[child.tag]
             kt_ms = 0
-            if "KeyTime" in child.attrs:
-                ktv = self.parse_value(child.attrs["KeyTime"], "KeyTime", child.file, child.attr_line("KeyTime"))
+            kt_raw = child.take("KeyTime")
+            if kt_raw is not None:
+                ktv = self.parse_value(kt_raw, "KeyTime", child.file, child.attr_line("KeyTime"))
                 kt_ms = ktv["a"]
             spline = [0, 0, 0, 0]
-            if "KeySpline" in child.attrs:
-                sv = self.parse_value(child.attrs["KeySpline"], "KeySpline", child.file, child.attr_line("KeySpline"))
+            sp_raw = child.take("KeySpline")
+            if sp_raw is not None:
+                sv = self.parse_value(sp_raw, "KeySpline", child.file, child.attr_line("KeySpline"))
                 spline = [sv["a"], sv["b"], sv["c"], sv["d"]]
             val = {"kind": "IM_TVAL_NONE", "a": 0, "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
-            if "Value" in child.attrs:
-                val = self.parse_value(child.attrs["Value"], target_prop or "Value", child.file, child.attr_line("Value"))
+            val_raw = child.take("Value")
+            if val_raw is not None:
+                val = self.parse_value(val_raw, target_prop or "Value", child.file, child.attr_line("Value"))
             for sub in child.children:
-                if sub.tag == f"{child.tag}.Value" and "Value" not in child.attrs:
-                    check_attrs(sub, set())
+                if sub.tag == f"{child.tag}.Value" and val_raw is None:
+                    sub.visit()
                     if len(sub.children) != 1:
                         raise TemplateError(f"{sub.file}:{sub.line}: expected single value element in {sub.tag}")
                     inner = sub.children[0]
-                    check_attrs(inner, set())
+                    inner.visit()
                     if inner.children:
                         raise TemplateError(f"{inner.children[0].file}:{inner.children[0].line}: unexpected element {inner.children[0].tag!r} in {inner.tag}")
-                    if inner.tag in ("Visibility", "Boolean"):
+                    if inner.tag == "Visibility" or (inner.tag == "Boolean" and inner.ns == "http://schemas.microsoft.com/winfx/2006/xaml"):
                         val = self.parse_value(inner.text, inner.tag, inner.file, inner.line)
                     else:
                         raise TemplateError(f"{inner.file}:{inner.line}: unknown keyframe value element {inner.tag!r}")
@@ -704,58 +730,57 @@ class Compiler:
         })
 
     def compile_vsm_groups(self, groups_node):
-        check_attrs(groups_node, set())
+        groups_node.visit()
         group_start = len(self.groups)
         for gnode in groups_node.children:
+            gnode.visit()
             if gnode.tag != "VisualStateGroup":
                 raise TemplateError(f"{gnode.file}:{gnode.line}: expected VisualStateGroup, got {gnode.tag!r}")
-            check_attrs(gnode, {"Name"})
-            gname = gnode.attrs.get("Name", "")
+            gname = gnode.take("Name", "")
             state_start = len(self.states)
             trans_start = len(self.transitions)
             trans_nodes = []
             for child in gnode.children:
                 if child.tag == "VisualStateGroup.Transitions":
-                    check_attrs(child, set())
+                    child.visit()
                     trans_nodes.extend(child.children)
                 elif child.tag == "VisualState":
-                    check_attrs(child, {"Name"})
-                    sname = child.attrs.get("Name", "")
+                    child.visit()
+                    sname = child.take("Name", "")
                     setter_start = len(self.style_setters)
                     anim_start = len(self.anims)
                     for sc in child.children:
                         if sc.tag == "VisualState.Setters":
-                            check_attrs(sc, set())
+                            sc.visit()
                             for s in sc.children:
+                                s.visit()
                                 if s.tag != "Setter":
                                     raise TemplateError(f"{s.file}:{s.line}: expected Setter, got {s.tag!r}")
-                                check_attrs(s, {"Target", "Property", "Value"})
                                 if s.children:
                                     raise TemplateError(f"{s.children[0].file}:{s.children[0].line}: unexpected child {s.children[0].tag!r} in VisualState Setter")
-                                if "Value" not in s.attrs:
+                                val_raw = s.take("Value")
+                                if val_raw is None:
                                     raise TemplateError(f"{s.file}:{s.line}: VisualState Setter missing Value")
-                                has_tgt = "Target" in s.attrs
-                                has_prop = "Property" in s.attrs
-                                if has_tgt and has_prop:
-                                    raise TemplateError(f"{s.file}:{s.attr_line('Property')}: VisualState Setter cannot specify both Target and Property")
-                                if not has_tgt and not has_prop:
+                                which, raw_tp = s.take_one_of("Target", "Property")
+                                if which is None:
                                     raise TemplateError(f"{s.file}:{s.line}: VisualState Setter missing Target or Property")
-                                if has_tgt:
-                                    tgt = s.attrs["Target"]
+                                if which == "Target":
+                                    tgt = raw_tp
                                     if "." not in tgt:
                                         raise TemplateError(f"{s.file}:{s.attr_line('Target')}: invalid VisualState Setter Target {tgt!r}")
                                     prop = strip_xml_prefix(tgt.split(".", 1)[-1]).strip("()")
                                     prop_line = s.attr_line("Target")
                                 else:
                                     tgt = ""
-                                    prop = s.attrs["Property"]
+                                    prop = raw_tp
                                     prop_line = s.attr_line("Property")
                                 if not prop or prop not in KNOWN_PROPS:
                                     raise TemplateError(f"{s.file}:{prop_line}: unknown property {prop!r}")
-                                val = self.parse_value(s.attrs["Value"], prop, s.file, s.attr_line("Value"))
+                                val = self.parse_value(val_raw, prop, s.file, s.attr_line("Value"))
                                 self.style_setters.append({"target": tgt, "property": prop, "value": val})
                         elif sc.tag == "Storyboard":
-                            check_attrs(sc, {"Name"})
+                            sc.visit()
+                            sc.take("Name")
                             for anim in sc.children:
                                 self.compile_animation(anim)
                         else:
@@ -771,19 +796,22 @@ class Compiler:
                     raise TemplateError(f"{child.file}:{child.line}: unexpected element {child.tag!r} in VisualStateGroup")
 
             for tnode in trans_nodes:
+                tnode.visit()
                 if tnode.tag != "VisualTransition":
                     raise TemplateError(f"{tnode.file}:{tnode.line}: expected VisualTransition, got {tnode.tag!r}")
-                check_attrs(tnode, {"Name", "From", "To", "GeneratedDuration"})
-                from_s = tnode.attrs.get("From")
-                to_s = tnode.attrs.get("To")
+                tnode.take("Name")
+                from_s = tnode.take("From")
+                to_s = tnode.take("To")
                 dur_ms = 0
-                if "GeneratedDuration" in tnode.attrs:
-                    dv = self.parse_value(tnode.attrs["GeneratedDuration"], "GeneratedDuration", tnode.file, tnode.attr_line("GeneratedDuration"))
+                gd_raw = tnode.take("GeneratedDuration")
+                if gd_raw is not None:
+                    dv = self.parse_value(gd_raw, "GeneratedDuration", tnode.file, tnode.attr_line("GeneratedDuration"))
                     dur_ms = dv["a"]
                 anim_start = len(self.anims)
                 for tc in tnode.children:
                     if tc.tag == "Storyboard":
-                        check_attrs(tc, {"Name"})
+                        tc.visit()
+                        tc.take("Name")
                         for anim in tc.children:
                             self.compile_animation(anim)
                     else:
@@ -805,18 +833,19 @@ class Compiler:
         return group_start, len(self.groups) - group_start
 
     def compile_element_tree(self, node, parent_idx, vsm_groups_out, out_elems, out_props):
+        node.visit()
         if node.tag not in ELEMENT_KINDS:
             raise TemplateError(f"{node.file}:{node.line}: unknown element {node.tag!r}")
         elem_idx = len(out_elems)
         prop_start = len(out_props)
-        name = node.attrs.get("Name")
+        name = node.take("Name")
 
         saved_resources = dict(self.local_resources)
         try:
             # First scan Grid.Resources so nested styles (like DeleteButtonStyle) are scoped to this element's subtree.
             for child in node.children:
                 if child.tag == "Grid.Resources":
-                    check_attrs(child, set())
+                    child.visit()
                     for res_node in child.children:
                         if res_node.tag == "Style":
                             rk = res_node.attrs.get("Name") or res_node.attrs.get("Key")
@@ -827,11 +856,12 @@ class Compiler:
                             raise TemplateError(f"{res_node.file}:{res_node.line}: unknown resource element {res_node.tag!r}")
 
             # Collect attributes on this element
-            for k, v in node.attrs.items():
+            for k in list(node.attrs):
                 if k == "Name":
                     continue
                 if k not in KNOWN_PROPS:
                     raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
+                v = node.take(k)
                 val = self.parse_value(v, k, node.file, node.attr_line(k))
                 out_props.append({"name": k, "value": val})
 
@@ -843,14 +873,16 @@ class Compiler:
                 elif child.tag == "VisualStateManager.VisualStateGroups":
                     vsm_groups_out.append(child)
                 elif child.tag == "Thumb.Template":
-                    check_attrs(child, set())
-                    for ct in child.children:
-                        if ct.tag != "ControlTemplate":
-                            raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate in Thumb.Template, got {ct.tag!r}")
-                        nested_idx = self.compile_control_template(ct, key=f"{name or 'Thumb'}.Template", target_type="Thumb", style_setters=(0, 0), enum_id=None)
-                        out_props.append({"name": "Template", "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{name or 'Thumb'}.Template", "fallback": None}})
+                    child.visit()
+                    if len(child.children) != 1:
+                        raise TemplateError(f"{child.file}:{child.line}: expected single ControlTemplate in Thumb.Template")
+                    ct = child.children[0]
+                    if ct.tag != "ControlTemplate":
+                        raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate in Thumb.Template, got {ct.tag!r}")
+                    nested_idx = self.compile_control_template(ct, key=f"{name or 'Thumb'}.Template", target_type="Thumb", style_setters=(0, 0), enum_id=None)
+                    out_props.append({"name": "Template", "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{name or 'Thumb'}.Template", "fallback": None}})
                 elif child.tag in PROP_ELEMENT_TAGS:
-                    check_attrs(child, set())
+                    child.visit()
                     for sub in child.children:
                         child_elements.append(sub)
                 elif "." in child.tag:
@@ -873,7 +905,8 @@ class Compiler:
             self.local_resources = saved_resources
 
     def compile_control_template(self, ct_node, key, target_type, style_setters, enum_id):
-        check_attrs(ct_node, {"TargetType"})
+        ct_node.visit()
+        ct_node.take("TargetType")
         local_elems = []
         local_props = []
         vsm_nodes = []
@@ -916,49 +949,48 @@ class Compiler:
         return tpl_idx
 
     def compile_style(self, style_node, key_override=None, enum_id=None):
-        check_attrs(style_node, {"Key", "Name", "TargetType", "BasedOn"})
-        key = key_override if key_override is not None else style_node.attrs.get("Key") or style_node.attrs.get("TargetType")
-        target_type = style_node.attrs.get("TargetType", "")
+        style_node.visit()
+        style_key = style_node.take("Key")
+        style_name = style_node.take("Name")
+        target_type = style_node.take("TargetType", "")
+        style_node.take("BasedOn")
+        key = key_override if key_override is not None else style_key or style_name or target_type
         local_setters = []
         ct_node = None
 
         for child in style_node.children:
+            child.visit()
             if child.tag != "Setter":
                 raise TemplateError(f"{child.file}:{child.line}: expected Setter in Style, got {child.tag!r}")
-            check_attrs(child, {"Property", "Value"})
-            prop = child.attrs.get("Property", "")
+            prop = child.take("Property", "")
             if prop not in KNOWN_PROPS:
                 raise TemplateError(f"{child.file}:{child.attr_line('Property')}: unknown property {prop!r} in Style Setter")
-            if prop == "Template":
-                for sv in child.children:
-                    if sv.tag == "Setter.Value" and sv.children:
-                        check_attrs(sv, set())
-                        ct = sv.children[0]
-                        if ct.tag != "ControlTemplate":
-                            raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate, got {ct.tag!r}")
-                        ct_node = ct
-            elif prop == "ItemsPanel":
-                for sv in child.children:
-                    if sv.tag == "Setter.Value" and sv.children:
-                        check_attrs(sv, set())
-                        ipt = sv.children[0]
-                        if ipt.tag != "ItemsPanelTemplate":
-                            raise TemplateError(f"{ipt.file}:{ipt.line}: expected ItemsPanelTemplate, got {ipt.tag!r}")
-                        nested_idx = self.compile_control_template(ipt, key=f"{key}.ItemsPanel", target_type=target_type, style_setters=(0, 0), enum_id=None)
-                        local_setters.append({"target": None, "property": prop, "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{key}.ItemsPanel", "fallback": None}})
-            elif prop == "ItemContainerTransitions":
-                for sv in child.children:
-                    if sv.tag == "Setter.Value" and sv.children:
-                        check_attrs(sv, set())
-                        tc = sv.children[0]
-                        if tc.tag != "TransitionCollection":
-                            raise TemplateError(f"{tc.file}:{tc.line}: expected TransitionCollection, got {tc.tag!r}")
-                        nested_idx = self.compile_control_template(tc, key=f"{key}.ItemContainerTransitions", target_type=target_type, style_setters=(0, 0), enum_id=None)
-                        local_setters.append({"target": None, "property": prop, "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{key}.ItemContainerTransitions", "fallback": None}})
+            if prop in ("Template", "ItemsPanel", "ItemContainerTransitions"):
+                if len(child.children) != 1 or child.children[0].tag != "Setter.Value":
+                    raise TemplateError(f"{child.file}:{child.line}: Setter for {prop!r} must contain a single Setter.Value")
+                sv = child.children[0]
+                sv.visit()
+                if len(sv.children) != 1:
+                    raise TemplateError(f"{sv.file}:{sv.line}: Setter.Value for {prop!r} must contain a single child")
+                inner = sv.children[0]
+                if prop == "Template":
+                    if inner.tag != "ControlTemplate":
+                        raise TemplateError(f"{inner.file}:{inner.line}: expected ControlTemplate, got {inner.tag!r}")
+                    ct_node = inner
+                elif prop == "ItemsPanel":
+                    if inner.tag != "ItemsPanelTemplate":
+                        raise TemplateError(f"{inner.file}:{inner.line}: expected ItemsPanelTemplate, got {inner.tag!r}")
+                    nested_idx = self.compile_control_template(inner, key=f"{key}.ItemsPanel", target_type=target_type, style_setters=(0, 0), enum_id=None)
+                    local_setters.append({"target": None, "property": prop, "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{key}.ItemsPanel", "fallback": None}})
+                else:
+                    if inner.tag != "TransitionCollection":
+                        raise TemplateError(f"{inner.file}:{inner.line}: expected TransitionCollection, got {inner.tag!r}")
+                    nested_idx = self.compile_control_template(inner, key=f"{key}.ItemContainerTransitions", target_type=target_type, style_setters=(0, 0), enum_id=None)
+                    local_setters.append({"target": None, "property": prop, "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{key}.ItemContainerTransitions", "fallback": None}})
             elif "Value" in child.attrs:
                 if child.children:
                     raise TemplateError(f"{child.children[0].file}:{child.children[0].line}: unexpected element {child.children[0].tag!r} in Setter")
-                val = self.parse_value(child.attrs["Value"], prop, child.file, child.attr_line("Value"))
+                val = self.parse_value(child.take("Value"), prop, child.file, child.attr_line("Value"))
                 local_setters.append({"target": None, "property": prop, "value": val})
             else:
                 raise TemplateError(f"{child.file}:{child.line}: Setter for {prop!r} has no Value")
@@ -1006,6 +1038,7 @@ def compile_checkout(checkout):
             if found is None:
                 raise TemplateError(f"{rel_path}:1: Style key={style_key!r} TargetType={target_type!r} not found")
             compiler.compile_style(found, enum_id=enum_id)
+            verify_fully_consumed(found)
         return compiler
 
 
@@ -1116,7 +1149,8 @@ def main():
         elif doc.tag == "ControlTemplate":
             comp.compile_control_template(doc, key="Fixture", target_type=doc.attrs.get("TargetType", ""), style_setters=(0, 0), enum_id=None)
         elif doc.tag == "ResourceDictionary":
-            check_attrs(doc, {"Ignorable"})
+            doc.visit()
+            doc.take("Ignorable")
             for child in doc.children:
                 if child.tag == "Style":
                     comp.compile_style(child)
@@ -1124,6 +1158,7 @@ def main():
                     raise TemplateError(f"{child.file}:{child.line}: unknown element {child.tag!r} in ResourceDictionary")
         else:
             raise TemplateError(f"{doc.file}:{doc.line}: unknown root element {doc.tag!r}")
+        verify_fully_consumed(doc)
         print(f"parsed {len(comp.templates)} templates from {args.parse_file}")
         return 0
 

@@ -665,6 +665,46 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_pb.returncode, 0)
         self.assertIn(f"{path_pb}:4:", res_pb.stderr)
 
+        # Conflicting animation alias attrs, unqualified <Boolean>, and extra child in Style Setter.Value must all be rejected.
+        xaml_alias = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <DoubleAnimation Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible"\n'
+            '      TargetProperty="Bogus" To="1" />\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_al, path_al = self._run_fixture(xaml_alias)
+        self.assertNotEqual(res_al.returncode, 0)
+        self.assertIn(f"{path_al}:4:", res_al.stderr)
+
+        xaml_unq_bool = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="R" Storyboard.TargetProperty="IsHitTestVisible">\n'
+            '      <DiscreteObjectKeyFrame KeyTime="0"><DiscreteObjectKeyFrame.Value><Boolean>True</Boolean></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>\n'
+            '    </ObjectAnimationUsingKeyFrames>\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_ub, path_ub = self._run_fixture(xaml_unq_bool)
+        self.assertNotEqual(res_ub.returncode, 0)
+        self.assertIn(f"{path_ub}:4:", res_ub.stderr)
+
+        xaml_extra_sv = (
+            '<Style TargetType="Button">\n'
+            '  <Setter Property="Template">\n'
+            '    <Setter.Value>\n'
+            '      <ControlTemplate TargetType="Button"><Grid /></ControlTemplate>\n'
+            '      <Unknown Bogus="1" />\n'
+            '    </Setter.Value>\n'
+            '  </Setter>\n'
+            '</Style>\n'
+        )
+        res_esv, path_esv = self._run_fixture(xaml_extra_sv)
+        self.assertNotEqual(res_esv.returncode, 0)
+        self.assertIn(f"{path_esv}:3:", res_esv.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3
