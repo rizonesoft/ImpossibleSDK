@@ -2416,15 +2416,22 @@ class ReferenceHarness(unittest.TestCase):
                 installed_font_ranges={"inter": [[0x20, 0x7E]]},
                 captured_frame={"id": "grid-dp", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "March"}]},
             )
-            # TextTrimming=CharacterEllipsis requires U+2026 ellipsis glyph coverage.
+            # TextTrimming=CharacterEllipsis requires captured rendered_text; fitting text without U+2026 passes ASCII-only cmap,
+            # while trimmed text carrying U+2026 fails without U+2026 coverage and passes with it.
             trim_case = {"id": "tb-trim", "control": "TextBlock", "properties": {
                 "Text": "A" * 80, "Width": 40, "TextTrimming": "CharacterEllipsis", "FontFamily": "Inter",
             }}
+            with self.assertRaises(ValueError) as cm_trim_nocap:
+                ref_run.check_no_prohibited_assets(
+                    trim_case, require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                )
+            self.assertIn("requires captured rendered_text", str(cm_trim_nocap.exception))
             with self.assertRaises(ValueError) as cm_trim:
                 ref_run.check_no_prohibited_assets(
                     trim_case, require_installed=True, installed_fonts=["inter"],
                     installed_font_ranges={"inter": [[0x20, 0x7E]]},
-                    captured_frame={"id": "tb-trim", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "A" * 80}]},
+                    captured_frame={"id": "tb-trim", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "A" * 80 + "\u2026"}]},
                 )
             self.assertIn("U+2026", str(cm_trim.exception))
             ref_run.check_no_prohibited_assets(
@@ -2432,6 +2439,26 @@ class ReferenceHarness(unittest.TestCase):
                 installed_font_ranges={"inter": [[0x20, 0x7E], [0x2026, 0x2026]]},
                 captured_frame={"id": "tb-trim", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "A" * 80 + "\u2026"}]},
             )
+            fit_case = {"id": "tb-trim-fit", "control": "TextBlock", "properties": {
+                "Text": "A", "Width": 400, "TextTrimming": "CharacterEllipsis", "FontFamily": "Inter",
+            }}
+            ref_run.check_no_prohibited_assets(
+                fit_case, require_installed=True, installed_fonts=["inter"],
+                installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                captured_frame={"id": "tb-trim-fit", "rendered_text": [{"element": "TextBlock", "font": "Inter", "text": "A"}]},
+            )
+            # RichEditBox list marker with unverified bullet font must be refused.
+            with self.assertRaises(ValueError) as cm_reb_list:
+                ref_run.check_no_prohibited_assets(
+                    {"id": "reb-list", "control": "RichEditBox", "properties": {"FontFamily": "Inter"}},
+                    require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                    captured_frame={"id": "reb-list", "rendered_text": [
+                        {"element": "RichEditBox", "font": "__unverified_list_marker__", "text": "\u2022"},
+                        {"element": "RichEditBox", "font": "Inter", "text": "Item"},
+                    ]},
+                )
+            self.assertIn("permitted non-Microsoft FontFamily", str(cm_reb_list.exception))
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},
@@ -3173,6 +3200,22 @@ class LiveReference(unittest.TestCase):
                         "script": [{"action": "touch_tap"}],
                     },
                     {
+                        "id": "tb-trim-overflow-live",
+                        "control": "TextBlock",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 48},
+                        "properties": {"Name": "TrimOverflow", "Text": "A" * 80, "Width": 40, "TextTrimming": "CharacterEllipsis", "FontFamily": "Inter"},
+                    },
+                    {
+                        "id": "tb-trim-fit-live",
+                        "control": "TextBlock",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 420, "height": 48},
+                        "properties": {"Name": "TrimFit", "Text": "A", "Width": 400, "TextTrimming": "CharacterEllipsis", "FontFamily": "Inter"},
+                    },
+                    {
                         "id": "prop-togglebtn",
                         "control": "ToggleButton",
                         "theme": "Dark",
@@ -3445,6 +3488,30 @@ class LiveReference(unittest.TestCase):
                 self.assertIn("not covered by installed FontFamily", str(cm_live_pub.exception))
                 # touch_tap on AllowFocusOnInteraction=False button succeeds without timing out.
                 self.assertEqual(by1["btn-touch-nofocus"]["script_log"]["FinalState"]["clicks"], 1)
+                # Live C# IsTextTrimmed collector appends U+2026 only when layout actually trims text.
+                ov_rt = by1["tb-trim-overflow-live"].get("rendered_text", [])
+                self.assertTrue(any("\u2026" in r.get("text", "") for r in ov_rt), f"expected ellipsis in {ov_rt!r}")
+                fit_rt = by1["tb-trim-fit-live"].get("rendered_text", [])
+                self.assertTrue(any(r.get("text") == "A" for r in fit_rt), f"expected 'A' in {fit_rt!r}")
+                self.assertFalse(any("\u2026" in r.get("text", "") for r in fit_rt), f"unexpected ellipsis in {fit_rt!r}")
+                with self.assertRaises(ValueError) as cm_ov_live:
+                    ref_run.check_no_prohibited_assets(
+                        {"id": "tb-trim-overflow-live", "control": "TextBlock", "properties": {
+                            "Text": "A" * 80, "Width": 40, "TextTrimming": "CharacterEllipsis", "FontFamily": "Inter",
+                        }},
+                        require_installed=True, installed_fonts=["inter"],
+                        installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                        captured_frame=by1["tb-trim-overflow-live"],
+                    )
+                self.assertIn("U+2026", str(cm_ov_live.exception))
+                ref_run.check_no_prohibited_assets(
+                    {"id": "tb-trim-fit-live", "control": "TextBlock", "properties": {
+                        "Text": "A", "Width": 400, "TextTrimming": "CharacterEllipsis", "FontFamily": "Inter",
+                    }},
+                    require_installed=True, installed_fonts=["inter"],
+                    installed_font_ranges={"inter": [[0x20, 0x7E]]},
+                    captured_frame=by1["tb-trim-fit-live"],
+                )
 
                 # Generic property dispatch verifies actual configured values on ToggleButton, ProgressBar, Slider, and ComboBox.
                 self.assertIs(by1["prop-togglebtn"].get("is_checked"), True)

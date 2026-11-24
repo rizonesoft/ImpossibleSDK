@@ -370,13 +370,16 @@ def check_no_prohibited_assets(
                 text_values.append(("PasswordChar(default)", "\u25CF"))
             trim_mode = str(_ci_get(props, "texttrimming", "") or "").strip().lower()
             if trim_mode in ("characterellipsis", "wordellipsis"):
-                text_values.append(("TextTrimming(ellipsis)", "\u2026"))
-            if ctrl_l == "numberbox":
-                text_values.append(("NumberBox(digits)", "0123456789.-+"))
-            elif ctrl_l in ("datepicker", "timepicker", "calendarview", "calendardatepicker"):
                 if captured_frame is None or not isinstance(captured_frame.get("rendered_text"), list):
                     raise ValueError(
-                        f"{cid}: locale-formatted {ctrl} requires captured rendered_text from the capture host to verify all rendered glyphs"
+                        f"{cid}: TextTrimming={trim_mode} requires captured rendered_text from the capture host to verify whether an ellipsis was drawn"
+                    )
+            if ctrl_l == "numberbox":
+                text_values.append(("NumberBox(digits)", "0123456789.-+"))
+            elif ctrl_l in ("datepicker", "timepicker", "calendarview", "calendardatepicker", "richeditbox"):
+                if captured_frame is None or not isinstance(captured_frame.get("rendered_text"), list):
+                    raise ValueError(
+                        f"{cid}: {ctrl} requires captured rendered_text from the capture host to verify all rendered glyphs and fonts"
                     )
             if not (ctrl_l == "passwordbox" and not pw_visible):
                 for field_name, tv in _script_typed_chars(norm.get("script")):

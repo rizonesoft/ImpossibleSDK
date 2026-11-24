@@ -815,13 +815,7 @@ public partial class App : Application
             {
                 if (!string.IsNullOrEmpty(tb.Text))
                 {
-                    string tbText = tb.Text;
-                    if (tb.IsTextTrimmed
-                        || tb.TextTrimming == TextTrimming.CharacterEllipsis
-                        || tb.TextTrimming == TextTrimming.WordEllipsis)
-                    {
-                        tbText += "\u2026";
-                    }
+                    string tbText = tb.IsTextTrimmed ? (tb.Text + "\u2026") : tb.Text;
                     items.Add(new Dictionary<string, string>
                     {
                         ["element"] = string.IsNullOrEmpty(tb.Name) ? "TextBlock" : $"TextBlock:{tb.Name}",
@@ -834,9 +828,6 @@ public partial class App : Application
             {
                 string font = rtb.FontFamily?.Source ?? "";
                 string elemName = string.IsNullOrEmpty(rtb.Name) ? "RichTextBlock" : $"RichTextBlock:{rtb.Name}";
-                bool rtbEllipsis = rtb.IsTextTrimmed
-                    || rtb.TextTrimming == TextTrimming.CharacterEllipsis
-                    || rtb.TextTrimming == TextTrimming.WordEllipsis;
                 bool addedAny = false;
                 foreach (var block in rtb.Blocks)
                 {
@@ -857,7 +848,7 @@ public partial class App : Application
                         }
                     }
                 }
-                if (addedAny && rtbEllipsis)
+                if (addedAny && rtb.IsTextTrimmed)
                 {
                     items.Add(new Dictionary<string, string>
                     {
@@ -890,6 +881,16 @@ public partial class App : Application
                     int end = range.EndPosition;
                     range.GetText(Microsoft.UI.Text.TextGetOptions.None, out string runText);
                     runText = runText.TrimEnd('\r', '\n');
+                    if (range.ParagraphFormat != null
+                        && range.ParagraphFormat.ListType != Microsoft.UI.Text.MarkerType.None)
+                    {
+                        items.Add(new Dictionary<string, string>
+                        {
+                            ["element"] = elemName,
+                            ["font"] = "__unverified_list_marker__",
+                            ["text"] = "\u2022",
+                        });
+                    }
                     if (!string.IsNullOrEmpty(runText))
                     {
                         string runFont = range.CharacterFormat?.Name ?? "";
