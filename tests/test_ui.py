@@ -773,6 +773,31 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_fb.returncode, 0)
         self.assertIn(f"{path_fb}:4:", res_fb.stderr)
 
+        # Vendor-prefixed VisualState Setter Target must be rejected on its exact line, while valid (Border.Background) is accepted.
+        xaml_vs_pfx = (
+            '<ControlTemplate xmlns:vendor="urn:vendor" TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter\n'
+            '      Target="R.vendor:Opacity" Value="0" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_vsp, path_vsp = self._run_fixture(xaml_vs_pfx)
+        self.assertNotEqual(res_vsp.returncode, 0)
+        self.assertIn(f"{path_vsp}:4:", res_vsp.stderr)
+
+        xaml_border_bg = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Border Name="B"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>\n'
+            '    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="B" Storyboard.TargetProperty="(Border.Background)">\n'
+            '      <DiscreteObjectKeyFrame KeyTime="0" Value="{x:Null}" />\n'
+            '    </ObjectAnimationUsingKeyFrames>\n'
+            '  </Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Border>\n'
+            '</ControlTemplate>\n'
+        )
+        res_bbg, _ = self._run_fixture(xaml_border_bg)
+        self.assertEqual(res_bbg.returncode, 0, res_bbg.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3

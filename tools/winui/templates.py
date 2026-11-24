@@ -166,13 +166,14 @@ class TemplateError(Exception):
 class Node:
     """XML node with exact source file, namespace, opening line, and consumption tracking."""
 
-    def __init__(self, tag, ns, attrs, file, line, attr_lines):
+    def __init__(self, tag, ns, attrs, file, line, attr_lines, ns_map=None):
         self.tag = tag
         self.ns = ns
         self.attrs = attrs
         self.file = file
         self.line = line
         self.attr_lines = attr_lines
+        self.ns_map = ns_map or {}
         self.children = []
         self.text = ""
         self.visited = False
@@ -339,7 +340,7 @@ def parse_xaml(text, filename):
                 raise TemplateError(f"{filename}:{line_no}: duplicate attribute {short!r}")
             clean_attrs[short] = v
             attr_lines[short] = line_no
-        node = Node(el_local, el_ns, clean_attrs, filename, base_line, attr_lines)
+        node = Node(el_local, el_ns, clean_attrs, filename, base_line, attr_lines, ns_map=cur_ns)
         if stack:
             stack[-1].children.append(node)
         stack.append(node)
@@ -408,11 +409,19 @@ def c_str(text):
     return f'"{escaped}"'
 
 
-def strip_xml_prefix(name):
-    return re.sub(r"\b[a-zA-Z_][\w-]*:", "", name)
-
-
 KNOWN_COMPOUND_TARGET_PROPS = {
+    "(Panel.Background)",
+    "(Border.Background)",
+    "(Border.BorderBrush)",
+    "(Control.Background)",
+    "(Control.BorderBrush)",
+    "(Control.Foreground)",
+    "(ContentPresenter.Background)",
+    "(ContentPresenter.BorderBrush)",
+    "(ContentPresenter.Foreground)",
+    "(TextBlock.Foreground)",
+    "(Shape.Fill)",
+    "(Shape.Stroke)",
     "(Panel.Background).(SolidColorBrush.Color)",
     "(Border.Background).(SolidColorBrush.Color)",
     "(Shape.Fill).(SolidColorBrush.Color)",
@@ -784,14 +793,27 @@ class Compiler:
                                 if which is None:
                                     raise TemplateError(f"{s.file}:{s.line}: VisualState Setter missing Target or Property")
                                 if which == "Target":
-                                    tgt = raw_tp
+                                    tgt = raw_tp.strip()
                                     if "." not in tgt:
                                         raise TemplateError(f"{s.file}:{s.attr_line('Target')}: invalid VisualState Setter Target {tgt!r}")
-                                    prop = strip_xml_prefix(tgt.split(".", 1)[-1]).strip("()")
+                                    _part, prop_part = tgt.split(".", 1)
                                     prop_line = s.attr_line("Target")
+                                    if prop_part.startswith("(") and prop_part.endswith(")"):
+                                        inner_prop = prop_part[1:-1]
+                                        if ":" in inner_prop:
+                                            pfx, rest_prop = inner_prop.split(":", 1)
+                                            if s.ns_map.get(pfx) != "using:Microsoft.UI.Xaml.Controls" or rest_prop != "AnimatedIcon.State":
+                                                raise TemplateError(f"{s.file}:{prop_line}: unsupported prefixed Setter Target {tgt!r}")
+                                            prop = rest_prop
+                                        else:
+                                            raise TemplateError(f"{s.file}:{prop_line}: unsupported Setter Target {tgt!r}")
+                                    elif ":" in prop_part:
+                                        raise TemplateError(f"{s.file}:{prop_line}: unsupported prefixed Setter Target {tgt!r}")
+                                    else:
+                                        prop = prop_part
                                 else:
                                     tgt = ""
-                                    prop = raw_tp
+                                    prop = raw_tp.strip()
                                     prop_line = s.attr_line("Property")
                                 if not prop or prop not in KNOWN_PROPS:
                                     raise TemplateError(f"{s.file}:{prop_line}: unknown property {prop!r}")
