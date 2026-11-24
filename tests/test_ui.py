@@ -1230,6 +1230,30 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_npb.returncode, 0)
         self.assertIn(f"{path_npb}:3:", res_npb.stderr)
 
+        # BrushTransition belongs to Microsoft.UI.Xaml (not Microsoft.UI.Xaml.Media).
+        self.assertEqual(tpl_mod.OWNER_NAMESPACE["BrushTransition"], "using:Microsoft.UI.Xaml")
+        self.assertTrue(tpl_mod.ALL_OWNER_TYPES <= set(tpl_mod.OWNER_NAMESPACE))
+        xaml_bt_ok = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:c="using:Microsoft.UI.Xaml" TargetType="Button">\n'
+            '  <ContentPresenter><ContentPresenter.BackgroundTransition><BrushTransition x:Name="R" /></ContentPresenter.BackgroundTransition><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(c:BrushTransition.Duration)" Value="0:0:0.1" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></ContentPresenter>\n'
+            '</ControlTemplate>\n'
+        )
+        res_bto, _ = self._run_fixture(xaml_bt_ok)
+        self.assertEqual(res_bto.returncode, 0, res_bto.stderr)
+
+        xaml_bt_bad = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:c="using:Microsoft.UI.Xaml.Media" TargetType="Button">\n'
+            '  <ContentPresenter><ContentPresenter.BackgroundTransition><BrushTransition x:Name="R" /></ContentPresenter.BackgroundTransition><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(c:BrushTransition.Duration)" Value="0:0:0.1" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></ContentPresenter>\n'
+            '</ControlTemplate>\n'
+        )
+        res_btb, path_btb = self._run_fixture(xaml_bt_bad)
+        self.assertNotEqual(res_btb.returncode, 0)
+        self.assertIn(f"{path_btb}:3:", res_btb.stderr)
+
         # Unqualified TargetName on DoubleAnimation must be rejected; UIElement.AccessKeyScopeOwner on ListViewItemPresenter must be accepted.
         xaml_unq_tn = (
             '<ControlTemplate TargetType="Button">\n'

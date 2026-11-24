@@ -677,6 +677,7 @@ XAML_PRES_NS = "http://schemas.microsoft.com/winfx/2006/xaml/presentation"
 OWNER_NAMESPACE = {
     "UIElement": "using:Microsoft.UI.Xaml",
     "FrameworkElement": "using:Microsoft.UI.Xaml",
+    "BrushTransition": "using:Microsoft.UI.Xaml",
     "Panel": "using:Microsoft.UI.Xaml.Controls",
     "Grid": "using:Microsoft.UI.Xaml.Controls",
     "Border": "using:Microsoft.UI.Xaml.Controls",
@@ -713,7 +714,6 @@ OWNER_NAMESPACE = {
     "TranslateTransform": "using:Microsoft.UI.Xaml.Media",
     "ScaleTransform": "using:Microsoft.UI.Xaml.Media",
     "CompositeTransform": "using:Microsoft.UI.Xaml.Media",
-    "BrushTransition": "using:Microsoft.UI.Xaml.Media",
     "SolidColorBrush": "using:Microsoft.UI.Xaml.Media",
     "Transition": "using:Microsoft.UI.Xaml.Media.Animation",
     "AddDeleteThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
