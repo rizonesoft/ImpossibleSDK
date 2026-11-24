@@ -127,12 +127,15 @@ BINDING_MODES = {"OneWay", "TwoWay", "OneTime"}
 
 # Attached properties legal on UI elements and as parenthesized targets in VisualState.Setters.
 ATTACHED_PROPS = {
-    "AnimatedIcon.State", "AutomationProperties.AccessibilityView", "Canvas.ZIndex",
+    "AnimatedIcon.State", "AutomationProperties.AccessibilityView", "AutomationProperties.Name",
+    "Canvas.Left", "Canvas.Top", "Canvas.ZIndex",
     "Control.IsTemplateFocusTarget", "Grid.Column", "Grid.ColumnSpan", "Grid.Row", "Grid.RowSpan",
-    "ScrollViewer.BringIntoViewOnFocusChange", "ScrollViewer.HorizontalScrollBarVisibility",
-    "ScrollViewer.HorizontalScrollMode", "ScrollViewer.IsDeferredScrollingEnabled",
-    "ScrollViewer.IsHorizontalRailEnabled", "ScrollViewer.IsHorizontalScrollChainingEnabled",
+    "ScrollViewer.BringIntoViewOnFocusChange", "ScrollViewer.CanContentRenderOutsideBounds",
+    "ScrollViewer.HorizontalScrollBarVisibility", "ScrollViewer.HorizontalScrollMode",
+    "ScrollViewer.IsDeferredScrollingEnabled", "ScrollViewer.IsHorizontalRailEnabled",
+    "ScrollViewer.IsHorizontalScrollChainingEnabled", "ScrollViewer.IsScrollInertiaEnabled",
     "ScrollViewer.IsVerticalRailEnabled", "ScrollViewer.IsVerticalScrollChainingEnabled",
+    "ScrollViewer.IsZoomChainingEnabled", "ScrollViewer.IsZoomInertiaEnabled",
     "ScrollViewer.VerticalScrollBarVisibility", "ScrollViewer.VerticalScrollMode",
     "ScrollViewer.ZoomMode",
 }
