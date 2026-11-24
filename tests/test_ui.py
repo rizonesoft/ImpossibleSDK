@@ -1028,6 +1028,64 @@ class TemplateCompiler(unittest.TestCase):
         res_rv, _ = self._run_fixture(xaml_reposition_v)
         self.assertEqual(res_rv.returncode, 0, res_rv.stderr)
 
+        # ListViewItemPresenter derives from ContentPresenter (not Panel): reject ChildrenTransitions, accept CharacterSpacing.
+        xaml_lvip_bad = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="ListViewItem">\n'
+            '  <ListViewItemPresenter Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.ChildrenTransitions" Value="{x:Null}" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></ListViewItemPresenter>\n'
+            '</ControlTemplate>\n'
+        )
+        res_lvb, path_lvb = self._run_fixture(xaml_lvip_bad)
+        self.assertNotEqual(res_lvb.returncode, 0)
+        self.assertIn(f"{path_lvb}:3:", res_lvb.stderr)
+
+        xaml_lvip_ok = (
+            '<ControlTemplate TargetType="ListViewItem">\n'
+            '  <ListViewItemPresenter Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.CharacterSpacing" Value="10" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></ListViewItemPresenter>\n'
+            '</ControlTemplate>\n'
+        )
+        res_lvo, _ = self._run_fixture(xaml_lvip_ok)
+        self.assertEqual(res_lvo.returncode, 0, res_lvo.stderr)
+
+        # RepositionThemeAnimation must preserve the axis of single horizontal vs vertical offsets.
+        sys.path.insert(0, str(ROOT / "tools" / "winui"))
+        import templates as tpl_mod
+        c_h = tpl_mod.Compiler()
+        c_h.compile_control_template(
+            tpl_mod.parse_xaml(
+                '<ControlTemplate TargetType="Button"><Grid Name="R"><VisualStateManager.VisualStateGroups>'
+                '<VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>'
+                '<RepositionThemeAnimation TargetName="R" FromHorizontalOffset="4" />'
+                '</Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid></ControlTemplate>',
+                "h.xaml",
+            ),
+            "h",
+            "Button",
+            (0, 0),
+            None,
+        )
+        c_v = tpl_mod.Compiler()
+        c_v.compile_control_template(
+            tpl_mod.parse_xaml(
+                '<ControlTemplate TargetType="Button"><Grid Name="R"><VisualStateManager.VisualStateGroups>'
+                '<VisualStateGroup Name="G"><VisualState Name="S"><Storyboard>'
+                '<RepositionThemeAnimation TargetName="R" FromVerticalOffset="4" />'
+                '</Storyboard></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid></ControlTemplate>',
+                "v.xaml",
+            ),
+            "v",
+            "Button",
+            (0, 0),
+            None,
+        )
+        self.assertEqual(c_h.anims[0]["from"]["kind"], "IM_TVAL_POINT")
+        self.assertEqual((c_h.anims[0]["from"]["a"], c_h.anims[0]["from"]["b"]), (4 * 65536, 0))
+        self.assertEqual(c_v.anims[0]["from"]["kind"], "IM_TVAL_POINT")
+        self.assertEqual((c_v.anims[0]["from"]["a"], c_v.anims[0]["from"]["b"]), (0, 4 * 65536))
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3

@@ -178,10 +178,21 @@ CONTENT_CONTROL_PROPS = CONTROL_PROPS | {
     "Content", "ContentTemplate", "ContentTemplateSelector", "ContentTransitions",
 }
 
-# Properties inherited by Panel subclasses (Grid, ItemsStackPanel) and Border.
+# Properties inherited by Panel subclasses (Grid, ItemsStackPanel).
 PANEL_PROPS = {
     "Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush",
     "BorderThickness", "ChildrenTransitions", "CornerRadius", "Padding",
+}
+
+# Properties declared on ContentPresenter (inherited by ListViewItemPresenter).
+CONTENT_PRESENTER_PROPS = {
+    "Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush",
+    "BorderThickness", "CharacterSpacing", "Content", "ContentTemplate",
+    "ContentTemplateSelector", "ContentTransitions", "CornerRadius", "FontFamily",
+    "FontSize", "FontStretch", "FontStyle", "FontWeight", "Foreground",
+    "HorizontalContentAlignment", "IsTextScaleFactorEnabled", "LineHeight",
+    "LineStackingStrategy", "MaxLines", "OpticalMarginAlignment", "Padding",
+    "TextLineBounds", "TextWrapping", "VerticalContentAlignment",
 }
 
 # Element-specific properties (UI elements also inherit COMMON_UI_PROPS | ATTACHED_PROPS).
@@ -195,13 +206,7 @@ NON_UI_ELEMENTS = {
 ELEMENT_OWN_PROPS = {
     "Grid": PANEL_PROPS | {"ColumnSpacing", "RowSpacing"},
     "Border": (PANEL_PROPS - {"ChildrenTransitions"}) | {"Child", "ChildTransitions"},
-    "ContentPresenter": (PANEL_PROPS - {"ChildrenTransitions"}) | {
-        "CharacterSpacing", "Content", "ContentTemplate", "ContentTemplateSelector",
-        "ContentTransitions", "FontFamily", "FontSize", "FontStretch", "FontStyle",
-        "FontWeight", "Foreground", "HorizontalContentAlignment", "IsTextScaleFactorEnabled",
-        "LineHeight", "LineStackingStrategy", "MaxLines", "OpticalMarginAlignment",
-        "TextLineBounds", "TextWrapping", "VerticalContentAlignment",
-    },
+    "ContentPresenter": CONTENT_PRESENTER_PROPS,
     "Rectangle": {
         "Fill", "RadiusX", "RadiusY", "Stretch", "Stroke", "StrokeDashArray",
         "StrokeDashCap", "StrokeDashOffset", "StrokeEndLineCap", "StrokeLineJoin",
@@ -254,7 +259,7 @@ ELEMENT_OWN_PROPS = {
         "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground", "Glyph",
         "IsTextScaleFactorEnabled", "MirroredWhenRightToLeft",
     },
-    "ListViewItemPresenter": PANEL_PROPS | {
+    "ListViewItemPresenter": CONTENT_PRESENTER_PROPS | {
         "CheckBoxBorderBrush", "CheckBoxBrush", "CheckBoxCornerRadius", "CheckBoxDisabledBorderBrush",
         "CheckBoxDisabledBrush", "CheckBoxPointerOverBorderBrush", "CheckBoxPointerOverBrush",
         "CheckBoxPressedBorderBrush", "CheckBoxPressedBrush", "CheckBoxSelectedBrush",
@@ -915,17 +920,25 @@ class Compiler:
         if node.tag == "RepositionThemeAnimation":
             fh_raw = node.take("FromHorizontalOffset")
             fv_raw = node.take("FromVerticalOffset")
-            if fh_raw is not None and fv_raw is not None:
+            fh_v = self.parse_value(fh_raw, "FromHorizontalOffset", node.file, node.attr_line("FromHorizontalOffset")) if fh_raw is not None else None
+            fv_v = self.parse_value(fv_raw, "FromVerticalOffset", node.file, node.attr_line("FromVerticalOffset")) if fv_raw is not None else None
+            if fh_v is not None and fv_v is not None:
+                if fh_v["kind"] not in ("IM_TVAL_FIXED", "IM_TVAL_INT") or fv_v["kind"] not in ("IM_TVAL_FIXED", "IM_TVAL_INT"):
+                    raise TemplateError(f"{node.file}:{node.line}: RepositionThemeAnimation cannot combine non-scalar horizontal and vertical offsets")
                 has_from = True
-                fh_v = self.parse_value(fh_raw, "FromHorizontalOffset", node.file, node.attr_line("FromHorizontalOffset"))
-                fv_v = self.parse_value(fv_raw, "FromVerticalOffset", node.file, node.attr_line("FromVerticalOffset"))
                 from_v = {"kind": "IM_TVAL_POINT", "a": fh_v["a"], "b": fv_v["a"], "c": 0, "d": 0, "text": None, "fallback": None}
-            elif fh_raw is not None:
+            elif fh_v is not None:
                 has_from = True
-                from_v = self.parse_value(fh_raw, "FromHorizontalOffset", node.file, node.attr_line("FromHorizontalOffset"))
-            elif fv_raw is not None:
+                if fh_v["kind"] in ("IM_TVAL_FIXED", "IM_TVAL_INT"):
+                    from_v = {"kind": "IM_TVAL_POINT", "a": fh_v["a"], "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
+                else:
+                    from_v = fh_v
+            elif fv_v is not None:
                 has_from = True
-                from_v = self.parse_value(fv_raw, "FromVerticalOffset", node.file, node.attr_line("FromVerticalOffset"))
+                if fv_v["kind"] in ("IM_TVAL_FIXED", "IM_TVAL_INT"):
+                    from_v = {"kind": "IM_TVAL_POINT", "a": 0, "b": fv_v["a"], "c": 0, "d": 0, "text": None, "fallback": None}
+                else:
+                    from_v = dict(fv_v, c=1)
             else:
                 has_from = False
                 from_v = empty_v
