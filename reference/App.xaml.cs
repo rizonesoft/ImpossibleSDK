@@ -94,18 +94,19 @@ public partial class App : Application
             Environment.Exit(0);
             return;
         }
-        string folder = cli.Length > 1 ? cli[1] : throw new InvalidOperationException("Usage: Reference.exe <out_dir> [--cases <path>] [--extra-font-file <path>]");
+        if (cli.Length >= 3 && cli[1] == "--restore-clipboard")
+        {
+            Script.RestoreClipboardFromBackupFile(cli[2]);
+            Environment.Exit(0);
+            return;
+        }
+        string folder = cli.Length > 1 ? cli[1] : throw new InvalidOperationException("Usage: Reference.exe <out_dir> [--cases <path>]");
         string? casesPath = null;
-        var extraFontFiles = new List<string>();
         for (int i = 2; i < cli.Length; i++)
         {
             if (cli[i] == "--cases" && i + 1 < cli.Length)
             {
                 casesPath = cli[++i];
-            }
-            else if (cli[i] == "--extra-font-file" && i + 1 < cli.Length)
-            {
-                extraFontFiles.Add(cli[++i]);
             }
         }
 
@@ -117,7 +118,7 @@ public partial class App : Application
             window.AppWindow.Resize(new Windows.Graphics.SizeInt32(900, 700));
             window.Activate();
             await Task.Delay(800);
-            await RunCases(window, canvas, folder, casesPath, extraFontFiles);
+            await RunCases(window, canvas, folder, casesPath);
             Environment.Exit(0);
         }
         catch (Exception error)
@@ -1299,7 +1300,7 @@ public partial class App : Application
         return items;
     }
 
-    private static async Task RunCases(Window window, Grid canvas, string folder, string? casesPath, List<string>? extraFontFiles = null)
+    private static async Task RunCases(Window window, Grid canvas, string folder, string? casesPath)
     {
         double hostDpi = canvas.XamlRoot.RasterizationScale;
         var specs = LoadCases(casesPath);
@@ -1415,7 +1416,7 @@ public partial class App : Application
             ScriptResultDto? scriptResult = null;
             if (spec.Script != null && spec.Script.Count > 0)
             {
-                scriptResult = await Script.RunAsync(window, element, spec.Script);
+                scriptResult = await Script.RunAsync(window, element, spec.Script, Path.Combine(folder, "clipboard-backup.json"));
             }
 
             var (pixels, width, height) = await CaptureSettledAsync(captureTarget, spec.Id);
@@ -1512,7 +1513,7 @@ public partial class App : Application
         {
             "inter", "jetbrains mono", "ibm plex sans", "ibm plex mono",
             "dejavu sans", "dejavu sans mono", "liberation sans", "liberation mono",
-            "noto sans", "noto mono",
+            "noto sans", "noto mono", "barlow",
         };
         var fontFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string winFontsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts");
@@ -1527,13 +1528,6 @@ public partial class App : Application
                 if (string.IsNullOrEmpty(rawVal)) continue;
                 string full = Path.IsPathRooted(rawVal) ? rawVal : Path.Combine(winFontsDir, rawVal);
                 if (File.Exists(full)) fontFiles.Add(full);
-            }
-        }
-        if (extraFontFiles != null)
-        {
-            foreach (var ef in extraFontFiles)
-            {
-                if (File.Exists(ef)) fontFiles.Add(ef);
             }
         }
         foreach (var fp in fontFiles)

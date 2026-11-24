@@ -362,7 +362,7 @@ def check_no_prohibited_assets(
     permitted_fonts = {
         "inter", "jetbrains mono", "ibm plex sans", "ibm plex mono",
         "dejavu sans", "dejavu sans mono", "liberation sans", "liberation mono",
-        "noto sans", "noto mono",
+        "noto sans", "noto mono", "barlow",
     }
     if has_text:
         ff = str(_ci_get(props, "fontfamily", "") or "").strip().lower()
@@ -1272,7 +1272,16 @@ def run_reference(program, out_dir, cases_path=None, work_dir=None, snapshotted_
                 shutil.copytree(CASES_DIR, staged_cases)
                 cmd += ["--cases", to_win_path(staged_cases)]
 
-            res = run_cmd(*cmd, cwd=work_dir or rt, capture_output=True, text=True, timeout=600, check=False)
+            backup_file = rt_out / "clipboard-backup.json"
+            try:
+                res = run_cmd(*cmd, cwd=work_dir or rt, capture_output=True, text=True, timeout=600, check=False)
+            finally:
+                if backup_file.is_file():
+                    # Recover host clipboard if Reference.exe was forcibly killed (e.g. timeout) before its finally block ran.
+                    run_cmd(
+                        str(program), "--restore-clipboard", to_win_path(backup_file),
+                        cwd=work_dir or rt, capture_output=True, text=True, timeout=30, check=False,
+                    )
             err_file = rt_out / "error.txt"
             err_text = err_file.read_text(encoding="utf-8", errors="replace") if err_file.is_file() else ""
             if res.returncode != 0:

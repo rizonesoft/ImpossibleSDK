@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
@@ -227,7 +229,56 @@ public static class Script
         }
     }
 
-    private static List<(uint Format, byte[] Data)> SaveAndClearClipboard(IntPtr hwnd)
+    private sealed class ClipboardFormatBackup
+    {
+        [JsonPropertyName("format")] public uint Format { get; set; }
+        [JsonPropertyName("data")] public string Data { get; set; } = "";
+    }
+
+    private sealed class ClipboardBackupFile
+    {
+        [JsonPropertyName("post_clear_seq")] public uint PostClearSeq { get; set; }
+        [JsonPropertyName("expected_seq")] public uint ExpectedSeq { get; set; }
+        [JsonPropertyName("formats")] public List<ClipboardFormatBackup> Formats { get; set; } = new();
+    }
+
+    private static void WriteClipboardBackup(string path, uint postClearSeq, uint expectedSeq, List<(uint Format, byte[] Data)> saved)
+    {
+        var dto = new ClipboardBackupFile
+        {
+            PostClearSeq = postClearSeq,
+            ExpectedSeq = expectedSeq,
+            Formats = saved.Select(f => new ClipboardFormatBackup
+            {
+                Format = f.Format,
+                Data = Convert.ToBase64String(f.Data),
+            }).ToList(),
+        };
+        string tmp = path + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(dto));
+        File.Move(tmp, path, overwrite: true);
+    }
+
+    public static void RestoreClipboardFromBackupFile(string path)
+    {
+        if (!File.Exists(path)) return;
+        var dto = JsonSerializer.Deserialize<ClipboardBackupFile>(File.ReadAllText(path));
+        if (dto == null)
+        {
+            File.Delete(path);
+            return;
+        }
+        uint curSeq = GetClipboardSequenceNumber();
+        bool ownedByRunner = curSeq == dto.PostClearSeq || (dto.ExpectedSeq != 0 && curSeq == dto.ExpectedSeq);
+        if (ownedByRunner)
+        {
+            var saved = dto.Formats.Select(f => (f.Format, Convert.FromBase64String(f.Data))).ToList();
+            RestoreClipboard(IntPtr.Zero, saved);
+        }
+        File.Delete(path);
+    }
+
+    private static List<(uint Format, byte[] Data)> SaveAndClearClipboard(IntPtr hwnd, string? backupPath, out uint postClearSeq)
     {
         if (!OpenClipboardWithRetry(hwnd))
         {
@@ -240,11 +291,20 @@ public static class Script
             while ((fmt = EnumClipboardFormats(fmt)) != 0)
             {
                 IntPtr handle = GetClipboardData(fmt);
-                if (handle == IntPtr.Zero) continue;
+                if (handle == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException($"host clipboard contains unsavable format {fmt} (null handle); refusing to clear host clipboard");
+                }
                 ulong size = GlobalSize(handle).ToUInt64();
-                if (size == 0 || size > int.MaxValue) continue;
+                if (size == 0 || size > int.MaxValue)
+                {
+                    throw new InvalidOperationException($"host clipboard contains unsavable non-HGLOBAL format {fmt} (GlobalSize={size}); refusing to clear host clipboard");
+                }
                 IntPtr ptr = GlobalLock(handle);
-                if (ptr == IntPtr.Zero) continue;
+                if (ptr == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException($"host clipboard contains non-lockable format {fmt}; refusing to clear host clipboard");
+                }
                 try
                 {
                     byte[] buf = new byte[(int)size];
@@ -256,7 +316,40 @@ public static class Script
                     GlobalUnlock(handle);
                 }
             }
-            EmptyClipboard();
+            if (!EmptyClipboard())
+            {
+                throw new InvalidOperationException($"EmptyClipboard failed while preparing clipboard script (err={Marshal.GetLastWin32Error()})");
+            }
+            postClearSeq = GetClipboardSequenceNumber();
+            if (!string.IsNullOrEmpty(backupPath))
+            {
+                try
+                {
+                    WriteClipboardBackup(backupPath, postClearSeq, 0, saved);
+                }
+                catch
+                {
+                    // Still holding OpenClipboard lock: restore immediately before surfacing error.
+                    EmptyClipboard();
+                    foreach (var (sfmt, sbytes) in saved)
+                    {
+                        IntPtr hg = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)sbytes.Length);
+                        if (hg == IntPtr.Zero) continue;
+                        IntPtr sp = GlobalLock(hg);
+                        if (sp != IntPtr.Zero)
+                        {
+                            try { Marshal.Copy(sbytes, 0, sp, sbytes.Length); }
+                            finally { GlobalUnlock(hg); }
+                            if (SetClipboardData(sfmt, hg) == IntPtr.Zero) GlobalFree(hg);
+                        }
+                        else
+                        {
+                            GlobalFree(hg);
+                        }
+                    }
+                    throw;
+                }
+            }
             return saved;
         }
         finally
@@ -530,7 +623,7 @@ public static class Script
         return vk;
     }
 
-    public static async Task<ScriptResultDto> RunAsync(Window window, FrameworkElement target, IReadOnlyList<ScriptActionSpec> actions)
+    public static async Task<ScriptResultDto> RunAsync(Window window, FrameworkElement target, IReadOnlyList<ScriptActionSpec> actions, string? clipboardBackupPath = null)
     {
         var hwnd = WindowNative.GetWindowHandle(window);
         for (int tries = 0; tries < 8 && GetForegroundWindow() != hwnd; tries++)
@@ -612,17 +705,41 @@ public static class Script
         uint expectedClipSeq = 0;
         string? expectedCopiedText = null;
         bool touchedClipboard = ScriptUsesClipboard(actions);
-        List<(uint Format, byte[] Data)>? savedClipboard = touchedClipboard ? SaveAndClearClipboard(hwnd) : null;
-        uint postClearClipSeq = touchedClipboard ? GetClipboardSequenceNumber() : 0;
+        List<(uint Format, byte[] Data)>? savedClipboard = null;
+        uint postClearClipSeq = 0;
+        bool clipboardCleared = false;
         EventHandler? onProcessExit = null;
-        if (savedClipboard != null)
+        if (touchedClipboard)
         {
             onProcessExit = (_, _) =>
             {
-                try { RestoreClipboard(hwnd, savedClipboard); }
+                if (!clipboardCleared || savedClipboard == null) return;
+                try
+                {
+                    uint curSeq = GetClipboardSequenceNumber();
+                    if (curSeq == postClearClipSeq || (copiedInScript && curSeq == expectedClipSeq))
+                    {
+                        RestoreClipboard(hwnd, savedClipboard);
+                    }
+                    if (!string.IsNullOrEmpty(clipboardBackupPath) && File.Exists(clipboardBackupPath))
+                    {
+                        File.Delete(clipboardBackupPath);
+                    }
+                }
                 catch (Exception ex) { Console.Error.WriteLine($"ProcessExit clipboard restore failed: {ex.Message}"); }
             };
             AppDomain.CurrentDomain.ProcessExit += onProcessExit;
+            try
+            {
+                savedClipboard = SaveAndClearClipboard(hwnd, clipboardBackupPath, out postClearClipSeq);
+                clipboardCleared = true;
+            }
+            catch
+            {
+                AppDomain.CurrentDomain.ProcessExit -= onProcessExit;
+                onProcessExit = null;
+                throw;
+            }
         }
 
         Exception? runError = null;
@@ -802,6 +919,9 @@ public static class Script
                                 expectedSelectionBeforeCopy = st.TrimEnd('\r', '\n');
                             }
                         }
+                        string? textBeforePaste = null;
+                        int selStartBeforePaste = 0;
+                        int selLenBeforePaste = 0;
                         if (isPasteStep)
                         {
                             if (GetClipboardSequenceNumber() != expectedClipSeq)
@@ -813,8 +933,21 @@ public static class Script
                                 string? curClip = ReadClipboardUnicodeText(hwnd);
                                 if (!string.Equals(curClip, expectedCopiedText, StringComparison.Ordinal))
                                 {
-                                    throw new InvalidOperationException($"script step {i}: clipboard text '{curClip}' does not match scripted copy '{expectedCopiedText}'; refusing non-deterministic paste");
+                                    throw new InvalidOperationException($"script step {i}: clipboard text mismatch before paste (expected length {expectedCopiedText.Length}, actual length {curClip?.Length ?? -1}); refusing non-deterministic paste");
                                 }
+                            }
+                            if (target is TextBox pasteTb)
+                            {
+                                textBeforePaste = pasteTb.Text ?? "";
+                                selStartBeforePaste = pasteTb.SelectionStart;
+                                selLenBeforePaste = pasteTb.SelectionLength;
+                            }
+                            else if (target is RichEditBox pasteReb)
+                            {
+                                pasteReb.Document.GetText(Microsoft.UI.Text.TextGetOptions.None, out string fullBefore);
+                                textBeforePaste = fullBefore.TrimEnd('\r', '\n');
+                                selStartBeforePaste = Math.Min(pasteReb.Document.Selection.StartPosition, textBeforePaste.Length);
+                                selLenBeforePaste = Math.Min(Math.Max(0, pasteReb.Document.Selection.Length), textBeforePaste.Length - selStartBeforePaste);
                             }
                         }
                         if (step.Action == "key_down")
@@ -862,6 +995,30 @@ public static class Script
                             }
                             await Task.Delay(80);
                         }
+                        if (isPasteStep)
+                        {
+                            if (GetClipboardSequenceNumber() != expectedClipSeq)
+                            {
+                                throw new InvalidOperationException($"script step {i}: clipboard changed externally during paste; refusing non-deterministic paste");
+                            }
+                            if (expectedCopiedText != null && textBeforePaste != null)
+                            {
+                                string expectedAfter = textBeforePaste.Substring(0, selStartBeforePaste)
+                                    + expectedCopiedText
+                                    + textBeforePaste.Substring(selStartBeforePaste + selLenBeforePaste);
+                                string? actualAfter = null;
+                                if (target is TextBox postTb) actualAfter = postTb.Text ?? "";
+                                else if (target is RichEditBox postReb)
+                                {
+                                    postReb.Document.GetText(Microsoft.UI.Text.TextGetOptions.None, out string fullAfter);
+                                    actualAfter = fullAfter.TrimEnd('\r', '\n');
+                                }
+                                if (actualAfter != null && !string.Equals(actualAfter, expectedAfter, StringComparison.Ordinal))
+                                {
+                                    throw new InvalidOperationException($"script step {i}: pasted control text mismatch (expected length {expectedAfter.Length}, actual length {actualAfter.Length}); refusing non-deterministic paste");
+                                }
+                            }
+                        }
                         if (isCopyOrCutStep)
                         {
                             uint seqAfter = GetClipboardSequenceNumber();
@@ -874,12 +1031,16 @@ public static class Script
                                 string? copiedNow = ReadClipboardUnicodeText(hwnd);
                                 if (!string.Equals(copiedNow, expectedSelectionBeforeCopy, StringComparison.Ordinal))
                                 {
-                                    throw new InvalidOperationException($"script step {i}: clipboard text '{copiedNow}' after copy does not match selected text '{expectedSelectionBeforeCopy}'");
+                                    throw new InvalidOperationException($"script step {i}: clipboard text mismatch after copy (expected length {expectedSelectionBeforeCopy.Length}, actual length {copiedNow?.Length ?? -1}); refusing non-deterministic copy");
                                 }
                                 expectedCopiedText = copiedNow;
                             }
                             copiedInScript = true;
                             expectedClipSeq = seqAfter;
+                            if (!string.IsNullOrEmpty(clipboardBackupPath) && savedClipboard != null)
+                            {
+                                WriteClipboardBackup(clipboardBackupPath, postClearClipSeq, expectedClipSeq, savedClipboard);
+                            }
                         }
                         break;
                     }
@@ -997,11 +1158,17 @@ public static class Script
             }
             if (savedClipboard != null)
             {
+                bool restoreFailed = false;
                 uint curSeq = GetClipboardSequenceNumber();
                 if (curSeq == postClearClipSeq || (copiedInScript && curSeq == expectedClipSeq))
                 {
                     try { RestoreClipboard(hwnd, savedClipboard); }
-                    catch (Exception cex) { cleanupErrors.Add($"restore_clipboard:{cex.Message}"); }
+                    catch (Exception cex) { restoreFailed = true; cleanupErrors.Add($"restore_clipboard:{cex.Message}"); }
+                }
+                if (!restoreFailed && !string.IsNullOrEmpty(clipboardBackupPath) && File.Exists(clipboardBackupPath))
+                {
+                    try { File.Delete(clipboardBackupPath); }
+                    catch (Exception cex) { cleanupErrors.Add($"delete_clipboard_backup:{cex.Message}"); }
                 }
             }
             target.GotFocus -= gotFocus;
