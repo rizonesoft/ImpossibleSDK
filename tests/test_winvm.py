@@ -154,6 +154,17 @@ class LivePass(unittest.TestCase):
                 deadline = time.monotonic() + 2.0
                 gone = False
                 while time.monotonic() < deadline:
+                    stat_path = Path(f"/proc/{child_pid}/stat")
+                    if stat_path.parent.is_dir():
+                        try:
+                            stat = stat_path.read_text(encoding="utf-8")
+                            rparen = stat.rfind(")")
+                            if rparen != -1 and stat[rparen + 2 : rparen + 3] == "Z":
+                                gone = True
+                                break
+                        except FileNotFoundError:
+                            gone = True
+                            break
                     try:
                         os.kill(child_pid, 0)
                     except ProcessLookupError:
