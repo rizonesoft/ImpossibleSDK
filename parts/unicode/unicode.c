@@ -2173,86 +2173,104 @@ static bool buffers_overlap_u32(const uint32_t *src, size_t src_len, const uint3
     return s0 < d1 && d0 < s1;
 }
 
+static void norm_emit_combining_run(const uint32_t *src, size_t r_k0, size_t r_j0,
+                                    size_t r_k1, size_t r_j1, bool compat, bool compose,
+                                    uint8_t min_ccc, uint8_t max_ccc,
+                                    bool *has_starter, size_t *starter_pos, uint32_t *starter_cp, uint8_t *last_ccc,
+                                    uint32_t *dst, size_t dst_cap, size_t *total, bool *overflow) {
+    if (min_ccc > max_ccc) return;
+    uint32_t cbuf[32];
+    for (unsigned target_ccc = min_ccc; target_ccc <= max_ccc; target_ccc++) {
+        for (size_t k = r_k0; k <= r_k1; k++) {
+            size_t cl = 0u;
+            decomp_append(src[k], compat, cbuf, 32u, &cl);
+            size_t j_lo = (k == r_k0) ? r_j0 : 0u;
+            size_t j_hi = (k == r_k1) ? r_j1 : cl;
+            for (size_t j = j_lo; j < j_hi; j++) {
+                uint32_t ch = cbuf[j];
+                if (im_unicode_ccc(ch) != (uint8_t)target_ccc) continue;
+                if (compose && *has_starter && (*last_ccc < (uint8_t)target_ccc || *last_ccc == 0u)) {
+                    uint32_t comp = find_comp(*starter_cp, ch);
+                    if (comp != 0u) {
+                        *starter_cp = comp;
+                        if (dst && *starter_pos < dst_cap) dst[*starter_pos] = comp;
+                        continue;
+                    }
+                }
+                *last_ccc = (uint8_t)target_ccc;
+                if (dst && *total < dst_cap) dst[*total] = ch;
+                else *overflow = true;
+                (*total)++;
+            }
+        }
+    }
+}
+
 /* Stream a single arbitrarily long segment (>1024 codepoints) with zero heap allocation:
-   decompose each input codepoint, group combining runs by ccc 1..254, and apply exact canonical composition. */
+   decompose each input codepoint, flush each contiguous ccc>0 run in canonical order (ccc 1..254)
+   immediately before every ccc==0 starter (preserving embedded marks inside compatibility decompositions),
+   and apply exact canonical composition. */
 static void normalize_long_segment(const uint32_t *src, size_t seg_start, size_t seg_end,
                                    bool compat, bool compose,
                                    uint32_t *dst, size_t dst_cap, size_t *total, bool *overflow) {
-    /* Maintain a tiny stack buffer for each individual codepoint's decomposition (max 18 in Unicode 16.0.0) */
     uint32_t cbuf[32];
     size_t starter_pos = SIZE_MAX;
     uint32_t starter_cp = 0u;
     uint8_t last_ccc = 0u;
     bool has_starter = false;
 
-    /* Helper macro-like loop: iterate over runs of ccc==0 vs runs of ccc>0 in the decomposed stream.
-       Since seg_start..seg_end may have multiple starters (due to COMP_SECOND), we process each
-       ccc==0 starter and its following combining-mark run in exact canonical order! */
-    size_t cur = seg_start;
-    while (cur < seg_end) {
-        /* Find the next sub-run starting at cur and extending through any codepoints whose decomposition has ccc>0 */
-        size_t sub_start = cur;
-        cur++;
-        while (cur < seg_end) {
-            size_t cl = 0u;
-            decomp_append(src[cur], compat, cbuf, 32u, &cl);
-            if (cl > 0u && im_unicode_ccc(cbuf[0]) == 0u) break;
-            cur++;
-        }
-        /* Emit all ccc==0 codepoints in sub_start..cur in order, then bucket-emit ccc=1..254 in order! */
-        uint8_t min_ccc = 255u, max_ccc = 0u;
-        for (size_t k = sub_start; k < cur; k++) {
-            size_t cl = 0u;
-            decomp_append(src[k], compat, cbuf, 32u, &cl);
-            for (size_t j = 0u; j < cl; j++) {
-                uint32_t ch = cbuf[j];
-                uint8_t ccc = im_unicode_ccc(ch);
-                if (ccc == 0u) {
-                    if (compose && has_starter && last_ccc == 0u) {
-                        uint32_t comp = find_comp(starter_cp, ch);
-                        if (comp != 0u) {
-                            starter_cp = comp;
-                            if (dst && starter_pos < dst_cap) dst[starter_pos] = comp;
-                            continue;
-                        }
-                    }
-                    starter_pos = *total;
-                    starter_cp = ch;
-                    has_starter = true;
-                    last_ccc = 0u;
-                    if (dst && *total < dst_cap) dst[*total] = ch;
-                    else *overflow = true;
-                    (*total)++;
-                } else {
-                    if (ccc < min_ccc) min_ccc = ccc;
-                    if (ccc > max_ccc) max_ccc = ccc;
+    bool in_comb = false;
+    size_t comb_k0 = 0u, comb_j0 = 0u;
+    uint8_t min_ccc = 255u, max_ccc = 0u;
+
+    for (size_t k = seg_start; k < seg_end; k++) {
+        size_t cl = 0u;
+        decomp_append(src[k], compat, cbuf, 32u, &cl);
+        for (size_t j = 0u; j < cl; j++) {
+            uint32_t ch = cbuf[j];
+            uint8_t ccc = im_unicode_ccc(ch);
+            if (ccc == 0u) {
+                if (in_comb) {
+                    norm_emit_combining_run(src, comb_k0, comb_j0, k, j, compat, compose, min_ccc, max_ccc,
+                                            &has_starter, &starter_pos, &starter_cp, &last_ccc,
+                                            dst, dst_cap, total, overflow);
+                    in_comb = false;
+                    min_ccc = 255u;
+                    max_ccc = 0u;
                 }
-            }
-        }
-        if (min_ccc <= max_ccc) {
-            for (unsigned target_ccc = min_ccc; target_ccc <= max_ccc; target_ccc++) {
-                for (size_t k = sub_start; k < cur; k++) {
-                    size_t cl = 0u;
-                    decomp_append(src[k], compat, cbuf, 32u, &cl);
-                    for (size_t j = 0u; j < cl; j++) {
-                        uint32_t ch = cbuf[j];
-                        if (im_unicode_ccc(ch) != (uint8_t)target_ccc) continue;
-                        if (compose && has_starter && (last_ccc < (uint8_t)target_ccc || last_ccc == 0u)) {
-                            uint32_t comp = find_comp(starter_cp, ch);
-                            if (comp != 0u) {
-                                starter_cp = comp;
-                                if (dst && starter_pos < dst_cap) dst[starter_pos] = comp;
-                                continue;
-                            }
-                        }
-                        last_ccc = (uint8_t)target_ccc;
-                        if (dst && *total < dst_cap) dst[*total] = ch;
-                        else *overflow = true;
-                        (*total)++;
+                if (compose && has_starter && last_ccc == 0u) {
+                    uint32_t comp = find_comp(starter_cp, ch);
+                    if (comp != 0u) {
+                        starter_cp = comp;
+                        if (dst && starter_pos < dst_cap) dst[starter_pos] = comp;
+                        continue;
                     }
                 }
+                starter_pos = *total;
+                starter_cp = ch;
+                has_starter = true;
+                last_ccc = 0u;
+                if (dst && *total < dst_cap) dst[*total] = ch;
+                else *overflow = true;
+                (*total)++;
+            } else {
+                if (!in_comb) {
+                    in_comb = true;
+                    comb_k0 = k;
+                    comb_j0 = j;
+                }
+                if (ccc < min_ccc) min_ccc = ccc;
+                if (ccc > max_ccc) max_ccc = ccc;
             }
         }
+    }
+    if (in_comb) {
+        size_t last_k = seg_end - 1u;
+        size_t last_cl = 0u;
+        decomp_append(src[last_k], compat, cbuf, 32u, &last_cl);
+        norm_emit_combining_run(src, comb_k0, comb_j0, last_k, last_cl, compat, compose, min_ccc, max_ccc,
+                                &has_starter, &starter_pos, &starter_cp, &last_ccc,
+                                dst, dst_cap, total, overflow);
     }
 }
 

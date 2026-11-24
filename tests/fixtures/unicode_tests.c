@@ -179,15 +179,22 @@ static int run_self_tests(void) {
     memset(lvls, 0xEE, sizeof(lvls));
     for (size_t i = 0u; i < 16u; i++) ord[i] = 0x7777u;
 
+    /* Zero-capacity scratch on nonempty paragraph must fail without writing */
+    if (im_unicode_bidi_resolve(para, 9u, -1, NULL, 0u, lvls, 9u, ord, 9u, &rbase) != IM_UNICODE_BUFFER_TOO_SMALL) return 40;
+    if (im_unicode_bidi_resolve(para, 9u, -1, sc, 0u, lvls, 9u, ord, 9u, &rbase) != IM_UNICODE_BUFFER_TOO_SMALL) return 40;
+    if (sc[0] != 0xA5u) return 40;
     /* Short scratch (1 byte short) must fail and not touch guard */
     if (im_unicode_bidi_resolve(para, 9u, -1, sc, sc_need - 1u, lvls, 9u, ord, 9u, &rbase) != IM_UNICODE_BUFFER_TOO_SMALL) return 41;
     if (sc[sc_need - 1u] != 0xA5u) return 42;
     /* Short levels_out (1 unit short) must fail and not touch guard */
     if (im_unicode_bidi_resolve(para, 9u, -1, sc, sc_need, lvls, 8u, ord, 9u, &rbase) != IM_UNICODE_BUFFER_TOO_SMALL) return 43;
     if (lvls[8] != 0xEEu) return 44;
-    /* Exact-size retry succeeds */
+    /* Exact-size retry succeeds and leaves ALL scratch, level, and order guard bytes intact */
     if (im_unicode_bidi_resolve(para, 9u, -1, sc, sc_need, lvls, 9u, ord, 9u, &rbase) != IM_UNICODE_OK) return 45;
     if (rbase != 1 || lvls[9] != 0xEEu || ord[9] != 0x7777u) return 46;
+    for (size_t g = 0u; g < 16u; g++) {
+        if (sc[sc_need + g] != 0xA5u) return 46;
+    }
     im_free(sc);
 
     /* Wrap 1: line1 = [0, 6) "אב cd " (trailing space at index 5 resets to para_level=1), line2 = [6, 9) "הו " */
@@ -298,6 +305,28 @@ static int run_self_tests(void) {
         if (long_out[0] != 0x00C1u || long_out[1] != 0x0301u || long_out[1023] != 0x0301u || long_out[1024] != 0xBEEFCAFEu) return 83;
         im_free(long_in);
         im_free(long_out);
+
+        /* 8b. Multi-starter NFKD with embedded mark (U+3300 -> 30A2 30CF 309A 30FC 30C8) on BOTH sides of 1024 boundary */
+        const size_t mark_counts[2] = { 10u, 1024u };
+        const uint32_t exp_pfx[5] = { 0x30A2u, 0x30CFu, 0x309Au, 0x30FCu, 0x30C8u };
+        for (size_t ci = 0u; ci < 2u; ci++) {
+            size_t mc = mark_counts[ci];
+            size_t in_n = 1u + mc;
+            size_t exp_n = 5u + mc;
+            uint32_t *nin = (uint32_t *)im_alloc(in_n * sizeof(uint32_t));
+            uint32_t *nout = (uint32_t *)im_alloc((exp_n + 1u) * sizeof(uint32_t));
+            if (!nin || !nout) return 83;
+            nin[0] = 0x3300u;
+            for (size_t i = 0u; i < mc; i++) nin[1u + i] = 0x0301u;
+            size_t ol = 0u;
+            nout[exp_n] = 0xDEADC0DEu;
+            if (im_unicode_normalize(IM_NORM_NFKD, nin, in_n, nout, exp_n, &ol) != IM_UNICODE_OK || ol != exp_n) return 83;
+            for (size_t i = 0u; i < 5u; i++) if (nout[i] != exp_pfx[i]) return 83;
+            for (size_t i = 0u; i < mc; i++) if (nout[5u + i] != 0x0301u) return 83;
+            if (nout[exp_n] != 0xDEADC0DEu) return 83;
+            im_free(nin);
+            im_free(nout);
+        }
     }
 
     /* 9. Overlapping src/dst buffers must be refused with IM_UNICODE_BAD_ARG before writing */

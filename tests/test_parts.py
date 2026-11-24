@@ -580,7 +580,29 @@ class UnicodePart(unittest.TestCase):
                 cf_lines.append(f"{mode}|{h}|{h}")
         self._assert_suite("--suite-casefold", "casefold", "\n".join(cf_lines) + "\n", len(cf_lines))
 
-        # 7. Independent parser of pinned UCD files verifying ALL 1,114,112 codepoints (0x0000..0x10FFFF).
+        # 7. Independent parser of pinned UCD files verifying ALL 1,114,112 codepoints (0x0000..0x10FFFF)
+        # using public C enum values from parts/unicode/unicode.h (never reusing gen_unicode's maps).
+        test_gc_map = {
+            name: i for i, name in enumerate([
+                "Cn", "Lu", "Ll", "Lt", "Lm", "Lo",
+                "Mn", "Mc", "Me",
+                "Nd", "Nl", "No",
+                "Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po",
+                "Sm", "Sc", "Sk", "So",
+                "Zs", "Zl", "Zp",
+                "Cc", "Cf", "Cs", "Co",
+            ])
+        }
+        test_eaw_map = {name: i for i, name in enumerate(["N", "A", "F", "H", "Na", "W"])}
+        test_bidi_map = {
+            name: i for i, name in enumerate([
+                "L", "R", "AL", "EN", "ES", "ET", "AN", "CS", "NSM", "BN",
+                "B", "S", "WS", "ON",
+                "LRE", "LRO", "RLE", "RLO", "PDF",
+                "LRI", "RLI", "FSI", "PDI",
+            ])
+        }
+
         def _parse_rng(tok):
             if ".." in tok:
                 a, b = tok.split("..", 1)
@@ -606,11 +628,11 @@ class UnicodePart(unittest.TestCase):
 
         for row in _rows("extracted/DerivedGeneralCategory.txt"):
             lo, hi = _parse_rng(row[0])
-            val = self.gen.GC_MAP[row[1]]
+            val = test_gc_map[row[1]]
             gc_exp[lo : hi + 1] = [val] * (hi - lo + 1)
         for row in _rows("EastAsianWidth.txt"):
             lo, hi = _parse_rng(row[0])
-            val = self.gen.EAW_MAP[row[1]]
+            val = test_eaw_map[row[1]]
             eaw_exp[lo : hi + 1] = [val] * (hi - lo + 1)
         for row in _rows("extracted/DerivedCombiningClass.txt"):
             lo, hi = _parse_rng(row[0])
@@ -623,11 +645,11 @@ class UnicodePart(unittest.TestCase):
             if s.startswith("# @missing:"):
                 parts = [p.strip() for p in s[len("# @missing:"):].split(";")]
                 lo, hi = _parse_rng(parts[0])
-                val = self.gen.BIDI_MAP[long_bidi.get(parts[1], parts[1])]
+                val = test_bidi_map[long_bidi.get(parts[1], parts[1])]
                 bidi_exp[lo : hi + 1] = [val] * (hi - lo + 1)
         for row in _rows("extracted/DerivedBidiClass.txt"):
             lo, hi = _parse_rng(row[0])
-            val = self.gen.BIDI_MAP[row[1]]
+            val = test_bidi_map[row[1]]
             bidi_exp[lo : hi + 1] = [val] * (hi - lo + 1)
         for row in _rows("Scripts.txt"):
             lo, hi = _parse_rng(row[0])
