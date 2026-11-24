@@ -71,8 +71,12 @@ def differences(fresh_dir, store):
         if len(want) != len(got):
             found.append(f"{i}: frame byte size differs ({len(got)} vs {len(want)})")
             continue
-        if old.get("control") == "accent" or old.get("case_group") == "accent" or i.startswith("accent-"):
+        if old.get("control") == "accent" or old.get("case_group") == "accent":
             w, h = int(old["width"]), int(old["height"])
+            worst_alpha = max((abs(want[k] - got[k]) for k in range(3, len(want), 4)), default=0)
+            if worst_alpha > PIXEL_LIMIT:
+                found.append(f"{i}: accent alpha differs by {worst_alpha}")
+                continue
             want_box = _non_bg_bbox(want, w, h)
             got_box = _non_bg_bbox(got, w, h)
             if want_box is not None and got_box is None:

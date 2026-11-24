@@ -158,6 +158,20 @@ class LivePass(unittest.TestCase):
             (fresh / "acc.bgra").write_bytes(blank_px)
             blank_found = live_job.differences(fresh, store)
             self.assertTrue(any("accent frame is blank" in m for m in blank_found), blank_found)
+            # Zero-alpha accent frame must be rejected.
+            zero_alpha = bytearray(want_px)
+            for k in range(3, len(zero_alpha), 4):
+                zero_alpha[k] = 0
+            (fresh / "acc.bgra").write_bytes(bytes(zero_alpha))
+            alpha_found = live_job.differences(fresh, store)
+            self.assertTrue(any("accent alpha differs" in m for m in alpha_found), alpha_found)
+            # An ordinary control whose ID starts with "accent-" must NOT receive the accent exception.
+            non_accent = {"id": "accent-label", "control": "Button", "case_group": "button", "width": w, "height": h, "file": "acc.bgra"}
+            (store / "cases.json").write_text(json.dumps({"cases": [non_accent]}), encoding="utf-8")
+            (fresh / "cases.json").write_text(json.dumps({"cases": [non_accent]}), encoding="utf-8")
+            (fresh / "acc.bgra").write_bytes(alt_color_px)
+            non_acc_found = live_job.differences(fresh, store)
+            self.assertTrue(any("pixels differ" in m for m in non_acc_found), non_acc_found)
 
     @unittest.skipUnless(os.name != "nt", "POSIX process-group teardown test")
     def test_timeout_kills_whole_process_tree(self):
