@@ -1191,10 +1191,44 @@ class TemplateCompiler(unittest.TestCase):
         res_gt, _ = self._run_fixture(xaml_geom_tf)
         self.assertEqual(res_gt.returncode, 0, res_gt.stderr)
 
-        # Class-level schema invariant: base types in TYPE_PROPS must never include descendant-only properties.
+        # Class-level schema invariant: base types and concrete types must exclude non-XAML/descendant-only members.
         self.assertFalse({"Padding", "BorderBrush", "CornerRadius"} & tpl_mod.TYPE_PROPS["Panel"])
         self.assertFalse({"Width", "Height", "Margin"} & tpl_mod.TYPE_PROPS["UIElement"])
         self.assertIn("Transform", tpl_mod.TYPE_PROPS["Geometry"])
+        self.assertFalse({"RadiusX", "RadiusY"} & tpl_mod.TYPE_PROPS["RectangleGeometry"])
+
+        # CoreOnly RectangleGeometry.RadiusX must be rejected; namespace-qualified R.(c:Panel.Background) must be accepted for valid WinUI ns and rejected for foreign ns.
+        xaml_rg_rx = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">\n'
+            '  <Border><Border.Clip><RectangleGeometry x:Name="R" Rect="0,0,10,10" /></Border.Clip><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(RectangleGeometry.RadiusX)" Value="4" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Border>\n'
+            '</ControlTemplate>\n'
+        )
+        res_rgrx, path_rgrx = self._run_fixture(xaml_rg_rx)
+        self.assertNotEqual(res_rgrx.returncode, 0)
+        self.assertIn(f"{path_rgrx}:3:", res_rgrx.stderr)
+
+        xaml_ns_panel_ok = (
+            '<ControlTemplate xmlns:c="using:Microsoft.UI.Xaml.Controls" TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(c:Panel.Background)" Value="Red" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_npo, _ = self._run_fixture(xaml_ns_panel_ok)
+        self.assertEqual(res_npo.returncode, 0, res_npo.stderr)
+
+        xaml_ns_panel_bad = (
+            '<ControlTemplate xmlns:v="urn:vendor" TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(v:Panel.Background)" Value="Red" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_npb, path_npb = self._run_fixture(xaml_ns_panel_bad)
+        self.assertNotEqual(res_npb.returncode, 0)
+        self.assertIn(f"{path_npb}:3:", res_npb.stderr)
 
         # Unqualified TargetName on DoubleAnimation must be rejected; UIElement.AccessKeyScopeOwner on ListViewItemPresenter must be accepted.
         xaml_unq_tn = (

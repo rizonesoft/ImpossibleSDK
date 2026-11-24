@@ -301,7 +301,7 @@ ELEMENT_OWN_PROPS = {
     "TranslateTransform": {"X", "Y"},
     "ScaleTransform": {"ScaleX", "ScaleY", "CenterX", "CenterY"},
     "CompositeTransform": {"CenterX", "CenterY", "Rotation", "ScaleX", "ScaleY", "SkewX", "SkewY", "TranslateX", "TranslateY"},
-    "RectangleGeometry": {"RadiusX", "RadiusY", "Rect", "Transform"},
+    "RectangleGeometry": {"Rect", "Transform"},
     "BrushTransition": {"Duration"},
     "AddDeleteThemeTransition": set(),
     "ContentThemeTransition": set(),
@@ -670,6 +670,66 @@ BRUSH_PROPS = {
     "PlaceholderForeground", "SelectionHighlightColor",
     "SelectionHighlightColorWhenNotFocused",
 }
+
+
+XAML_PRES_NS = "http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+
+OWNER_NAMESPACE = {
+    "UIElement": "using:Microsoft.UI.Xaml",
+    "FrameworkElement": "using:Microsoft.UI.Xaml",
+    "Panel": "using:Microsoft.UI.Xaml.Controls",
+    "Grid": "using:Microsoft.UI.Xaml.Controls",
+    "Border": "using:Microsoft.UI.Xaml.Controls",
+    "ContentPresenter": "using:Microsoft.UI.Xaml.Controls",
+    "TextBlock": "using:Microsoft.UI.Xaml.Controls",
+    "Button": "using:Microsoft.UI.Xaml.Controls",
+    "ScrollViewer": "using:Microsoft.UI.Xaml.Controls",
+    "ToggleSwitch": "using:Microsoft.UI.Xaml.Controls",
+    "TextBox": "using:Microsoft.UI.Xaml.Controls",
+    "ListView": "using:Microsoft.UI.Xaml.Controls",
+    "ListViewItem": "using:Microsoft.UI.Xaml.Controls",
+    "FontIcon": "using:Microsoft.UI.Xaml.Controls",
+    "IconElement": "using:Microsoft.UI.Xaml.Controls",
+    "ItemsStackPanel": "using:Microsoft.UI.Xaml.Controls",
+    "ItemsPresenter": "using:Microsoft.UI.Xaml.Controls",
+    "RowDefinition": "using:Microsoft.UI.Xaml.Controls",
+    "ColumnDefinition": "using:Microsoft.UI.Xaml.Controls",
+    "Control": "using:Microsoft.UI.Xaml.Controls",
+    "ContentControl": "using:Microsoft.UI.Xaml.Controls",
+    "ItemsControl": "using:Microsoft.UI.Xaml.Controls",
+    "ListViewBase": "using:Microsoft.UI.Xaml.Controls",
+    "Canvas": "using:Microsoft.UI.Xaml.Controls",
+    "AnimatedIcon": "using:Microsoft.UI.Xaml.Controls",
+    "ButtonBase": "using:Microsoft.UI.Xaml.Controls.Primitives",
+    "Selector": "using:Microsoft.UI.Xaml.Controls.Primitives",
+    "SelectorItem": "using:Microsoft.UI.Xaml.Controls.Primitives",
+    "Thumb": "using:Microsoft.UI.Xaml.Controls.Primitives",
+    "ListViewItemPresenter": "using:Microsoft.UI.Xaml.Controls.Primitives",
+    "Shape": "using:Microsoft.UI.Xaml.Shapes",
+    "Rectangle": "using:Microsoft.UI.Xaml.Shapes",
+    "Geometry": "using:Microsoft.UI.Xaml.Media",
+    "RectangleGeometry": "using:Microsoft.UI.Xaml.Media",
+    "Transform": "using:Microsoft.UI.Xaml.Media",
+    "TranslateTransform": "using:Microsoft.UI.Xaml.Media",
+    "ScaleTransform": "using:Microsoft.UI.Xaml.Media",
+    "CompositeTransform": "using:Microsoft.UI.Xaml.Media",
+    "BrushTransition": "using:Microsoft.UI.Xaml.Media",
+    "SolidColorBrush": "using:Microsoft.UI.Xaml.Media",
+    "Transition": "using:Microsoft.UI.Xaml.Media.Animation",
+    "AddDeleteThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+    "ContentThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+    "ReorderThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+    "EntranceThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+    "AutomationProperties": "using:Microsoft.UI.Xaml.Automation",
+}
+
+
+def is_valid_owner_ns(ns, owner):
+    """Return True iff XML namespace ns validly names the WinUI owner type."""
+    if not ns:
+        return False
+    expected = OWNER_NAMESPACE.get(owner)
+    return expected is not None and ns in (expected, XAML_PRES_NS)
 
 
 def is_valid_qualified_member(owner, member, target_tag=None):
@@ -1121,9 +1181,12 @@ class Compiler:
                                         inner_prop = prop_part[1:-1]
                                         if ":" in inner_prop:
                                             pfx, rest_prop = inner_prop.split(":", 1)
-                                            if s.ns_map.get(pfx) != "using:Microsoft.UI.Xaml.Controls" or rest_prop != "AnimatedIcon.State":
+                                            if "." not in rest_prop:
                                                 raise TemplateError(f"{s.file}:{prop_line}: unsupported prefixed Setter Target {tgt!r}")
-                                            prop = rest_prop
+                                            owner, member = rest_prop.split(".", 1)
+                                            if not is_valid_owner_ns(s.ns_map.get(pfx), owner) or not is_valid_qualified_member(owner, member, part_tag):
+                                                raise TemplateError(f"{s.file}:{prop_line}: unsupported prefixed Setter Target {tgt!r}")
+                                            prop = rest_prop if rest_prop in ATTACHED_PROPS else member
                                         elif inner_prop in ATTACHED_PROPS:
                                             prop = inner_prop
                                         elif "." in inner_prop:
