@@ -85,7 +85,11 @@ The accent button differs from real WinUI by up to 27 of 255 at corner pixels, w
 
 ## 2. Template compiler
 
+> **Started:** 2026-11-24T00:46Z
+
 WinUI's control templates hold the element tree, bindings, visual states and timings. `tools/winui/resources.py` already resolves 1,934 brushes and 444 numbers; this compiles the templates themselves.
+
+**Corrected 2026-11-24:** The four controls live in `controls/dev/CommonStyles/{Button,ToggleSwitch,TextBox,ListViewItem}_themeresources.xaml` (`DefaultButtonStyle`, `AccentButtonStyle`, `SubtleButtonStyle`, `DefaultToggleSwitchStyle`, `DefaultTextBoxStyle` including `DeleteButtonStyle`, `DefaultListViewItemStyle`, and `ListViewItemExpanded`), read from the pinned `git archive` commit in `tools/winui/pin.json` (same pattern as `tools/winui/resources.py`). `tools/winui/templates.py` tracks XAML source file and line numbers via `xml.parsers.expat`, refuses any unknown element, property, animation, binding mode, or converter with `<file>:<line>`, emits `ui/template_data.h` and `ui/template_data.c` (with portable types in `ui/template.h`, no floats, MIT notice kept, and doc comments for `tools/site/build.py --check`), supports `--list` for round-trip inspection and `--check` for drift detection, and is verified by `tests/test_ui.py` (drift refusal, unknown element/property/converter refusal with file:line, round-trip listing, portable OS build) and `tests/fixtures/ui_tests.c`.
 
 **Phase:** 1
 **Needs:** none
@@ -93,12 +97,12 @@ WinUI's control templates hold the element tree, bindings, visual states and tim
 
 **Build order:**
 
-1. Write `tools/winui/templates.py` over the pinned checkout. Done when: Button, ToggleSwitch, TextBox and ListViewItem compile.
-2. Emit C tables in `ui/template_data.c`. Done when: the portable build test passes.
+1. Write portable template types in `ui/template.h` and the compiler in `tools/winui/templates.py` over the pinned checkout. Done when: Button (`DefaultButtonStyle`, `AccentButtonStyle`, `SubtleButtonStyle`), ToggleSwitch (`DefaultToggleSwitchStyle`), TextBox (`DefaultTextBoxStyle`), and ListViewItem (`DefaultListViewItemStyle`, `ListViewItemExpanded`) compile and `--list` names every element and state.
+2. Emit C tables in `ui/template_data.h` and `ui/template_data.c` and add tests in `tests/test_ui.py` and `tests/fixtures/ui_tests.c`. Done when: `python3 tools/build.py` and `python3 tools/site/build.py --check` pass.
 
-- [ ] Parse `ControlTemplate`, setters, visual states and storyboards in `tools/winui/templates.py`. Done when: each of the four templates round-trips to a listing that names every element and state. Cheaper substitute: hand-written C for each control.
-- [ ] Refuse an element, property or converter the engine does not know, naming file and line in `tools/winui/templates.py`. Done when: a fixture template with an unknown property fails. Cheaper substitute: ignoring it.
-- [ ] Add `--check` to the drift test in `tests/test_ui.py`. Done when: editing the generated file fails the test.
+- [ ] Parse `ControlTemplate`, setters, visual states, transitions, and storyboards in `tools/winui/templates.py` (tracking source file and line numbers) and emit portable fixed-point C tables in `ui/template.h`, `ui/template_data.h`, and `ui/template_data.c`. Done when: each of the four controls' templates compiles and `--list` round-trips to a listing that names every element and visual state, and `tests/fixtures/ui_tests.c` reads the compiled tables. Cheaper substitute: hand-written C for each control.
+- [ ] Refuse an unknown element, property, or converter with `<file>:<line>` in `tools/winui/templates.py`. Done when: fixture templates with an unknown element, unknown property, and unknown converter each fail in `tests/test_ui.py` naming the exact file and line. Cheaper substitute: ignoring unknown items.
+- [ ] Add `--check` to the drift test in `tests/test_ui.py` and verify `tools/site/build.py --check`. Done when: editing the generated `ui/template_data.c` or `ui/template_data.h` fails the drift test, portable OS compilation passes, and site check exits 0. Cheaper substitute: skipping drift checks.
 - [ ] Commit: `ui: compile WinUI control templates`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
