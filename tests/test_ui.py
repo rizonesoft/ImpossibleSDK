@@ -835,9 +835,32 @@ class TemplateCompiler(unittest.TestCase):
             self.assertNotEqual(res_inc.returncode, 0, f"{bad_target} should be rejected on Grid")
             self.assertIn(f"{path_inc}:4:", res_inc.stderr)
 
-        # Inherited Control property Padding on Thumb must be accepted.
+        # Inherited Control/ContentControl/Panel properties on Thumb, ScrollViewer, and ItemsStackPanel must be accepted.
         res_thumb, _ = self._run_fixture('<ControlTemplate TargetType="Button"><Thumb Padding="0" /></ControlTemplate>\n')
         self.assertEqual(res_thumb.returncode, 0, res_thumb.stderr)
+        res_sv_c, _ = self._run_fixture('<ControlTemplate TargetType="Button"><ScrollViewer Content="hello" /></ControlTemplate>\n')
+        self.assertEqual(res_sv_c.returncode, 0, res_sv_c.stderr)
+        res_isp, _ = self._run_fixture('<ControlTemplate TargetType="Button"><ItemsStackPanel Background="Red" /></ControlTemplate>\n')
+        self.assertEqual(res_isp.returncode, 0, res_isp.stderr)
+
+        # Property-only VisualState.Setters must reject directives/Duration, and unqualified Load on Grid must be rejected.
+        for bad_prop in ("Load", "Duration"):
+            xaml_vp = (
+                '<ControlTemplate TargetType="Button">\n'
+                '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+                '    <Setter\n'
+                f'      Property="{bad_prop}" Value="1" />\n'
+                '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+                '</ControlTemplate>\n'
+            )
+            res_vp, path_vp = self._run_fixture(xaml_vp)
+            self.assertNotEqual(res_vp.returncode, 0, f"Property={bad_prop} should be rejected")
+            self.assertIn(f"{path_vp}:4:", res_vp.stderr)
+
+        xaml_unq_load = '<ControlTemplate TargetType="Button">\n  <Grid\n    Load="True" />\n</ControlTemplate>\n'
+        res_ul, path_ul = self._run_fixture(xaml_unq_load)
+        self.assertNotEqual(res_ul.returncode, 0)
+        self.assertIn(f"{path_ul}:3:", res_ul.stderr)
 
 
 EDGE_LIMIT = 1

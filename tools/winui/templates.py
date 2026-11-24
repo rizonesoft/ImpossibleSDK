@@ -132,6 +132,15 @@ CONTROL_PROPS = {
     "VerticalContentAlignment",
 }
 
+# Properties inherited by ContentControl subclasses (Button, ScrollViewer).
+CONTENT_CONTROL_PROPS = CONTROL_PROPS | {"Content", "ContentTemplate", "ContentTransitions"}
+
+# Properties inherited by Panel subclasses (Grid, ItemsStackPanel) and Border.
+PANEL_PROPS = {
+    "Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush",
+    "BorderThickness", "CornerRadius", "Padding",
+}
+
 # Element-specific properties (UI elements also inherit COMMON_UI_PROPS | ATTACHED_PROPS).
 NON_UI_ELEMENTS = {
     "RowDefinition", "ColumnDefinition", "TranslateTransform", "ScaleTransform",
@@ -141,12 +150,11 @@ NON_UI_ELEMENTS = {
 }
 
 ELEMENT_OWN_PROPS = {
-    "Grid": {"Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush", "BorderThickness", "CornerRadius", "Padding"},
-    "Border": {"Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush", "BorderThickness", "CornerRadius", "Padding"},
-    "ContentPresenter": {
-        "Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush", "BorderThickness",
-        "Content", "ContentTemplate", "ContentTransitions", "CornerRadius", "FontFamily", "FontSize",
-        "FontStyle", "FontWeight", "Foreground", "HorizontalContentAlignment", "Padding",
+    "Grid": PANEL_PROPS,
+    "Border": PANEL_PROPS,
+    "ContentPresenter": PANEL_PROPS | {
+        "Content", "ContentTemplate", "ContentTransitions", "FontFamily", "FontSize",
+        "FontStyle", "FontWeight", "Foreground", "HorizontalContentAlignment",
         "TextWrapping", "VerticalContentAlignment",
     },
     "Rectangle": {"Fill", "RadiusX", "RadiusY", "Stroke", "StrokeThickness"},
@@ -154,8 +162,8 @@ ELEMENT_OWN_PROPS = {
         "CharacterSpacing", "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground",
         "IsTextScaleFactorEnabled", "Padding", "Text", "TextAlignment", "TextWrapping",
     },
-    "Button": CONTROL_PROPS | {"Content", "ContentTemplate"},
-    "ScrollViewer": CONTROL_PROPS | {
+    "Button": CONTENT_CONTROL_PROPS,
+    "ScrollViewer": CONTENT_CONTROL_PROPS | {
         "BringIntoViewOnFocusChange", "HorizontalScrollBarVisibility", "HorizontalScrollMode",
         "IsDeferredScrollingEnabled", "IsHorizontalRailEnabled", "IsHorizontalScrollChainingEnabled",
         "IsVerticalRailEnabled", "IsVerticalScrollChainingEnabled", "VerticalScrollBarVisibility",
@@ -163,13 +171,13 @@ ELEMENT_OWN_PROPS = {
     },
     "Thumb": CONTROL_PROPS,
     "FontIcon": {"FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground", "Glyph"},
-    "ListViewItemPresenter": {
+    "ListViewItemPresenter": PANEL_PROPS | {
         "CheckBoxBorderBrush", "CheckBoxBrush", "CheckBoxCornerRadius", "CheckBoxDisabledBorderBrush",
         "CheckBoxDisabledBrush", "CheckBoxPointerOverBorderBrush", "CheckBoxPointerOverBrush",
         "CheckBoxPressedBorderBrush", "CheckBoxPressedBrush", "CheckBoxSelectedBrush",
         "CheckBoxSelectedDisabledBrush", "CheckBoxSelectedPointerOverBrush",
         "CheckBoxSelectedPressedBrush", "CheckBrush", "CheckDisabledBrush", "CheckMode",
-        "CheckPressedBrush", "ContentMargin", "ContentTransitions", "CornerRadius",
+        "CheckPressedBrush", "ContentMargin", "ContentTransitions",
         "DisabledOpacity", "DragBackground", "DragForeground", "DragOpacity", "FocusBorderBrush",
         "FocusSecondaryBorderBrush", "HorizontalContentAlignment", "PlaceholderBackground",
         "PointerOverBackground", "PointerOverForeground", "PressedBackground", "ReorderHintOffset",
@@ -180,7 +188,7 @@ ELEMENT_OWN_PROPS = {
         "SelectionIndicatorPointerOverBrush", "SelectionIndicatorPressedBrush",
         "SelectionIndicatorVisualEnabled", "VerticalContentAlignment",
     },
-    "ItemsStackPanel": {"Orientation"},
+    "ItemsStackPanel": PANEL_PROPS | {"Orientation"},
     "ItemsPresenter": {"Footer", "FooterTemplate", "FooterTransitions", "Header", "HeaderTemplate", "HeaderTransitions", "Padding"},
     "RowDefinition": {"Height", "MinHeight"},
     "ColumnDefinition": {"Width", "MinWidth", "MaxWidth"},
@@ -215,8 +223,8 @@ KNOWN_PROPS = {
     "CheckBoxSelectedPointerOverBrush", "CheckBoxSelectedPressedBrush", "CheckBrush",
     "CheckDisabledBrush", "CheckMode", "CheckPressedBrush", "Content", "ContentMargin",
     "ContentTemplate", "ContentTransitions", "Control.IsTemplateFocusTarget", "CornerRadius",
-    "DeferLoadStrategy", "DisabledOpacity", "DragBackground", "DragForeground",
-    "DragOpacity", "Duration", "Fill", "FocusBorderBrush",
+    "DisabledOpacity", "DragBackground", "DragForeground",
+    "DragOpacity", "Fill", "FocusBorderBrush",
     "FocusSecondaryBorderBrush", "FocusVisualMargin", "FocusVisualPrimaryBrush",
     "FocusVisualPrimaryThickness", "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness",
     "FontFamily", "FontSize", "FontStyle", "FontWeight", "Footer", "FooterTemplate",
@@ -227,7 +235,7 @@ KNOWN_PROPS = {
     "IsDeferredScrollingEnabled", "IsHorizontalRailEnabled", "IsHorizontalScrollChainingEnabled",
     "IsHitTestVisible", "IsStaggeringEnabled", "IsSwipeEnabled", "IsTabStop",
     "IsTextScaleFactorEnabled", "IsVerticalRailEnabled", "IsVerticalScrollChainingEnabled",
-    "ItemContainerTransitions", "ItemsPanel", "Load",
+    "ItemContainerTransitions", "ItemsPanel",
     "ManipulationMode", "Margin", "MaxWidth", "MinHeight", "MinWidth", "Name", "Opacity",
     "Orientation", "Padding", "PlaceholderBackground", "PointerOverBackground",
     "PointerOverForeground", "PressedBackground", "RadiusX", "RadiusY", "Rect",
@@ -441,6 +449,8 @@ def parse_xaml(text, filename):
                 ns = ""
                 short = local_name(k)
                 line_no = attr_lines.get(("", short), base_line)
+                if short in XAML_DIRECTIVE_ATTRS:
+                    raise TemplateError(f"{filename}:{line_no}: XAML directive {short!r} must use the x: namespace")
             if "." in el_local:
                 raise TemplateError(f"{filename}:{line_no}: unknown property {short!r} on {el_local}")
             if short in clean_attrs:
