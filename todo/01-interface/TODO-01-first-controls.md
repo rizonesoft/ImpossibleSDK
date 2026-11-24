@@ -420,7 +420,9 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 ## 17. Reference program for any control
 
-> **Started:** 2026-11-24T05:45Z
+> **Started:** 2026-11-24T09:19Z
+
+**Corrected 2026-11-24:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-24T05:45Z; its review chain is kept as `docs/reviews/01-interface/D01-T01-s17-chain1.md`. Clarified the store-lock contract for the compressed store item: current publishers expose `.lockdir` and `.lockv2` atomically with pre-populated `tok-*` owner records and never leave an empty `.lockdir` on release; empty `.lockdir` directories are always preserved regardless of age so mutual exclusion against mkdir-only lock holders is never broken, while dead locks with owner metadata (`tok-*`, `owner.json`) and empty or `.tok-*.tmp`-only `.lockv2` residue are reclaimed automatically on ordinary read-back.
 
 `reference/` draws buttons without text at one scale. Every control section needs it to draw any control, read its layout and drive it. Section §17 supplies 100, 150, 200 and 300 percent captures (`reference/App.xaml.cs` accepts any scale float); the fifth scale (125 percent) required by §3 and §16 is added in `D01 T01 §3`.
 

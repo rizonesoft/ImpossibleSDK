@@ -1395,3 +1395,77 @@ RECONCILIATION: gaps
 ## Writer note: Gap 9 vs Gap 18 empty `.lockdir` indistinguishability
 
 A live `c5ae204` mkdir-only publisher holds `.lockdir` empty for the entire duration of publication (with no upper bound), and a `767b006` Windows sharing-violation release leaves `.lockdir` empty with zero entries and no owner metadata. Those two on-disk states are byte-for-byte identical, so no lock acquisition algorithm can simultaneously preserve mutual exclusion against a live `c5ae204` publisher (Gap 18, P1) and automatically delete an abandoned `767b006` empty `.lockdir` (Gap 9). Both `c5ae204` and `767b006` were unshipped intermediate commits inside `D01 T01 §17`; current code on HEAD never creates an empty `.lockdir` on acquire (`_rename_dir_noreplace` exposes a pre-populated `tok-*` directory) and never leaves an empty `.lockdir` on release (raises `OSError` and preserves `tok-*` instead of unlinking it, verified in Gap 42). Mutual exclusion (Gap 18, P1) strictly dominates automatic cleanup of an unshipped intermediate commit's ownerless empty `.lockdir`, while `.lockv2` empty and `.tok-*.tmp` residue remain automatically reclaimed because `.lockv2` is never held empty by a live owner.
+
+## Reconciliation review: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: agy
+- Run: 2026-11-24T09:17:04Z
+- Candidate: d1187a523d2a10b9805d3a4b7bd8d8fae34659bc
+- Effort: low
+- Lenses: adversarial, integration, plan-delivery, record
+- Lines: 63
+- Digest: 887f64ae7e08dd28
+
+**Gap 18 is closed. Gap 9 is open at P2.** The repair preserves a live legacy publisher’s empty lock at any age. It also removes the recovery test for an abandoned lock with the same on-disk state. The supplied green gates therefore establish one obligation while leaving the other unmet. `reference/run.py:602` `tests/test_ui.py:1872` `tests/test_ui.py:1941`
+
+The section resolved successfully, and its contract is byte-identical between `6d6104f` and `d1187a5`. The open Commit item and Implementation Order row are expected before stamping. I used the supplied gate results and ran a read-only lock-decision probe. `todo/01-interface/TODO-01-first-controls.md:51` `todo/01-interface/TODO-01-first-controls.md:421`
+
+1. **closed.** The property dispatcher applies `SelectedIndex`, and the live assertion checks the resulting item. `reference/App.xaml.cs:299` `tests/test_ui.py:2842` `docs/reviews/01-interface/D01-T01-s17.md:177`
+2. **closed.** The animated On frame is compared with an independently settled On frame. `tests/test_ui.py:2836` `docs/reviews/01-interface/D01-T01-s17.md:178`
+3. **closed.** The stored inventory carries layout and automation dumps, and the test checks every case. `tests/test_ui.py:2432` `docs/reviews/01-interface/D01-T01-s17.md:179`
+4. **closed.** The live text-mask regression exercises the discovered rectangle and requires a moved rectangle to fail. `docs/reviews/01-interface/D01-T01-s17.md:180` `docs/reviews/01-interface/D01-T01-s17.md:1336`
+5. **closed.** CI provisions both live provenance inputs. The supplied package gate reports the three template diffs. `.github/workflows/build.yml:46` `.github/workflows/build.yml:75` `docs/reviews/01-interface/D01-T01-s17.md:451`
+6. **closed.** Each of the four absent controls has a control-specific template check. The supplied live gate verified all four. `tools/winui/check_package.py:379` `tests/test_ui.py:2194` `docs/reviews/01-interface/D01-T01-s17.md:452`
+7. **closed.** Asset checks receive normalized case properties. `reference/run.py:198` `reference/run.py:229` `docs/reviews/01-interface/D01-T01-s17.md:336`
+8. **closed.** Replacing an existing nonempty output requires matching ownership and inventory. `reference/run.py:317` `docs/reviews/01-interface/D01-T01-s17.md:184`
+9. **open, P2. Path:** A `767b006` publisher encounters a Windows sharing violation during release. That revision unlinks its token, attempts to remove the directory, and suppresses removal failure, leaving a real empty `.lockdir`. A later ordinary reader then times out before it can recover the owned backup. **Evidence: traced** the producer in `767b006` at `reference/run.py:652` and `reference/run.py:655`, and the repaired reader at `reference/run.py:298`, `reference/run.py:612`, `reference/run.py:715`, and `reference/run.py:759`. **Evidence: ran** a `python3 -B` probe of `_try_clear_dead_lock` with an empty main-lock listing and mocked `rmdir`. It returned `False` and made zero removal calls. The latest repair also removes `legacy-empty-stale` from the successful read-back matrix. The writer correctly identifies why age cannot distinguish the owners. That explains the failure and supports P2 for an uncommon legacy recovery path, but it does not close the obligation. The prior implementation record no longer describes the candidate. `tests/test_ui.py:1872` `docs/reviews/01-interface/D01-T01-s17.md:1315` `docs/reviews/01-interface/D01-T01-s17.md:1397` `AGENTS.md:28`
+10. **closed.** The case-file edit determines the selected item observed by the live assertion. `tests/test_ui.py:2843` `docs/reviews/01-interface/D01-T01-s17.md:177`
+11. **closed.** The animation test checks terminal pixels against a separate capture. `tests/test_ui.py:2838` `docs/reviews/01-interface/D01-T01-s17.md:178`
+12. **closed.** Backup recovery checks ownership before touching a sibling directory. `reference/run.py:266` `reference/run.py:284` `docs/reviews/01-interface/D01-T01-s17.md:233`
+13. **closed.** Loading rejects exact duplicates and case-colliding keys. `reference/run.py:133` `reference/run.py:151` `docs/reviews/01-interface/D01-T01-s17.md:336`
+14. **closed.** The Windows probe targets the identified distribution and requires an explicit dead-process result. `reference/run.py:499` `reference/run.py:504` `docs/reviews/01-interface/D01-T01-s17.md:585`
+15. **closed.** Branding imports `sys` and consumes the manifest and frames from one locked snapshot. `tools/brand.py:17` `tools/brand.py:113` `docs/reviews/01-interface/D01-T01-s17.md:282`
+16. **closed.** Numeric display content receives the font check. `reference/run.py:229` `docs/reviews/01-interface/D01-T01-s17.md:455`
+17. **closed.** Publication into an initially empty output avoids creating an unmarked backup. `reference/run.py:336` `docs/reviews/01-interface/D01-T01-s17.md:282`
+18. **closed.** Empty `.lockdir` now returns `False` regardless of age. The hour-old fixture checks refusal, acquisition timeout, and preservation of the directory. `reference/run.py:602` `reference/run.py:612` `tests/test_ui.py:1941` `docs/reviews/01-interface/D01-T01-s17.md:1393`
+19. **closed.** Store recovery preserves an unrelated raw-capture backup. `tests/test_ui.py:1865` `docs/reviews/01-interface/D01-T01-s17.md:282`
+20. **closed.** Unambiguous mixed-case properties reach live selection. `reference/run.py:206` `tests/test_ui.py:2842` `docs/reviews/01-interface/D01-T01-s17.md:336`
+21. **closed.** Numeric appearance properties are accepted while numeric display content gets the font check. `reference/run.py:229` `docs/reviews/01-interface/D01-T01-s17.md:455`
+22. **closed.** Each publisher owns and cleans its staging directory. `reference/run.py:336` `docs/reviews/01-interface/D01-T01-s17.md:338`
+23. **closed.** Mixed-case inventory and case keys retain their properties. `reference/run.py:158` `reference/run.py:168` `docs/reviews/01-interface/D01-T01-s17.md:395`
+24. **closed.** Publication uses the invocation’s own capture and snapshotted specifications. `reference/run.py:857` `reference/run.py:954` `docs/reviews/01-interface/D01-T01-s17.md:396`
+25. **closed.** Exact duplicate keys are rejected before dictionary construction. `reference/run.py:133` `reference/run.py:151` `docs/reviews/01-interface/D01-T01-s17.md:456`
+26. **closed.** Compiled-template cases publish and validate without a pixel file. `tests/test_ui.py:2194` `tests/test_ui.py:2211` `docs/reviews/01-interface/D01-T01-s17.md:452`
+27. **closed.** An all-fallback invocation produces its manifest using host temporary storage. `reference/run.py:117` `docs/reviews/01-interface/D01-T01-s17.md:457`
+28. **closed.** The contention test bounds readiness and tears down its child process tree. `docs/reviews/01-interface/D01-T01-s17.md:518` `docs/reviews/01-interface/D01-T01-s17.md:758`
+29. **closed.** Both CI steps that use heredocs select Bash. `.github/workflows/build.yml:46` `.github/workflows/build.yml:75` `docs/reviews/01-interface/D01-T01-s17.md:519`
+30. **closed.** An unknown fallback state fails with the case and requested state identified. `tools/winui/check_package.py:385` `docs/reviews/01-interface/D01-T01-s17.md:520`
+31. **closed.** Fallback automation retains nested children, covered by the DataGrid regression. `tools/winui/check_package.py:442` `tests/test_ui.py:2224` `docs/reviews/01-interface/D01-T01-s17.md:927`
+32. **closed.** Competing reclaimers must rename the particular dead marker they observed. `reference/run.py:643` `reference/run.py:646` `docs/reviews/01-interface/D01-T01-s17.md:651`
+33. **closed.** CLI output distinguishes compressed frames from compiled-template cases. `reference/run.py:964` `docs/reviews/01-interface/D01-T01-s17.md:522`
+34. **closed.** Acquisition writes the owner token before publishing the lock directory. `reference/run.py:703` `reference/run.py:709` `docs/reviews/01-interface/D01-T01-s17.md:717`
+35. **closed.** CLI counts come from the invoking publication. `reference/run.py:781` `docs/reviews/01-interface/D01-T01-s17.md:586`
+36. **closed.** Windows access denial and exit-code query failure preserve ownership. `reference/run.py:452` `docs/reviews/01-interface/D01-T01-s17.md:651`
+37. **closed.** The tokenless legacy owner fixture requires successful frame recovery. `tests/test_ui.py:1872` `docs/reviews/01-interface/D01-T01-s17.md:785`
+38. **closed.** The tokenized legacy owner fixture also requires successful frame recovery. `tests/test_ui.py:1872` `docs/reviews/01-interface/D01-T01-s17.md:785`
+39. **closed.** Mixed-case frame dimensions are validated and used for geometry. `tools/winui/check_package.py:350` `tools/winui/check_package.py:362` `docs/reviews/01-interface/D01-T01-s17.md:784`
+40. **closed.** Empty and temporary-file-only `.lockv2` residue still has recovery paths and read-back fixtures. `reference/run.py:606` `reference/run.py:683` `tests/test_ui.py:1872` `docs/reviews/01-interface/D01-T01-s17.md:1316`
+41. **closed.** The fallback rejects unknown frame fields, including misspelled dimensions. `tools/winui/check_package.py:351` `docs/reviews/01-interface/D01-T01-s17.md:854`
+42. **closed.** Current release propagates exhausted rename retries and preserves the owner token. `reference/run.py:726` `reference/run.py:731` `docs/reviews/01-interface/D01-T01-s17.md:1154`
+43. **closed.** Fractional frame dimensions fail before rectangle construction. `tools/winui/check_package.py:360` `docs/reviews/01-interface/D01-T01-s17.md:927`
+44. **closed.** The current publisher acquires both lock names before entering the critical section. `reference/run.py:759` `reference/run.py:761` `reference/run.py:763` `docs/reviews/01-interface/D01-T01-s17.md:1004`
+45. **closed.** Fractional padding is retained in child geometry. `tools/winui/check_package.py:425` `tools/winui/check_package.py:435` `docs/reviews/01-interface/D01-T01-s17.md:1003`
+46. **closed.** A `.lockv2` release failure still allows the main-lock release attempt. `reference/run.py:768` `reference/run.py:773` `docs/reviews/01-interface/D01-T01-s17.md:1004`
+47. **closed.** The fallback validates background type and integer dimension bounds. `tools/winui/check_package.py:357` `tools/winui/check_package.py:360` `docs/reviews/01-interface/D01-T01-s17.md:1003`
+48. **closed.** Ambiguous folded distribution names preserve the lock. A unique match supplies the exact distribution. `reference/run.py:542` `reference/run.py:559` `docs/reviews/01-interface/D01-T01-s17.md:1235`
+49. **closed.** Matching owner JSON supplies the exact recorded distribution to the Windows probe. `reference/run.py:625` `reference/run.py:641` `docs/reviews/01-interface/D01-T01-s17.md:1082`
+50. **closed.** The fixtures exercise production reclamation with mismatched owner JSON and Windows dispatch with matching JSON. `docs/reviews/01-interface/D01-T01-s17.md:1155` `docs/reviews/01-interface/D01-T01-s17.md:1382`
+51. **closed.** The fault-injection description identifies release-error preservation. `tests/test_ui.py:1927` `docs/reviews/01-interface/D01-T01-s17.md:1236`
+52. **closed.** The fixtures select reader identities explicitly and distinguish distribution listing from PID probing. `docs/reviews/01-interface/D01-T01-s17.md:1317` `docs/reviews/01-interface/D01-T01-s17.md:1384`
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS plan-delivery: findings  
+LENS record: findings  
+HIGHEST: P2  
+RECONCILIATION: gaps
