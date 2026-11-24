@@ -474,7 +474,9 @@ class Site:
 
     def picture(self):
         """Impossible UI and real WinUI, from the same cases the tests compare."""
-        manifest = json.loads(self.read("tests/reference/cases.json"))
+        sys.path.insert(0, str(self.root / "reference"))
+        import run as ref_run
+        manifest, frames = ref_run.read_reference_snapshot(self.root / "tests/reference")
         wide, high = 160, 64
         legacy_ids = [
             f"{kind}-{state}-{theme}"
@@ -485,7 +487,7 @@ class Site:
         by_id = {c.get("id", f"{c.get('control')}-{c.get('state')}-{c.get('theme')}"): c for c in manifest["cases"]}
         cases = [by_id[cid] for cid in legacy_ids if cid in by_id]
         frame = wide * high * 4
-        real = [zlib.decompress((self.root / "tests/reference" / f"{c['file']}.z").read_bytes()) for c in cases]
+        real = [frames[c["file"]] for c in cases]
         if self.run:
             accent_keys = ("Accent", "AccentLight1", "AccentLight2", "AccentLight3", "AccentDark1", "AccentDark2", "AccentDark3")
             accent_args = [manifest["accents"][k] for k in accent_keys]

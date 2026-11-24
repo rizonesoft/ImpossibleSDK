@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import zlib
 from pathlib import Path
@@ -103,13 +104,13 @@ def comparison(out):
     """Our buttons beside real WinUI's, from the frames the tests compare: rest, hover, pressed and disabled, dark and light."""
     sys.path.insert(0, str(ROOT / "reference"))
     import run as ref_run
-    manifest = ref_run.open_reference_manifest(ROOT / "tests/reference")
     legacy_ids = [
         f"{kind}-{state}-{theme}"
         for theme in ("Dark", "Light")
         for kind in ("button", "accent")
         for state in ("Normal", "PointerOver", "Pressed", "Disabled")
     ]
+    manifest, frames = ref_run.read_reference_snapshot(ROOT / "tests/reference")
     by_id = {c.get("id", f"{c.get('control')}-{c.get('state')}-{c.get('theme')}"): c for c in manifest["cases"]}
     cases = [by_id[cid] for cid in legacy_ids if cid in by_id]
     accent_keys = ("Accent", "AccentLight1", "AccentLight2", "AccentLight3", "AccentDark1", "AccentDark2", "AccentDark3")
@@ -121,7 +122,7 @@ def comparison(out):
     for which in (0, 1):
         pixels = bytearray(width * height * 4)
         for index, case in enumerate(cases):
-            frame = ours[index * size:(index + 1) * size] if which == 0 else zlib.decompress((ROOT / f"tests/reference/{case['file']}.z").read_bytes())
+            frame = ours[index * size:(index + 1) * size] if which == 0 else frames[case["file"]]
             left, top = index % 4 * 160, index // 4 * 64
             for y in range(64):
                 at = ((top + y) * width + left) * 4

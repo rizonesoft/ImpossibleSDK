@@ -1771,7 +1771,7 @@ class ReferenceHarness(unittest.TestCase):
         self.assertEqual(res.returncode, 2)
         self.assertIn("refuses --cases", res.stderr)
 
-        # 7. Prohibited Microsoft font, FontIcon, ListView items, mixed-case, or case-colliding keys cannot be persisted.
+        # 7. Prohibited Microsoft font, FontIcon, ListView items, reflected text props (OnContent), or case-colliding keys fail.
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "bad-text", "control": "Button", "properties": {"Content": "Hi"}})
         with self.assertRaises(ValueError):
@@ -1779,11 +1779,13 @@ class ReferenceHarness(unittest.TestCase):
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "bad-list", "control": "ListView", "items": ["Alpha"]})
         with self.assertRaises(ValueError):
+            ref_run.check_no_prohibited_assets({"id": "bad-reflected", "control": "ToggleSwitch", "properties": {"OnContent": "Enabled"}})
+        with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "label", "Control": "TextBlock", "Properties": {"Text": "Sample"}})
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "label", "Control": "Border", "control": "TextBlock"})
 
-        # 8. --out refuses unrelated files, foreign capture-like dirs, AND unrelated .<name>.backup siblings.
+        # 8. --out refuses unrelated files, foreign capture-like dirs, unrelated .<name>.backup siblings, and handles empty --out cleanly.
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / "out"
             out_dir.mkdir()
@@ -1807,15 +1809,35 @@ class ReferenceHarness(unittest.TestCase):
                 ref_run._ensure_safe_capture_dir(Path(tmp) / "fresh")
             self.assertEqual(sib_sentinel.read_text(encoding="utf-8"), "do not delete")
 
-        # 9. Interrupted swap (store missing, owned .<name>.backup present) is recovered on ordinary read-back.
+            # Empty --out publishes cleanly without creating an unmarked backup.
+            empty_out = Path(tmp) / "empty_out"
+            empty_out.mkdir()
+            src_cap = Path(tmp) / "src_cap"
+            src_cap.mkdir()
+            (src_cap / "cases.json").write_text("{}", encoding="utf-8")
+            ref_run._publish_capture_output(src_cap, empty_out)
+            self.assertTrue((empty_out / ref_run.OUT_MARKER).is_file())
+            self.assertFalse((Path(tmp) / ".empty_out.backup").exists())
+
+            # Unrelated raw capture inside .reference.backup (without STORE_MARKER) must be refused, never deleted or restored.
+            fake_raw_bak = Path(tmp) / ".mystore.backup"
+            fake_raw_bak.mkdir()
+            (fake_raw_bak / "cases.json").write_text(json.dumps({"accents": {}, "cases": []}), encoding="utf-8")
+            (fake_raw_bak / "extra.txt").write_text("user notes", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                ref_run.read_reference_snapshot(Path(tmp) / "mystore")
+            self.assertEqual((fake_raw_bak / "extra.txt").read_text(encoding="utf-8"), "user notes")
+
+        # 9. Interrupted swap (store missing, owned .<name>.backup present) is recovered atomically by read_reference_snapshot.
         with tempfile.TemporaryDirectory() as tmp:
             tstore = Path(tmp) / "reference"
             tbackup = Path(tmp) / ".reference.backup"
             shutil.copytree(ROOT / "tests/reference", tbackup)
             self.assertFalse(tstore.exists())
-            recovered = ref_run.open_reference_manifest(tstore)
+            recovered, rframes = ref_run.read_reference_snapshot(tstore, filenames=["button-Normal-Dark.bgra"])
             self.assertTrue(tstore.is_dir())
             self.assertEqual(len(recovered["cases"]), len(specs))
+            self.assertEqual(len(rframes["button-Normal-Dark.bgra"]), 160 * 64 * 4)
 
     def test_package_provenance_and_missing_controls(self):
         _, check_pkg = self._ref_modules()
@@ -1885,8 +1907,9 @@ class ReferenceHarness(unittest.TestCase):
             with self.assertRaises(check_pkg.PackageDrift):
                 check_pkg.verify_package(fake)
 
-            # Exercise compiled-template fallback for an unavailable control (ToggleSwitch -> DefaultToggleSwitchStyle):
-            # passes with exact elem_count=23, state_count=9, setter_count=11; fails if any is corrupted.
+            # Exercise check_missing_control_case fallback routing:
+            # 1) Control with a compiled template (ToggleSwitch -> DefaultToggleSwitchStyle) passes with basis='compiled-template' and fails on corrupted counts.
+            # 2) Control without a compiled template yet (WrapPanel) fails explicitly rather than passing hollowly.
             sim_ok = json.loads(json.dumps(orig_pkg))
             sim_ok["missing_controls"].append({
                 "control": "ToggleSwitch",
@@ -1898,16 +1921,24 @@ class ReferenceHarness(unittest.TestCase):
                 "expected_states": 9,
                 "expected_setters": 11,
             })
-            res_sim = check_pkg.verify_missing_controls(sim_ok, fake / "ui/template_data.c")
-            ts_entry = next(r for r in res_sim if r["control"] == "ToggleSwitch")
+            res_case = check_pkg.check_missing_control_case(
+                {"id": "ts-fallback", "control": "ToggleSwitch", "expected_elements": 23, "expected_states": 9, "expected_setters": 11},
+                sim_ok, fake / "ui/template_data.c",
+            )
             self.assertEqual(
-                (ts_entry["basis"], ts_entry["verified_elements"], ts_entry["verified_states"], ts_entry["verified_setters"]),
+                (res_case["basis"], res_case["verified_elements"], res_case["verified_states"], res_case["verified_setters"]),
                 ("compiled-template", 23, 9, 11),
             )
-            sim_bad_states = json.loads(json.dumps(sim_ok))
-            sim_bad_states["missing_controls"][-1]["expected_states"] = 999
             with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.verify_missing_controls(sim_bad_states, fake / "ui/template_data.c")
+                check_pkg.check_missing_control_case(
+                    {"id": "ts-bad", "control": "ToggleSwitch", "expected_states": 999},
+                    sim_ok, fake / "ui/template_data.c",
+                )
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.check_missing_control_case(
+                    {"id": "wp-uncompiled", "control": "WrapPanel"},
+                    orig_pkg, fake / "ui/template_data.c",
+                )
 
             # 6. Nonexistent --nuget-pkg path must fail explicitly.
             with self.assertRaises(check_pkg.PackageDrift):
@@ -1945,7 +1976,7 @@ class ReferenceHarness(unittest.TestCase):
     def test_layout_automation_scale_rtl_and_script_dumps(self):
         ref_run, _ = self._ref_modules()
         folder = ROOT / "tests/reference"
-        manifest = ref_run.open_reference_manifest(folder)
+        manifest, frames = ref_run.read_reference_snapshot(folder)
         # Every stored case must include both layout and automation dumps.
         self.assertTrue(all("layout" in c and "automation" in c for c in manifest["cases"]))
         by_id = {c["id"]: c for c in manifest["cases"]}
@@ -1971,7 +2002,7 @@ class ReferenceHarness(unittest.TestCase):
         self.assertFalse(by_id["button-ReallyDisabled-Dark"]["automation"]["IsEnabled"])
 
         # 3. Scaled captures at 150%, 200%, 300% pass crispness/anti-stairstep checks, while bilinear & nearest fail.
-        s100 = zlib.decompress((folder / "button-Normal-Dark.bgra.z").read_bytes())
+        s100 = frames["button-Normal-Dark.bgra"]
         for cid, scale, w, h in [
             ("button-Normal-Dark-s150", 1.5, 240, 96),
             ("button-Normal-Dark-s200", 2.0, 320, 128),
@@ -1981,7 +2012,7 @@ class ReferenceHarness(unittest.TestCase):
             self.assertEqual((case["scale"], case["width"], case["height"]), (scale, w, h))
             ar = case["automation"]["Rect"]
             self.assertEqual((ar["X"], ar["Y"], ar["Width"], ar["Height"]), (20, 16, 120, 32))
-            real = zlib.decompress((folder / f"{case['file']}.z").read_bytes())
+            real = frames[case["file"]]
             check_scaled_control_capture(case, real)
             with self.assertRaises(ValueError):
                 check_scaled_control_capture(case, bilinear_upscale(s100, 160, 64, w, h))
@@ -1991,7 +2022,7 @@ class ReferenceHarness(unittest.TestCase):
         # 4. RTL capture mirrors HorizontalAlignment=Left to the right edge of the 160px frame.
         rtl_case = by_id["button-Normal-Dark-RTL"]
         self.assertEqual(rtl_case["flow_direction"], "RightToLeft")
-        rtl_px = zlib.decompress((folder / f"{rtl_case['file']}.z").read_bytes())
+        rtl_px = frames[rtl_case["file"]]
         xs = [x for x in range(160) if any(rtl_px[(32 * 160 + x) * 4 + k] != 32 for k in range(3))]
         self.assertEqual((min(xs), max(xs)), (40, 159))
 
@@ -2008,10 +2039,11 @@ class ReferenceHarness(unittest.TestCase):
                 validate_script_log(filtered)
 
     def test_rectangle_masking_for_text_and_icon_at_fractional_scale(self):
+        ref_run, _ = self._ref_modules()
         folder = ROOT / "tests/reference"
-        manifest = json.loads((folder / "cases.json").read_text(encoding="utf-8"))
+        manifest, frames = ref_run.read_reference_snapshot(folder, filenames=["button-Icon-Dark-s150.bgra"])
         icon_case = next(c for c in manifest["cases"] if c["id"] == "button-Icon-Dark-s150")
-        real = zlib.decompress((folder / f"{icon_case['file']}.z").read_bytes())
+        real = frames[icon_case["file"]]
         w, h, scale = icon_case["width"], icon_case["height"], float(icon_case["scale"])
         ref_rects = extract_mask_rects(icon_case["layout"])
         self.assertEqual(len(ref_rects), 1)
@@ -2053,8 +2085,10 @@ class Drawing(unittest.TestCase):
         self.assertEqual(subprocess.run([str(BUILD / "ui-tests.exe")], stdin=subprocess.DEVNULL, capture_output=True, timeout=60).returncode, 0)
 
     def test_manifest_validation_catches_faults(self):
+        sys.path.insert(0, str(ROOT / "reference"))
+        import run as ref_run
         folder = ROOT / "tests/reference"
-        manifest = json.loads((folder / "cases.json").read_text(encoding="utf-8"))
+        manifest, frames = ref_run.read_reference_snapshot(folder, filenames=["probe-r4-s1.bgra"])
         validate_manifest(manifest)
 
         # Removing one probe must fail.
@@ -2091,7 +2125,7 @@ class Drawing(unittest.TestCase):
             validate_manifest(bad_accent)
 
         # Upscaling a 100% probe to 96x96 and labelling it as 150% must fail crispness check.
-        r4_s1 = zlib.decompress((folder / "probe-r4-s1.bgra.z").read_bytes())
+        r4_s1 = frames["probe-r4-s1.bgra"]
         r4_s15_case = next(c for c in manifest["cases"] if c.get("name") == "probe-r4-s15")
         upscaled = bilinear_upscale(r4_s1, 64, 64, 96, 96)
         with self.assertRaises(ValueError):
@@ -2112,8 +2146,10 @@ class Drawing(unittest.TestCase):
 
     def test_buttons_match_real_winui(self):
         """Straight edges and fills may differ by rounding only; corners and probes have verified limits."""
+        sys.path.insert(0, str(ROOT / "reference"))
+        import run as ref_run
         folder = ROOT / "tests/reference"
-        manifest = json.loads((folder / "cases.json").read_text(encoding="utf-8"))
+        manifest, frames = ref_run.read_reference_snapshot(folder)
         accent_args = validate_manifest(manifest)
         cases = select_legacy_cases(manifest)
         ours = subprocess.run([str(BUILD / "control-shots.exe"), *accent_args], capture_output=True, timeout=60, check=True).stdout
@@ -2125,7 +2161,7 @@ class Drawing(unittest.TestCase):
             size = w * h * 4
             mine = ours[offset:offset + size]
             offset += size
-            real = zlib.decompress((folder / f"{case['file']}.z").read_bytes())
+            real = frames[case["file"]]
             self.assertEqual(len(real), size, case["file"])
             if case["control"] == "probe":
                 check_probe_crispness(case, real)

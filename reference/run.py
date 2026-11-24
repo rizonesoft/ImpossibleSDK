@@ -28,6 +28,19 @@ CASES_DIR = HERE / "cases"
 FORBIDDEN_ASSET_CONTROLS = {"fonticon", "symbolicon"}
 FORBIDDEN_FONT_SUBSTRINGS = ("segoe", "calibri", "cambria", "consolas", "candara", "corbel", "constantia", "microsoft")
 OUT_MARKER = ".impossible-reference-out"
+STORE_MARKER = ".impossible-reference-store"
+
+# Explicit allowlist of non-text properties safe to persist without a permitted FontFamily.
+# Any property outside this allowlist (including reflected text properties like OnContent/OffContent/Header/Text/Content)
+# requires a permitted non-Microsoft FontFamily.
+SAFE_NON_TEXT_PROPERTIES = {
+    "name", "width", "height", "minwidth", "minheight",
+    "horizontalalignment", "verticalalignment", "margin", "padding",
+    "isenabled", "istabstop", "cornerradius", "background", "foreground",
+    "ison", "ischecked", "value", "minimum", "maximum",
+    "orientation", "spacing", "data", "selectedindex",
+    "fontfamily", "fontsize",
+}
 
 
 def is_wsl():
@@ -149,16 +162,20 @@ def check_no_prohibited_assets(case_spec):
         raise ValueError(f"{cid}: control {ctrl!r} uses a prohibited Microsoft glyph font and cannot be persisted")
     props = case_spec.get("properties") or {}
     items = case_spec.get("items")
+    has_non_allowlisted_prop = any(
+        isinstance(k, str) and k.lower() not in SAFE_NON_TEXT_PROPERTIES
+        for k in props
+    )
     has_text = (
         ctrl_l in ("textblock", "textbox")
         or bool(items)
-        or any(_ci_get(props, k) is not None for k in ("content", "text", "header", "placeholdertext"))
+        or has_non_allowlisted_prop
     )
     if has_text:
         ff = str(_ci_get(props, "fontfamily", "") or "").lower()
         if not ff or any(bad in ff for bad in FORBIDDEN_FONT_SUBSTRINGS):
             raise ValueError(
-                f"{cid}: text-bearing case without a permitted non-Microsoft FontFamily cannot be persisted to tests/reference/"
+                f"{cid}: text-bearing or unallowlisted property without a permitted non-Microsoft FontFamily cannot be persisted to tests/reference/"
             )
     for child in case_spec.get("children") or []:
         check_no_prohibited_assets(child)
@@ -167,16 +184,19 @@ def check_no_prohibited_assets(case_spec):
 def _is_owned_backup(backup_path, is_store):
     if not backup_path.is_dir():
         return False
-    if not is_store:
-        return (backup_path / OUT_MARKER).is_file()
-    idx = backup_path / "cases.json"
-    if not idx.is_file():
+    marker = STORE_MARKER if is_store else OUT_MARKER
+    if not (backup_path / marker).is_file():
         return False
-    try:
-        data = json.loads(idx.read_text(encoding="utf-8"))
-        return isinstance(data, dict) and isinstance(data.get("cases"), list) and isinstance(data.get("accents"), dict)
-    except (OSError, json.JSONDecodeError):
-        return False
+    for entry in backup_path.iterdir():
+        if entry.is_dir():
+            return False
+        if is_store:
+            if entry.name not in ("cases.json", STORE_MARKER) and not entry.name.endswith(".bgra.z"):
+                return False
+        else:
+            if entry.name not in ("cases.json", "error.txt", OUT_MARKER) and entry.suffix != ".bgra":
+                return False
+    return True
 
 
 def _recover_dir_unlocked(target_dir, is_store):
@@ -193,12 +213,23 @@ def _recover_dir_unlocked(target_dir, is_store):
     return False
 
 
-def open_reference_manifest(store_dir):
-    """Read tests/reference/cases.json under the store lock, recovering an interrupted swap if needed."""
+def read_reference_snapshot(store_dir, filenames=None):
+    """Atomically read cases.json and requested decompressed .bgra.z frames under the store lock (with crash recovery)."""
     store = Path(store_dir)
     with _store_lock(store):
         _recover_dir_unlocked(store, is_store=True)
-        return json.loads((store / "cases.json").read_text(encoding="utf-8"))
+        manifest = json.loads((store / "cases.json").read_text(encoding="utf-8"))
+        wanted = set(filenames) if filenames is not None else {c["file"] for c in manifest.get("cases", []) if "file" in c}
+        frames = {}
+        for fn in wanted:
+            frames[fn] = zlib.decompress((store / f"{fn}.z").read_bytes())
+        return manifest, frames
+
+
+def open_reference_manifest(store_dir):
+    """Read tests/reference/cases.json under the store lock, recovering an interrupted swap if needed."""
+    manifest, _ = read_reference_snapshot(store_dir, filenames=())
+    return manifest
 
 
 def _ensure_safe_capture_dir(out_dir):
@@ -246,13 +277,18 @@ def _publish_capture_output(src_dir, out_dir):
                 if not _is_owned_backup(backup, is_store=False):
                     raise ValueError(f"{backup}: refuses to delete unrelated sibling backup directory")
                 shutil.rmtree(backup)
-            had_out = out.exists()
-            if had_out:
-                out.rename(backup)
+            had_nonempty_out = False
+            if out.exists():
+                if not list(out.iterdir()):
+                    # Empty destination needs no backup: remove it directly so stage.rename(out) is a single atomic swap.
+                    out.rmdir()
+                else:
+                    had_nonempty_out = True
+                    out.rename(backup)
             try:
                 stage.rename(out)
             except Exception:
-                if had_out and backup.exists() and not out.exists():
+                if had_nonempty_out and backup.exists() and not out.exists():
                     backup.rename(out)
                 raise
             if backup.exists():
@@ -307,7 +343,7 @@ def _validate_store_dir_unlocked(store, expected_specs=None):
             raise ValueError(f"{store}: raw digest mismatch for {zname!r}")
 
     actual_files = {p.name for p in store.iterdir() if p.is_file()}
-    allowed_files = indexed_files | {"cases.json"}
+    allowed_files = indexed_files | {"cases.json", STORE_MARKER}
     extra = sorted(actual_files - allowed_files)
     if extra:
         raise ValueError(f"{store}: unindexed extra file(s): {', '.join(extra)}")
@@ -382,6 +418,7 @@ def publish_store(fresh_dir, store_dir, expected_specs):
                 case["case_sha256"] = canonical_case_hash(expected_specs[cid])
 
             (stage / "cases.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
+            (stage / STORE_MARKER).write_text("impossible-sdk-reference-store\n", encoding="utf-8", newline="\n")
             validate_store_dir(stage, expected_specs, _locked=True)
 
             if backup.exists():

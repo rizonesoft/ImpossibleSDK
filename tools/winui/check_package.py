@@ -214,7 +214,35 @@ def verify_missing_controls(pkg_data, template_c_path, theme_c_path=None, planne
     return results
 
 
-def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=False):
+def check_missing_control_case(case_spec, pkg_data, template_c_path):
+    """Route a case targeting a missing control to its own compiled template in ui/template_data.c."""
+    ctrl = case_spec.get("control")
+    missing_by_ctrl = {e.get("control"): e for e in pkg_data.get("missing_controls", []) if isinstance(e, dict)}
+    if ctrl not in missing_by_ctrl:
+        raise PackageDrift(f"case {case_spec.get('id')!r}: control {ctrl!r} is not listed in reference/package.json missing_controls")
+    entry = missing_by_ctrl[ctrl]
+    tpl = entry.get("compiled_template")
+    if entry.get("status") != "compiled-template" or not tpl:
+        raise PackageDrift(f"case {case_spec.get('id')!r}: missing control {ctrl!r} has no compiled template in ui/template_data.c yet")
+    compiled = parse_compiled_templates(template_c_path)
+    if tpl not in compiled or compiled[tpl]["target"] != ctrl:
+        raise PackageDrift(f"case {case_spec.get('id')!r}: compiled template {tpl!r} does not target {ctrl!r}")
+    info = compiled[tpl]
+    for field, actual in (("expected_elements", info["elem_count"]), ("expected_states", info["state_count"]), ("expected_setters", info["setter_count"])):
+        if field in case_spec and case_spec[field] != actual:
+            raise PackageDrift(f"case {case_spec.get('id')!r}: {field}={case_spec[field]} != compiled {tpl!r} ({actual})")
+    return {
+        "id": case_spec.get("id"),
+        "control": ctrl,
+        "basis": "compiled-template",
+        "template": tpl,
+        "verified_elements": info["elem_count"],
+        "verified_states": info["state_count"],
+        "verified_setters": info["setter_count"],
+    }
+
+
+def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=True):
     repo = Path(repo_root)
     pkg_path = repo / "reference/package.json"
     csproj_path = repo / "reference/Reference.csproj"
