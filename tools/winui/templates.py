@@ -265,6 +265,12 @@ def parse_xaml(text, filename):
         ns_pres = "http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         ns_mc = "http://schemas.openxmlformats.org/markup-compatibility/2006"
         ns_ctrl = "using:Microsoft.UI.Xaml.Controls"
+        if " " in tag:
+            el_ns, el_local = tag.rsplit(" ", 1)
+            if el_ns not in (ns_pres, ns_xaml):
+                raise TemplateError(f"{filename}:{base_line}: unsupported element namespace {el_ns!r} for {el_local!r}")
+        else:
+            el_local = local_name(tag)
         xaml_allowed = {"Name", "Key", "DeferLoadStrategy", "Load"}
         clean_attrs = {}
         for k, v in attrs.items():
@@ -286,11 +292,13 @@ def parse_xaml(text, filename):
                 ns = ""
                 short = local_name(k)
                 line_no = attr_lines.get(("", short), base_line)
+            if "." in el_local:
+                raise TemplateError(f"{filename}:{line_no}: unknown property {short!r} on {el_local}")
             if short in clean_attrs:
                 raise TemplateError(f"{filename}:{line_no}: duplicate attribute {short!r}")
             clean_attrs[short] = v
             attr_lines[short] = line_no
-        node = Node(local_name(tag), clean_attrs, filename, base_line, attr_lines)
+        node = Node(el_local, clean_attrs, filename, base_line, attr_lines)
         if stack:
             stack[-1].children.append(node)
         stack.append(node)
@@ -633,7 +641,7 @@ class Compiler:
             if k not in allowed_anim_attrs:
                 raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
 
-        allowed_kf_attrs = {"KeyTime", "Value", "KeySpline", "Name", "Key"}
+        allowed_kf_attrs = {"KeyTime", "Value", "KeySpline"}
         kf_start = len(self.keyframes)
         for child in node.children:
             if child.tag not in KEYFRAME_KINDS:
@@ -692,7 +700,7 @@ class Compiler:
         for gnode in groups_node.children:
             if gnode.tag != "VisualStateGroup":
                 raise TemplateError(f"{gnode.file}:{gnode.line}: expected VisualStateGroup, got {gnode.tag!r}")
-            check_attrs(gnode, {"Name", "Key"})
+            check_attrs(gnode, {"Name"})
             gname = gnode.attrs.get("Name", "")
             state_start = len(self.states)
             trans_start = len(self.transitions)
@@ -702,7 +710,7 @@ class Compiler:
                     check_attrs(child, set())
                     trans_nodes.extend(child.children)
                 elif child.tag == "VisualState":
-                    check_attrs(child, {"Name", "Key"})
+                    check_attrs(child, {"Name"})
                     sname = child.attrs.get("Name", "")
                     setter_start = len(self.style_setters)
                     anim_start = len(self.anims)
@@ -713,14 +721,18 @@ class Compiler:
                                 if s.tag != "Setter":
                                     raise TemplateError(f"{s.file}:{s.line}: expected Setter, got {s.tag!r}")
                                 check_attrs(s, {"Target", "Property", "Value"})
+                                if s.children:
+                                    raise TemplateError(f"{s.children[0].file}:{s.children[0].line}: unexpected child {s.children[0].tag!r} in VisualState Setter")
+                                if "Value" not in s.attrs:
+                                    raise TemplateError(f"{s.file}:{s.line}: VisualState Setter missing Value")
                                 tgt = s.attrs.get("Target", "")
                                 prop = strip_xml_prefix(tgt.split(".", 1)[-1]).strip("()") if "." in tgt else s.attrs.get("Property", "")
                                 if prop and prop not in KNOWN_PROPS:
                                     raise TemplateError(f"{s.file}:{s.attr_line('Target')}: unknown property {prop!r}")
-                                val = self.parse_value(s.attrs.get("Value", ""), prop, s.file, s.attr_line("Value"))
+                                val = self.parse_value(s.attrs["Value"], prop, s.file, s.attr_line("Value"))
                                 self.style_setters.append({"target": tgt, "property": prop, "value": val})
                         elif sc.tag == "Storyboard":
-                            check_attrs(sc, {"Name", "Key"})
+                            check_attrs(sc, {"Name"})
                             for anim in sc.children:
                                 self.compile_animation(anim)
                         else:
@@ -738,7 +750,7 @@ class Compiler:
             for tnode in trans_nodes:
                 if tnode.tag != "VisualTransition":
                     raise TemplateError(f"{tnode.file}:{tnode.line}: expected VisualTransition, got {tnode.tag!r}")
-                check_attrs(tnode, {"Name", "Key", "From", "To", "GeneratedDuration"})
+                check_attrs(tnode, {"Name", "From", "To", "GeneratedDuration"})
                 from_s = tnode.attrs.get("From")
                 to_s = tnode.attrs.get("To")
                 dur_ms = 0
@@ -748,7 +760,7 @@ class Compiler:
                 anim_start = len(self.anims)
                 for tc in tnode.children:
                     if tc.tag == "Storyboard":
-                        check_attrs(tc, {"Name", "Key"})
+                        check_attrs(tc, {"Name"})
                         for anim in tc.children:
                             self.compile_animation(anim)
                     else:
@@ -838,7 +850,7 @@ class Compiler:
             self.local_resources = saved_resources
 
     def compile_control_template(self, ct_node, key, target_type, style_setters, enum_id):
-        check_attrs(ct_node, {"Key", "Name", "TargetType"})
+        check_attrs(ct_node, {"TargetType"})
         local_elems = []
         local_props = []
         vsm_nodes = []

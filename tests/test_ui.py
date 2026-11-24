@@ -553,6 +553,42 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_uni.returncode, 0)
         self.assertIn(f"{path_uni}:4:", res_uni.stderr)
 
+        # Bare Key on VisualState, Setter.Value attributes inside VisualState.Setters, and foreign-namespace elements must be rejected.
+        xaml_key = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G">\n'
+            '    <VisualState\n'
+            '      Key="Foreign" />\n'
+            '  </VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_key, path_key = self._run_fixture(xaml_key)
+        self.assertNotEqual(res_key.returncode, 0)
+        self.assertIn(f"{path_key}:4:", res_key.stderr)
+
+        xaml_sv = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="Box.Width"><Setter.Value\n'
+            '      Bogus="1" /></Setter>\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_sv, path_sv = self._run_fixture(xaml_sv)
+        self.assertNotEqual(res_sv.returncode, 0)
+        self.assertIn(f"{path_sv}:4:", res_sv.stderr)
+
+        xaml_f_el = (
+            '<ControlTemplate xmlns:vendor="urn:vendor" TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S">\n'
+            '    <vendor:Storyboard />\n'
+            '  </VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_fe, path_fe = self._run_fixture(xaml_f_el)
+        self.assertNotEqual(res_fe.returncode, 0)
+        self.assertIn(f"{path_fe}:3:", res_fe.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3
