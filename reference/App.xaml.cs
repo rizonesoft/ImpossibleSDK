@@ -93,9 +93,33 @@ public partial class App : Application
         }
     }
 
+    private static void CheckNoCaseCollidingKeys(JsonElement elem, string path)
+    {
+        if (elem.ValueKind == JsonValueKind.Object)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var prop in elem.EnumerateObject())
+            {
+                if (!seen.Add(prop.Name))
+                {
+                    throw new InvalidOperationException($"{path}: duplicate case-colliding JSON key '{prop.Name}'");
+                }
+                CheckNoCaseCollidingKeys(prop.Value, $"{path}.{prop.Name}");
+            }
+        }
+        else if (elem.ValueKind == JsonValueKind.Array)
+        {
+            int idx = 0;
+            foreach (var item in elem.EnumerateArray())
+            {
+                CheckNoCaseCollidingKeys(item, $"{path}[{idx++}]");
+            }
+        }
+    }
+
     private static List<CaseSpec> LoadCases(string? casesPath)
     {
-        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = false };
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         var files = new List<string>();
         if (!string.IsNullOrEmpty(casesPath))
         {
@@ -131,7 +155,12 @@ public partial class App : Application
         var validId = new Regex(@"^[A-Za-z0-9][A-Za-z0-9._-]*$", RegexOptions.CultureInvariant);
         foreach (var file in files)
         {
-            var spec = JsonSerializer.Deserialize<CaseFileSpec>(File.ReadAllText(file), opts)
+            string rawJson = File.ReadAllText(file);
+            using (var doc = JsonDocument.Parse(rawJson))
+            {
+                CheckNoCaseCollidingKeys(doc.RootElement, file);
+            }
+            var spec = JsonSerializer.Deserialize<CaseFileSpec>(rawJson, opts)
                        ?? throw new InvalidOperationException($"{file}: invalid JSON");
             foreach (var c in spec.Cases)
             {

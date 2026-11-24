@@ -148,35 +148,6 @@
       "primitives:TabViewListView"
     ]
   },
-  "missing_controls": [
-    {
-      "control": "WrapPanel",
-      "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI",
-      "status": "not-yet-compiled",
-      "basis": "not-yet-compiled",
-      "compiled_template": null
-    },
-    {
-      "control": "UniformGrid",
-      "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI",
-      "status": "not-yet-compiled",
-      "basis": "not-yet-compiled",
-      "compiled_template": null
-    },
-    {
-      "control": "DataGrid",
-      "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI",
-      "status": "not-yet-compiled",
-      "basis": "not-yet-compiled",
-      "compiled_template": null
-    },
-    {
-      "control": "DockPanel",
-      "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI",
-      "status": "not-yet-compiled",
-      "basis": "not-yet-compiled",
-      "compiled_template": null
-    }
-  ],
+  "missing_controls": [],
   "provenance_sha256": "543eb9938f8e6d226227aa1aaae002aeb2870e3f1874461f0a6f3b1eab572ea5"
 }

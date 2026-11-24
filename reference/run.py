@@ -136,48 +136,55 @@ ALLOWED_CASE_KEYS = {
 }
 
 
-def validate_case_keys(case_spec):
-    """Reject unknown, differently cased, or case-colliding keys so Python and C# enforce one exact schema."""
+def normalize_case_spec(case_spec):
+    """Validate keys case-insensitively, reject unknown or case-colliding keys, and return canonical lowercase dict."""
     if not isinstance(case_spec, dict):
         raise ValueError("case specification must be a JSON object")
-    seen_lower = set()
-    for k in case_spec:
-        if not isinstance(k, str) or k not in ALLOWED_CASE_KEYS:
-            raise ValueError(f"case {case_spec.get('id', '<unknown>')!r}: unknown or non-canonical key {k!r}")
+    out = {}
+    for k, v in case_spec.items():
+        if not isinstance(k, str):
+            raise ValueError(f"case {case_spec.get('id', '<unknown>')!r}: non-string key {k!r}")
         kl = k.lower()
-        if kl in seen_lower:
+        if kl not in ALLOWED_CASE_KEYS:
+            raise ValueError(f"case {case_spec.get('id', '<unknown>')!r}: unknown key {k!r}")
+        if kl in out:
             raise ValueError(f"case {case_spec.get('id', '<unknown>')!r}: duplicate case-folded key {k!r}")
-        seen_lower.add(kl)
-    for child in case_spec.get("children") or []:
-        validate_case_keys(child)
+        out[kl] = v
+    if isinstance(out.get("children"), list):
+        out["children"] = [normalize_case_spec(ch) for ch in out["children"]]
+    return out
 
 
 def check_no_prohibited_assets(case_spec):
-    """Refuse unknown/non-canonical keys, Microsoft fonts, or stock Microsoft glyph controls in committed store cases."""
-    validate_case_keys(case_spec)
-    cid = case_spec.get("id", "<unknown>")
-    ctrl = str(case_spec.get("control", "") or "")
+    """Refuse unknown/colliding keys, Microsoft fonts, or stock Microsoft glyph controls in committed store cases."""
+    norm = normalize_case_spec(case_spec)
+    cid = norm.get("id", "<unknown>")
+    ctrl = str(norm.get("control", "") or "")
     ctrl_l = ctrl.lower()
     if ctrl_l in FORBIDDEN_ASSET_CONTROLS:
         raise ValueError(f"{cid}: control {ctrl!r} uses a prohibited Microsoft glyph font and cannot be persisted")
-    props = case_spec.get("properties") or {}
-    items = case_spec.get("items")
-    has_non_allowlisted_prop = any(
-        isinstance(k, str) and k.lower() not in SAFE_NON_TEXT_PROPERTIES
-        for k in props
+    props = norm.get("properties") or {}
+    items = norm.get("items")
+    # Numeric/boolean/null scalar properties (e.g. Opacity: 0.5) cannot render text; any string/object property
+    # outside SAFE_NON_TEXT_PROPERTIES (such as Content, Text, Header, OnContent, OffContent) requires a permitted font.
+    has_non_allowlisted_text_prop = any(
+        isinstance(k, str)
+        and k.lower() not in SAFE_NON_TEXT_PROPERTIES
+        and not isinstance(v, (int, float, bool, type(None)))
+        for k, v in props.items()
     )
     has_text = (
         ctrl_l in ("textblock", "textbox")
         or bool(items)
-        or has_non_allowlisted_prop
+        or has_non_allowlisted_text_prop
     )
     if has_text:
         ff = str(_ci_get(props, "fontfamily", "") or "").lower()
         if not ff or any(bad in ff for bad in FORBIDDEN_FONT_SUBSTRINGS):
             raise ValueError(
-                f"{cid}: text-bearing or unallowlisted property without a permitted non-Microsoft FontFamily cannot be persisted to tests/reference/"
+                f"{cid}: text-bearing property without a permitted non-Microsoft FontFamily cannot be persisted to tests/reference/"
             )
-    for child in case_spec.get("children") or []:
+    for child in norm.get("children") or []:
         check_no_prohibited_assets(child)
 
 
@@ -267,11 +274,10 @@ def _publish_capture_output(src_dir, out_dir):
             for entry in entries:
                 if entry.is_dir() or (entry.suffix != ".bgra" and entry.name not in ("cases.json", "error.txt", OUT_MARKER)):
                     raise ValueError(f"{out}: refuses to overwrite directory containing unrelated entry {entry.name!r}")
-        stage = out.parent / f".{out.name}.stage-{os.getpid()}"
+        stage = Path(tempfile.mkdtemp(dir=out.parent, prefix=f".{out.name}.stage-"))
         backup = out.parent / f".{out.name}.backup"
-        shutil.rmtree(stage, ignore_errors=True)
         try:
-            shutil.copytree(src, stage)
+            shutil.copytree(src, stage, dirs_exist_ok=True)
             (stage / OUT_MARKER).write_text("impossible-sdk-reference-output\n", encoding="utf-8")
             if backup.exists():
                 if not _is_owned_backup(backup, is_store=False):
@@ -364,8 +370,17 @@ def _validate_store_dir_unlocked(store, expected_specs=None):
 
 @contextlib.contextmanager
 def _store_lock(store_dir):
-    key = hashlib.sha256(str(Path(store_dir).resolve()).encode("utf-8")).hexdigest()[:16]
-    lock_path = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lock"
+    resolved = Path(store_dir).resolve()
+    try:
+        rel = resolved.relative_to(ROOT.resolve()).as_posix()
+        # Shared repo-relative lock under build/ (gitignored) so WSL and Windows lock the exact same file.
+        key = hashlib.sha256(rel.encode("utf-8")).hexdigest()[:16]
+        lock_dir = ROOT / "build"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_dir / f".ref-{key}.lock"
+    except ValueError:
+        key = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:16]
+        lock_path = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lock"
     fp = open(lock_path, "a+", encoding="utf-8")
     try:
         if os.name == "nt":
@@ -400,10 +415,7 @@ def publish_store(fresh_dir, store_dir, expected_specs):
         backup = store.parent / f".{store.name}.backup"
         _recover_dir_unlocked(store, is_store=True)
 
-        stage = store.parent / f".{store.name}.staging-{os.getpid()}"
-        shutil.rmtree(stage, ignore_errors=True)
-        stage.mkdir(parents=True)
-
+        stage = Path(tempfile.mkdtemp(dir=store.parent, prefix=f".{store.name}.staging-"))
         try:
             for case in manifest["cases"]:
                 cid = case["id"]

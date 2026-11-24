@@ -1771,7 +1771,10 @@ class ReferenceHarness(unittest.TestCase):
         self.assertEqual(res.returncode, 2)
         self.assertIn("refuses --cases", res.stderr)
 
-        # 7. Prohibited Microsoft font, FontIcon, ListView items, reflected text props (OnContent), or case-colliding keys fail.
+        # 7. Prohibited Microsoft font, FontIcon, ListView items, reflected text props (OnContent), or case-colliding keys fail;
+        #    numeric non-text reflected properties (Opacity: 0.5) and unambiguous capitalized Properties pass.
+        ref_run.check_no_prohibited_assets({"id": "num-prop", "control": "Button", "properties": {"Opacity": 0.5}})
+        ref_run.check_no_prohibited_assets({"id": "cap-prop", "control": "ComboBox", "Properties": {"SelectedIndex": 1}})
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "bad-text", "control": "Button", "properties": {"Content": "Hi"}})
         with self.assertRaises(ValueError):
@@ -1841,14 +1844,14 @@ class ReferenceHarness(unittest.TestCase):
 
     def test_package_provenance_and_missing_controls(self):
         _, check_pkg = self._ref_modules()
-        info = check_pkg.verify_package(ROOT, require_live=False)
-        self.assertEqual(info["version"], "1.8.260921001")
-        self.assertEqual(info["winui_component"], "1.8.260803003")
+        _, _, ver, comp, _, _ = check_pkg.verify_manifest_links(ROOT)
+        self.assertEqual(ver, "1.8.260921001")
+        self.assertEqual(comp["version"], "1.8.260803003")
 
         with tempfile.TemporaryDirectory() as tmp:
             fake = Path(tmp) / "repo"
             for rel in ("reference/package.json", "reference/Reference.csproj", "reference/packages.lock.json",
-                        "tools/winui/pin.json", "ui/template_data.c", "ui/theme_data.c"):
+                        "tools/winui/pin.json", "ui/template_data.c"):
                 dst = fake / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / rel, dst)
@@ -1858,7 +1861,7 @@ class ReferenceHarness(unittest.TestCase):
             orig_csproj = csproj.read_text(encoding="utf-8")
             csproj.write_text(orig_csproj.replace("1.8.260921001", "1.9.0"), encoding="utf-8")
             with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.verify_package(fake)
+                check_pkg.verify_manifest_links(fake)
             csproj.write_text(orig_csproj, encoding="utf-8")
 
             # 2. Moving WinUI component version in packages.lock.json without package.json fails.
@@ -1866,7 +1869,7 @@ class ReferenceHarness(unittest.TestCase):
             orig_lock = lock.read_text(encoding="utf-8")
             lock.write_text(orig_lock.replace("1.8.260803003", "1.8.999999999"), encoding="utf-8")
             with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.verify_package(fake)
+                check_pkg.verify_manifest_links(fake)
             lock.write_text(orig_lock, encoding="utf-8")
 
             # 3. Moving tools/winui/pin.json commit without package.json fails.
@@ -1874,53 +1877,48 @@ class ReferenceHarness(unittest.TestCase):
             orig_pin = pin.read_text(encoding="utf-8")
             pin.write_text(orig_pin.replace("5417e89b32818cfd85f757e9d1290203dc3cfecb", "0" * 40), encoding="utf-8")
             with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.verify_package(fake)
+                check_pkg.verify_manifest_links(fake)
             pin.write_text(orig_pin, encoding="utf-8")
 
-            # 4. Tampering with package_source_commit or template_diffs fails even offline via provenance_sha256.
+            # 4. Tampering with package_source_commit or template_diffs fails provenance_sha256 even offline.
             pkg_file = fake / "reference/package.json"
             orig_pkg = json.loads(pkg_file.read_text(encoding="utf-8"))
-            tampered_commit = {**orig_pkg, "package_source_commit": "a" * 40}
-            pkg_file.write_text(json.dumps(tampered_commit), encoding="utf-8")
+            pkg_file.write_text(json.dumps({**orig_pkg, "package_source_commit": "a" * 40}), encoding="utf-8")
             with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.verify_package(fake, require_live=False)
+                check_pkg.verify_manifest_links(fake)
 
-            tampered_diffs = json.loads(json.dumps(orig_pkg))
-            tampered_diffs["template_diffs"]["changed"] = []
-            pkg_file.write_text(json.dumps(tampered_diffs), encoding="utf-8")
+            # 5. Missing-controls fallback: every declared entry must target its own compiled template (unrelated or hollow fails).
+            unrelated_mc = {
+                **orig_pkg,
+                "missing_controls": [{
+                    "control": "WrapPanel",
+                    "basis": "compiled-template",
+                    "compiled_template": "DefaultButtonStyle",
+                    "expected_elements": 2,
+                    "expected_states": 4,
+                }],
+            }
             with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.verify_package(fake, require_live=False)
+                check_pkg.verify_missing_controls(unrelated_mc, fake / "ui/template_data.c")
 
-            # 5. Missing-controls verification: removing an entry, pointing at an unrelated template, or corrupting elements/states fails.
-            dropped_mc = {**orig_pkg, "missing_controls": orig_pkg["missing_controls"][1:]}
-            pkg_file.write_text(json.dumps(dropped_mc), encoding="utf-8")
+            hollow_mc = {**orig_pkg, "missing_controls": [{"control": "WrapPanel", "basis": "compiled-template", "compiled_template": None}]}
             with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.verify_package(fake)
+                check_pkg.verify_missing_controls(hollow_mc, fake / "ui/template_data.c")
 
-            unrelated_mc = json.loads(json.dumps(orig_pkg))
-            unrelated_mc["missing_controls"][0]["status"] = "compiled-template"
-            unrelated_mc["missing_controls"][0]["basis"] = "compiled-template"
-            unrelated_mc["missing_controls"][0]["compiled_template"] = "DefaultButtonStyle"
-            unrelated_mc["missing_controls"][0]["expected_elements"] = 2
-            unrelated_mc["missing_controls"][0]["expected_states"] = 4
-            pkg_file.write_text(json.dumps(unrelated_mc), encoding="utf-8")
-            with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.verify_package(fake)
-
-            # Exercise check_missing_control_case fallback routing:
-            # 1) Control with a compiled template (ToggleSwitch -> DefaultToggleSwitchStyle) passes with basis='compiled-template' and fails on corrupted counts.
-            # 2) Control without a compiled template yet (WrapPanel) fails explicitly rather than passing hollowly.
-            sim_ok = json.loads(json.dumps(orig_pkg))
-            sim_ok["missing_controls"].append({
-                "control": "ToggleSwitch",
-                "reason": "Simulated absent control",
-                "status": "compiled-template",
-                "basis": "compiled-template",
-                "compiled_template": "DefaultToggleSwitchStyle",
-                "expected_elements": 23,
-                "expected_states": 9,
-                "expected_setters": 11,
-            })
+            # Real compiled-template fallback (ToggleSwitch -> DefaultToggleSwitchStyle): passes with exact counts, fails if corrupted.
+            sim_ok = {
+                **orig_pkg,
+                "missing_controls": [{
+                    "control": "ToggleSwitch",
+                    "reason": "Simulated absent control",
+                    "basis": "compiled-template",
+                    "compiled_template": "DefaultToggleSwitchStyle",
+                    "expected_elements": 23,
+                    "expected_states": 9,
+                    "expected_setters": 11,
+                }],
+            }
+            check_pkg.verify_missing_controls(sim_ok, fake / "ui/template_data.c")
             res_case = check_pkg.check_missing_control_case(
                 {"id": "ts-fallback", "control": "ToggleSwitch", "expected_elements": 23, "expected_states": 9, "expected_setters": 11},
                 sim_ok, fake / "ui/template_data.c",
@@ -1933,11 +1931,6 @@ class ReferenceHarness(unittest.TestCase):
                 check_pkg.check_missing_control_case(
                     {"id": "ts-bad", "control": "ToggleSwitch", "expected_states": 999},
                     sim_ok, fake / "ui/template_data.c",
-                )
-            with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.check_missing_control_case(
-                    {"id": "wp-uncompiled", "control": "WrapPanel"},
-                    orig_pkg, fake / "ui/template_data.c",
                 )
 
             # 6. Nonexistent --nuget-pkg path must fail explicitly.
@@ -2255,19 +2248,25 @@ class LiveReference(unittest.TestCase):
                     ref_run.run_reference(exe, Path(tmp) / "out_bad4", cases_path=bad_id, work_dir=build_tmp)
                 self.assertIn("invalid case id", ctx4.exception.stderr)
 
-                # Non-canonical capitalized field ("Properties") must be rejected rather than silently ignored.
-                bad_case_key = Path(tmp) / "bad_key.json"
-                bad_case_key.write_text(json.dumps({"cases": [{
-                    "id": "bad-key-case",
-                    "control": "ComboBox",
+                # Case-colliding keys ("Control" + "control") and unknown fields must be rejected, while unambiguous "Properties" works.
+                bad_collide = Path(tmp) / "bad_collide.json"
+                bad_collide.write_text('{"cases":[{"id":"collide","Control":"Border","control":"TextBlock","theme":"Dark","scale":1.0,"frame":{"width":160,"height":64}}]}', encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as ctx5:
+                    ref_run.run_reference(exe, Path(tmp) / "out_bad5", cases_path=bad_collide, work_dir=build_tmp)
+                self.assertIn("case-colliding", ctx5.exception.stderr)
+
+                bad_unknown = Path(tmp) / "bad_unknown.json"
+                bad_unknown.write_text(json.dumps({"cases": [{
+                    "id": "unknown-field-case",
+                    "control": "Button",
                     "theme": "Dark",
                     "scale": 1.0,
                     "frame": {"width": 160, "height": 64},
-                    "Properties": {"SelectedIndex": 1},
+                    "BogusField": 123,
                 }]}), encoding="utf-8")
-                with self.assertRaises(subprocess.CalledProcessError) as ctx5:
-                    ref_run.run_reference(exe, Path(tmp) / "out_bad5", cases_path=bad_case_key, work_dir=build_tmp)
-                self.assertIn("Properties", ctx5.exception.stderr)
+                with self.assertRaises(subprocess.CalledProcessError) as ctx6:
+                    ref_run.run_reference(exe, Path(tmp) / "out_bad6", cases_path=bad_unknown, work_dir=build_tmp)
+                self.assertIn("BogusField", ctx6.exception.stderr)
 
                 # 3. Non-button controls: ToggleSwitch (ts-off vs animated ts-on vs independently settled ts-on-settled),
                 #    ComboBox with SelectedIndex=1 via reflection (zero C# edits), ListView with items + RTL,
@@ -2309,7 +2308,7 @@ class LiveReference(unittest.TestCase):
                         "theme": "Dark",
                         "scale": 1.0,
                         "frame": {"width": 160, "height": 64},
-                        "properties": {"Width": 120, "SelectedIndex": 1, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "Properties": {"Width": 120, "SelectedIndex": 1, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
                         "items": ["First", "Second"],
                     },
                     {

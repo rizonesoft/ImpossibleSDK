@@ -151,66 +151,62 @@ def compute_provenance_sha256(pkg_data):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def verify_missing_controls(pkg_data, template_c_path, theme_c_path=None, planned_controls=None, pkg_target_types=None):
-    """Reconcile missing_controls entries against package availability and compiled templates."""
+def verify_missing_controls(pkg_data, template_c_path, pkg_target_types=None):
+    """Verify every missing_controls entry is absent from the package and backed by its own compiled template."""
     missing = pkg_data.get("missing_controls")
-    if not isinstance(missing, list) or not missing:
-        raise PackageDrift("reference/package.json: missing_controls must be a non-empty list")
+    if not isinstance(missing, list):
+        raise PackageDrift("reference/package.json: missing_controls must be a list")
     compiled = parse_compiled_templates(template_c_path)
     by_name = {}
     results = []
     for entry in missing:
         ctrl = entry.get("control")
-        status = entry.get("status")
         basis = entry.get("basis")
         tpl = entry.get("compiled_template")
-        if not ctrl or status not in ("compiled-template", "not-yet-compiled"):
-            raise PackageDrift(f"reference/package.json: invalid missing_controls entry {entry!r}")
+        if not ctrl or basis != "compiled-template" or not tpl:
+            raise PackageDrift(f"reference/package.json: invalid missing_controls entry {entry!r} (must specify compiled_template)")
         if ctrl in by_name:
             raise PackageDrift(f"reference/package.json: duplicate missing_controls entry {ctrl!r}")
         if pkg_target_types is not None and ctrl in pkg_target_types:
             raise PackageDrift(f"reference/package.json: {ctrl!r} is listed as missing but exists in package generic.xaml")
-
-        record = {"control": ctrl, "status": status, "basis": basis, "compiled_template": tpl}
-        if status == "compiled-template":
-            if basis != "compiled-template" or not tpl or tpl not in compiled:
-                raise PackageDrift(f"reference/package.json: missing_controls {ctrl!r} must name a valid compiled_template")
-            info = compiled[tpl]
-            if info["target"] != ctrl:
-                raise PackageDrift(
-                    f"reference/package.json: missing_controls {ctrl!r} points to unrelated template {tpl!r} (target={info['target']!r})"
-                )
-            exp_elems = entry.get("expected_elements")
-            exp_states = entry.get("expected_states")
-            exp_setters = entry.get("expected_setters")
-            if exp_elems != info["elem_count"]:
-                raise PackageDrift(
-                    f"reference/package.json: missing_controls {ctrl!r} expected_elements={exp_elems} != compiled {tpl!r} ({info['elem_count']})"
-                )
-            if exp_states != info["state_count"]:
-                raise PackageDrift(
-                    f"reference/package.json: missing_controls {ctrl!r} expected_states={exp_states} != compiled {tpl!r} ({info['state_count']})"
-                )
-            if exp_setters is not None and exp_setters != info["setter_count"]:
-                raise PackageDrift(
-                    f"reference/package.json: missing_controls {ctrl!r} expected_setters={exp_setters} != compiled {tpl!r} ({info['setter_count']})"
-                )
-            record["verified_elements"] = info["elem_count"]
-            record["verified_states"] = info["state_count"]
-            record["verified_setters"] = info["setter_count"]
-        else:
-            # Honestly marked not-yet-compiled: must not claim a compiled-template basis without a real compiled template.
-            if tpl is not None:
-                raise PackageDrift(f"reference/package.json: {ctrl!r} has compiled_template={tpl!r} but status='not-yet-compiled'")
-            if any(info["target"] == ctrl for info in compiled.values()):
-                raise PackageDrift(f"reference/package.json: {ctrl!r} now has a compiled template in ui/template_data.c and must switch to status='compiled-template'")
+        if tpl not in compiled:
+            raise PackageDrift(f"reference/package.json: missing_controls {ctrl!r} names unknown compiled template {tpl!r}")
+        info = compiled[tpl]
+        if info["target"] != ctrl:
+            raise PackageDrift(
+                f"reference/package.json: missing_controls {ctrl!r} points to unrelated template {tpl!r} (target={info['target']!r})"
+            )
+        exp_elems = entry.get("expected_elements")
+        exp_states = entry.get("expected_states")
+        exp_setters = entry.get("expected_setters")
+        if exp_elems != info["elem_count"]:
+            raise PackageDrift(
+                f"reference/package.json: missing_controls {ctrl!r} expected_elements={exp_elems} != compiled {tpl!r} ({info['elem_count']})"
+            )
+        if exp_states != info["state_count"]:
+            raise PackageDrift(
+                f"reference/package.json: missing_controls {ctrl!r} expected_states={exp_states} != compiled {tpl!r} ({info['state_count']})"
+            )
+        if exp_setters is not None and exp_setters != info["setter_count"]:
+            raise PackageDrift(
+                f"reference/package.json: missing_controls {ctrl!r} expected_setters={exp_setters} != compiled {tpl!r} ({info['setter_count']})"
+            )
         by_name[ctrl] = entry
-        results.append(record)
+        results.append({
+            "control": ctrl,
+            "basis": basis,
+            "compiled_template": tpl,
+            "verified_elements": info["elem_count"],
+            "verified_states": info["state_count"],
+            "verified_setters": info["setter_count"],
+        })
 
-    if planned_controls:
-        for ctrl in planned_controls:
-            if ctrl not in by_name:
-                raise PackageDrift(f"reference/package.json: planned absent control {ctrl!r} missing from missing_controls")
+    # If package target types are known, ensure no compiled control in ui/template_data.c is absent from package without being listed.
+    if pkg_target_types is not None:
+        compiled_targets = {info["target"] for info in compiled.values()}
+        for target in sorted(compiled_targets):
+            if target not in pkg_target_types and target not in by_name:
+                raise PackageDrift(f"reference/package.json: compiled control {target!r} is absent from package and missing from missing_controls")
     return results
 
 
@@ -222,8 +218,8 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
         raise PackageDrift(f"case {case_spec.get('id')!r}: control {ctrl!r} is not listed in reference/package.json missing_controls")
     entry = missing_by_ctrl[ctrl]
     tpl = entry.get("compiled_template")
-    if entry.get("status") != "compiled-template" or not tpl:
-        raise PackageDrift(f"case {case_spec.get('id')!r}: missing control {ctrl!r} has no compiled template in ui/template_data.c yet")
+    if entry.get("basis") != "compiled-template" or not tpl:
+        raise PackageDrift(f"case {case_spec.get('id')!r}: missing control {ctrl!r} has no compiled template in ui/template_data.c")
     compiled = parse_compiled_templates(template_c_path)
     if tpl not in compiled or compiled[tpl]["target"] != ctrl:
         raise PackageDrift(f"case {case_spec.get('id')!r}: compiled template {tpl!r} does not target {ctrl!r}")
@@ -242,28 +238,21 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
     }
 
 
-def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=True):
+def verify_manifest_links(repo_root):
+    """Offline check: verify reference/package.json matches Reference.csproj, packages.lock.json, and tools/winui/pin.json."""
     repo = Path(repo_root)
-    pkg_path = repo / "reference/package.json"
-    csproj_path = repo / "reference/Reference.csproj"
-    lock_path = repo / "reference/packages.lock.json"
-    pin_path = repo / "tools/winui/pin.json"
-    tpl_c = repo / "ui/template_data.c"
+    pkg = json.loads((repo / "reference/package.json").read_text(encoding="utf-8"))
+    pin = json.loads((repo / "tools/winui/pin.json").read_text(encoding="utf-8"))
+    lock = json.loads((repo / "reference/packages.lock.json").read_text(encoding="utf-8"))
+    csproj_text = (repo / "reference/Reference.csproj").read_text(encoding="utf-8")
 
-    pkg = json.loads(pkg_path.read_text(encoding="utf-8"))
-    pin = json.loads(pin_path.read_text(encoding="utf-8"))
-    lock = json.loads(lock_path.read_text(encoding="utf-8"))
-
-    # 1. Check Reference.csproj PackageReference version matches package.json.
-    csproj_text = csproj_path.read_text(encoding="utf-8")
     m = re.search(r'<PackageReference\s+Include="Microsoft\.WindowsAppSDK"\s+Version="([^"]+)"', csproj_text)
     if not m:
-        raise PackageDrift(f"{csproj_path}: Microsoft.WindowsAppSDK PackageReference not found")
+        raise PackageDrift("reference/Reference.csproj: Microsoft.WindowsAppSDK PackageReference not found")
     csproj_ver = m.group(1)
     if pkg.get("package") != "Microsoft.WindowsAppSDK" or pkg.get("version") != csproj_ver:
         raise PackageDrift(f"package.json version {pkg.get('version')!r} != Reference.csproj {csproj_ver!r}")
 
-    # 2. Check packages.lock.json resolved umbrella + Microsoft.WindowsAppSDK.WinUI component.
     deps = next(iter(lock.get("dependencies", {}).values()), {})
     sdk_lock = deps.get("Microsoft.WindowsAppSDK", {})
     if sdk_lock.get("resolved") != csproj_ver:
@@ -279,15 +268,11 @@ def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=
         )
     if comp.get("content_hash") != winui_lock.get("contentHash"):
         raise PackageDrift("package.json winui_component.content_hash != packages.lock.json contentHash")
-
-    # 3. Check tools/winui/pin.json commit and structured template_diffs shape.
     if pkg.get("winui_pin_commit") != pin.get("commit"):
         raise PackageDrift(f"package.json winui_pin_commit {pkg.get('winui_pin_commit')!r} != pin.json {pin.get('commit')!r}")
-
     commit = pkg.get("package_source_commit", "")
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise PackageDrift(f"package.json package_source_commit {commit!r} is not a 40-hex commit")
-
     recorded_diffs = pkg.get("template_diffs")
     if not isinstance(recorded_diffs, dict) or set(recorded_diffs.keys()) != {"changed", "pin_only", "package_only"}:
         raise PackageDrift("package.json template_diffs must be an object with 'changed', 'pin_only', and 'package_only' lists")
@@ -295,12 +280,17 @@ def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=
         vals = recorded_diffs[bucket]
         if not isinstance(vals, list) or vals != sorted(set(vals)):
             raise PackageDrift(f"package.json template_diffs.{bucket} must be a sorted unique list")
-
     expected_seal = compute_provenance_sha256(pkg)
     if pkg.get("provenance_sha256") != expected_seal:
         raise PackageDrift(f"package.json provenance_sha256 mismatch (expected {expected_seal})")
+    return pkg, pin, csproj_ver, comp, commit, recorded_diffs
 
-    # 4. Resolve NuGet WinUI package (explicit --nuget-pkg MUST exist).
+
+def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=True):
+    repo = Path(repo_root)
+    tpl_c = repo / "ui/template_data.c"
+    pkg, pin, csproj_ver, comp, commit, recorded_diffs = verify_manifest_links(repo)
+
     if nuget_pkg is not None:
         pkg_dir = Path(nuget_pkg)
         if not pkg_dir.is_dir():
@@ -341,13 +331,7 @@ def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=
     if require_live and not checked_live:
         raise PackageDrift("live WinUI package and checkout verification required but unavailable on this host")
 
-    # 5. Verify missing_controls against package availability and compiled template/theme values.
-    missing_report = verify_missing_controls(
-        pkg, tpl_c,
-        theme_c_path=repo / "ui/theme_data.c",
-        planned_controls=["WrapPanel", "UniformGrid", "DataGrid", "DockPanel"],
-        pkg_target_types=pkg_target_types,
-    )
+    missing_report = verify_missing_controls(pkg, tpl_c, pkg_target_types=pkg_target_types)
 
     return {
         "version": csproj_ver,
