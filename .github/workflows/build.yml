@@ -75,13 +75,16 @@ jobs:
         shell: bash
         run: |
           python - <<'EOF'
-          import base64, hashlib, json, urllib.request, zipfile
+          import hashlib, json, urllib.request, zipfile
           from pathlib import Path
           lock = json.loads(Path("reference/packages.lock.json").read_text(encoding="utf-8"))
+          pkg = json.loads(Path("reference/package.json").read_text(encoding="utf-8"))
           deps = next(iter(lock["dependencies"].values()))
           info = deps["Microsoft.WindowsAppSDK.WinUI"]
           ver = info["resolved"]
-          want_hash = info["contentHash"]
+          if ver != pkg["winui_component"]["version"]:
+              raise SystemExit(f"WinUI version mismatch: lock={ver} != package.json={pkg['winui_component']['version']}")
+          want_gx_sha256 = pkg["generic_xaml_sha256"]
           dst = Path.home() / ".nuget/packages/microsoft.windowsappsdk.winui" / ver
           dll = dst / "runtimes-framework/win-x64/native/Microsoft.ui.xaml.dll"
           gx = dst / "lib/native/Microsoft.UI/Themes/generic.xaml"
@@ -90,14 +93,17 @@ jobs:
               dst.mkdir(parents=True, exist_ok=True)
               nupkg = dst / f"microsoft.windowsappsdk.winui.{ver}.nupkg"
               urllib.request.urlretrieve(url, nupkg)
-              got_hash = base64.b64encode(hashlib.sha512(nupkg.read_bytes()).digest()).decode("ascii")
-              if got_hash != want_hash:
+              try:
+                  with zipfile.ZipFile(nupkg) as zf:
+                      for member in ("runtimes-framework/win-x64/native/Microsoft.ui.xaml.dll", "lib/native/Microsoft.UI/Themes/generic.xaml"):
+                          zf.extract(member, dst)
+              finally:
                   nupkg.unlink(missing_ok=True)
-                  raise SystemExit(f"NuGet contentHash mismatch: {got_hash} != {want_hash}")
-              with zipfile.ZipFile(nupkg) as zf:
-                  for member in ("runtimes-framework/win-x64/native/Microsoft.ui.xaml.dll", "lib/native/Microsoft.UI/Themes/generic.xaml"):
-                      zf.extract(member, dst)
-              nupkg.unlink(missing_ok=True)
+              got_gx_sha256 = hashlib.sha256(gx.read_bytes()).hexdigest()
+              if got_gx_sha256 != want_gx_sha256:
+                  gx.unlink(missing_ok=True)
+                  dll.unlink(missing_ok=True)
+                  raise SystemExit(f"generic.xaml sha256 mismatch: {got_gx_sha256} != {want_gx_sha256}")
           EOF
       - name: Build and test
         run: python tools/build.py
