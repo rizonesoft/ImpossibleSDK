@@ -1583,9 +1583,16 @@ def validate_script_log(script_log, require_modalities=("pointer", "keyboard", "
         raise ValueError("empty script event log")
     seen_mods = set()
     clicks = 0
+    step_pressed = set()
     for ev in events:
+        step = ev.get("Step", "")
         name = ev.get("Event", "")
         ptype = ev.get("PointerType", "")
+        if step.endswith(":pointer_click"):
+            if name == "PointerPressed":
+                step_pressed.add(step)
+            elif name == "PointerReleased" and step not in step_pressed:
+                raise ValueError(f"script log step {step!r} recorded PointerReleased before PointerPressed")
         if name == "PointerPressed" and ptype == "Mouse":
             seen_mods.add("pointer")
         elif name.startswith("KeyDown:"):
@@ -3492,6 +3499,18 @@ class LiveReference(unittest.TestCase):
                     ],
                 }]}), encoding="utf-8")
 
+                # Capture host clipboard sequence number BEFORE any live clipboard script runs (read-only integer).
+                ps_exe = "pwsh.exe" if ref_run.is_wsl() else "powershell.exe"
+                seq_cmd = (
+                    "Add-Type -Name ClipSeq -Namespace RefTest -MemberDefinition "
+                    "'[DllImport(\"user32.dll\")] public static extern uint GetClipboardSequenceNumber();'; "
+                    "[RefTest.ClipSeq]::GetClipboardSequenceNumber()"
+                )
+                seq_before = ref_run.run_cmd(
+                    ps_exe, "-NoProfile", "-Command", seq_cmd,
+                    capture_output=True, text=True, check=True,
+                ).stdout.strip()
+
                 out1 = ref_run.run_reference(exe, Path(tmp) / "out1", cases_path=combo, work_dir=build_tmp)
                 out2 = ref_run.run_reference(exe, Path(tmp) / "out2", cases_path=script_only, work_dir=build_tmp)
 
@@ -3971,20 +3990,8 @@ class LiveReference(unittest.TestCase):
                 for forbidden_api in ("OpenClipboard", "EmptyClipboard", "GetClipboardData", "SetClipboardData"):
                     self.assertNotIn(forbidden_api, script_cs, f"reference/Script.cs must not touch the shared desktop clipboard ({forbidden_api})")
 
-                # 2. Read-only GetClipboardSequenceNumber() before and after live clipboard scripts (direct TextBox,
-                # panel-root focused child TextBox, multiline RichEditBox, and refused non-text Button copy) proves
-                # zero mutations to the contributor's clipboard without ever reading or modifying its contents.
-                ps_exe = "pwsh.exe" if ref_run.is_wsl() else "powershell.exe"
-                seq_cmd = (
-                    "Add-Type -Name ClipSeq -Namespace RefTest -MemberDefinition "
-                    "'[DllImport(\"user32.dll\")] public static extern uint GetClipboardSequenceNumber();'; "
-                    "[RefTest.ClipSeq]::GetClipboardSequenceNumber()"
-                )
-                seq_before = ref_run.run_cmd(
-                    ps_exe, "-NoProfile", "-Command", seq_cmd,
-                    capture_output=True, text=True, check=True,
-                ).stdout.strip()
-
+                # 2. Panel-root focused child TextBox copy/paste and multiline RichEditBox with mixed RTF formatting
+                # (AllCaps on line1 + normal Line2 must survive copy and paste intact).
                 iso_cases = [
                     {
                         "id": "panel-child-copy-paste-live",
@@ -4013,7 +4020,7 @@ class LiveReference(unittest.TestCase):
                         "theme": "Dark",
                         "scale": 1.0,
                         "frame": {"width": 220, "height": 100},
-                        "rich_text_rtf": r"{\rtf1\ansi Line1\par Line2\par}",
+                        "rich_text_rtf": r"{\rtf1\ansi {\caps line1}\par Line2\par}",
                         "properties": {"FontFamily": "Barlow", "AcceptsReturn": True},
                         "script": [
                             {"action": "focus"},
@@ -4031,10 +4038,36 @@ class LiveReference(unittest.TestCase):
                 by_iso = {c["id"]: c for c in m_iso["cases"]}
                 self.assertIn("Text=PanHiPanHi", by_iso["panel-child-copy-paste-live"]["script_log"]["FinalState"].get("focused_state", ""))
                 reb_texts = [rt["text"] for rt in by_iso["reb-multiline-copy-paste-live"]["rendered_text"]]
-                self.assertGreaterEqual(reb_texts.count("Line1"), 2, f"multiline RichEditBox paste missing duplicated Line1: {reb_texts!r}")
+                self.assertGreaterEqual(reb_texts.count("LINE1"), 2, f"RichEditBox AllCaps RTF formatting did not survive copy/paste: {reb_texts!r}")
                 self.assertGreaterEqual(reb_texts.count("Line2"), 2, f"multiline RichEditBox paste missing duplicated Line2: {reb_texts!r}")
 
-                # Clipboard chord on non-text Button must be refused before SendKey.
+                # 3. Read-only TextBox paste must fail explicitly rather than silently succeeding.
+                ro_cf = Path(build_tmp) / "tb_readonly_paste.json"
+                ro_cf.write_text(json.dumps({"cases": [{
+                    "id": "tb-readonly-paste-refused", "control": "TextBox", "theme": "Dark", "scale": 1.0,
+                    "frame": {"width": 160, "height": 48},
+                    "properties": {"Text": "RO", "IsReadOnly": True, "FontFamily": "Barlow"},
+                    "script": [
+                        {"action": "focus"},
+                        {"action": "key_press", "key": "A", "modifiers": ["Control"]},
+                        {"action": "key_press", "key": "C", "modifiers": ["Control"]},
+                        {"action": "key_press", "key": "V", "modifiers": ["Control"]},
+                    ],
+                }]}), encoding="utf-8")
+                out_ro = Path(build_tmp) / "out_tb_readonly_paste"
+                ro_res = ref_run.run_cmd(
+                    str(exe), ref_run.to_win_path(out_ro),
+                    "--cases", ref_run.to_win_path(ro_cf),
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertNotEqual(ro_res.returncode, 0, "paste into read-only TextBox must fail explicitly")
+                ro_err = (out_ro / "error.txt").read_text(encoding="utf-8")
+                self.assertTrue(
+                    "read-only" in ro_err.lower() or "did not trigger private clipboard paste" in ro_err.lower(),
+                    f"unexpected read-only paste error: {ro_err}",
+                )
+
+                # 4. Clipboard chord on non-text Button must be refused before SendKey.
                 btn_clip_cf = Path(build_tmp) / "btn_clip_refused.json"
                 btn_clip_cf.write_text(json.dumps({"cases": [{
                     "id": "btn-copy-refused", "control": "Button", "theme": "Dark", "scale": 1.0,
@@ -4050,11 +4083,119 @@ class LiveReference(unittest.TestCase):
                 self.assertNotEqual(btn_clip_res.returncode, 0, "clipboard chord on non-text Button must be refused")
                 self.assertIn("intercepted TextBox or RichEditBox", (out_btn_clip / "error.txt").read_text(encoding="utf-8"))
 
+                # 5. Host clipboard sequence number must be unchanged across ALL live clipboard scripts above.
                 seq_after = ref_run.run_cmd(
                     ps_exe, "-NoProfile", "-Command", seq_cmd,
                     capture_output=True, text=True, check=True,
                 ).stdout.strip()
                 self.assertEqual(seq_before, seq_after, f"host clipboard sequence number changed during isolated clipboard scripts ({seq_before} -> {seq_after})")
+
+                # 6. External clipboard write during live replay: a separate helper process saves all HGLOBAL formats
+                # in its own RAM only (refusing to clear if any non-HGLOBAL format exists; never passing contributor
+                # data via CLI arguments), writes a synthetic marker to the Windows clipboard while panel-child
+                # copy/paste runs, and restores inside OpenClipboard only if the sequence number still matches its
+                # own marker. Replay must still produce case-owned "PanHiPanHi", never the external marker.
+                panel_only_cf = Path(build_tmp) / "panel_ext_write.json"
+                panel_only_cf.write_text(json.dumps({"cases": [iso_cases[0]]}), encoding="utf-8")
+                stop_flag = Path(build_tmp) / "ext_writer_stop.flag"
+                ready_flag = Path(build_tmp) / "ext_writer_ready.flag"
+                ext_helper_ps = Path(build_tmp) / "ext_clip_writer.ps1"
+                ext_helper_ps.write_text(
+                    "param([string]$ReadyPath, [string]$StopPath)\n"
+                    "Add-Type -TypeDefinition @'\n"
+                    "using System;\n"
+                    "using System.Collections.Generic;\n"
+                    "using System.Runtime.InteropServices;\n"
+                    "public static class ExtClipProbe {\n"
+                    "  [DllImport(\"user32.dll\")] public static extern bool OpenClipboard(IntPtr h);\n"
+                    "  [DllImport(\"user32.dll\")] public static extern bool CloseClipboard();\n"
+                    "  [DllImport(\"user32.dll\")] public static extern bool EmptyClipboard();\n"
+                    "  [DllImport(\"user32.dll\")] public static extern uint EnumClipboardFormats(uint f);\n"
+                    "  [DllImport(\"user32.dll\")] public static extern uint GetClipboardSequenceNumber();\n"
+                    "  [DllImport(\"user32.dll\")] public static extern IntPtr GetClipboardData(uint f);\n"
+                    "  [DllImport(\"user32.dll\")] public static extern IntPtr SetClipboardData(uint f, IntPtr h);\n"
+                    "  [DllImport(\"kernel32.dll\")] public static extern IntPtr GlobalAlloc(uint fl, UIntPtr n);\n"
+                    "  [DllImport(\"kernel32.dll\")] public static extern UIntPtr GlobalSize(IntPtr h);\n"
+                    "  [DllImport(\"kernel32.dll\")] public static extern IntPtr GlobalLock(IntPtr h);\n"
+                    "  [DllImport(\"kernel32.dll\")] public static extern bool GlobalUnlock(IntPtr h);\n"
+                    "  [DllImport(\"kernel32.dll\")] public static extern IntPtr GlobalFree(IntPtr h);\n"
+                    "  public static int Run(string readyPath, string stopPath) {\n"
+                    "    var saved = new List<Tuple<uint, byte[]>>();\n"
+                    "    if (!OpenClipboard(IntPtr.Zero)) return 2;\n"
+                    "    try {\n"
+                    "      uint fmt = 0;\n"
+                    "      while ((fmt = EnumClipboardFormats(fmt)) != 0) {\n"
+                    "        IntPtr h = GetClipboardData(fmt);\n"
+                    "        if (h == IntPtr.Zero) return 3;\n"
+                    "        ulong sz = GlobalSize(h).ToUInt64();\n"
+                    "        if (sz == 0 || sz > int.MaxValue) return 3;\n"
+                    "        IntPtr p = GlobalLock(h);\n"
+                    "        if (p == IntPtr.Zero) return 3;\n"
+                    "        try { var b = new byte[(int)sz]; Marshal.Copy(p, b, 0, b.Length); saved.Add(Tuple.Create(fmt, b)); }\n"
+                    "        finally { GlobalUnlock(h); }\n"
+                    "      }\n"
+                    "      EmptyClipboard();\n"
+                    "      byte[] mbytes = System.Text.Encoding.Unicode.GetBytes(\"EXTERNAL_INJECTED_MARKER_999\\0\");\n"
+                    "      IntPtr hm = GlobalAlloc(0x0002, (UIntPtr)mbytes.Length);\n"
+                    "      IntPtr pm = GlobalLock(hm);\n"
+                    "      Marshal.Copy(mbytes, 0, pm, mbytes.Length);\n"
+                    "      GlobalUnlock(hm);\n"
+                    "      if (SetClipboardData(13, hm) == IntPtr.Zero) { GlobalFree(hm); return 4; }\n"
+                    "    } finally { CloseClipboard(); }\n"
+                    "    uint markerSeq = GetClipboardSequenceNumber();\n"
+                    "    System.IO.File.WriteAllText(readyPath, markerSeq.ToString());\n"
+                    "    var deadline = DateTime.UtcNow.AddSeconds(30);\n"
+                    "    while (!System.IO.File.Exists(stopPath) && DateTime.UtcNow < deadline) {\n"
+                    "      System.Threading.Thread.Sleep(50);\n"
+                    "    }\n"
+                    "    if (OpenClipboard(IntPtr.Zero)) {\n"
+                    "      try {\n"
+                    "        if (GetClipboardSequenceNumber() == markerSeq) {\n"
+                    "          EmptyClipboard();\n"
+                    "          foreach (var item in saved) {\n"
+                    "            IntPtr hg = GlobalAlloc(0x0002, (UIntPtr)item.Item2.Length);\n"
+                    "            if (hg == IntPtr.Zero) continue;\n"
+                    "            IntPtr pg = GlobalLock(hg);\n"
+                    "            if (pg != IntPtr.Zero) {\n"
+                    "              try { Marshal.Copy(item.Item2, 0, pg, item.Item2.Length); }\n"
+                    "              finally { GlobalUnlock(hg); }\n"
+                    "              if (SetClipboardData(item.Item1, hg) == IntPtr.Zero) GlobalFree(hg);\n"
+                    "            } else { GlobalFree(hg); }\n"
+                    "          }\n"
+                    "        }\n"
+                    "      } finally { CloseClipboard(); }\n"
+                    "    }\n"
+                    "    return 0;\n"
+                    "  }\n"
+                    "}\n"
+                    "'@\n"
+                    "exit ([ExtClipProbe]::Run($ReadyPath, $StopPath))\n",
+                    encoding="utf-8",
+                )
+                ext_kwargs = {"stdin": subprocess.DEVNULL, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True}
+                if os.name == "nt":
+                    ext_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+                ext_proc = subprocess.Popen(
+                    [ps_exe, "-NoProfile", "-File", ref_run.to_win_path(ext_helper_ps),
+                     "-ReadyPath", ref_run.to_win_path(ready_flag), "-StopPath", ref_run.to_win_path(stop_flag)],
+                    **ext_kwargs,
+                )
+                import time as _time
+                try:
+                    t0 = _time.monotonic()
+                    while not ready_flag.is_file() and ext_proc.poll() is None and (_time.monotonic() - t0) < 15.0:
+                        _time.sleep(0.05)
+                    if ready_flag.is_file():
+                        out_ext_iso = ref_run.run_reference(exe, Path(tmp) / "out_ext_iso", cases_path=panel_only_cf, work_dir=build_tmp)
+                        m_ext_iso = json.loads((out_ext_iso / "cases.json").read_text(encoding="utf-8"))
+                        by_ext_iso = {c["id"]: c for c in m_ext_iso["cases"]}
+                        fstate = by_ext_iso["panel-child-copy-paste-live"]["script_log"]["FinalState"].get("focused_state", "")
+                        self.assertIn("Text=PanHiPanHi", fstate)
+                        self.assertNotIn("EXTERNAL_INJECTED_MARKER_999", fstate)
+                finally:
+                    stop_flag.write_text("stop", encoding="utf-8")
+                    _, ext_stderr = ext_proc.communicate(timeout=15)
+                self.assertIn(ext_proc.returncode, (0, 3), f"external clipboard probe failed: {ext_stderr}")
 
                 # Scripted button gives identical event + focus log across two independent runs,
                 # with touch_tap GotFocus settled before Click (deterministic ordering across refreshes).

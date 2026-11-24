@@ -754,6 +754,19 @@ def _validate_store_dir_unlocked(store, expected_specs=None, expected_provenance
             raise ValueError(f"{store}: frame {zname!r} decoded to {len(raw)} bytes, expected {expected_len}")
         if c.get("raw_sha256") != hashlib.sha256(raw).hexdigest():
             raise ValueError(f"{store}: raw digest mismatch for {zname!r}")
+        slog = c.get("script_log")
+        if isinstance(slog, dict):
+            step_pressed = set()
+            for ev in slog.get("Events") or []:
+                step = ev.get("Step", "")
+                ename = ev.get("Event", "")
+                if step.endswith(":pointer_click"):
+                    if ename == "PointerPressed":
+                        step_pressed.add(step)
+                    elif ename == "PointerReleased" and step not in step_pressed:
+                        raise ValueError(
+                            f"{store}: case {cid!r} script_log step {step!r} recorded PointerReleased before PointerPressed"
+                        )
 
     actual_files = {p.name for p in store.iterdir() if p.is_file()}
     allowed_files = indexed_files | {"cases.json", STORE_MARKER}

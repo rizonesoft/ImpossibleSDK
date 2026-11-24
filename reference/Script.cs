@@ -473,7 +473,9 @@ public static class Script
         // RichEditBox in target's subtree with Handled=true so Reference.exe NEVER opens, reads, clears, or writes
         // the contributor's shared Windows desktop clipboard.
         bool copiedInScript = false;
+        bool pastedInStep = false;
         string? privateClipboard = null;
+        string? privateClipboardRtf = null;
         string? interceptedClipError = null;
         var interceptedTextBoxes = new HashSet<TextBox>();
         var interceptedRichBoxes = new HashSet<RichEditBox>();
@@ -483,12 +485,14 @@ public static class Script
         {
             e.Handled = true;
             privateClipboard = sender.SelectedText;
+            privateClipboardRtf = null;
             copiedInScript = true;
         };
         TypedEventHandler<TextBox, TextControlCuttingToClipboardEventArgs> tbCutHandler = (sender, e) =>
         {
             e.Handled = true;
             privateClipboard = sender.SelectedText;
+            privateClipboardRtf = null;
             copiedInScript = true;
             sender.SelectedText = "";
         };
@@ -502,23 +506,33 @@ public static class Script
             }
             if (sender is TextBox tbPaste)
             {
+                if (tbPaste.IsReadOnly)
+                {
+                    interceptedClipError ??= "scripted paste targeted a read-only TextBox";
+                    return;
+                }
                 int insertEnd = tbPaste.SelectionStart + privateClipboard.Length;
                 tbPaste.SelectedText = privateClipboard;
                 tbPaste.Select(insertEnd, 0);
+                pastedInStep = true;
             }
         };
         TypedEventHandler<RichEditBox, TextControlCopyingToClipboardEventArgs> rebCopyHandler = (sender, e) =>
         {
             e.Handled = true;
             sender.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.None, out string selText);
+            sender.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.FormatRtf, out string selRtf);
             privateClipboard = selText;
+            privateClipboardRtf = selRtf;
             copiedInScript = true;
         };
         TypedEventHandler<RichEditBox, TextControlCuttingToClipboardEventArgs> rebCutHandler = (sender, e) =>
         {
             e.Handled = true;
             sender.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.None, out string selText);
+            sender.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.FormatRtf, out string selRtf);
             privateClipboard = selText;
+            privateClipboardRtf = selRtf;
             copiedInScript = true;
             sender.Document.Selection.SetText(Microsoft.UI.Text.TextSetOptions.None, "");
         };
@@ -532,8 +546,21 @@ public static class Script
             }
             if (sender is RichEditBox rebPaste)
             {
-                rebPaste.Document.Selection.SetText(Microsoft.UI.Text.TextSetOptions.None, privateClipboard);
+                if (rebPaste.IsReadOnly)
+                {
+                    interceptedClipError ??= "scripted paste targeted a read-only RichEditBox";
+                    return;
+                }
+                if (privateClipboardRtf != null)
+                {
+                    rebPaste.Document.Selection.SetText(Microsoft.UI.Text.TextSetOptions.FormatRtf, privateClipboardRtf);
+                }
+                else
+                {
+                    rebPaste.Document.Selection.SetText(Microsoft.UI.Text.TextSetOptions.None, privateClipboard);
+                }
                 rebPaste.Document.Selection.Collapse(false);
+                pastedInStep = true;
             }
         };
         foreach (var tbItem in interceptedTextBoxes)
@@ -728,6 +755,8 @@ public static class Script
                         }
                         bool copiedBeforeStep = copiedInScript;
                         string? prevClipValue = privateClipboard;
+                        string? prevClipRtf = privateClipboardRtf;
+                        pastedInStep = false;
                         if (isCopyOrCutStep)
                         {
                             // Reset copy marker for this step so we prove the intercepted CopyingToClipboard/CuttingToClipboard fired.
@@ -786,7 +815,12 @@ public static class Script
                         {
                             copiedInScript = copiedBeforeStep;
                             privateClipboard = prevClipValue;
+                            privateClipboardRtf = prevClipRtf;
                             throw new InvalidOperationException($"script step {i}: scripted copy/cut did not trigger private clipboard capture");
+                        }
+                        if (isPasteStep && !pastedInStep)
+                        {
+                            throw new InvalidOperationException($"script step {i}: scripted paste did not trigger private clipboard paste (control may be read-only or disabled)");
                         }
                         break;
                     }

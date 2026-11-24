@@ -122,6 +122,27 @@ public partial class App : Application
         }
     }
 
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct WinPoint { public int X; public int Y; }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(WinPoint pt, uint dwFlags);
+
+    [System.Runtime.InteropServices.DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    private static uint GetDisplayAreaDpi(Microsoft.UI.Windowing.DisplayArea area)
+    {
+        var wa = area.WorkArea;
+        var pt = new WinPoint { X = wa.X + Math.Max(1, wa.Width / 2), Y = wa.Y + Math.Max(1, wa.Height / 2) };
+        IntPtr hmon = MonitorFromPoint(pt, 2 /* MONITOR_DEFAULTTONEAREST */);
+        if (hmon != IntPtr.Zero && GetDpiForMonitor(hmon, 0 /* MDT_EFFECTIVE_DPI */, out uint dpiX, out _) == 0 && dpiX > 0)
+        {
+            return dpiX;
+        }
+        return 96;
+    }
+
     private static void PlaceWindowOnTargetMonitor(Window win, int width, int height)
     {
         var areas = Microsoft.UI.Windowing.DisplayArea.FindAll();
@@ -144,10 +165,10 @@ public partial class App : Application
         }
         else if (areas.Count > 1)
         {
-            // Default to the first non-primary monitor on multi-monitor desktops so visual tests stay off the primary screen.
+            // Default to the first non-primary 100%-DPI (96 DPI) monitor so multi-scale captures stay valid and off the primary screen.
             for (int i = 0; i < areas.Count; i++)
             {
-                if (!areas[i].IsPrimary)
+                if (!areas[i].IsPrimary && GetDisplayAreaDpi(areas[i]) == 96)
                 {
                     chosen = areas[i];
                     break;
