@@ -589,6 +589,42 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_fe.returncode, 0)
         self.assertIn(f"{path_fe}:3:", res_fe.stderr)
 
+        # x:Storyboard, VisualState Setter with both Target+Property, and multiline Property="Bogus" must be rejected on exact lines.
+        xaml_xsb = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S">\n'
+            '    <x:Storyboard />\n'
+            '  </VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_xsb, path_xsb = self._run_fixture(xaml_xsb)
+        self.assertNotEqual(res_xsb.returncode, 0)
+        self.assertIn(f"{path_xsb}:3:", res_xsb.stderr)
+
+        xaml_both = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="Box.Width"\n'
+            '      Property="Bogus" Value="1" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_both, path_both = self._run_fixture(xaml_both)
+        self.assertNotEqual(res_both.returncode, 0)
+        self.assertIn(f"{path_both}:4:", res_both.stderr)
+
+        xaml_prop = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter\n'
+            '      Property="Bogus" Value="1" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_prop, path_prop = self._run_fixture(xaml_prop)
+        self.assertNotEqual(res_prop.returncode, 0)
+        self.assertIn(f"{path_prop}:4:", res_prop.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3

@@ -267,7 +267,10 @@ def parse_xaml(text, filename):
         ns_ctrl = "using:Microsoft.UI.Xaml.Controls"
         if " " in tag:
             el_ns, el_local = tag.rsplit(" ", 1)
-            if el_ns not in (ns_pres, ns_xaml):
+            if el_ns == ns_xaml:
+                if el_local not in ("Boolean", "Double", "Int32", "String"):
+                    raise TemplateError(f"{filename}:{base_line}: unsupported x: element {el_local!r}")
+            elif el_ns != ns_pres:
                 raise TemplateError(f"{filename}:{base_line}: unsupported element namespace {el_ns!r} for {el_local!r}")
         else:
             el_local = local_name(tag)
@@ -725,10 +728,24 @@ class Compiler:
                                     raise TemplateError(f"{s.children[0].file}:{s.children[0].line}: unexpected child {s.children[0].tag!r} in VisualState Setter")
                                 if "Value" not in s.attrs:
                                     raise TemplateError(f"{s.file}:{s.line}: VisualState Setter missing Value")
-                                tgt = s.attrs.get("Target", "")
-                                prop = strip_xml_prefix(tgt.split(".", 1)[-1]).strip("()") if "." in tgt else s.attrs.get("Property", "")
-                                if prop and prop not in KNOWN_PROPS:
-                                    raise TemplateError(f"{s.file}:{s.attr_line('Target')}: unknown property {prop!r}")
+                                has_tgt = "Target" in s.attrs
+                                has_prop = "Property" in s.attrs
+                                if has_tgt and has_prop:
+                                    raise TemplateError(f"{s.file}:{s.attr_line('Property')}: VisualState Setter cannot specify both Target and Property")
+                                if not has_tgt and not has_prop:
+                                    raise TemplateError(f"{s.file}:{s.line}: VisualState Setter missing Target or Property")
+                                if has_tgt:
+                                    tgt = s.attrs["Target"]
+                                    if "." not in tgt:
+                                        raise TemplateError(f"{s.file}:{s.attr_line('Target')}: invalid VisualState Setter Target {tgt!r}")
+                                    prop = strip_xml_prefix(tgt.split(".", 1)[-1]).strip("()")
+                                    prop_line = s.attr_line("Target")
+                                else:
+                                    tgt = ""
+                                    prop = s.attrs["Property"]
+                                    prop_line = s.attr_line("Property")
+                                if not prop or prop not in KNOWN_PROPS:
+                                    raise TemplateError(f"{s.file}:{prop_line}: unknown property {prop!r}")
                                 val = self.parse_value(s.attrs["Value"], prop, s.file, s.attr_line("Value"))
                                 self.style_setters.append({"target": tgt, "property": prop, "value": val})
                         elif sc.tag == "Storyboard":
