@@ -94,6 +94,30 @@ public partial class App : Application
             Environment.Exit(0);
             return;
         }
+        if (cli.Length >= 2 && cli[1] == "--check-storyboard-budget")
+        {
+            var (wEq, sEq) = PlanGeneratedTransitionWait("eq", "Pressed", 100, 0, 100);
+            if (wEq + sEq > 100 || sEq != 0)
+            {
+                throw new InvalidOperationException($"equality budget violated: wait={wEq} settle={sEq}");
+            }
+            var (wOk, sOk) = PlanGeneratedTransitionWait("ok", "Pressed", 60, 0, 100);
+            if (wOk != 60 || sOk != 40)
+            {
+                throw new InvalidOperationException($"headroom budget violated: wait={wOk} settle={sOk}");
+            }
+            bool threwOver = false;
+            try { PlanGeneratedTransitionWait("over", "Pressed", 100, 0, 99); }
+            catch (InvalidOperationException) { threwOver = true; }
+            if (!threwOver) throw new InvalidOperationException("expected genMs > timeoutMs refusal");
+            bool threwElapsed = false;
+            try { PlanGeneratedTransitionWait("elapsed", "Pressed", 100, 101, 100); }
+            catch (InvalidOperationException) { threwElapsed = true; }
+            if (!threwElapsed) throw new InvalidOperationException("expected elapsedMs > timeoutMs refusal");
+            Console.WriteLine("storyboard-budget-ok");
+            Environment.Exit(0);
+            return;
+        }
         // A capture takes the foreground, the mouse and the keyboard, so it opens a window only where that was asked for:
         // "vm" in the test machine (tools/winvm/live.py), "desktop" by the person at this one.
         // "vm" counts only where Hyper-V says this is a guest, so it can never stand for the owner's word.
@@ -722,6 +746,26 @@ public partial class App : Application
         throw new InvalidOperationException($"{caseId}.{prop}: invalid GridLength '{s}'");
     }
 
+    internal static (int WaitMs, int SettleMs) PlanGeneratedTransitionWait(string caseId, string stateName, int genMs, int elapsedMs, int timeoutMs)
+    {
+        if (genMs > timeoutMs)
+        {
+            throw new InvalidOperationException($"{caseId}: transition duration ({genMs}ms) for state '{stateName}' exceeds timeout {timeoutMs}ms");
+        }
+        if (elapsedMs > timeoutMs)
+        {
+            throw new InvalidOperationException($"{caseId}: transition duration for state '{stateName}' exceeded combined {timeoutMs}ms budget");
+        }
+        int waitMs = Math.Max(0, genMs - elapsedMs);
+        int budgetLeft = timeoutMs - elapsedMs;
+        if (waitMs > budgetLeft)
+        {
+            throw new InvalidOperationException($"{caseId}: transition duration for state '{stateName}' exceeded combined {timeoutMs}ms budget");
+        }
+        int settleMs = Math.Min(40, Math.Max(0, budgetLeft - waitMs));
+        return (waitMs, settleMs);
+    }
+
     private static VisualTransition? FindMatchingTransition(VisualStateGroup group, string? fromState, string toState)
     {
         VisualTransition? exact = null;
@@ -828,28 +872,19 @@ public partial class App : Application
             if (transition != null && transition.GeneratedDuration.HasTimeSpan && transition.GeneratedDuration.TimeSpan > TimeSpan.Zero)
             {
                 int genMs = (int)Math.Ceiling(transition.GeneratedDuration.TimeSpan.TotalMilliseconds);
-                if (genMs > timeoutMs)
+                var (waitMs, settleMs) = PlanGeneratedTransitionWait(caseId, stateName, genMs, (int)sw.ElapsedMilliseconds, timeoutMs);
+                if (waitMs > 0)
                 {
-                    throw new InvalidOperationException($"{caseId}: transition duration ({genMs}ms) for state '{stateName}' exceeds timeout {timeoutMs}ms");
+                    await Task.Delay(waitMs);
                 }
-                int remaining = genMs - (int)sw.ElapsedMilliseconds;
-                if (remaining > 0)
-                {
-                    int budgetLeft = timeoutMs - (int)sw.ElapsedMilliseconds;
-                    if (remaining > budgetLeft)
-                    {
-                        throw new InvalidOperationException($"{caseId}: transition duration for state '{stateName}' exceeded combined {timeoutMs}ms budget");
-                    }
-                    await Task.Delay(remaining);
-                }
-                int settleLeft = timeoutMs - (int)sw.ElapsedMilliseconds;
-                if (settleLeft < 0)
+                int settleCap = Math.Min(settleMs, timeoutMs - (int)sw.ElapsedMilliseconds);
+                if (settleCap < 0)
                 {
                     throw new InvalidOperationException($"{caseId}: transition duration for state '{stateName}' exceeded combined {timeoutMs}ms budget");
                 }
-                if (settleLeft > 0)
+                if (settleCap > 0)
                 {
-                    await Task.Delay(Math.Min(40, settleLeft));
+                    await Task.Delay(settleCap);
                 }
                 if (sw.ElapsedMilliseconds > timeoutMs)
                 {

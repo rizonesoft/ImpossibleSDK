@@ -864,6 +864,41 @@ class LiveReference(unittest.TestCase):
                     ref_run.run_reference(exe, Path(tmp) / "out_trto", cases_path=tr_to_case, work_dir=build_tmp)
                 self.assertIn("btn-trans-timeout", cm_trto.exception.stderr)
                 self.assertIn("Pressed", cm_trto.exception.stderr)
+                # GeneratedDuration combined storyboard budget check (equality + overrun) and live GeneratedDuration timeout.
+                budget_done = subprocess.run([str(exe), "--check-storyboard-budget"], capture_output=True, text=True, timeout=60)
+                self.assertEqual(budget_done.returncode, 0, budget_done.stderr)
+                self.assertIn("storyboard-budget-ok", budget_done.stdout)
+                gen_over_case = Path(tmp) / "gen_over.json"
+                gen_over_case.write_text(json.dumps({"cases": [{
+                    "id": "btn-gen-dur-over",
+                    "control": "Button",
+                    "theme": "Dark",
+                    "scale": 1.0,
+                    "state": "Pressed",
+                    "use_transitions": True,
+                    "storyboard_timeout_ms": 100,
+                    "frame": {"width": 120, "height": 60},
+                    "properties": {"Width": 80, "Height": 40, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                    "template_xaml": (
+                        "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' "
+                        "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>"
+                        "<Border x:Name='RootBorder' Background='#FFFF0000'>"
+                        "<VisualStateManager.VisualStateGroups>"
+                        "<VisualStateGroup x:Name='CommonStates'>"
+                        "<VisualStateGroup.Transitions>"
+                        "<VisualTransition To='Pressed' GeneratedDuration='0:0:0.12'/>"
+                        "</VisualStateGroup.Transitions>"
+                        "<VisualState x:Name='Normal'/>"
+                        "<VisualState x:Name='Pressed'/>"
+                        "</VisualStateGroup>"
+                        "</VisualStateManager.VisualStateGroups>"
+                        "</Border></ControlTemplate>"
+                    ),
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as cm_gen:
+                    ref_run.run_reference(exe, Path(tmp) / "out_gen", cases_path=gen_over_case, work_dir=build_tmp)
+                self.assertIn("btn-gen-dur-over", cm_gen.exception.stderr)
+                self.assertIn("exceeds timeout 100ms", cm_gen.exception.stderr)
 
                 # OpenType name-table discovery on the capture host populates real registered installed family names.
                 host_fonts = set(m1.get("installed_fonts", []))
