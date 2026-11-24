@@ -468,6 +468,8 @@ The engine has no floating point and no SIMD, so its speed is measured from the 
 
 ## 19. Corner smoothing doc polish
 
+> **Started:** 2026-11-24T04:47Z
+
 Follow-up P3 documentation fixes filed from `D01 T01 §1` reconciliation (`docs/reviews/01-interface/D01-T01-s1.md`): fix the max chord count documented in `docs/guide/button.md` (`N = 256` for signed 16.16 max radius < 32,768 px rather than the 1,024 loop cap), clarify that the measured accent limit of 14 stands on horizontal and vertical reflection symmetry rather than diagonal symmetry, and align `todo/01-interface/TODO-01-first-controls.md` §1's note with that measured basis.
 
 **Phase:** 1
