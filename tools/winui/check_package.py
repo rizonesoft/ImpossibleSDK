@@ -137,18 +137,32 @@ def parse_compiled_templates(template_c_path):
     return out
 
 
-def verify_missing_controls(pkg_data, template_c_path, planned_controls=None, pkg_target_types=None):
-    """Reconcile missing_controls entries against package availability and compiled templates."""
+def parse_compiled_theme_values(theme_c_path):
+    """Extract dark-theme compiled 16.16 fixed-point value vectors from ui/theme_data.c."""
+    text = Path(theme_c_path).read_text(encoding="utf-8")
+    block = text.split("const int32_t im_theme_values[3][IM_VALUE_COUNT][4]", 1)[1]
+    dark_block = block.split("{ /* dark */", 1)[1].split("\n},", 1)[0]
+    out = {}
+    for m in re.finditer(r"\{([^}]+)\},\s*/\*\s*([A-Za-z0-9_]+)\s*\*/", dark_block):
+        nums = [int(x.strip()) for x in m.group(1).split(",") if x.strip()]
+        out[m.group(2)] = nums
+    return out
+
+
+def verify_missing_controls(pkg_data, template_c_path, theme_c_path=None, planned_controls=None, pkg_target_types=None):
+    """Reconcile missing_controls entries against package availability and compiled template/theme values."""
     missing = pkg_data.get("missing_controls")
     if not isinstance(missing, list) or not missing:
         raise PackageDrift("reference/package.json: missing_controls must be a non-empty list")
     compiled = parse_compiled_templates(template_c_path)
+    theme_values = parse_compiled_theme_values(theme_c_path) if theme_c_path and Path(theme_c_path).is_file() else {}
     by_name = {}
     results = []
     for entry in missing:
         ctrl = entry.get("control")
         basis = entry.get("basis")
         tpl = entry.get("compiled_template")
+        cvals = entry.get("compiled_values")
         if not ctrl or basis != "compiled-template":
             raise PackageDrift(f"reference/package.json: invalid missing_controls entry {entry!r}")
         if ctrl in by_name:
@@ -156,6 +170,7 @@ def verify_missing_controls(pkg_data, template_c_path, planned_controls=None, pk
         if pkg_target_types is not None and ctrl in pkg_target_types:
             raise PackageDrift(f"reference/package.json: {ctrl!r} is listed as missing but exists in package generic.xaml")
 
+        verified_count = 0
         record = {"control": ctrl, "basis": basis, "compiled_template": tpl}
         if tpl is not None:
             if tpl not in compiled:
@@ -177,6 +192,23 @@ def verify_missing_controls(pkg_data, template_c_path, planned_controls=None, pk
                 )
             record["verified_elements"] = info["elem_count"]
             record["verified_states"] = info["state_count"]
+            verified_count += 2
+
+        if isinstance(cvals, dict) and cvals:
+            for token, expected_vec in cvals.items():
+                if token not in theme_values:
+                    raise PackageDrift(f"reference/package.json: missing_controls {ctrl!r} names unknown compiled value {token!r}")
+                if theme_values[token] != expected_vec:
+                    raise PackageDrift(
+                        f"reference/package.json: missing_controls {ctrl!r} compiled_values.{token} {expected_vec} != {theme_values[token]}"
+                    )
+                verified_count += 1
+            record["verified_values"] = len(cvals)
+
+        if verified_count == 0:
+            raise PackageDrift(
+                f"reference/package.json: missing_controls {ctrl!r} must verify at least one compiled template or compiled_values entry"
+            )
         by_name[ctrl] = entry
         results.append(record)
 
@@ -282,9 +314,10 @@ def verify_package(repo_root, winui_checkout=None, nuget_pkg=None, require_live=
     if require_live and not checked_live:
         raise PackageDrift("live WinUI package and checkout verification required but unavailable on this host")
 
-    # 5. Verify missing_controls against package availability and compiled templates.
+    # 5. Verify missing_controls against package availability and compiled template/theme values.
     missing_report = verify_missing_controls(
         pkg, tpl_c,
+        theme_c_path=repo / "ui/theme_data.c",
         planned_controls=["WrapPanel", "UniformGrid", "DataGrid", "DockPanel"],
         pkg_target_types=pkg_target_types,
     )

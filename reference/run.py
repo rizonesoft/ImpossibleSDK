@@ -25,8 +25,9 @@ DEFAULT_OUT = ROOT / "build/reference/out"
 STORE = ROOT / "tests/reference"
 CASES_DIR = HERE / "cases"
 
-FORBIDDEN_ASSET_CONTROLS = {"FontIcon", "SymbolIcon"}
+FORBIDDEN_ASSET_CONTROLS = {"fonticon", "symbolicon"}
 FORBIDDEN_FONT_SUBSTRINGS = ("segoe", "calibri", "cambria", "consolas", "candara", "corbel", "constantia", "microsoft")
+OUT_MARKER = ".impossible-reference-out"
 
 
 def is_wsl():
@@ -105,51 +106,80 @@ def load_case_specs(cases_path):
     return specs
 
 
+def _ci_get(mapping, key, default=None):
+    if not isinstance(mapping, dict):
+        return default
+    kl = key.lower()
+    for k, v in mapping.items():
+        if isinstance(k, str) and k.lower() == kl:
+            return v
+    return default
+
+
 def check_no_prohibited_assets(case_spec):
-    """Refuse Microsoft fonts or stock Microsoft glyph controls in committed store cases."""
-    cid = case_spec.get("id", "<unknown>")
-    ctrl = case_spec.get("control", "")
-    if ctrl in FORBIDDEN_ASSET_CONTROLS:
+    """Refuse Microsoft fonts or stock Microsoft glyph controls in committed store cases (case-insensitive keys)."""
+    cid = _ci_get(case_spec, "id", "<unknown>")
+    ctrl = str(_ci_get(case_spec, "control", "") or "")
+    ctrl_l = ctrl.lower()
+    if ctrl_l in FORBIDDEN_ASSET_CONTROLS:
         raise ValueError(f"{cid}: control {ctrl!r} uses a prohibited Microsoft glyph font and cannot be persisted")
-    props = case_spec.get("properties") or {}
+    props = _ci_get(case_spec, "properties") or {}
+    items = _ci_get(case_spec, "items")
     has_text = (
-        ctrl in ("TextBlock", "TextBox")
-        or bool(case_spec.get("items"))
-        or any(k in props for k in ("Content", "Text", "Header", "PlaceholderText"))
+        ctrl_l in ("textblock", "textbox")
+        or bool(items)
+        or any(_ci_get(props, k) is not None for k in ("content", "text", "header", "placeholdertext"))
     )
     if has_text:
-        ff = str(props.get("FontFamily", "")).lower()
+        ff = str(_ci_get(props, "fontfamily", "") or "").lower()
         if not ff or any(bad in ff for bad in FORBIDDEN_FONT_SUBSTRINGS):
             raise ValueError(
                 f"{cid}: text-bearing case without a permitted non-Microsoft FontFamily cannot be persisted to tests/reference/"
             )
-    for child in case_spec.get("children") or []:
+    for child in _ci_get(case_spec, "children") or []:
         check_no_prohibited_assets(child)
 
 
+def recover_dir_if_needed(target_dir):
+    """Recover a directory from its fixed .<name>.backup sibling if a prior swap was interrupted."""
+    target = Path(target_dir)
+    backup = target.parent / f".{target.name}.backup"
+    if not target.exists() and backup.exists():
+        backup.rename(target)
+        return True
+    return False
+
+
 def _ensure_safe_capture_dir(out_dir):
-    """Refuse to overwrite an existing output directory that contains unrelated files or subdirectories."""
+    """Refuse to overwrite any existing non-empty output directory not owned by reference/run.py."""
     out = Path(out_dir)
+    recover_dir_if_needed(out)
     if not out.exists():
         return
     if not out.is_dir():
         raise ValueError(f"{out}: output path exists and is not a directory")
-    for entry in out.iterdir():
-        if entry.is_dir() or (entry.suffix != ".bgra" and entry.name not in ("cases.json", "error.txt")):
+    entries = list(out.iterdir())
+    if not entries:
+        return
+    if not (out / OUT_MARKER).is_file():
+        raise ValueError(f"{out}: refuses to overwrite existing non-empty directory without {OUT_MARKER} ownership marker")
+    for entry in entries:
+        if entry.is_dir() or (entry.suffix != ".bgra" and entry.name not in ("cases.json", "error.txt", OUT_MARKER)):
             raise ValueError(f"{out}: refuses to overwrite directory containing unrelated entry {entry.name!r}")
 
 
 def _publish_capture_output(src_dir, out_dir):
-    """Safely publish fresh capture files without deleting unrelated user files or losing output on copy error."""
+    """Safely publish fresh capture files with ownership marker and crash-recoverable fixed backup."""
     src = Path(src_dir)
     out = Path(out_dir)
     _ensure_safe_capture_dir(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     stage = out.parent / f".{out.name}.stage-{os.getpid()}"
+    backup = out.parent / f".{out.name}.backup"
     shutil.rmtree(stage, ignore_errors=True)
     try:
         shutil.copytree(src, stage)
-        backup = out.parent / f".{out.name}.prev-{os.getpid()}"
+        (stage / OUT_MARKER).write_text("impossible-sdk-reference-output\n", encoding="utf-8")
         shutil.rmtree(backup, ignore_errors=True)
         had_out = out.exists()
         if had_out:
@@ -169,6 +199,7 @@ def _publish_capture_output(src_dir, out_dir):
 def validate_store_dir(store_dir, expected_specs=None):
     """Validate that store_dir has a self-consistent index, no missing/extra/stale frames, and valid digests."""
     store = Path(store_dir)
+    recover_dir_if_needed(store)
     index_path = store / "cases.json"
     if not index_path.is_file():
         raise ValueError(f"{store}: missing cases.json")

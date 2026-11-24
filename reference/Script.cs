@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -14,10 +15,10 @@ namespace Reference;
 
 public sealed class ScriptActionSpec
 {
-    public string Action { get; set; } = "";
-    public string? Key { get; set; }
-    public double? X { get; set; }
-    public double? Y { get; set; }
+    [JsonPropertyName("action")] public string Action { get; set; } = "";
+    [JsonPropertyName("key")] public string? Key { get; set; }
+    [JsonPropertyName("x")] public double? X { get; set; }
+    [JsonPropertyName("y")] public double? Y { get; set; }
 }
 
 public sealed class ScriptEventDto

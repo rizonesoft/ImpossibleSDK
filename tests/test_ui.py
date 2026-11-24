@@ -1771,15 +1771,17 @@ class ReferenceHarness(unittest.TestCase):
         self.assertEqual(res.returncode, 2)
         self.assertIn("refuses --cases", res.stderr)
 
-        # 7. Prohibited Microsoft font, FontIcon, or ListView items cannot be persisted to the store.
+        # 7. Prohibited Microsoft font, FontIcon, ListView items, or mixed-case keys cannot be persisted to the store.
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "bad-text", "control": "Button", "properties": {"Content": "Hi"}})
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "bad-icon", "control": "FontIcon"})
         with self.assertRaises(ValueError):
             ref_run.check_no_prohibited_assets({"id": "bad-list", "control": "ListView", "items": ["Alpha"]})
+        with self.assertRaises(ValueError):
+            ref_run.check_no_prohibited_assets({"id": "label", "Control": "TextBlock", "Properties": {"Text": "Sample"}})
 
-        # 8. --out refuses to overwrite a directory containing unrelated sentinel files.
+        # 8. --out refuses to overwrite a directory containing unrelated files OR foreign capture-like files without the ownership marker.
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / "out"
             out_dir.mkdir()
@@ -1789,17 +1791,34 @@ class ReferenceHarness(unittest.TestCase):
                 ref_run._ensure_safe_capture_dir(out_dir)
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "important")
 
+            foreign = Path(tmp) / "foreign_out"
+            foreign.mkdir()
+            (foreign / "cases.json").write_text("{}", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                ref_run._ensure_safe_capture_dir(foreign)
+
+        # 9. Interrupted swap (store missing, .<name>.backup present) is recovered on ordinary read-back.
+        with tempfile.TemporaryDirectory() as tmp:
+            tstore = Path(tmp) / "reference"
+            tbackup = Path(tmp) / ".reference.backup"
+            shutil.copytree(ROOT / "tests/reference", tbackup)
+            self.assertFalse(tstore.exists())
+            recovered = ref_run.validate_store_dir(tstore, specs)
+            self.assertTrue(tstore.is_dir())
+            self.assertEqual(len(recovered["cases"]), len(specs))
+
     def test_package_provenance_and_missing_controls(self):
         _, check_pkg = self._ref_modules()
-        info = check_pkg.verify_package(ROOT)
+        has_live_inputs = (WINUI / "LICENSE").is_file() and check_pkg.find_nuget_winui_pkg("1.8.260803003") is not None
+        info = check_pkg.verify_package(ROOT, require_live=has_live_inputs)
         self.assertEqual(info["version"], "1.8.260921001")
         self.assertEqual(info["winui_component"], "1.8.260803003")
-        self.assertTrue(all(m["basis"] == "compiled-template" for m in info["missing_controls"]))
+        self.assertTrue(all(m["basis"] == "compiled-template" and m.get("verified_values", 0) > 0 for m in info["missing_controls"]))
 
         with tempfile.TemporaryDirectory() as tmp:
             fake = Path(tmp) / "repo"
             for rel in ("reference/package.json", "reference/Reference.csproj", "reference/packages.lock.json",
-                        "tools/winui/pin.json", "ui/template_data.c"):
+                        "tools/winui/pin.json", "ui/template_data.c", "ui/theme_data.c"):
                 dst = fake / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / rel, dst)
@@ -1845,6 +1864,20 @@ class ReferenceHarness(unittest.TestCase):
             with self.assertRaises(check_pkg.PackageDrift):
                 check_pkg.verify_package(fake)
 
+            # Corrupting a real missing_controls compiled_values entry (WrapPanel) must fail.
+            bad_val = json.loads(json.dumps(orig_pkg))
+            bad_val["missing_controls"][0]["compiled_values"]["GridViewItemSelectedBorderThickness"] = [999, 999, 999, 999]
+            pkg_file.write_text(json.dumps(bad_val), encoding="utf-8")
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_package(fake)
+
+            # Removing all compiled checks from a missing_controls entry must fail.
+            empty_val = json.loads(json.dumps(orig_pkg))
+            empty_val["missing_controls"][0]["compiled_values"] = {}
+            pkg_file.write_text(json.dumps(empty_val), encoding="utf-8")
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_package(fake)
+
             # Exercise a compiled-template fallback for an unavailable control (ToggleSwitch -> DefaultToggleSwitchStyle):
             # passes with exact elem_count=23 & state_count=9, fails if either is corrupted.
             sim_ok = json.loads(json.dumps(orig_pkg))
@@ -1856,13 +1889,13 @@ class ReferenceHarness(unittest.TestCase):
                 "expected_elements": 23,
                 "expected_states": 9,
             })
-            res_sim = check_pkg.verify_missing_controls(sim_ok, fake / "ui/template_data.c")
+            res_sim = check_pkg.verify_missing_controls(sim_ok, fake / "ui/template_data.c", fake / "ui/theme_data.c")
             ts_entry = next(r for r in res_sim if r["control"] == "ToggleSwitch")
             self.assertEqual((ts_entry["basis"], ts_entry["verified_elements"], ts_entry["verified_states"]), ("compiled-template", 23, 9))
             sim_bad_states = json.loads(json.dumps(sim_ok))
             sim_bad_states["missing_controls"][-1]["expected_states"] = 999
             with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.verify_missing_controls(sim_bad_states, fake / "ui/template_data.c")
+                check_pkg.verify_missing_controls(sim_bad_states, fake / "ui/template_data.c", fake / "ui/theme_data.c")
 
             # 5. Nonexistent --nuget-pkg path must fail explicitly.
             with self.assertRaises(check_pkg.PackageDrift):
@@ -1884,6 +1917,8 @@ class ReferenceHarness(unittest.TestCase):
     def test_layout_automation_scale_rtl_and_script_dumps(self):
         folder = ROOT / "tests/reference"
         manifest = json.loads((folder / "cases.json").read_text(encoding="utf-8"))
+        # Every stored case must include both layout and automation dumps.
+        self.assertTrue(all("layout" in c and "automation" in c for c in manifest["cases"]))
         by_id = {c["id"]: c for c in manifest["cases"]}
 
         # 1. Button layout + automation dumps have frame-relative coords, Invoke pattern, and correct hierarchy.
@@ -2155,8 +2190,9 @@ class LiveReference(unittest.TestCase):
                     ref_run.run_reference(exe, Path(tmp) / "out_bad4", cases_path=bad_id, work_dir=build_tmp)
                 self.assertIn("invalid case id", ctx4.exception.stderr)
 
-                # 3. Non-button controls: ToggleSwitch (BOTH start IsOn=False so only the animated "On" transition changes pixels),
-                #    ComboBox (loaded dynamically via reflection without C# edits), ListView with items + RTL, and scripted Button run twice.
+                # 3. Non-button controls: ToggleSwitch (ts-off vs animated ts-on vs independently settled ts-on-settled),
+                #    ComboBox with SelectedIndex=1 via reflection (zero C# edits), ListView with items + RTL,
+                #    transient Button with real TextBlock at 150% for real text-mask discovery, and scripted Button run twice.
                 combo = Path(tmp) / "combo.json"
                 combo.write_text(json.dumps({"cases": [
                     {
@@ -2167,7 +2203,6 @@ class LiveReference(unittest.TestCase):
                         "state": "Off",
                         "frame": {"width": 160, "height": 64},
                         "properties": {"IsOn": False, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
-                        "dump_tree": True,
                     },
                     {
                         "id": "ts-on",
@@ -2178,7 +2213,16 @@ class LiveReference(unittest.TestCase):
                         "use_transitions": True,
                         "frame": {"width": 160, "height": 64},
                         "properties": {"IsOn": False, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
-                        "dump_tree": True,
+                    },
+                    {
+                        "id": "ts-on-settled",
+                        "control": "ToggleSwitch",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "state": "On",
+                        "use_transitions": False,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"IsOn": False, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
                     },
                     {
                         "id": "combo-dyn",
@@ -2186,9 +2230,8 @@ class LiveReference(unittest.TestCase):
                         "theme": "Dark",
                         "scale": 1.0,
                         "frame": {"width": 160, "height": 64},
-                        "properties": {"Width": 120, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "properties": {"Width": 120, "SelectedIndex": 1, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
                         "items": ["First", "Second"],
-                        "dump_tree": True,
                     },
                     {
                         "id": "lv-rtl",
@@ -2199,7 +2242,18 @@ class LiveReference(unittest.TestCase):
                         "frame": {"width": 160, "height": 96},
                         "properties": {"Width": 140, "Height": 80, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
                         "items": ["Alpha", "Beta"],
-                        "dump_tree": True,
+                    },
+                    {
+                        "id": "btn-text-transient-s150",
+                        "control": "Button",
+                        "theme": "Dark",
+                        "scale": 1.5,
+                        "state": "Normal",
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Width": 120, "Height": 32, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "children": [
+                            {"id": "lbl", "control": "TextBlock", "properties": {"Name": "RealLabel", "Text": "Sample", "Width": 48, "Height": 18}}
+                        ],
                     },
                     {
                         "id": "btn-script-live",
@@ -2214,7 +2268,6 @@ class LiveReference(unittest.TestCase):
                             {"action": "key_press", "key": "Space"},
                             {"action": "touch_tap"},
                         ],
-                        "dump_tree": True,
                     },
                 ]}), encoding="utf-8")
 
@@ -2226,11 +2279,37 @@ class LiveReference(unittest.TestCase):
                 by1 = {c["id"]: c for c in m1["cases"]}
                 by2 = {c["id"]: c for c in m2["cases"]}
 
-                # Animated ToggleSwitch On frame differs from Off frame even though both started IsOn=False.
-                self.assertNotEqual((out1 / "ts-off.bgra").read_bytes(), (out1 / "ts-on.bgra").read_bytes())
+                # Animated ToggleSwitch On transition must await storyboard, differ from Off, and reach settled On terminal frame.
+                self.assertTrue(by1["ts-on"].get("storyboard_awaited"))
+                off_px = (out1 / "ts-off.bgra").read_bytes()
+                on_px = (out1 / "ts-on.bgra").read_bytes()
+                settled_px = (out1 / "ts-on-settled.bgra").read_bytes()
+                self.assertNotEqual(off_px, on_px)
+                self.assertLessEqual(max(abs(a - b) for a, b in zip(on_px, settled_px)), 2)
+
+                # ComboBox SelectedIndex=1 works via reflection without C# edits and reports selected_item="Second".
                 self.assertEqual(by1["combo-dyn"]["automation"]["ControlType"], "ComboBox")
+                self.assertEqual(by1["combo-dyn"].get("selected_index"), 1)
+                self.assertEqual(by1["combo-dyn"].get("selected_item"), "Second")
+
                 self.assertEqual(by1["lv-rtl"]["flow_direction"], "RightToLeft")
                 self.assertEqual(by1["lv-rtl"]["automation"]["ControlType"], "List")
+
+                # Real transient TextBlock at 150% is discovered by Dump.cs and masked cleanly by compare_frames_with_layout_mask.
+                txt_case = by1["btn-text-transient-s150"]
+                txt_rects = extract_mask_rects(txt_case["layout"])
+                self.assertEqual(len(txt_rects), 1)
+                self.assertEqual(txt_rects[0][0], "RealLabel")
+                # Independent expected centered TextBlock inside 160x64 frame: left=56, top=23, ~46x19 DIPs.
+                ind_txt = [("RealLabel", 56.0, 23.0, 46.0, 19.0)]
+                txt_px = (out1 / "btn-text-transient-s150.bgra").read_bytes()
+                mut_txt = bytearray(txt_px)
+                px = round((56.0 + 23.0) * 1.5)
+                py = round((23.0 + 9.0) * 1.5)
+                mut_txt[(py * 240 + px) * 4:(py * 240 + px) * 4 + 3] = bytes([255, 0, 255])
+                compare_frames_with_layout_mask(bytes(mut_txt), txt_px, 240, 96, 1.5, ind_txt, txt_rects, limit=0)
+                with self.assertRaises(ValueError):
+                    compare_frames_with_layout_mask(bytes(mut_txt), txt_px, 240, 96, 1.5, [("RealLabel", 58.0, 23.0, 46.0, 19.0)], txt_rects, limit=0)
 
                 # Scripted button gives identical event + focus log across two independent runs.
                 validate_script_log(by1["btn-script-live"]["script_log"])

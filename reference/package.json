@@ -153,25 +153,41 @@
       "control": "WrapPanel",
       "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI",
       "basis": "compiled-template",
-      "compiled_template": null
+      "compiled_template": null,
+      "compiled_values": {
+        "GridViewItemSelectedBorderThickness": [131072, 131072, 131072, 131072],
+        "GridViewItemMultiselectBorderThickness": [163840, 163840, 163840, 163840]
+      }
     },
     {
       "control": "UniformGrid",
       "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI",
       "basis": "compiled-template",
-      "compiled_template": null
+      "compiled_template": null,
+      "compiled_values": {
+        "GridViewItemRevealBorderThemeThickness": [65536, 65536, 65536, 65536],
+        "GridViewItemReorderHintThemeOffset": [1048576]
+      }
     },
     {
       "control": "DataGrid",
       "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI",
       "basis": "compiled-template",
-      "compiled_template": null
+      "compiled_template": null,
+      "compiled_values": {
+        "ListViewItemMinHeight": [2621440],
+        "ListViewItemMinWidth": [5767168],
+        "ListViewItemCornerRadius": [262144, 262144, 262144, 262144]
+      }
     },
     {
       "control": "DockPanel",
       "reason": "Not shipped in Microsoft.WindowsAppSDK.WinUI",
       "basis": "compiled-template",
-      "compiled_template": null
+      "compiled_template": null,
+      "compiled_values": {
+        "ListViewItemSelectionIndicatorCornerRadius": [98304, 98304, 98304, 98304]
+      }
     }
   ]
 }

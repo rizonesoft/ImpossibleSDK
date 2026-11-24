@@ -48,7 +48,7 @@ public sealed class CaseSpec
     [JsonPropertyName("items")] public List<string>? Items { get; set; }
     [JsonPropertyName("children")] public List<CaseSpec>? Children { get; set; }
     [JsonPropertyName("script")] public List<ScriptActionSpec>? Script { get; set; }
-    [JsonPropertyName("dump_tree")] public bool DumpTree { get; set; }
+    [JsonPropertyName("dump_tree")] public bool DumpTree { get; set; } = true;
     [JsonPropertyName("probe_box")] public int[]? ProbeBox { get; set; }
     [JsonPropertyName("probe_radii")] public double[]? ProbeRadii { get; set; }
 }
@@ -92,7 +92,7 @@ public partial class App : Application
 
     private static List<CaseSpec> LoadCases(string? casesPath)
     {
-        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = false };
         var files = new List<string>();
         if (!string.IsNullOrEmpty(casesPath))
         {
@@ -245,14 +245,6 @@ public partial class App : Application
             el.FlowDirection = ParseEnum<FlowDirection>(caseId, "flow_direction", spec.FlowDirection);
         }
 
-        if (spec.Properties != null)
-        {
-            foreach (var (prop, val) in spec.Properties)
-            {
-                ApplyProperty(caseId, el, prop, val, scaleFactor);
-            }
-        }
-
         if (spec.Items != null)
         {
             if (el is ItemsControl ic)
@@ -265,6 +257,14 @@ public partial class App : Application
             else
             {
                 throw new InvalidOperationException($"{caseId}.items: control '{spec.Control}' does not support items");
+            }
+        }
+
+        if (spec.Properties != null)
+        {
+            foreach (var (prop, val) in spec.Properties)
+            {
+                ApplyProperty(caseId, el, prop, val, scaleFactor);
             }
         }
 
@@ -445,11 +445,35 @@ public partial class App : Application
                 else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
                 break;
             default:
-                throw new InvalidOperationException($"{caseId}.{prop}: unknown property '{prop}' on {el.GetType().Name}");
+            {
+                var propInfo = el.GetType().GetProperty(prop);
+                if (propInfo == null || !propInfo.CanWrite)
+                {
+                    throw new InvalidOperationException($"{caseId}.{prop}: unknown property '{prop}' on {el.GetType().Name}");
+                }
+                Type pt = Nullable.GetUnderlyingType(propInfo.PropertyType) ?? propInfo.PropertyType;
+                object? converted;
+                if (val.ValueKind == JsonValueKind.Null && (!propInfo.PropertyType.IsValueType || Nullable.GetUnderlyingType(propInfo.PropertyType) != null))
+                {
+                    converted = null;
+                }
+                else if (pt == typeof(int)) converted = val.GetInt32();
+                else if (pt == typeof(double)) converted = val.GetDouble();
+                else if (pt == typeof(bool)) converted = val.GetBoolean();
+                else if (pt == typeof(string) || pt == typeof(object)) converted = val.ValueKind == JsonValueKind.String ? val.GetString() : val.ToString();
+                else if (pt.IsEnum) converted = Enum.Parse(pt, val.GetString() ?? "", ignoreCase: false);
+                else if (pt == typeof(Thickness)) converted = ParseThickness(caseId, prop, val);
+                else if (pt == typeof(CornerRadius)) converted = ParseCornerRadius(caseId, prop, val);
+                else if (pt == typeof(Brush)) converted = new SolidColorBrush(ParseColor(caseId, prop, val.GetString() ?? ""));
+                else if (pt == typeof(FontFamily)) converted = new FontFamily(val.GetString() ?? "");
+                else throw new InvalidOperationException($"{caseId}.{prop}: unsupported property type '{propInfo.PropertyType.Name}' on {el.GetType().Name}");
+                propInfo.SetValue(el, converted);
+                break;
+            }
         }
     }
 
-    private static async Task ApplyVisualStateAsync(string caseId, Control control, string stateName, bool useTransitions)
+    private static async Task<bool> ApplyVisualStateAsync(string caseId, Control control, string stateName, bool useTransitions)
     {
         control.ApplyTemplate();
         VisualStateGroup? foundGroup = null;
@@ -487,6 +511,7 @@ public partial class App : Application
         Storyboard? sb = foundState.Storyboard;
         TaskCompletionSource<bool>? completed = null;
         EventHandler<object>? onCompleted = null;
+        bool storyboardCompleted = false;
 
         if (!alreadyActive && sb != null)
         {
@@ -505,13 +530,13 @@ public partial class App : Application
             if (completed != null)
             {
                 var finished = await Task.WhenAny(completed.Task, Task.Delay(3000));
-                if (finished != completed.Task)
+                if (finished == completed.Task)
                 {
-                    // Zero-duration or instant storyboards under useTransitions=false can settle without firing Completed.
-                    if (useTransitions)
-                    {
-                        throw new InvalidOperationException($"{caseId}: storyboard for state '{stateName}' did not complete within 3000ms");
-                    }
+                    storyboardCompleted = true;
+                }
+                else if (useTransitions)
+                {
+                    throw new InvalidOperationException($"{caseId}: storyboard for state '{stateName}' did not complete within 3000ms");
                 }
             }
         }
@@ -524,6 +549,7 @@ public partial class App : Application
         }
 
         await Task.Delay(120);
+        return storyboardCompleted;
     }
 
     private static async Task<(byte[] Pixels, int Width, int Height)> CaptureSettledAsync(FrameworkElement target, string label)
@@ -609,13 +635,14 @@ public partial class App : Application
             canvas.Children.Add(captureTarget);
             await Task.Delay(80);
 
+            bool storyboardAwaited = false;
             if (!string.IsNullOrEmpty(spec.State))
             {
                 if (element is not Control ctrl)
                 {
                     throw new InvalidOperationException($"{spec.Id}.state: '{spec.Control}' is not a Control and has no visual states");
                 }
-                await ApplyVisualStateAsync(spec.Id, ctrl, spec.State, spec.UseTransitions);
+                storyboardAwaited = await ApplyVisualStateAsync(spec.Id, ctrl, spec.State, spec.UseTransitions);
             }
 
             ScriptResultDto? scriptResult = null;
@@ -650,7 +677,16 @@ public partial class App : Application
                 ["width"] = width,
                 ["height"] = height,
             };
-            if (!string.IsNullOrEmpty(spec.State)) entry["state"] = spec.State;
+            if (!string.IsNullOrEmpty(spec.State))
+            {
+                entry["state"] = spec.State;
+                if (spec.UseTransitions) entry["storyboard_awaited"] = storyboardAwaited;
+            }
+            if (element is Microsoft.UI.Xaml.Controls.Primitives.Selector sel && sel.SelectedIndex >= 0)
+            {
+                entry["selected_index"] = sel.SelectedIndex;
+                entry["selected_item"] = sel.SelectedItem?.ToString();
+            }
             if (isProbe)
             {
                 entry["name"] = spec.Id;

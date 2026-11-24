@@ -101,6 +101,67 @@
       "width": 160,
       "height": 64,
       "state": "PointerOver",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "bcd368aee9ccfa7731ddae481df9f0cbf5a0a5d8e0bec0c10bceabc9980d3160",
       "raw_sha256": "2a8e66108a564dfda93ee1a00dba566c26ab1b34f5f51af9de8c33d122a71312",
       "case_sha256": "dc8db49d3b55d42a83bcde6a9928ffa18117e2bed102dc251b7a88bbb5994c0a"
@@ -118,6 +179,67 @@
       "width": 160,
       "height": 64,
       "state": "Pressed",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "4d1279477800a24a38d0408a6cf48e3b39ee7c40dc7e7d56d1c84475730ffa41",
       "raw_sha256": "8abcfa44edb2b3b34b9a295730c8cea895aac3c8981132a51781c88cab05f579",
       "case_sha256": "a7a03a9d74b0b28b301d5f498bb3976b0f9ef5acdd3860607586bf11f34755e9"
@@ -213,6 +335,67 @@
       "width": 160,
       "height": 64,
       "state": "Normal",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "1f240cfeb01a85de7d6e5c189b122797b7a7f0b44e4dbbe16059c92d15df4454",
       "raw_sha256": "37a62dcac461941006e44417f14abe825f1df987ce918bcfaa4b25947ecaa331",
       "case_sha256": "feaf7d79caea6cf193476c7302ff0cf88fc7acc90dd6783512c0b3d9745bc807"
@@ -230,6 +413,67 @@
       "width": 160,
       "height": 64,
       "state": "PointerOver",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "af3b3af0e7b9ab136cc5f65f90d0349e086a08c65e24ebb4b5c263a1fbafae56",
       "raw_sha256": "6ddcf3ce54b8074687fefbb4385522393b1cd0f0b6a0d85c0c7c9209e06f52d8",
       "case_sha256": "8e5c27be89bccdc7322de116c3f6a9c63a6591f7e3f0da17848c8492af600079"
@@ -247,6 +491,67 @@
       "width": 160,
       "height": 64,
       "state": "Pressed",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "47ff7cea1528b5af3bc0971be1a2fcb0305b591d82d5a4bb80db09a06f1e4b82",
       "raw_sha256": "72de0974f8ed254965d3e2cbd807966fd1a01a7c460dd227ca91529b75f3ba86",
       "case_sha256": "115b9516bca560e2765e45633785695ad92d8a44459f85f2fbad200af552f622"
@@ -264,6 +569,67 @@
       "width": 160,
       "height": 64,
       "state": "Disabled",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "41145f4f315251c5be140fd9741c368918e2af58df8db4a5463b067b94c9ef37",
       "raw_sha256": "61d7831d8f918d3a2b41750d0e20efdc6ed400b2af8dff91edfa82656f7c3b7b",
       "case_sha256": "e6a4bb5d89a752dd8d613e513b02ec4b7492d276d9efcdc9dc47c53b3f4f1efc"
@@ -281,6 +647,67 @@
       "width": 160,
       "height": 64,
       "state": "Normal",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "76f17658e2360ef2b6a7ea9dcf031781ef1cb32297c5179ee026a9c357fdccc9",
       "raw_sha256": "a05bf84cc3d0905802aefcbc7c280bbfe31f59aecc30236ebffe42685a498423",
       "case_sha256": "7662dc361e7efac4843733fa33be490223f0bf4a5ecf6c9e5982fe76892fa784"
@@ -298,6 +725,67 @@
       "width": 160,
       "height": 64,
       "state": "PointerOver",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "32542c1b0426351ac48c96db6e1dd1a6dbf11e447ebb90a2ffa94fe8f0b60bb9",
       "raw_sha256": "76abef6dfef5b96c32c7d25eb7f4694f69f4f13fdd06c7beb8f11284efb412ec",
       "case_sha256": "03d57ba2b2414b596ff58cafd9f05c03cda8db379c136d8a194b2df6f6e4bed9"
@@ -315,6 +803,67 @@
       "width": 160,
       "height": 64,
       "state": "Pressed",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "32b6d41d4ad45fdcef1d77243d503838530ebba707787afc07583315d0afbd02",
       "raw_sha256": "eac8161132f6237693589ed25eaa2387af36b1ebab08791fd487f067bd45506a",
       "case_sha256": "eeca6dc5f4dedb19bf36eb90510e1b3fc171e2049557f87238d57906f3f265c1"
@@ -332,6 +881,67 @@
       "width": 160,
       "height": 64,
       "state": "Disabled",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "32b6d41d4ad45fdcef1d77243d503838530ebba707787afc07583315d0afbd02",
       "raw_sha256": "eac8161132f6237693589ed25eaa2387af36b1ebab08791fd487f067bd45506a",
       "case_sha256": "9b752878e1a9608cd6fff8ea7f82bef27162e81edc6a843eeeccdc59884e39e4"
@@ -349,6 +959,67 @@
       "width": 160,
       "height": 64,
       "state": "Normal",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "b90a53b681a21d4d136889420a91a1199870f8437f7ef29c78351d1d70ef49ea",
       "raw_sha256": "41c345473c14cf52dfbedc7ab44da355de5d58e503d86d545c67ca248049cf6e",
       "case_sha256": "fc643c3342a815b6ab37df33081c69e181dc0d1ceb4b1f4d04f9108cc7a3e5e7"
@@ -366,6 +1037,67 @@
       "width": 160,
       "height": 64,
       "state": "PointerOver",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "7a10910bbe62decfe0bddb68cde35a22aac5e35da63f1be312f9b74627dc1e6b",
       "raw_sha256": "90a2023216755694f580dc115b7fa80ec66a3a59a7ae5e16d67c765e9338e5b4",
       "case_sha256": "7ec15f9bcb2fa01d4bc0965aeb1343402bf496b91d0adbb136d418aadda6b1f0"
@@ -383,6 +1115,67 @@
       "width": 160,
       "height": 64,
       "state": "Pressed",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "164e635134baf55191a378b5abb90c35a53f7d76d3ca6641c7544cb0bc1f4aab",
       "raw_sha256": "50ee32803d905e35bdf1686bf1182626b9f0ff9ba008f4f3a59fb71fea73bf05",
       "case_sha256": "4c0f2be2fc8726d5c947b4d0e7086b1d0806586b0f78a61afd1e2f4f5fb28e66"
@@ -400,6 +1193,67 @@
       "width": 160,
       "height": 64,
       "state": "Disabled",
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Button",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 20,
+              "Y": 16,
+              "Width": 120,
+              "Height": 32
+            },
+            "Children": [
+              {
+                "Type": "ContentPresenter",
+                "Name": "ContentPresenter",
+                "Visibility": "Visible",
+                "IsText": false,
+                "IsIcon": false,
+                "Rect": {
+                  "X": 20,
+                  "Y": 16,
+                  "Width": 120,
+                  "Height": 32
+                },
+                "Children": []
+              }
+            ]
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Button",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [
+          "Invoke"
+        ],
+        "Rect": {
+          "X": 20,
+          "Y": 16,
+          "Width": 120,
+          "Height": 32
+        },
+        "Children": []
+      },
       "sha256": "aa06c6e207630bb9ebfa3fe7a14464bd5c961a9cc4741c79e700dbc34eb97ae7",
       "raw_sha256": "6485614102226136da4db6dbbe64e876cca96912bfb6313ce86a10ba946f4c83",
       "case_sha256": "1d7f037f733ded9c71fb36f879bc7c2974ca7d51e18e4b50c2db89478c29133d"
@@ -1166,6 +2020,50 @@
         4,
         4
       ],
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 64,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Border",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 8,
+              "Y": 8,
+              "Width": 48,
+              "Height": 48
+            },
+            "Children": []
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Border",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [],
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "Children": []
+      },
       "sha256": "de346a3c0a17ee378d5eb90362cc8d7ed9ed59852675b683ec595362ca1ac563",
       "raw_sha256": "a2009e315c17585cf9d473300c44953a3111689dbd7da72f319b39303229776d",
       "case_sha256": "fb44f1c73d84c3acd536956c96ea5870c13aa9e867c8e03ecbd956f727c9da7e"
@@ -1191,6 +2089,50 @@
         4,
         4
       ],
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 64,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Border",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 8,
+              "Y": 8,
+              "Width": 48,
+              "Height": 48
+            },
+            "Children": []
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Border",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [],
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "Children": []
+      },
       "sha256": "648f50d897e49893b1467ca31c26f0c2d068150c539fb401df3de2c952d03c0c",
       "raw_sha256": "284a816910610fa99244fd52b52d10ace9bfc6e640fb64323fb05770527a7cc1",
       "case_sha256": "8b715e64987c2fa1cbddd5d1e6813e2b96d40b59723b6ef76e0067bbc613c508"
@@ -1216,6 +2158,50 @@
         4,
         4
       ],
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 64,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Border",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 8,
+              "Y": 8,
+              "Width": 48,
+              "Height": 48
+            },
+            "Children": []
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Border",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [],
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "Children": []
+      },
       "sha256": "768ce7b933bb6f191177f77e3c53f562e8bac3845211aa687e2a86ff68a3b498",
       "raw_sha256": "ab02d5f1b27636e5afa3044faccef5299fd9e6961d0e91983b0d6f615c5a87f3",
       "case_sha256": "2ba3ac589476608c7f72a2acf101d251fd47b02540e8d4ed97b13251b0d810bd"
@@ -1241,6 +2227,50 @@
         8,
         8
       ],
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 64,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Border",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 8,
+              "Y": 8,
+              "Width": 48,
+              "Height": 48
+            },
+            "Children": []
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Border",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [],
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "Children": []
+      },
       "sha256": "6f2766787504b8437bb45993ef03ad4336713008997b318484a00a7715d03d65",
       "raw_sha256": "43838839618589c83baf64739d99f0c3f04ede023af003e3e574bfc8be7bdd9d",
       "case_sha256": "c15ee936496561586d8f62cd80ac8bc0cbbb969d9d86a8a85cd5f7a26902e001"
@@ -1266,6 +2296,50 @@
         8,
         8
       ],
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 64,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Border",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 8,
+              "Y": 8,
+              "Width": 48,
+              "Height": 48
+            },
+            "Children": []
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Border",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [],
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "Children": []
+      },
       "sha256": "c097dbd7df69f63fd3e6e59a308189342df893a5070387aa22924da655854b9e",
       "raw_sha256": "f3a06a34352fcbd3be8f0c2c1ba029eb501945566e6425afa6a0ea68382f9897",
       "case_sha256": "78c00c7e4816b836450c4532192316f4446667246608af5cb951392cdddaaf9a"
@@ -1291,6 +2365,50 @@
         8,
         8
       ],
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 64,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Border",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 8,
+              "Y": 8,
+              "Width": 48,
+              "Height": 48
+            },
+            "Children": []
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Border",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [],
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "Children": []
+      },
       "sha256": "846de5f32631ca929c95f4acbaf598e0b1a46ca89a298be84203b68921c4fe30",
       "raw_sha256": "9d35b03b19be278f2f5af443426c00216881b08cefa76b88943debe3906c3dff",
       "case_sha256": "2c3d0b0aae989c1428a034f850c5a2d01d4b19a29affad56082887dd4ebdb55f"
@@ -1316,6 +2434,50 @@
         16,
         16
       ],
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 64,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Border",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 8,
+              "Y": 8,
+              "Width": 48,
+              "Height": 48
+            },
+            "Children": []
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Border",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [],
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "Children": []
+      },
       "sha256": "dae95284b85804768c749f52ca21454872c67f8bc187922e57e660a7a0c0dd76",
       "raw_sha256": "571e7bfe461b548b016eba0599f96b490c98a310db0e03af2492f6fffda4a4a0",
       "case_sha256": "c318d9ce5d6a98f1c911dde758b35e2d69ae1688b72b90fb861e343caf0d3d23"
@@ -1341,6 +2503,50 @@
         16,
         16
       ],
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 64,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Border",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 8,
+              "Y": 8,
+              "Width": 48,
+              "Height": 48
+            },
+            "Children": []
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Border",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [],
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "Children": []
+      },
       "sha256": "4d5ea43144503ef566f0289b65cb71b9b10933ea1f1bc375da2a314848bb646a",
       "raw_sha256": "2050c92ed008bd545554635983f8f59375bf8ebc1af05c3b504327027f336808",
       "case_sha256": "34bdfe09fdba07de1084766ca6eb4866f670b7a6432de6f907c55dec6827a363"
@@ -1366,6 +2572,50 @@
         16,
         16
       ],
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 64,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Border",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 8,
+              "Y": 8,
+              "Width": 48,
+              "Height": 48
+            },
+            "Children": []
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Border",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [],
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "Children": []
+      },
       "sha256": "660a6ddd280eae25468c92ddfe7de9921658f4814fa1f9498fb6e807fa6d6c5e",
       "raw_sha256": "47017785d7532dda5413866703e4b80b71e7854ca255bf59fcac36a3af81db28",
       "case_sha256": "2cebf5a80202f5945de02e991203358b34ed7db7617bcf49da48e51c2c879641"
@@ -1391,6 +2641,50 @@
         0,
         0
       ],
+      "layout": {
+        "Type": "Grid",
+        "Name": "",
+        "Visibility": "Visible",
+        "IsText": false,
+        "IsIcon": false,
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 64,
+          "Height": 64
+        },
+        "Children": [
+          {
+            "Type": "Border",
+            "Name": "",
+            "Visibility": "Visible",
+            "IsText": false,
+            "IsIcon": false,
+            "Rect": {
+              "X": 12,
+              "Y": 22,
+              "Width": 40,
+              "Height": 20
+            },
+            "Children": []
+          }
+        ]
+      },
+      "automation": {
+        "ControlType": "Border",
+        "Name": "",
+        "AutomationId": "",
+        "IsEnabled": true,
+        "HasKeyboardFocus": false,
+        "Patterns": [],
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "Children": []
+      },
       "sha256": "65535c69973ded413f6048d63499efaa4305cdcd84e9ae52492073b76597bc3d",
       "raw_sha256": "426b0f392afe93ae03581e17822ca9168ec34d82d952eb52ace68591314860f2",
       "case_sha256": "ade99fde0642bacdff1d1e24b8fe50d471f53c6327ef1e61fa32dbde1f750188"
