@@ -2313,20 +2313,28 @@ class ReferenceHarness(unittest.TestCase):
                 ref_run.normalize_case_spec({"id": "bad-ch", "control": "StackPanel", "children": {"control": "Button"}})
             self.assertIn("bad-ch", str(cm_ch.exception))
             self.assertIn("children", str(cm_ch.exception))
-            # Allowlisted-but-uninstalled font must fail publish_store and preserve the prior store.
+            # Allowlisted-but-uninstalled font, distinct prefix-sharing family ("DejaVu Sans Mono" != "DejaVu Sans"),
+            # and non-ASCII fallback-risk text must all fail publish_store while preserving the prior store.
             uninst_store = Path(tmp) / "uninst_store"
             shutil.copytree(ROOT / "tests/reference", uninst_store)
             prev_uninst = (uninst_store / "cases.json").read_text(encoding="utf-8")
             uninst_fresh = Path(tmp) / "uninst_fresh"
             uninst_fresh.mkdir()
-            (uninst_fresh / "cases.json").write_text(json.dumps({"installed_fonts": ["dejavu sans"], "cases": []}), encoding="utf-8")
-            with self.assertRaises(ValueError) as cm_uf:
-                ref_run.publish_store(
-                    uninst_fresh, uninst_store,
-                    {"tb-inter": {"id": "tb-inter", "control": "TextBlock", "properties": {"Text": "Hi", "FontFamily": "Inter"}}},
-                )
-            self.assertIn("not installed", str(cm_uf.exception))
-            self.assertEqual((uninst_store / "cases.json").read_text(encoding="utf-8"), prev_uninst)
+            (uninst_fresh / "cases.json").write_text(json.dumps({"installed_fonts": ["dejavu sans mono"], "cases": []}), encoding="utf-8")
+            for bad_spec, want_msg in (
+                ({"tb-inter": {"id": "tb-inter", "control": "TextBlock", "properties": {"Text": "Hi", "FontFamily": "Inter"}}}, "not an exact installed font family"),
+                ({"tb-prefix": {"id": "tb-prefix", "control": "TextBlock", "properties": {"Text": "Hi", "FontFamily": "DejaVu Sans"}}}, "not an exact installed font family"),
+                ({"tb-glyph": {"id": "tb-glyph", "control": "TextBlock", "properties": {"Text": "\uE700", "FontFamily": "DejaVu Sans Mono"}}}, "non-ASCII"),
+            ):
+                with self.assertRaises(ValueError) as cm_uf:
+                    ref_run.publish_store(uninst_fresh, uninst_store, bad_spec)
+                self.assertIn(want_msg, str(cm_uf.exception))
+                self.assertEqual((uninst_store / "cases.json").read_text(encoding="utf-8"), prev_uninst)
+            # Exact installed family with printable ASCII text passes check_no_prohibited_assets(require_installed=True).
+            ref_run.check_no_prohibited_assets(
+                {"id": "tb-exact-ok", "control": "TextBlock", "properties": {"Text": "Hello", "FontFamily": "DejaVu Sans Mono"}},
+                require_installed=True, installed_fonts=["dejavu sans mono"],
+            )
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},

@@ -828,6 +828,13 @@ public partial class App : Application
         }
 
         var installedFonts = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        string[] styleSuffixes =
+        {
+            " bold italic", " bold oblique", " semibold italic", " extrabold italic", " extralight italic",
+            " light italic", " medium italic", " thin italic", " black italic", " semilight italic",
+            " regular", " bold", " italic", " oblique", " light", " medium", " semibold",
+            " extrabold", " extralight", " semilight", " thin", " black", " book", " roman",
+        };
         foreach (var rootKey in new[] { Microsoft.Win32.Registry.LocalMachine, Microsoft.Win32.Registry.CurrentUser })
         {
             using var fk = rootKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts");
@@ -838,6 +845,14 @@ public partial class App : Application
                 int paren = clean.IndexOf('(');
                 if (paren > 0) clean = clean.Substring(0, paren);
                 clean = clean.Trim().ToLowerInvariant();
+                foreach (var suf in styleSuffixes)
+                {
+                    if (clean.EndsWith(suf, StringComparison.Ordinal))
+                    {
+                        clean = clean.Substring(0, clean.Length - suf.Length).Trim();
+                        break;
+                    }
+                }
                 if (!string.IsNullOrEmpty(clean)) installedFonts.Add(clean);
             }
         }

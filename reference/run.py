@@ -283,10 +283,23 @@ def check_no_prohibited_assets(case_spec, require_installed=False, installed_fon
             )
         if require_installed:
             inst = {str(n).strip().lower() for n in (installed_fonts or []) if isinstance(n, str)}
-            if not any(n == ff or n.startswith(ff + " ") for n in inst):
+            if ff not in inst:
                 raise ValueError(
-                    f"{cid}: permitted FontFamily {ff!r} is not installed on the capture host (WinUI would fall back to a system font)"
+                    f"{cid}: permitted FontFamily {ff!r} is not an exact installed font family on the capture host (WinUI would fall back to a system font)"
                 )
+            # Ensure all persisted display text uses printable ASCII covered natively by the permitted Latin font (no fallback glyphs).
+            text_values = []
+            for k, v in props.items():
+                if isinstance(k, str) and _is_displayable_content_property(k) and isinstance(v, str):
+                    text_values.append((k, v))
+            for idx, it in enumerate(items or []):
+                if isinstance(it, str):
+                    text_values.append((f"items[{idx}]", it))
+            for field_name, tv in text_values:
+                if any(ord(ch) < 0x20 or ord(ch) > 0x7E for ch in tv):
+                    raise ValueError(
+                        f"{cid}.{field_name}: non-ASCII character in persisted text could trigger unverified system font fallback"
+                    )
     for child in norm.get("children") or []:
         check_no_prohibited_assets(child, require_installed=require_installed, installed_fonts=installed_fonts)
 
@@ -1136,7 +1149,7 @@ def main(argv=None):
         compare_baseline=baseline,
     )
     if baseline is not None:
-        print(f"baseline comparison passed against {baseline}")
+        print(f"baseline comparison passed ({len(LEGACY_BASELINE_IDS)} legacy frames matched {baseline})")
     if args.update_store:
         out, (frame_count, fallback_count) = result
     else:
