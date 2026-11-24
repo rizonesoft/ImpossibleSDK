@@ -1,0 +1,92 @@
+{
+  "ref": "D01 T01 \u00a71",
+  "title": "Exact corner smoothing",
+  "implementation_sha": "78ed5edee4701fa53bda6fe762efb225b579fc36",
+  "date": "2026-11-24",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-interface/D01-T01-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python3 tools/build.py -> Ran 71 tests in 63.920s, OK",
+    "python3 tools/site/build.py --check -> 28 pages, 41 files, 5 examples: nothing has drifted",
+    "CI build.yml green at 78ed5edee470 -> https://github.com/rizonesoft/ImpossibleSDK/actions/runs/45298963335",
+    "CI pages.yml green at 78ed5edee470 -> https://github.com/rizonesoft/ImpossibleSDK/actions/runs/45298963243"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-interface/D01-T01-s1.md",
+    "verdict": "filed",
+    "candidate": "78ed5edee4701fa53bda6fe762efb225b579fc36",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D01 T01 \u00a719"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-interface/D01-T01-s1.md",
+    "candidate": "9e33d6906427832fcf42d689eb91daee515671c8",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "9e33d6906427832fcf42d689eb91daee515671c8",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "lenses": {
+      "thread-safety": "Which state is reached from two threads (UI, worker, callback, timer) without one lock or atomic owning it, and which lock order, wait, cancellation or teardown can deadlock or run after its owner is gone?",
+      "memory-safety": "Which pointer, reference, view, handle or iterator can outlive what it refers to, and which size, index or cast is trusted unchecked?"
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

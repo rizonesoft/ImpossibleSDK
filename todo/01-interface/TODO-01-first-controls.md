@@ -32,7 +32,7 @@ title: "TODO-01 -- Interface Engine and First Controls"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Exact corner smoothing | -- | [ ] |
+| 1 | §1 | Exact corner smoothing | -- | [x] |
 | 2 | §2 | Template compiler | -- | [ ] |
 | 3 | §3 | Element tree and layout | §2, §17 | [ ] |
 | 4 | §4 | Visual states and animation | §3 | [ ] |
@@ -50,6 +50,7 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | 16 | §16 | Remaining panels | §3 | [ ] |
 | 17 | §17 | Reference program for any control | -- | [ ] |
 | 18 | §18 | Drawing speed budgets | §9, §10, §12 | [ ] |
+| 19 | §19 | Corner smoothing doc polish | §1 | [ ] |
 
 ## 1. Exact corner smoothing
 
@@ -75,9 +76,12 @@ The accent button differs from real WinUI by up to 27 of 255 at corner pixels, w
 - [x] Update `fit()` in `ui/draw.c` and the contract in `ui/draw.h` to match WinUI's edge-wise proportional corner clamping (`CGeometryBuilder::CalculateRoundedCornersRectangle`), implement D2D Wang-formula chord flattening in fixed point in `ui/draw.c`, and comment separately what comes from `CGeometryBuilder` and what coverage rule was inferred from measured frames. Done when: `ui/draw.c` predicts every symmetric and asymmetric probe pixel within 40 of 255 in `tests/test_ui.py` (beating the exact circle's 44 to 58 and old clamping's 255) and `ui_tests.c` checks asymmetric fitting and subtle corners. Cheaper substitute: a per-control lookup table.
 - [x] Update `tests/fixtures/control_shots.c` to take the captured accent palette from `tests/reference/cases.json` and render all button and probe cases, and tighten `tests/test_ui.py` to require the exact 26 case identities independently of the manifest, verify pixel dimensions against logical bounds and scale, enforce edge <= 1, standard corner <= 6, accent corner <= 14, and probes <= 40 (subtle button reference coverage belongs to `D01 T01 §7`). Done when: `python3 tools/build.py` passes, restoring the old curve fails, and unit tests prove missing probes, relabelled scales, or different host accent palettes are caught. Cheaper substitute: excluding corner pixels.
 - [x] Update `docs/guide/button.md` with the verified limits and probe coverage and check its source excerpt. Done when: `python3 tools/site/build.py --check` exits 0. Cheaper substitute: leaving stale tolerance numbers in the guide.
-- [ ] Commit: `ui: corners match WinUI`
+- [x] Commit: `ui: corners match WinUI`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-24 | §1 | 78ed5edee4701fa53bda6fe762efb225b579fc36
+> **Review:** `docs/reviews/d01-t01-s1.json`
 
 ## 2. Template compiler
 
@@ -454,6 +458,23 @@ The engine has no floating point and no SIMD, so its speed is measured from the 
 - [ ] Commit: `ui: drawing speed budgets`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+## 19. Corner smoothing doc polish
+
+Follow-up P3 documentation fixes filed from `D01 T01 §1` reconciliation (`docs/reviews/01-interface/D01-T01-s1.md`): fix the max chord count documented in `docs/guide/button.md` (`N = 256` for signed 16.16 max radius < 32,768 px rather than the 1,024 loop cap) and record a clarifying note that the measured accent limit of 14 stands on 4-way reflection symmetry rather than diagonal symmetry.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Update `docs/guide/button.md` chord count from 1,024 to 256 and add a test in `tests/test_ui.py` checking the documented bound. Done when: `python3 tools/site/build.py --check` and `python3 -m unittest tests.test_ui -v` pass.
+
+- [ ] Update `docs/guide/button.md` to state `N = 256` as the maximum Wang chord count reachable for signed 16.16 radii (< 32,768 px) instead of the `1,024` loop cap, and note that the accent limit of 14 stands on measured 4-way reflection symmetry. Done when: `python3 tools/site/build.py --check` passes and `tests/test_ui.py` verifies `N = 256` in `docs/guide/button.md`. Cheaper substitute: leaving stale 1,024 in the guide.
+- [ ] Commit: `docs: align corner smoothing chord bound with 16.16 range`
+
+**Test checkpoint:** `python3 tools/site/build.py --check && python3 -m unittest tests.test_ui -v` exits 0.
 
 ## Verification
 

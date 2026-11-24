@@ -8,11 +8,11 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 1: Interface engine
 
-Sections: 25 | Checklist items: 137
+Sections: 26 | Checklist items: 139
 
 | Status | Reference   | Deliverable                                      | Needs                         | Items |
 | ------ | ----------- | ------------------------------------------------ | ----------------------------- | ----- |
-| [ ]    | D01 T01 §1  | Exact corner smoothing                           | windows-host, display-session | 5     |
+| [x]    | D01 T01 §1  | Exact corner smoothing                           | windows-host, display-session | 5     |
 | [ ]    | D01 T01 §2  | Template compiler                                | none                          | 4     |
 | [ ]    | D01 T01 §17 | Reference program for any control                | windows-host, display-session | 10    |
 | [ ]    | D01 T01 §3  | Element tree and layout                          | windows-host                  | 4     |
@@ -29,6 +29,7 @@ Sections: 25 | Checklist items: 137
 | [ ]    | D01 T01 §15 | Theme transitions                                | windows-host, display-session | 5     |
 | [ ]    | D01 T01 §16 | Remaining panels                                 | windows-host                  | 6     |
 | [ ]    | D01 T01 §18 | Drawing speed budgets                            | windows-host                  | 6     |
+| [ ]    | D01 T01 §19 | Corner smoothing doc polish                      | none                          | 2     |
 | [ ]    | D01 T02 §1  | Bundled fonts and font lookup                    | windows-host                  | 6     |
 | [ ]    | D01 T02 §2  | Glyph cache                                      | none                          | 5     |
 | [ ]    | D01 T02 §6  | Icon set                                         | windows-host, display-session | 7     |
@@ -242,6 +243,6 @@ Sections: 1 | Checklist items: 3
 | ------ | ----------- | -------------------- | -------- | ----- |
 | [ ]    | D08 T01 §13 | First public release | operator | 3     |
 
-Progress: 0/187 verified sections, 6 ready to run now.
+Progress: 1/188 verified sections, 6 ready to run now.
 
-Checklist: 4/1539 items completed (includes Commit items).
+Checklist: 5/1541 items completed (includes Commit items).
