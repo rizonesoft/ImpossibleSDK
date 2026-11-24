@@ -273,22 +273,24 @@ A frame redraws only what changed, and nothing runs when nothing changes.
 
 Rounded clips, opacity over a group and nested layers, as pop-ups, cards and disabled content need them.
 
+**Corrected 2026-11-24:** Export shared rounded-rectangle pixel coverage (`im_shape_coverage`) from `ui/draw.h` and `ui/draw.c` so clipped shapes use the exact same `CGeometryBuilder` proportional corner clamping and Wang-formula cubic Bezier 16-row subpixel integration as `im_fill`. Implement portable freestanding (no floats, no OS calls, no libc) rectangular and rounded-rectangle clip stacks in `ui/clip.h` and `ui/clip.c` (with caller-supplied `im_allocator` and intersected integer bounding boxes). Implement portable freestanding bounded premultiplied-RGBA offscreen layers, group opacity compositing, caller-supplied `memory_limit` enforcement with graceful direct-draw fallback (no crash, all elements still drawn), and arbitrary interleaved clip+layer nesting in `ui/layer.h` and `ui/layer.c`. Register `ui/clip.c` and `ui/layer.c` in `parts.json` under `"ui"` and review `docs/guide/drawing.md` and `docs/guide/testing.md`. Verify in `tests/fixtures/ui_tests.c`, `tests/fixtures/control_shots.c` (or `tests/test_ui.py`), and `tests/test_live.py`: (1) rectangular and rounded-rectangle clips match WinUI rounded-corner reference probes (`tests/reference/` `probe-r4/r8/r16` at 100%, 150%, 200% plus 300% scaled rounded-clip checks and live WinUI clip+opacity verification in the Hyper-V VM); (2) group opacity through a bounded layer prevents overlapping opaque children from showing through each other; (3) exceeding `memory_limit` or injecting an allocation failure refuses the offscreen buffer, draws every child element without crashing, and leaks zero bytes; (4) a deterministic random tree of nested clips and layers of depth 32 equals a plain independent reference renderer byte-for-byte.
+
 **Phase:** 1
 **Needs:** windows-host
 **Surface:** no
 
 **Build order:**
 
-1. Write `ui/clip.c` with its first item. Done when: the first item below passes.
-2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+1. Export `im_shape_coverage` in `ui/draw.{h,c}`, write `ui/clip.{h,c}` and `ui/layer.{h,c}`, register both in `parts.json`, and review `docs/guide/drawing.md` and `docs/guide/testing.md`. Done when: `python3 tools/check_parts.py` and `python3 tools/site/build.py --check` pass and `ui/` builds freestanding without floats or OS calls.
+2. Cover rounded clips (100% to 300%), group opacity non-bleed-through, memory-limit / allocation-failure fallback, and depth-32 nested clip+layer random tree vs plain reference renderer in `tests/fixtures/ui_tests.c`, `tests/test_ui.py`, and `tests/test_live.py`. Done when: `python3 tools/build.py`, `python3 tools/winvm/live.py --check`, and `python3 tools/site/build.py --check` exit 0.
 
-- [ ] Clip drawing to rectangles and rounded rectangles in `ui/clip.c`. Done when: reference frames match at 100 to 300 percent. Cheaper substitute: rectangles only.
-- [ ] Draw a group with one opacity through a bounded layer in `ui/layer.c`. Done when: overlapping children do not show through each other. Cheaper substitute: opacity on each child.
-- [ ] Refuse a layer beyond the caller's memory limit and draw without it, in `ui/layer.c`. Done when: a planted allocation failure still draws every element. Cheaper substitute: a crash.
-- [ ] Nest clips and layers in `ui/layer.c`. Done when: a random tree of depth 32 equals a plain reference renderer. Cheaper substitute: one level.
+- [ ] Clip drawing to rectangles and rounded rectangles in `ui/clip.h` and `ui/clip.c` (sharing `im_shape_coverage` with `ui/draw.c`). Done when: rounded-clip output matches `tests/reference/` probes (100% to 200%) and 300% scaled rounded-clip tests in `tests/test_ui.py`. Cheaper substitute: rectangles only.
+- [ ] Draw a group with one opacity through a bounded premultiplied-RGBA layer in `ui/layer.h` and `ui/layer.c`. Done when: overlapping opaque children inside a translucent layer do not show through each other in `tests/fixtures/ui_tests.c`. Cheaper substitute: opacity on each child.
+- [ ] Refuse a layer beyond the caller's `memory_limit` or on allocation failure and draw without it in `ui/layer.c`. Done when: a planted allocation failure and a tight `memory_limit` still draw every element with zero leaks and no crash. Cheaper substitute: a crash.
+- [ ] Nest clips and layers to arbitrary depth in `ui/layer.c`. Done when: a deterministic random tree of depth 32 equals a plain independent reference renderer byte-for-byte in `tests/fixtures/ui_tests.c`. Cheaper substitute: one level.
 - [ ] Commit: `ui: clips, opacity and layers`
 
-**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+**Test checkpoint:** `python3 tools/build.py`, `python3 tools/winvm/live.py --check`, and `python3 tools/site/build.py --check` exit 0, and the new tests fail when their production change is reverted.
 
 ## 11. Transforms and pictures
 
