@@ -422,7 +422,7 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 > **Started:** 2026-11-24T05:45Z
 
-`reference/` draws buttons without text at one scale. Every control section needs it to draw any control, read its layout and drive it.
+`reference/` draws buttons without text at one scale. Every control section needs it to draw any control, read its layout and drive it. Section §17 supplies 100, 150, 200 and 300 percent captures (`reference/App.xaml.cs` accepts any scale float); the fifth scale (125 percent) required by §3 and §16 is added in `D01 T01 §3`.
 
 **Phase:** 1
 **Needs:** windows-host, display-session
@@ -430,18 +430,18 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 **Build order:**
 
-1. Write `tools/winui/pin.json` with its first item. Done when: the first item below passes.
-2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+1. Create `reference/cases/*.json` and the data-driven loader, state waiter, multi-scale renderer, `Dump.cs`, `Script.cs`, and `reference/package.json`, then verify fresh captures match the 26 legacy frames. Done when: `python3 reference/run.py` passes and the 16 legacy button and 10 probe frames match.
+2. Cover store integrity, package provenance, rectangle masking, multi-scale crispness, dumps, scripts, and live error paths in `tests/test_ui.py`. Done when: `python3 tools/build.py` and `python3 tools/site/build.py --check` pass and planted faults fail.
 
-- [ ] Read cases from `reference/cases/*.json`: control, properties, state, theme, scale, flow direction. Done when: the present 16 cases come from a file with equal pixels. Cheaper substitute: C# per control.
-- [ ] Force a visual state by name and wait for its storyboard in `reference/App.xaml.cs`. Done when: a state that does not exist stops the run with its name. Cheaper substitute: timed delays.
-- [ ] Draw at 100, 150, 200 and 300 percent in `reference/App.xaml.cs`. Done when: frames and `cases.json` record the scale. Cheaper substitute: scaling one picture.
-- [ ] Dump element rectangles and the automation tree per case in `reference/Dump.cs`. Done when: `tests/test_ui.py` reads both for the button. Cheaper substitute: pixels only.
-- [ ] Play a recorded pointer, key and touch script and write the events and focus that follow, in `reference/Script.cs`. Done when: the script of a button gives the same log twice. Cheaper substitute: a person.
-- [ ] Mask text and icon pixels by rectangle in `tests/test_ui.py`. Done when: text differences do not fail and a moved rectangle does. Cheaper substitute: a loose limit for everything.
-- [ ] Record which source commit the Windows App SDK package of `reference/Reference.csproj` was built from, and every template that differs from `tools/winui/pin.json`, in `reference/package.json`. Done when: moving either without the other fails `tests/test_ui.py`. Cheaper substitute: one version number.
-- [ ] Name the controls the package lacks in `reference/package.json`. Done when: their cases are checked against the compiled template's own values and say so. Cheaper substitute: leaving them out.
-- [ ] Store frames compressed with one index in `tests/reference/`. Done when: a missing, extra or stale frame fails the suite. Cheaper substitute: loose files.
+- [x] Read cases from `reference/cases/*.json`: control, properties, state, theme, scale, flow direction. Done when: the present 16 cases come from a file with equal pixels. Cheaper substitute: C# per control.
+- [x] Force a visual state by name and wait for its storyboard in `reference/App.xaml.cs`. Done when: a state that does not exist stops the run with its name. Cheaper substitute: timed delays.
+- [x] Draw at 100, 150, 200 and 300 percent in `reference/App.xaml.cs`. Done when: frames and `cases.json` record the scale. Cheaper substitute: scaling one picture.
+- [x] Dump element rectangles and the automation tree per case in `reference/Dump.cs`. Done when: `tests/test_ui.py` reads both for the button. Cheaper substitute: pixels only.
+- [x] Play a recorded pointer, key and touch script and write the events and focus that follow, in `reference/Script.cs`. Done when: the script of a button gives the same log twice. Cheaper substitute: a person.
+- [x] Mask text and icon pixels by rectangle in `tests/test_ui.py`. Done when: text differences do not fail and a moved rectangle does. Cheaper substitute: a loose limit for everything.
+- [x] Record which source commit the Windows App SDK package of `reference/Reference.csproj` was built from, and every template that differs from `tools/winui/pin.json`, in `reference/package.json`. Done when: moving either without the other fails `tests/test_ui.py`. Cheaper substitute: one version number.
+- [x] Name the controls the package lacks in `reference/package.json`. Done when: their cases are checked against the compiled template's own values and say so. Cheaper substitute: leaving them out.
+- [x] Store frames compressed with one index in `tests/reference/`. Done when: a missing, extra or stale frame fails the suite. Cheaper substitute: loose files.
 - [ ] Commit: `reference: any control, any state`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.

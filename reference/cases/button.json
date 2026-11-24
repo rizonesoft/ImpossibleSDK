@@ -1,0 +1,285 @@
+{
+  "cases": [
+    {
+      "id": "button-Normal-Dark",
+      "case_group": "button",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Name": "TargetButton", "Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "dump_tree": true
+    },
+    {
+      "id": "button-PointerOver-Dark",
+      "case_group": "button",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "PointerOver",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "button-Pressed-Dark",
+      "case_group": "button",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Pressed",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "button-Disabled-Dark",
+      "case_group": "button",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Disabled",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "dump_tree": true
+    },
+    {
+      "id": "accent-Normal-Dark",
+      "case_group": "accent",
+      "control": "Button",
+      "style": "AccentButtonStyle",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "accent-PointerOver-Dark",
+      "case_group": "accent",
+      "control": "Button",
+      "style": "AccentButtonStyle",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "PointerOver",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "accent-Pressed-Dark",
+      "case_group": "accent",
+      "control": "Button",
+      "style": "AccentButtonStyle",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Pressed",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "accent-Disabled-Dark",
+      "case_group": "accent",
+      "control": "Button",
+      "style": "AccentButtonStyle",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Disabled",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "button-Normal-Light",
+      "case_group": "button",
+      "control": "Button",
+      "theme": "Light",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "button-PointerOver-Light",
+      "case_group": "button",
+      "control": "Button",
+      "theme": "Light",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "PointerOver",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "button-Pressed-Light",
+      "case_group": "button",
+      "control": "Button",
+      "theme": "Light",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Pressed",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "button-Disabled-Light",
+      "case_group": "button",
+      "control": "Button",
+      "theme": "Light",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Disabled",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "accent-Normal-Light",
+      "case_group": "accent",
+      "control": "Button",
+      "style": "AccentButtonStyle",
+      "theme": "Light",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "accent-PointerOver-Light",
+      "case_group": "accent",
+      "control": "Button",
+      "style": "AccentButtonStyle",
+      "theme": "Light",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "PointerOver",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "accent-Pressed-Light",
+      "case_group": "accent",
+      "control": "Button",
+      "style": "AccentButtonStyle",
+      "theme": "Light",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Pressed",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "accent-Disabled-Light",
+      "case_group": "accent",
+      "control": "Button",
+      "style": "AccentButtonStyle",
+      "theme": "Light",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "state": "Disabled",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"}
+    },
+    {
+      "id": "button-Normal-Dark-s150",
+      "case_group": "button-scaled",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 1.5,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "dump_tree": true
+    },
+    {
+      "id": "button-Normal-Dark-s200",
+      "case_group": "button-scaled",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 2.0,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "dump_tree": true
+    },
+    {
+      "id": "button-Normal-Dark-s300",
+      "case_group": "button-scaled",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 3.0,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "dump_tree": true
+    },
+    {
+      "id": "button-ReallyDisabled-Dark",
+      "case_group": "button-disabled-prop",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Name": "DisabledButton", "Width": 120, "Height": 32, "IsEnabled": false, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "dump_tree": true
+    },
+    {
+      "id": "button-Normal-Dark-RTL",
+      "case_group": "button-rtl",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "RightToLeft",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Name": "RtlButton", "Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Left", "VerticalAlignment": "Center"},
+      "dump_tree": true
+    },
+    {
+      "id": "button-Icon-Dark-s150",
+      "case_group": "button-icon",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 1.5,
+      "flow_direction": "LeftToRight",
+      "state": "Normal",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Name": "IconButton", "Width": 120, "Height": 32, "IsTabStop": false, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "children": [
+        {
+          "id": "sdk-check-icon",
+          "control": "PathIcon",
+          "properties": {"Name": "SdkIcon", "Width": 12, "Height": 12, "Data": "M 1,6 L 5,10 L 11,2"}
+        }
+      ],
+      "dump_tree": true
+    },
+    {
+      "id": "button-Script-Dark",
+      "case_group": "button-script",
+      "control": "Button",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 160, "height": 64},
+      "properties": {"Name": "ScriptedButton", "Width": 120, "Height": 32, "IsTabStop": true, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "script": [
+        {"action": "pointer_click"},
+        {"action": "focus"},
+        {"action": "key_press", "key": "Space"},
+        {"action": "touch_tap"}
+      ],
+      "dump_tree": true
+    }
+  ]
+}

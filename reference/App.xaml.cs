@@ -1,21 +1,57 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.UI;
 using Windows.UI.ViewManagement;
 
 namespace Reference;
 
-// Draws each case with real WinUI and writes the raw pixels and a list of them
-// to the folder named on the command line. No text is drawn.
+public sealed class CaseFileSpec
+{
+    [JsonPropertyName("cases")] public List<CaseSpec> Cases { get; set; } = new();
+}
+
+public sealed class FrameSpec
+{
+    [JsonPropertyName("width")] public int Width { get; set; } = 160;
+    [JsonPropertyName("height")] public int Height { get; set; } = 64;
+    [JsonPropertyName("background")] public string? Background { get; set; }
+}
+
+public sealed class CaseSpec
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("case_group")] public string? CaseGroup { get; set; }
+    [JsonPropertyName("control")] public string Control { get; set; } = "";
+    [JsonPropertyName("style")] public string? Style { get; set; }
+    [JsonPropertyName("theme")] public string Theme { get; set; } = "Dark";
+    [JsonPropertyName("scale")] public double Scale { get; set; } = 1.0;
+    [JsonPropertyName("flow_direction")] public string FlowDirection { get; set; } = "LeftToRight";
+    [JsonPropertyName("state")] public string? State { get; set; }
+    [JsonPropertyName("use_transitions")] public bool UseTransitions { get; set; }
+    [JsonPropertyName("frame")] public FrameSpec Frame { get; set; } = new();
+    [JsonPropertyName("properties")] public Dictionary<string, JsonElement>? Properties { get; set; }
+    [JsonPropertyName("items")] public List<string>? Items { get; set; }
+    [JsonPropertyName("children")] public List<CaseSpec>? Children { get; set; }
+    [JsonPropertyName("script")] public List<ScriptActionSpec>? Script { get; set; }
+    [JsonPropertyName("dump_tree")] public bool DumpTree { get; set; }
+    [JsonPropertyName("probe_box")] public int[]? ProbeBox { get; set; }
+    [JsonPropertyName("probe_radii")] public double[]? ProbeRadii { get; set; }
+}
+
 public partial class App : Application
 {
     private Window? window;
@@ -24,16 +60,26 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        string folder = Environment.GetCommandLineArgs()[1];
+        var cli = Environment.GetCommandLineArgs();
+        string folder = cli.Length > 1 ? cli[1] : throw new InvalidOperationException("Usage: Reference.exe <out_dir> [--cases <path>]");
+        string? casesPath = null;
+        for (int i = 2; i < cli.Length; i++)
+        {
+            if (cli[i] == "--cases" && i + 1 < cli.Length)
+            {
+                casesPath = cli[++i];
+            }
+        }
+
         try
         {
             Directory.CreateDirectory(folder);
             var canvas = new Grid();
             window = new Window { Content = canvas, Title = "Impossible UI reference" };
-            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(700, 500));
+            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(900, 700));
             window.Activate();
-            await Task.Delay(1000);
-            await Draw(canvas, folder);
+            await Task.Delay(800);
+            await RunCases(window, canvas, folder, casesPath);
             Environment.Exit(0);
         }
         catch (Exception error)
@@ -43,148 +89,589 @@ public partial class App : Application
         }
     }
 
-    private static async Task Draw(Grid canvas, string folder)
+    private static List<CaseSpec> LoadCases(string? casesPath)
     {
-        if (Math.Abs(canvas.XamlRoot.RasterizationScale - 1.0) > 1e-6)
-            throw new InvalidOperationException($"Button captures require a 100% display scale (got {canvas.XamlRoot.RasterizationScale})");
-        var cases = new List<object>();
-        var styles = new (string Name, Func<Control> Make, string[] States)[]
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var files = new List<string>();
+        if (!string.IsNullOrEmpty(casesPath))
         {
-            ("button", () => new Button(), ["Normal", "PointerOver", "Pressed", "Disabled"]),
-            ("accent", () => new Button { Style = (Style)Current.Resources["AccentButtonStyle"] }, ["Normal", "PointerOver", "Pressed", "Disabled"]),
-        };
-        foreach (var theme in new[] { ElementTheme.Dark, ElementTheme.Light })
-        {
-            foreach (var (name, make, states) in styles)
+            if (Directory.Exists(casesPath))
             {
-                foreach (var state in states)
+                files.AddRange(Directory.GetFiles(casesPath, "*.json").OrderBy(p => p, StringComparer.Ordinal));
+            }
+            else if (File.Exists(casesPath))
+            {
+                files.Add(casesPath);
+            }
+            else
+            {
+                throw new InvalidOperationException($"cases path not found: {casesPath}");
+            }
+        }
+        else
+        {
+            string defaultDir = Path.Combine(AppContext.BaseDirectory, "cases");
+            if (!Directory.Exists(defaultDir))
+            {
+                defaultDir = Path.Combine(Directory.GetCurrentDirectory(), "reference", "cases");
+            }
+            if (!Directory.Exists(defaultDir))
+            {
+                throw new InvalidOperationException($"default cases directory not found: {defaultDir}");
+            }
+            files.AddRange(Directory.GetFiles(defaultDir, "*.json").OrderBy(p => p, StringComparer.Ordinal));
+        }
+
+        var all = new List<CaseSpec>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var file in files)
+        {
+            var spec = JsonSerializer.Deserialize<CaseFileSpec>(File.ReadAllText(file), opts)
+                       ?? throw new InvalidOperationException($"{file}: invalid JSON");
+            foreach (var c in spec.Cases)
+            {
+                if (string.IsNullOrWhiteSpace(c.Id))
                 {
-                    var control = make();
-                    control.Width = 120;
-                    control.Height = 32;
-                    control.IsTabStop = false;
-                    control.HorizontalAlignment = HorizontalAlignment.Center;
-                    control.VerticalAlignment = VerticalAlignment.Center;
-                    var ground = theme == ElementTheme.Dark ? Color.FromArgb(255, 32, 32, 32) : Color.FromArgb(255, 243, 243, 243);
-                    var frame = new Grid
+                    throw new InvalidOperationException($"{file}: case missing 'id'");
+                }
+                if (!seen.Add(c.Id))
+                {
+                    throw new InvalidOperationException($"{file}: duplicate case id '{c.Id}'");
+                }
+                all.Add(c);
+            }
+        }
+        return all;
+    }
+
+    private static Color ParseColor(string caseId, string field, string raw)
+    {
+        string s = raw.Trim();
+        if (s.StartsWith("#")) s = s[1..];
+        if (s.Length == 6) s = "FF" + s;
+        if (s.Length != 8 || !uint.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint v))
+        {
+            throw new InvalidOperationException($"{caseId}.{field}: invalid color '{raw}'");
+        }
+        return Color.FromArgb((byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v);
+    }
+
+    private static Thickness ParseThickness(string caseId, string field, JsonElement val)
+    {
+        if (val.ValueKind == JsonValueKind.Number)
+        {
+            double d = val.GetDouble();
+            return new Thickness(d);
+        }
+        if (val.ValueKind == JsonValueKind.Array)
+        {
+            var arr = val.EnumerateArray().Select(e => e.GetDouble()).ToArray();
+            return arr.Length switch
+            {
+                1 => new Thickness(arr[0]),
+                2 => new Thickness(arr[0], arr[1], arr[0], arr[1]),
+                4 => new Thickness(arr[0], arr[1], arr[2], arr[3]),
+                _ => throw new InvalidOperationException($"{caseId}.{field}: expected 1, 2, or 4 numbers for Thickness"),
+            };
+        }
+        throw new InvalidOperationException($"{caseId}.{field}: invalid Thickness value");
+    }
+
+    private static CornerRadius ParseCornerRadius(string caseId, string field, JsonElement val)
+    {
+        if (val.ValueKind == JsonValueKind.Number)
+        {
+            double d = val.GetDouble();
+            return new CornerRadius(d);
+        }
+        if (val.ValueKind == JsonValueKind.Array)
+        {
+            var arr = val.EnumerateArray().Select(e => e.GetDouble()).ToArray();
+            return arr.Length switch
+            {
+                1 => new CornerRadius(arr[0]),
+                4 => new CornerRadius(arr[0], arr[1], arr[2], arr[3]),
+                _ => throw new InvalidOperationException($"{caseId}.{field}: expected 1 or 4 numbers for CornerRadius"),
+            };
+        }
+        throw new InvalidOperationException($"{caseId}.{field}: invalid CornerRadius value");
+    }
+
+    private static TEnum ParseEnum<TEnum>(string caseId, string field, string raw) where TEnum : struct
+    {
+        if (!Enum.TryParse<TEnum>(raw, ignoreCase: false, out var result))
+        {
+            throw new InvalidOperationException($"{caseId}.{field}: invalid {typeof(TEnum).Name} '{raw}'");
+        }
+        return result;
+    }
+
+    private static FrameworkElement CreateElement(CaseSpec spec, double scaleFactor)
+    {
+        string caseId = spec.Id;
+        FrameworkElement el = spec.Control switch
+        {
+            "Button" => new Button(),
+            "CheckBox" => new CheckBox(),
+            "ToggleSwitch" => new ToggleSwitch(),
+            "Slider" => new Slider(),
+            "TextBox" => new TextBox(),
+            "ListView" => new ListView(),
+            "Border" => new Border(),
+            "TextBlock" => new TextBlock(),
+            "PathIcon" => new PathIcon(),
+            "StackPanel" => new StackPanel(),
+            "Grid" => new Grid(),
+            _ => throw new InvalidOperationException($"{caseId}.control: unknown control type '{spec.Control}'"),
+        };
+
+        if (!string.IsNullOrEmpty(spec.Style))
+        {
+            if (!Current.Resources.TryGetValue(spec.Style, out object? resObj) || resObj is not Style style)
+            {
+                throw new InvalidOperationException($"{caseId}.style: unknown style resource '{spec.Style}'");
+            }
+            el.Style = style;
+        }
+
+        el.FlowDirection = ParseEnum<FlowDirection>(caseId, "flow_direction", spec.FlowDirection);
+
+        if (spec.Properties != null)
+        {
+            foreach (var (prop, val) in spec.Properties)
+            {
+                ApplyProperty(caseId, el, prop, val, scaleFactor);
+            }
+        }
+
+        if (spec.Items != null)
+        {
+            if (el is ItemsControl ic)
+            {
+                foreach (var item in spec.Items)
+                {
+                    ic.Items.Add(item);
+                }
+            }
+            else
+            {
+                throw new InvalidOperationException($"{caseId}.items: control '{spec.Control}' does not support items");
+            }
+        }
+
+        if (spec.Children != null)
+        {
+            if (el is Panel panel)
+            {
+                foreach (var childSpec in spec.Children)
+                {
+                    if (string.IsNullOrEmpty(childSpec.Id)) childSpec.Id = $"{caseId}.child";
+                    panel.Children.Add(CreateElement(childSpec, scaleFactor));
+                }
+            }
+            else if (el is ContentControl cc && spec.Children.Count == 1)
+            {
+                var childSpec = spec.Children[0];
+                if (string.IsNullOrEmpty(childSpec.Id)) childSpec.Id = $"{caseId}.content";
+                cc.Content = CreateElement(childSpec, scaleFactor);
+            }
+            else if (el is Border border && spec.Children.Count == 1)
+            {
+                var childSpec = spec.Children[0];
+                if (string.IsNullOrEmpty(childSpec.Id)) childSpec.Id = $"{caseId}.child";
+                border.Child = CreateElement(childSpec, scaleFactor);
+            }
+            else
+            {
+                throw new InvalidOperationException($"{caseId}.children: control '{spec.Control}' cannot accept {spec.Children.Count} children");
+            }
+        }
+
+        return el;
+    }
+
+    private static void ApplyProperty(string caseId, FrameworkElement el, string prop, JsonElement val, double scaleFactor)
+    {
+        switch (prop)
+        {
+            case "Name":
+                el.Name = val.GetString() ?? "";
+                break;
+            case "Width":
+                el.Width = val.GetDouble() * scaleFactor;
+                break;
+            case "Height":
+                el.Height = val.GetDouble() * scaleFactor;
+                break;
+            case "MinWidth":
+                el.MinWidth = val.GetDouble() * scaleFactor;
+                break;
+            case "MinHeight":
+                el.MinHeight = val.GetDouble() * scaleFactor;
+                break;
+            case "HorizontalAlignment":
+                el.HorizontalAlignment = ParseEnum<HorizontalAlignment>(caseId, prop, val.GetString() ?? "");
+                break;
+            case "VerticalAlignment":
+                el.VerticalAlignment = ParseEnum<VerticalAlignment>(caseId, prop, val.GetString() ?? "");
+                break;
+            case "Margin":
+                el.Margin = ParseThickness(caseId, prop, val);
+                break;
+            case "IsEnabled":
+                if (el is Control cEn) cEn.IsEnabled = val.GetBoolean();
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "IsTabStop":
+                if (el is Control cTab) cTab.IsTabStop = val.GetBoolean();
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "Content":
+                if (el is ContentControl cc) cc.Content = val.GetString() ?? "";
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "Padding":
+                if (el is Control cPad) cPad.Padding = ParseThickness(caseId, prop, val);
+                else if (el is Border bPad) bPad.Padding = ParseThickness(caseId, prop, val);
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "CornerRadius":
+            {
+                var cr = ParseCornerRadius(caseId, prop, val);
+                var scaled = new CornerRadius(
+                    cr.TopLeft * scaleFactor,
+                    cr.TopRight * scaleFactor,
+                    cr.BottomRight * scaleFactor,
+                    cr.BottomLeft * scaleFactor);
+                if (el is Border bCr) bCr.CornerRadius = scaled;
+                else if (el is Control cCr) cCr.CornerRadius = scaled;
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            }
+            case "Background":
+            {
+                var brush = new SolidColorBrush(ParseColor(caseId, prop, val.GetString() ?? ""));
+                if (el is Border bBg) bBg.Background = brush;
+                else if (el is Control cBg) cBg.Background = brush;
+                else if (el is Panel pBg) pBg.Background = brush;
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            }
+            case "Foreground":
+            {
+                var brush = new SolidColorBrush(ParseColor(caseId, prop, val.GetString() ?? ""));
+                if (el is Control cFg) cFg.Foreground = brush;
+                else if (el is TextBlock tFg) tFg.Foreground = brush;
+                else if (el is IconElement iFg) iFg.Foreground = brush;
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            }
+            case "FontFamily":
+            {
+                var ff = new FontFamily(val.GetString() ?? "");
+                if (el is Control cFf) cFf.FontFamily = ff;
+                else if (el is TextBlock tFf) tFf.FontFamily = ff;
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            }
+            case "FontSize":
+            {
+                double sz = val.GetDouble();
+                if (el is Control cFs) cFs.FontSize = sz;
+                else if (el is TextBlock tFs) tFs.FontSize = sz;
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            }
+            case "Text":
+                if (el is TextBlock tb) tb.Text = val.GetString() ?? "";
+                else if (el is TextBox tbox) tbox.Text = val.GetString() ?? "";
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "PlaceholderText":
+                if (el is TextBox tboxP) tboxP.PlaceholderText = val.GetString() ?? "";
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "Header":
+                if (el is ToggleSwitch tsH) tsH.Header = val.GetString() ?? "";
+                else if (el is TextBox tboxH) tboxH.Header = val.GetString() ?? "";
+                else if (el is Slider slH) slH.Header = val.GetString() ?? "";
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "IsOn":
+                if (el is ToggleSwitch tsOn) tsOn.IsOn = val.GetBoolean();
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "IsChecked":
+                if (el is CheckBox cbChk) cbChk.IsChecked = val.ValueKind == JsonValueKind.Null ? null : val.GetBoolean();
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "Value":
+                if (el is Slider slVal) slVal.Value = val.GetDouble();
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "Minimum":
+                if (el is Slider slMin) slMin.Minimum = val.GetDouble();
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "Maximum":
+                if (el is Slider slMax) slMax.Maximum = val.GetDouble();
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "Orientation":
+                if (el is StackPanel sp) sp.Orientation = ParseEnum<Orientation>(caseId, prop, val.GetString() ?? "");
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "Spacing":
+                if (el is StackPanel spS) spS.Spacing = val.GetDouble();
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "Data":
+                if (el is PathIcon pi)
+                {
+                    string pathData = val.GetString() ?? "";
+                    var geom = (Geometry)XamlReader.Load(
+                        $"<Geometry xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>{System.Security.SecurityElement.Escape(pathData)}</Geometry>");
+                    pi.Data = geom;
+                }
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            default:
+                throw new InvalidOperationException($"{caseId}.{prop}: unknown property '{prop}' on {el.GetType().Name}");
+        }
+    }
+
+    private static async Task ApplyVisualStateAsync(string caseId, Control control, string stateName, bool useTransitions)
+    {
+        control.ApplyTemplate();
+        VisualStateGroup? foundGroup = null;
+        VisualState? foundState = null;
+
+        int childCount = VisualTreeHelper.GetChildrenCount(control);
+        for (int i = 0; i < childCount && foundState == null; i++)
+        {
+            if (VisualTreeHelper.GetChild(control, i) is FrameworkElement root)
+            {
+                var groups = VisualStateManager.GetVisualStateGroups(root);
+                if (groups == null) continue;
+                foreach (var g in groups)
+                {
+                    foreach (var s in g.States)
                     {
-                        Width = 160, Height = 64, RequestedTheme = theme, Background = new SolidColorBrush(ground),
-                        Children = { control }
-                    };
-                    canvas.Children.Clear();
-                    canvas.Children.Add(frame);
-                    await Task.Delay(80);
-                    if (!VisualStateManager.GoToState(control, state, false)) throw new InvalidOperationException($"{name}: no state {state}");
-                    await Task.Delay(300);
-                    var bitmap = new RenderTargetBitmap();
-                    byte[] pixels = [];
-                    // A transition runs for as long as a busy machine lets it: wait until the picture stays the same.
-                    for (int same = 0, tries = 0; same < 3; tries++)
-                    {
-                        if (tries == 100) throw new InvalidOperationException($"{name} {state} {theme}: the picture does not settle");
-                        await bitmap.RenderAsync(frame);
-                        var next = (await bitmap.GetPixelsAsync()).ToArray();
-                        same = next.AsSpan().SequenceEqual(pixels) ? same + 1 : 0;
-                        pixels = next;
-                        await Task.Delay(60);
+                        if (string.Equals(s.Name, stateName, StringComparison.Ordinal))
+                        {
+                            foundGroup = g;
+                            foundState = s;
+                            break;
+                        }
                     }
-                    string file = $"{name}-{state}-{theme}.bgra";
-                    File.WriteAllBytes(Path.Combine(folder, file), pixels);
-                    cases.Add(new
-                    {
-                        control = name,
-                        state,
-                        theme = theme.ToString(),
-                        scale = canvas.XamlRoot.RasterizationScale,
-                        logical_width = 160,
-                        logical_height = 64,
-                        file,
-                        width = bitmap.PixelWidth,
-                        height = bitmap.PixelHeight
-                    });
+                    if (foundState != null) break;
                 }
             }
         }
 
-        // Radius probes: white on black, no border, at scales 1, 1.5 and 2, plus an asymmetric corner-radii probe.
-        var probes = new (string Name, int LogicalW, int LogicalH, int BoxW, int BoxH, double[] Radii, double Scale)[]
+        if (foundState == null)
         {
-            ("probe-r4-s1", 64, 64, 48, 48, [4, 4, 4, 4], 1.0),
-            ("probe-r4-s15", 64, 64, 48, 48, [4, 4, 4, 4], 1.5),
-            ("probe-r4-s2", 64, 64, 48, 48, [4, 4, 4, 4], 2.0),
-            ("probe-r8-s1", 64, 64, 48, 48, [8, 8, 8, 8], 1.0),
-            ("probe-r8-s15", 64, 64, 48, 48, [8, 8, 8, 8], 1.5),
-            ("probe-r8-s2", 64, 64, 48, 48, [8, 8, 8, 8], 2.0),
-            ("probe-r16-s1", 64, 64, 48, 48, [16, 16, 16, 16], 1.0),
-            ("probe-r16-s15", 64, 64, 48, 48, [16, 16, 16, 16], 1.5),
-            ("probe-r16-s2", 64, 64, 48, 48, [16, 16, 16, 16], 2.0),
-            ("probe-asym-s1", 64, 64, 40, 20, [16, 0, 0, 0], 1.0),
-        };
-        foreach (var (name, logicalW, logicalH, boxW, boxH, radii, probeScale) in probes)
-        {
-            int pixelW = (int)Math.Round(logicalW * probeScale);
-            int pixelH = (int)Math.Round(logicalH * probeScale);
-            var shape = new Border
-            {
-                Width = boxW * probeScale,
-                Height = boxH * probeScale,
-                Background = new SolidColorBrush(Colors.White),
-                CornerRadius = new CornerRadius(
-                    radii[0] * probeScale,
-                    radii[1] * probeScale,
-                    radii[2] * probeScale,
-                    radii[3] * probeScale),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            var frame = new Grid
-            {
-                Width = pixelW,
-                Height = pixelH,
-                RequestedTheme = ElementTheme.Dark,
-                Background = new SolidColorBrush(Colors.Black),
-                Children = { shape }
-            };
-            canvas.Children.Clear();
-            canvas.Children.Add(frame);
-            await Task.Delay(80);
-            var bitmap = new RenderTargetBitmap();
-            byte[] pixels = [];
-            for (int same = 0, tries = 0; same < 3; tries++)
-            {
-                if (tries == 100) throw new InvalidOperationException($"{name}: the picture does not settle");
-                await bitmap.RenderAsync(frame);
-                var next = (await bitmap.GetPixelsAsync()).ToArray();
-                same = next.AsSpan().SequenceEqual(pixels) ? same + 1 : 0;
-                pixels = next;
-                await Task.Delay(60);
-            }
-            string file = $"{name}.bgra";
-            File.WriteAllBytes(Path.Combine(folder, file), pixels);
-            cases.Add(new
-            {
-                control = "probe",
-                name,
-                scale = probeScale,
-                logical_width = logicalW,
-                logical_height = logicalH,
-                box_width = boxW,
-                box_height = boxH,
-                radii,
-                file,
-                width = bitmap.PixelWidth,
-                height = bitmap.PixelHeight
-            });
+            throw new InvalidOperationException($"{caseId}: visual state '{stateName}' not found on {control.GetType().Name}");
         }
+
+        bool alreadyActive = foundGroup != null && string.Equals(foundGroup.CurrentState?.Name, stateName, StringComparison.Ordinal);
+        Storyboard? sb = foundState.Storyboard;
+        TaskCompletionSource<bool>? completed = null;
+        EventHandler<object>? onCompleted = null;
+
+        if (!alreadyActive && sb != null)
+        {
+            completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            onCompleted = (_, _) => completed.TrySetResult(true);
+            sb.Completed += onCompleted;
+        }
+
+        try
+        {
+            if (!VisualStateManager.GoToState(control, stateName, useTransitions))
+            {
+                throw new InvalidOperationException($"{caseId}: GoToState('{stateName}') returned false on {control.GetType().Name}");
+            }
+
+            if (completed != null)
+            {
+                var finished = await Task.WhenAny(completed.Task, Task.Delay(3000));
+                if (finished != completed.Task)
+                {
+                    // Zero-duration or instant storyboards under useTransitions=false can settle without firing Completed.
+                    if (useTransitions)
+                    {
+                        throw new InvalidOperationException($"{caseId}: storyboard for state '{stateName}' did not complete within 3000ms");
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (sb != null && onCompleted != null)
+            {
+                sb.Completed -= onCompleted;
+            }
+        }
+
+        await Task.Delay(120);
+    }
+
+    private static async Task<(byte[] Pixels, int Width, int Height)> CaptureSettledAsync(FrameworkElement target, string label)
+    {
+        var bitmap = new RenderTargetBitmap();
+        byte[] pixels = [];
+        for (int same = 0, tries = 0; same < 3; tries++)
+        {
+            if (tries == 100)
+            {
+                throw new InvalidOperationException($"{label}: the picture does not settle");
+            }
+            await bitmap.RenderAsync(target);
+            var next = (await bitmap.GetPixelsAsync()).ToArray();
+            same = next.AsSpan().SequenceEqual(pixels) ? same + 1 : 0;
+            pixels = next;
+            await Task.Delay(60);
+        }
+        return (pixels, bitmap.PixelWidth, bitmap.PixelHeight);
+    }
+
+    private static async Task RunCases(Window window, Grid canvas, string folder, string? casesPath)
+    {
+        if (Math.Abs(canvas.XamlRoot.RasterizationScale - 1.0) > 1e-6)
+        {
+            throw new InvalidOperationException($"Reference captures require a 100% display scale (got {canvas.XamlRoot.RasterizationScale})");
+        }
+
+        var specs = LoadCases(casesPath);
+        var results = new List<object>();
+
+        foreach (var spec in specs)
+        {
+            var theme = ParseEnum<ElementTheme>(spec.Id, "theme", spec.Theme);
+            double scale = spec.Scale > 0 ? spec.Scale : 1.0;
+            int logicalW = spec.Frame.Width;
+            int logicalH = spec.Frame.Height;
+            int pixelW = (int)Math.Round(logicalW * scale);
+            int pixelH = (int)Math.Round(logicalH * scale);
+
+            Color ground = !string.IsNullOrEmpty(spec.Frame.Background)
+                ? ParseColor(spec.Id, "frame.background", spec.Frame.Background)
+                : (theme == ElementTheme.Dark ? Color.FromArgb(255, 32, 32, 32) : Color.FromArgb(255, 243, 243, 243));
+
+            bool isProbe = string.Equals(spec.CaseGroup, "probe", StringComparison.Ordinal);
+            // For probes (pure Border geometry), scale properties directly in DIPs (exact match to original probe renderer).
+            // For controls at scale != 1.0, wrap the logical-sized frame inside a Viewbox sized to pixelW x pixelH so
+            // WinUI re-rasterizes vector borders, corners, and templates at the target scale rather than enlarging a bitmap.
+            FrameworkElement element = CreateElement(spec, isProbe ? scale : 1.0);
+            var innerFrame = new Grid
+            {
+                Width = isProbe ? pixelW : logicalW,
+                Height = isProbe ? pixelH : logicalH,
+                RequestedTheme = theme,
+                FlowDirection = ParseEnum<FlowDirection>(spec.Id, "flow_direction", spec.FlowDirection),
+                Background = new SolidColorBrush(ground),
+                Children = { element },
+            };
+
+            FrameworkElement captureTarget;
+            if (!isProbe && Math.Abs(scale - 1.0) > 1e-6)
+            {
+                captureTarget = new Viewbox
+                {
+                    Width = pixelW,
+                    Height = pixelH,
+                    Stretch = Stretch.Fill,
+                    Child = innerFrame,
+                };
+            }
+            else
+            {
+                captureTarget = innerFrame;
+            }
+
+            canvas.Children.Clear();
+            canvas.Children.Add(captureTarget);
+            await Task.Delay(80);
+
+            if (!string.IsNullOrEmpty(spec.State))
+            {
+                if (element is not Control ctrl)
+                {
+                    throw new InvalidOperationException($"{spec.Id}.state: '{spec.Control}' is not a Control and has no visual states");
+                }
+                await ApplyVisualStateAsync(spec.Id, ctrl, spec.State, spec.UseTransitions);
+            }
+
+            ScriptResultDto? scriptResult = null;
+            if (spec.Script != null && spec.Script.Count > 0)
+            {
+                scriptResult = await Script.RunAsync(window, element, spec.Script);
+            }
+
+            var (pixels, width, height) = await CaptureSettledAsync(captureTarget, spec.Id);
+            string file = $"{spec.Id}.bgra";
+            File.WriteAllBytes(Path.Combine(folder, file), pixels);
+
+            LayoutNode? layoutDump = null;
+            AutomationNode? automationDump = null;
+            if (spec.DumpTree)
+            {
+                layoutDump = Dump.DumpLayout(innerFrame, isProbe ? scale : 1.0);
+                automationDump = Dump.DumpAutomation(innerFrame, element, scale);
+            }
+
+            var entry = new Dictionary<string, object?>
+            {
+                ["id"] = spec.Id,
+                ["control"] = spec.CaseGroup ?? spec.Control,
+                ["xaml_control"] = spec.Control,
+                ["theme"] = spec.Theme,
+                ["scale"] = scale,
+                ["flow_direction"] = spec.FlowDirection,
+                ["logical_width"] = logicalW,
+                ["logical_height"] = logicalH,
+                ["file"] = file,
+                ["width"] = width,
+                ["height"] = height,
+            };
+            if (!string.IsNullOrEmpty(spec.State)) entry["state"] = spec.State;
+            if (isProbe)
+            {
+                entry["name"] = spec.Id;
+                if (spec.ProbeBox != null && spec.ProbeBox.Length == 2)
+                {
+                    entry["box_width"] = spec.ProbeBox[0];
+                    entry["box_height"] = spec.ProbeBox[1];
+                }
+                if (spec.ProbeRadii != null) entry["radii"] = spec.ProbeRadii;
+            }
+            if (layoutDump != null) entry["layout"] = layoutDump;
+            if (automationDump != null) entry["automation"] = automationDump;
+            if (scriptResult != null) entry["script_log"] = scriptResult;
+            results.Add(entry);
+        }
+
         var settings = new UISettings();
         var accents = new Dictionary<string, string>();
-        foreach (var type in new[] { UIColorType.Accent, UIColorType.AccentLight1, UIColorType.AccentLight2, UIColorType.AccentLight3,
-                                     UIColorType.AccentDark1, UIColorType.AccentDark2, UIColorType.AccentDark3 })
+        foreach (var type in new[]
+                 {
+                     UIColorType.Accent, UIColorType.AccentLight1, UIColorType.AccentLight2, UIColorType.AccentLight3,
+                     UIColorType.AccentDark1, UIColorType.AccentDark2, UIColorType.AccentDark3
+                 })
         {
             var c = settings.GetColorValue(type);
             accents[type.ToString()] = $"{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
         }
-        var scale = canvas.XamlRoot.RasterizationScale;
-        File.WriteAllText(Path.Combine(folder, "cases.json"), JsonSerializer.Serialize(new { scale, accents, cases }, new JsonSerializerOptions { WriteIndented = true }));
+
+        var manifest = new
+        {
+            scale = canvas.XamlRoot.RasterizationScale,
+            accents,
+            cases = results,
+        };
+        File.WriteAllText(
+            Path.Combine(folder, "cases.json"),
+            JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

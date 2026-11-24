@@ -3,6 +3,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1399,8 +1400,36 @@ EXPECTED_CASES = [
 ]
 
 
+LEGACY_CASE_IDS = [
+    *[
+        f"{control}-{state}-{theme}"
+        for theme in ("Dark", "Light")
+        for control in ("button", "accent")
+        for state in ("Normal", "PointerOver", "Pressed", "Disabled")
+    ],
+    "probe-r4-s1", "probe-r4-s15", "probe-r4-s2",
+    "probe-r8-s1", "probe-r8-s15", "probe-r8-s2",
+    "probe-r16-s1", "probe-r16-s15", "probe-r16-s2",
+    "probe-asym-s1",
+]
+
+
+def select_legacy_cases(manifest):
+    """Select the 26 legacy button + probe cases in control-shots.exe emission order by stable ID."""
+    by_id = {}
+    for c in manifest.get("cases", []):
+        cid = c.get("id") or (c.get("name") if c.get("control") == "probe" else f"{c.get('control')}-{c.get('state')}-{c.get('theme')}")
+        if cid in by_id:
+            raise ValueError(f"duplicate case id in manifest: {cid!r}")
+        by_id[cid] = c
+    missing = [cid for cid in LEGACY_CASE_IDS if cid not in by_id]
+    if missing:
+        raise ValueError(f"manifest missing required legacy cases: {missing}")
+    return [by_id[cid] for cid in LEGACY_CASE_IDS]
+
+
 def validate_manifest(manifest):
-    """Verify the reference manifest independently of its own count."""
+    """Verify the reference manifest independently of its own count and ordering."""
     accents = manifest.get("accents", {})
     accent_args = []
     for key in ACCENT_KEYS:
@@ -1409,8 +1438,8 @@ def validate_manifest(manifest):
             raise ValueError(f"missing or malformed accent shade {key}: {val!r}")
         accent_args.append(val)
     cases = manifest.get("cases", [])
-    seen = []
     files = []
+    ids = []
     for case in cases:
         scale = case.get("scale")
         lw, lh = case.get("logical_width"), case.get("logical_height")
@@ -1423,19 +1452,145 @@ def validate_manifest(manifest):
                 f"dimension/scale mismatch for {fn}: "
                 f"{w}x{h} != round({lw}x{lh} * {scale})"
             )
-        if case.get("control") == "probe":
-            ident = ("probe", case.get("name"), None, None, float(scale), lw, lh, case.get("radii"), fn)
-        else:
-            ident = ("button_case", case.get("control"), case.get("state"), case.get("theme"), float(scale), lw, lh, None, fn)
-        seen.append(ident)
+        cid = case.get("id") or (case.get("name") if case.get("control") == "probe" else f"{case.get('control')}-{case.get('state')}-{case.get('theme')}")
+        ids.append(cid)
         files.append(fn)
     if len(files) != len(set(files)):
         raise ValueError("duplicate reference filename in manifest")
-    if len(seen) != len(set(tuple(x if not isinstance(x, list) else tuple(x) for x in s) for s in seen)):
+    if len(ids) != len(set(ids)):
         raise ValueError("duplicate case identity in manifest")
-    if seen != EXPECTED_CASES:
-        raise ValueError(f"manifest cases differ from expected 26 identities (got {len(seen)})")
+    legacy = select_legacy_cases(manifest)
+    legacy_idents = []
+    for case in legacy:
+        scale, lw, lh, fn = case["scale"], case["logical_width"], case["logical_height"], case["file"]
+        if case.get("control") == "probe":
+            legacy_idents.append(("probe", case.get("name"), None, None, float(scale), lw, lh, case.get("radii"), fn))
+        else:
+            legacy_idents.append(("button_case", case.get("control"), case.get("state"), case.get("theme"), float(scale), lw, lh, None, fn))
+    if legacy_idents != EXPECTED_CASES:
+        raise ValueError("legacy 26 cases differ from expected identities")
     return accent_args
+
+
+def nearest_upscale(raw, sw, sh, dw, dh):
+    """Nearest-neighbour upscale a BGRA buffer from sw x sh to dw x dh."""
+    out = bytearray(dw * dh * 4)
+    for dy in range(dh):
+        sy = min(sh - 1, int(dy * sh / dh))
+        for dx in range(dw):
+            sx = min(sw - 1, int(dx * sw / dw))
+            dst = (dy * dw + dx) * 4
+            src = (sy * sw + sx) * 4
+            out[dst:dst + 4] = raw[src:src + 4]
+    return bytes(out)
+
+
+def check_scaled_control_capture(case, raw):
+    """Verify a scaled button capture was vector-rasterized rather than bilinearly or nearest-neighbour enlarged."""
+    w, h = case["width"], case["height"]
+    scale = float(case["scale"])
+    if scale <= 1.0:
+        return
+    # 1. Straight vertical edge at x = round(20 * scale), y = h // 2 must jump cleanly from background 32 to border >= 45
+    #    with zero bilinear pre-edge blur at x - 1.
+    y_mid = h // 2
+    x_edge = round(20 * scale)
+    bg_before = raw[(y_mid * w + (x_edge - 1)) * 4]
+    edge_px = raw[(y_mid * w + x_edge) * 4]
+    if bg_before != 32 or edge_px < 46:
+        raise ValueError(f"{case['id']}: blurry edge at ({x_edge},{y_mid}): before={bg_before}, edge={edge_px}")
+
+    # 2. Catch nearest-neighbour block enlargement:
+    #    - At 1.5x, a 1px logical border has fractional 1.5px coverage at x_edge+1 (between 45 and 48, not solid 48).
+    #    - At integer scales k >= 2, the top-left rounded corner (x in [x_edge, x_edge+4*k), y in [y_top, y_top+4*k))
+    #      must NOT consist solely of uniform k x k duplicated blocks.
+    if abs(scale - 1.5) < 1e-6:
+        next_px = raw[(y_mid * w + (x_edge + 1)) * 4]
+        if next_px == edge_px:
+            raise ValueError(f"{case['id']}: 1.5x border shows nearest-neighbour duplication ({edge_px}, {next_px})")
+    elif abs(scale - round(scale)) < 1e-6 and round(scale) >= 2:
+        k = int(round(scale))
+        y_top = round(16 * scale)
+        non_block = 0
+        for by in range(4):
+            for bx in range(4):
+                x0, y0 = x_edge + bx * k, y_top + by * k
+                vals = {raw[((y0 + dy) * w + (x0 + dx)) * 4] for dy in range(k) for dx in range(k)}
+                if len(vals) > 1:
+                    non_block += 1
+        if non_block == 0:
+            raise ValueError(f"{case['id']}: {k}x corner consists purely of uniform {k}x{k} nearest-neighbour blocks")
+
+
+def extract_mask_rects(layout_node):
+    """Collect frame-relative logical rectangles for all text and icon nodes in a Dump.cs layout tree."""
+    rects = []
+    if layout_node.get("IsText") or layout_node.get("IsIcon"):
+        r = layout_node["Rect"]
+        rects.append((layout_node.get("Name") or layout_node.get("Type"), r["X"], r["Y"], r["Width"], r["Height"]))
+    for ch in layout_node.get("Children", []):
+        rects.extend(extract_mask_rects(ch))
+    return rects
+
+
+def compare_frames_with_layout_mask(mine, real, width, height, scale, cand_rects, ref_rects, limit=0, rect_tol_dip=1.0):
+    """Compare candidate and reference text/icon rectangles FIRST, then compare unmasked pixels."""
+    if len(cand_rects) != len(ref_rects):
+        raise ValueError(f"masked element count mismatch: candidate={len(cand_rects)} vs reference={len(ref_rects)}")
+    pixel_masks = []
+    for (cname, cx, cy, cw, ch), (rname, rx, ry, rw, rh) in zip(cand_rects, ref_rects):
+        if cname != rname:
+            raise ValueError(f"masked element name mismatch: {cname!r} vs {rname!r}")
+        if max(abs(cx - rx), abs(cy - ry), abs(cw - rw), abs(ch - rh)) > rect_tol_dip:
+            raise ValueError(f"masked element {rname!r} moved: cand=({cx},{cy},{cw},{ch}) vs ref=({rx},{ry},{rw},{rh})")
+        # Convert logical DIPs to target pixels and clip to frame bounds.
+        x0 = max(0, min(width, round(rx * scale)))
+        y0 = max(0, min(height, round(ry * scale)))
+        x1 = max(0, min(width, round((rx + rw) * scale)))
+        y1 = max(0, min(height, round((ry + rh) * scale)))
+        pixel_masks.append((x0, y0, x1, y1))
+
+    worst = 0
+    for y in range(height):
+        for x in range(width):
+            if any(x0 <= x < x1 and y0 <= y < y1 for x0, y0, x1, y1 in pixel_masks):
+                continue
+            off = max(abs(mine[(y * width + x) * 4 + k] - real[(y * width + x) * 4 + k]) for k in range(3))
+            if off > worst:
+                worst = off
+    if worst > limit:
+        raise ValueError(f"unmasked pixel diff {worst} exceeds limit {limit}")
+    return worst
+
+
+def validate_script_log(script_log, require_modalities=("pointer", "keyboard", "touch")):
+    """Verify a Script.cs log exercised every required input modality with real routed events and focus."""
+    events = script_log.get("Events", [])
+    final = script_log.get("FinalState", {})
+    if not events:
+        raise ValueError("empty script event log")
+    seen_mods = set()
+    clicks = 0
+    for ev in events:
+        name = ev.get("Event", "")
+        ptype = ev.get("PointerType", "")
+        if name == "PointerPressed" and ptype == "Mouse":
+            seen_mods.add("pointer")
+        elif name.startswith("KeyDown:"):
+            seen_mods.add("keyboard")
+        elif name == "PointerPressed" and ptype == "Touch":
+            seen_mods.add("touch")
+        if name == "Click":
+            clicks += 1
+    missing = [m for m in require_modalities if m not in seen_mods]
+    if missing:
+        raise ValueError(f"script log missing required input modalities: {missing}")
+    if clicks < len(require_modalities):
+        raise ValueError(f"expected at least {len(require_modalities)} Click events, got {clicks}")
+    if final.get("clicks") != clicks:
+        raise ValueError(f"FinalState.clicks ({final.get('clicks')}) != logged Click events ({clicks})")
+    if not final.get("focused") or final.get("focused") == "none":
+        raise ValueError(f"FinalState.focused not set: {final}")
 
 
 def check_probe_crispness(case, raw):
@@ -1536,6 +1691,255 @@ class GuideDocs(unittest.TestCase):
         self.assertIsNone(re.search(r"6-unit|six-unit|<=\s*4 on accent", s1_body), f"{todo_rel}: superseded accent floor claim in §1")
 
 
+class ReferenceHarness(unittest.TestCase):
+    """Store, package, dump, masking, and script-log checks that run on any host without a display session."""
+
+    def _ref_modules(self):
+        sys.path.insert(0, str(ROOT / "reference"))
+        sys.path.insert(0, str(ROOT / "tools/winui"))
+        import run as ref_run
+        import check_package
+        return ref_run, check_package
+
+    def test_store_integrity_and_negative_faults(self):
+        ref_run, _ = self._ref_modules()
+        specs = ref_run.load_case_specs(ROOT / "reference/cases")
+        manifest = ref_run.validate_store_dir(ROOT / "tests/reference", specs)
+        self.assertEqual(len(manifest["cases"]), len(specs))
+
+        # Reordered index + extra 100% LTR button still selects the exact 26 legacy cases in emission order.
+        reordered = {**manifest, "cases": list(reversed(manifest["cases"])) + [{
+            "id": "button-Extra-Dark",
+            "control": "button",
+            "state": "Normal",
+            "theme": "Dark",
+            "scale": 1.0,
+            "flow_direction": "LeftToRight",
+            "logical_width": 160,
+            "logical_height": 64,
+            "file": "button-Extra-Dark.bgra",
+            "width": 160,
+            "height": 64,
+        }]}
+        validate_manifest(reordered)
+        self.assertEqual(len(select_legacy_cases(reordered)), 26)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tstore = Path(tmp) / "ref"
+            shutil.copytree(ROOT / "tests/reference", tstore)
+
+            # 1. Missing compressed frame fails.
+            dropped = tstore / "button-Normal-Dark.bgra.z"
+            saved = dropped.read_bytes()
+            dropped.unlink()
+            with self.assertRaises(ValueError):
+                ref_run.validate_store_dir(tstore, specs)
+            dropped.write_bytes(saved)
+
+            # 2. Extra unindexed file fails.
+            extra = tstore / "stray.bgra.z"
+            extra.write_bytes(b"stray")
+            with self.assertRaises(ValueError):
+                ref_run.validate_store_dir(tstore, specs)
+            extra.unlink()
+
+            # 3. Stale/corrupted frame fails digest check.
+            dropped.write_bytes(zlib.compress(b"\x00" * (160 * 64 * 4), 9))
+            with self.assertRaises(ValueError):
+                ref_run.validate_store_dir(tstore, specs)
+            dropped.write_bytes(saved)
+
+            # 4. Case-only edit without refreshing the store fails case_sha256 check.
+            mut_specs = {k: dict(v) for k, v in specs.items()}
+            mut_specs["button-Normal-Dark"] = {**mut_specs["button-Normal-Dark"], "theme": "Light"}
+            with self.assertRaises(ValueError):
+                ref_run.validate_store_dir(tstore, mut_specs)
+
+            # 5. Failed publish_store leaves previous store index and every frame intact.
+            bad_fresh = Path(tmp) / "bad_fresh"
+            bad_fresh.mkdir()
+            (bad_fresh / "cases.json").write_text(json.dumps({"accents": manifest["accents"], "cases": [manifest["cases"][0]]}), encoding="utf-8")
+            with self.assertRaises(Exception):
+                ref_run.publish_store(bad_fresh, tstore, specs)
+            ref_run.validate_store_dir(tstore, specs)
+
+        # 6. --cases combined with --update-store is refused without touching the store.
+        res = subprocess.run(
+            [sys.executable, str(ROOT / "reference/run.py"), "--cases", str(ROOT / "reference/cases/button.json"), "--update-store"],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("refuses --cases", res.stderr)
+
+        # 7. Prohibited Microsoft font or FontIcon cannot be persisted to the store.
+        with self.assertRaises(ValueError):
+            ref_run.check_no_prohibited_assets({"id": "bad-text", "control": "Button", "properties": {"Content": "Hi"}})
+        with self.assertRaises(ValueError):
+            ref_run.check_no_prohibited_assets({"id": "bad-icon", "control": "FontIcon"})
+
+    def test_package_provenance_and_missing_controls(self):
+        _, check_pkg = self._ref_modules()
+        info = check_pkg.verify_package(ROOT)
+        self.assertEqual(info["version"], "1.8.260921001")
+        self.assertEqual(info["winui_component"], "1.8.260803003")
+        self.assertTrue(all(m["basis"] == "compiled-template" for m in info["missing_controls"]))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "repo"
+            for rel in ("reference/package.json", "reference/Reference.csproj", "reference/packages.lock.json",
+                        "tools/winui/pin.json", "ui/template_data.c"):
+                dst = fake / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / rel, dst)
+
+            # 1. Moving Reference.csproj version without package.json fails.
+            csproj = fake / "reference/Reference.csproj"
+            orig_csproj = csproj.read_text(encoding="utf-8")
+            csproj.write_text(orig_csproj.replace("1.8.260921001", "1.9.0"), encoding="utf-8")
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_package(fake)
+            csproj.write_text(orig_csproj, encoding="utf-8")
+
+            # 2. Moving WinUI component version in packages.lock.json without package.json fails.
+            lock = fake / "reference/packages.lock.json"
+            orig_lock = lock.read_text(encoding="utf-8")
+            lock.write_text(orig_lock.replace("1.8.260803003", "1.8.999999999"), encoding="utf-8")
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_package(fake)
+            lock.write_text(orig_lock, encoding="utf-8")
+
+            # 3. Moving tools/winui/pin.json commit without package.json fails.
+            pin = fake / "tools/winui/pin.json"
+            orig_pin = pin.read_text(encoding="utf-8")
+            pin.write_text(orig_pin.replace("5417e89b32818cfd85f757e9d1290203dc3cfecb", "0" * 40), encoding="utf-8")
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_package(fake)
+            pin.write_text(orig_pin, encoding="utf-8")
+
+            # 4. Removing a missing_controls entry or corrupting its expected_elements fails.
+            pkg_file = fake / "reference/package.json"
+            orig_pkg = json.loads(pkg_file.read_text(encoding="utf-8"))
+            dropped_mc = {**orig_pkg, "missing_controls": orig_pkg["missing_controls"][1:]}
+            pkg_file.write_text(json.dumps(dropped_mc), encoding="utf-8")
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_package(fake)
+
+            bad_mc = json.loads(json.dumps(orig_pkg))
+            bad_mc["missing_controls"][0]["expected_elements"] = 999
+            pkg_file.write_text(json.dumps(bad_mc), encoding="utf-8")
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.verify_package(fake)
+
+            # 5. When live NuGet WinUI package + WinUI checkout exist, omitting a template_diff or wrong commit fails.
+            if info["checked_live"]:
+                bad_diffs = {**orig_pkg, "template_diffs": orig_pkg["template_diffs"][:-1]}
+                pkg_file.write_text(json.dumps(bad_diffs), encoding="utf-8")
+                with self.assertRaises(check_pkg.PackageDrift):
+                    check_pkg.verify_package(fake)
+                bad_commit = {**orig_pkg, "package_source_commit": "a" * 40}
+                pkg_file.write_text(json.dumps(bad_commit), encoding="utf-8")
+                with self.assertRaises(check_pkg.PackageDrift):
+                    check_pkg.verify_package(fake)
+
+    def test_layout_automation_scale_rtl_and_script_dumps(self):
+        folder = ROOT / "tests/reference"
+        manifest = json.loads((folder / "cases.json").read_text(encoding="utf-8"))
+        by_id = {c["id"]: c for c in manifest["cases"]}
+
+        # 1. Button layout + automation dumps have frame-relative coords, Invoke pattern, and correct hierarchy.
+        btn = by_id["button-Normal-Dark"]
+        layout = btn["layout"]
+        self.assertEqual(layout["Type"], "Grid")
+        self.assertEqual((layout["Rect"]["X"], layout["Rect"]["Y"], layout["Rect"]["Width"], layout["Rect"]["Height"]), (0, 0, 160, 64))
+        btn_node = layout["Children"][0]
+        self.assertEqual(btn_node["Type"], "Button")
+        self.assertEqual(btn_node["Name"], "TargetButton")
+        self.assertEqual((btn_node["Rect"]["X"], btn_node["Rect"]["Y"], btn_node["Rect"]["Width"], btn_node["Rect"]["Height"]), (20, 16, 120, 32))
+        auto = btn["automation"]
+        self.assertEqual(auto["ControlType"], "Button")
+        self.assertTrue(auto["IsEnabled"])
+        self.assertFalse(auto["HasKeyboardFocus"])
+        self.assertIn("Invoke", auto["Patterns"])
+        self.assertEqual((auto["Rect"]["X"], auto["Rect"]["Y"], auto["Rect"]["Width"], auto["Rect"]["Height"]), (20, 16, 120, 32))
+
+        # 2. Visually forced Disabled vs actually disabled (IsEnabled=false).
+        self.assertTrue(by_id["button-Disabled-Dark"]["automation"]["IsEnabled"])
+        self.assertFalse(by_id["button-ReallyDisabled-Dark"]["automation"]["IsEnabled"])
+
+        # 3. Scaled captures at 150%, 200%, 300% pass crispness/anti-stairstep checks, while bilinear & nearest fail.
+        s100 = zlib.decompress((folder / "button-Normal-Dark.bgra.z").read_bytes())
+        for cid, scale, w, h in [
+            ("button-Normal-Dark-s150", 1.5, 240, 96),
+            ("button-Normal-Dark-s200", 2.0, 320, 128),
+            ("button-Normal-Dark-s300", 3.0, 480, 192),
+        ]:
+            case = by_id[cid]
+            self.assertEqual((case["scale"], case["width"], case["height"]), (scale, w, h))
+            ar = case["automation"]["Rect"]
+            self.assertEqual((ar["X"], ar["Y"], ar["Width"], ar["Height"]), (20, 16, 120, 32))
+            real = zlib.decompress((folder / f"{case['file']}.z").read_bytes())
+            check_scaled_control_capture(case, real)
+            with self.assertRaises(ValueError):
+                check_scaled_control_capture(case, bilinear_upscale(s100, 160, 64, w, h))
+            with self.assertRaises(ValueError):
+                check_scaled_control_capture(case, nearest_upscale(s100, 160, 64, w, h))
+
+        # 4. RTL capture mirrors HorizontalAlignment=Left to the right edge of the 160px frame.
+        rtl_case = by_id["button-Normal-Dark-RTL"]
+        self.assertEqual(rtl_case["flow_direction"], "RightToLeft")
+        rtl_px = zlib.decompress((folder / f"{rtl_case['file']}.z").read_bytes())
+        xs = [x for x in range(160) if any(rtl_px[(32 * 160 + x) * 4 + k] != 32 for k in range(3))]
+        self.assertEqual((min(xs), max(xs)), (40, 159))
+
+        # 5. Scripted button log covers pointer, keyboard, and touch with real routed events and focus.
+        slog = by_id["button-Script-Dark"]["script_log"]
+        validate_script_log(slog)
+        # Dropping any modality must fail.
+        for drop_ev in ("Mouse", "KeyDown:", "Touch"):
+            filtered = {
+                **slog,
+                "Events": [e for e in slog["Events"] if drop_ev not in e.get("PointerType", "") and drop_ev not in e.get("Event", "")],
+            }
+            with self.assertRaises(ValueError):
+                validate_script_log(filtered)
+
+    def test_rectangle_masking_for_text_and_icon_at_fractional_scale(self):
+        folder = ROOT / "tests/reference"
+        manifest = json.loads((folder / "cases.json").read_text(encoding="utf-8"))
+        icon_case = next(c for c in manifest["cases"] if c["id"] == "button-Icon-Dark-s150")
+        real = zlib.decompress((folder / f"{icon_case['file']}.z").read_bytes())
+        w, h, scale = icon_case["width"], icon_case["height"], float(icon_case["scale"])
+        ref_rects = extract_mask_rects(icon_case["layout"])
+        self.assertEqual(len(ref_rects), 1)
+        # Add an independent TextBlock rect at fractional 1.5x alongside the dumped PathIcon rect.
+        ref_both = [*ref_rects, ("LabelText", 30.0, 24.0, 30.0, 14.0)]
+        cand_both = list(ref_both)
+
+        # Mutating pixels strictly inside the masked icon AND text rects must pass.
+        mut = bytearray(real)
+        for _, rx, ry, rw, rh in ref_both:
+            px, py = round((rx + rw * 0.5) * scale), round((ry + rh * 0.5) * scale)
+            mut[(py * w + px) * 4:(py * w + px) * 4 + 3] = bytes([255, 0, 255])
+        compare_frames_with_layout_mask(bytes(mut), real, w, h, scale, cand_both, ref_both, limit=0)
+
+        # Moving a candidate rectangle by 2 DIPs must fail even though its pixels are masked.
+        moved = [(ref_both[0][0], ref_both[0][1] + 2.0, ref_both[0][2], ref_both[0][3], ref_both[0][4]), ref_both[1]]
+        with self.assertRaises(ValueError):
+            compare_frames_with_layout_mask(bytes(mut), real, w, h, scale, moved, ref_both, limit=0)
+
+        # Missing a masked element must fail.
+        with self.assertRaises(ValueError):
+            compare_frames_with_layout_mask(bytes(mut), real, w, h, scale, [ref_both[0]], ref_both, limit=0)
+
+        # Mutating a pixel immediately outside a masked rect must fail.
+        outside = bytearray(real)
+        out_x = round(ref_both[0][1] * scale) - 2
+        out_y = round(ref_both[0][2] * scale)
+        outside[(out_y * w + out_x) * 4] ^= 0x40
+        with self.assertRaises(ValueError):
+            compare_frames_with_layout_mask(bytes(outside), real, w, h, scale, cand_both, ref_both, limit=0)
+
+
 @unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
 class Drawing(unittest.TestCase):
     def test_drawing(self):
@@ -1604,7 +2008,7 @@ class Drawing(unittest.TestCase):
         folder = ROOT / "tests/reference"
         manifest = json.loads((folder / "cases.json").read_text(encoding="utf-8"))
         accent_args = validate_manifest(manifest)
-        cases = manifest["cases"]
+        cases = select_legacy_cases(manifest)
         ours = subprocess.run([str(BUILD / "control-shots.exe"), *accent_args], capture_output=True, timeout=60, check=True).stdout
         expected_bytes = sum(c["width"] * c["height"] * 4 for c in cases)
         self.assertEqual(len(ours), expected_bytes)
@@ -1640,6 +2044,117 @@ class Drawing(unittest.TestCase):
                 else:
                     limit = STANDARD_DARK_CORNER_LIMIT if case["theme"] == "Dark" else STANDARD_LIGHT_CORNER_LIMIT
                 self.assertLessEqual(corner, limit, name)
+
+
+@unittest.skipUnless(
+    os.environ.get("IMPOSSIBLE_LIVE_REFERENCE") == "1" and (os.name == "nt" or "microsoft" in platform.release().lower()),
+    "set IMPOSSIBLE_LIVE_REFERENCE=1 on a Windows display session to run live WinUI Reference.exe tests",
+)
+class LiveReference(unittest.TestCase):
+    def test_live_non_button_storyboard_errors_and_script_repeatability(self):
+        sys.path.insert(0, str(ROOT / "reference"))
+        import run as ref_run
+
+        with tempfile.TemporaryDirectory(dir=ref_run.host_temp_root(), prefix="impossible-live-ref-") as build_tmp:
+            exe = ref_run.build_reference(build_tmp)
+
+            # 1. Nonexistent visual state stops the run naming the state.
+            with tempfile.TemporaryDirectory() as tmp:
+                bad_state = Path(tmp) / "bad_state.json"
+                bad_state.write_text(json.dumps({"cases": [{
+                    "id": "bad-state-case",
+                    "control": "Button",
+                    "theme": "Dark",
+                    "scale": 1.0,
+                    "state": "NoSuchVisualState",
+                    "frame": {"width": 160, "height": 64},
+                    "properties": {"Width": 120, "Height": 32},
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as ctx:
+                    ref_run.run_reference(exe, Path(tmp) / "out_bad", cases_path=bad_state, work_dir=build_tmp)
+                self.assertIn("NoSuchVisualState", ctx.exception.stderr)
+
+                # 2. Unknown control type and unknown property fail naming case ID and field.
+                bad_ctrl = Path(tmp) / "bad_ctrl.json"
+                bad_ctrl.write_text(json.dumps({"cases": [{
+                    "id": "bad-type-case",
+                    "control": "BogusWidget",
+                    "theme": "Dark",
+                    "scale": 1.0,
+                    "frame": {"width": 160, "height": 64},
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as ctx2:
+                    ref_run.run_reference(exe, Path(tmp) / "out_bad2", cases_path=bad_ctrl, work_dir=build_tmp)
+                self.assertIn("bad-type-case.control", ctx2.exception.stderr)
+
+                # 3. Non-button controls (ToggleSwitch animated On vs Off, ListView with items + RTL) + scripted button run twice.
+                combo = Path(tmp) / "combo.json"
+                combo.write_text(json.dumps({"cases": [
+                    {
+                        "id": "ts-off",
+                        "control": "ToggleSwitch",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "state": "Off",
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"IsOn": False, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "dump_tree": True,
+                    },
+                    {
+                        "id": "ts-on",
+                        "control": "ToggleSwitch",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "state": "On",
+                        "use_transitions": True,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"IsOn": True, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "dump_tree": True,
+                    },
+                    {
+                        "id": "lv-rtl",
+                        "control": "ListView",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "flow_direction": "RightToLeft",
+                        "frame": {"width": 160, "height": 96},
+                        "properties": {"Width": 140, "Height": 80, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "items": ["Alpha", "Beta"],
+                        "dump_tree": True,
+                    },
+                    {
+                        "id": "btn-script-live",
+                        "control": "Button",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 160, "height": 64},
+                        "properties": {"Name": "ScriptedButton", "Width": 120, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [
+                            {"action": "pointer_click"},
+                            {"action": "focus"},
+                            {"action": "key_press", "key": "Space"},
+                            {"action": "touch_tap"},
+                        ],
+                        "dump_tree": True,
+                    },
+                ]}), encoding="utf-8")
+
+                out1 = ref_run.run_reference(exe, Path(tmp) / "out1", cases_path=combo, work_dir=build_tmp)
+                out2 = ref_run.run_reference(exe, Path(tmp) / "out2", cases_path=combo, work_dir=build_tmp)
+
+                m1 = json.loads((out1 / "cases.json").read_text(encoding="utf-8"))
+                m2 = json.loads((out2 / "cases.json").read_text(encoding="utf-8"))
+                by1 = {c["id"]: c for c in m1["cases"]}
+                by2 = {c["id"]: c for c in m2["cases"]}
+
+                # Animated ToggleSwitch On frame differs from Off frame.
+                self.assertNotEqual((out1 / "ts-off.bgra").read_bytes(), (out1 / "ts-on.bgra").read_bytes())
+                self.assertEqual(by1["lv-rtl"]["flow_direction"], "RightToLeft")
+                self.assertEqual(by1["lv-rtl"]["automation"]["ControlType"], "List")
+
+                # Scripted button gives identical event + focus log across two independent runs.
+                validate_script_log(by1["btn-script-live"]["script_log"])
+                self.assertEqual(by1["btn-script-live"]["script_log"], by2["btn-script-live"]["script_log"])
 
 
 if __name__ == "__main__":

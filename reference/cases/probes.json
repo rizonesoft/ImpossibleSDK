@@ -1,0 +1,124 @@
+{
+  "cases": [
+    {
+      "id": "probe-r4-s1",
+      "case_group": "probe",
+      "control": "Border",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 64, "height": 64, "background": "#FF000000"},
+      "properties": {"Width": 48, "Height": 48, "Background": "#FFFFFFFF", "CornerRadius": [4, 4, 4, 4], "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "probe_box": [48, 48],
+      "probe_radii": [4, 4, 4, 4]
+    },
+    {
+      "id": "probe-r4-s15",
+      "case_group": "probe",
+      "control": "Border",
+      "theme": "Dark",
+      "scale": 1.5,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 64, "height": 64, "background": "#FF000000"},
+      "properties": {"Width": 48, "Height": 48, "Background": "#FFFFFFFF", "CornerRadius": [4, 4, 4, 4], "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "probe_box": [48, 48],
+      "probe_radii": [4, 4, 4, 4]
+    },
+    {
+      "id": "probe-r4-s2",
+      "case_group": "probe",
+      "control": "Border",
+      "theme": "Dark",
+      "scale": 2.0,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 64, "height": 64, "background": "#FF000000"},
+      "properties": {"Width": 48, "Height": 48, "Background": "#FFFFFFFF", "CornerRadius": [4, 4, 4, 4], "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "probe_box": [48, 48],
+      "probe_radii": [4, 4, 4, 4]
+    },
+    {
+      "id": "probe-r8-s1",
+      "case_group": "probe",
+      "control": "Border",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 64, "height": 64, "background": "#FF000000"},
+      "properties": {"Width": 48, "Height": 48, "Background": "#FFFFFFFF", "CornerRadius": [8, 8, 8, 8], "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "probe_box": [48, 48],
+      "probe_radii": [8, 8, 8, 8]
+    },
+    {
+      "id": "probe-r8-s15",
+      "case_group": "probe",
+      "control": "Border",
+      "theme": "Dark",
+      "scale": 1.5,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 64, "height": 64, "background": "#FF000000"},
+      "properties": {"Width": 48, "Height": 48, "Background": "#FFFFFFFF", "CornerRadius": [8, 8, 8, 8], "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "probe_box": [48, 48],
+      "probe_radii": [8, 8, 8, 8]
+    },
+    {
+      "id": "probe-r8-s2",
+      "case_group": "probe",
+      "control": "Border",
+      "theme": "Dark",
+      "scale": 2.0,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 64, "height": 64, "background": "#FF000000"},
+      "properties": {"Width": 48, "Height": 48, "Background": "#FFFFFFFF", "CornerRadius": [8, 8, 8, 8], "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "probe_box": [48, 48],
+      "probe_radii": [8, 8, 8, 8]
+    },
+    {
+      "id": "probe-r16-s1",
+      "case_group": "probe",
+      "control": "Border",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 64, "height": 64, "background": "#FF000000"},
+      "properties": {"Width": 48, "Height": 48, "Background": "#FFFFFFFF", "CornerRadius": [16, 16, 16, 16], "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "probe_box": [48, 48],
+      "probe_radii": [16, 16, 16, 16]
+    },
+    {
+      "id": "probe-r16-s15",
+      "case_group": "probe",
+      "control": "Border",
+      "theme": "Dark",
+      "scale": 1.5,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 64, "height": 64, "background": "#FF000000"},
+      "properties": {"Width": 48, "Height": 48, "Background": "#FFFFFFFF", "CornerRadius": [16, 16, 16, 16], "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "probe_box": [48, 48],
+      "probe_radii": [16, 16, 16, 16]
+    },
+    {
+      "id": "probe-r16-s2",
+      "case_group": "probe",
+      "control": "Border",
+      "theme": "Dark",
+      "scale": 2.0,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 64, "height": 64, "background": "#FF000000"},
+      "properties": {"Width": 48, "Height": 48, "Background": "#FFFFFFFF", "CornerRadius": [16, 16, 16, 16], "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "probe_box": [48, 48],
+      "probe_radii": [16, 16, 16, 16]
+    },
+    {
+      "id": "probe-asym-s1",
+      "case_group": "probe",
+      "control": "Border",
+      "theme": "Dark",
+      "scale": 1.0,
+      "flow_direction": "LeftToRight",
+      "frame": {"width": 64, "height": 64, "background": "#FF000000"},
+      "properties": {"Width": 40, "Height": 20, "Background": "#FFFFFFFF", "CornerRadius": [16, 0, 0, 0], "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+      "probe_box": [40, 20],
+      "probe_radii": [16, 0, 0, 0]
+    }
+  ]
+}

@@ -1,0 +1,441 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Windows.Foundation;
+using Windows.System;
+using WinRT.Interop;
+
+namespace Reference;
+
+public sealed class ScriptActionSpec
+{
+    public string Action { get; set; } = "";
+    public string? Key { get; set; }
+    public double? X { get; set; }
+    public double? Y { get; set; }
+}
+
+public sealed class ScriptEventDto
+{
+    public string Step { get; set; } = "";
+    public string Event { get; set; } = "";
+    public string PointerType { get; set; } = "";
+    public string Target { get; set; } = "";
+    public string Focused { get; set; } = "";
+    public string State { get; set; } = "";
+}
+
+public sealed class ScriptResultDto
+{
+    public List<ScriptEventDto> Events { get; set; } = new();
+    public Dictionary<string, object?> FinalState { get; set; } = new();
+}
+
+public static class Script
+{
+    private const uint INPUT_MOUSE = 0;
+    private const uint INPUT_KEYBOARD = 1;
+    private const uint MOUSEEVENTF_MOVE = 0x0001;
+    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    private const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
+    private const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const int SM_XVIRTUALSCREEN = 76;
+    private const int SM_YVIRTUALSCREEN = 77;
+    private const int SM_CXVIRTUALSCREEN = 78;
+    private const int SM_CYVIRTUALSCREEN = 79;
+
+    private const uint PT_TOUCH = 0x00000002;
+    private const uint POINTER_FLAG_NONE = 0x00000000;
+    private const uint POINTER_FLAG_INRANGE = 0x00000002;
+    private const uint POINTER_FLAG_INCONTACT = 0x00000004;
+    private const uint POINTER_FLAG_DOWN = 0x00010000;
+    private const uint POINTER_FLAG_UP = 0x00040000;
+    private const uint TOUCH_MASK_CONTACTAREA = 0x00000001;
+    private const uint TOUCH_MASK_PRESSURE = 0x00000004;
+    private const uint TOUCH_FEEDBACK_NONE = 0x3;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X; public int Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION
+    {
+        [FieldOffset(0)] public MOUSEINPUT mi;
+        [FieldOffset(0)] public KEYBDINPUT ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public uint type;
+        public INPUTUNION u;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINTER_INFO
+    {
+        public uint pointerType;
+        public uint pointerId;
+        public uint frameId;
+        public uint pointerFlags;
+        public IntPtr sourceDevice;
+        public IntPtr hwndTarget;
+        public POINT ptPixelLocation;
+        public POINT ptHimetricLocation;
+        public POINT ptPixelLocationRaw;
+        public POINT ptHimetricLocationRaw;
+        public uint dwTime;
+        public uint historyCount;
+        public int inputData;
+        public uint dwKeyStates;
+        public ulong PerformanceCount;
+        public int ButtonChangeType;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINTER_TOUCH_INFO
+    {
+        public POINTER_INFO pointerInfo;
+        public uint touchFlags;
+        public uint touchMask;
+        public RECT rcContact;
+        public RECT rcContactRaw;
+        public uint orientation;
+        public uint pressure;
+    }
+
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool InitializeTouchInjection(uint maxCount, uint dwMode);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool InjectTouchInput(uint count, POINTER_TOUCH_INFO[] contacts);
+
+    private static bool touchInitialized;
+
+    private static void EnsureTouch()
+    {
+        if (!touchInitialized)
+        {
+            if (!InitializeTouchInjection(1, TOUCH_FEEDBACK_NONE))
+            {
+                throw new InvalidOperationException($"InitializeTouchInjection failed (err={Marshal.GetLastWin32Error()})");
+            }
+            touchInitialized = true;
+        }
+    }
+
+    private static POINT TargetScreenPoint(Window window, FrameworkElement target, double? relX, double? relY)
+    {
+        var hwnd = WindowNative.GetWindowHandle(window);
+        double scale = target.XamlRoot?.RasterizationScale ?? 1.0;
+        var origin = target.TransformToVisual(null).TransformPoint(new Point(0, 0));
+        double lx = relX ?? (target.ActualWidth * 0.5);
+        double ly = relY ?? (target.ActualHeight * 0.5);
+        var pt = new POINT
+        {
+            X = (int)Math.Round((origin.X + lx) * scale),
+            Y = (int)Math.Round((origin.Y + ly) * scale),
+        };
+        ClientToScreen(hwnd, ref pt);
+        return pt;
+    }
+
+    private static void SendMouse(POINT pt, uint flags)
+    {
+        int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        int vw = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+        int vh = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+        int nx = (int)Math.Round((pt.X - vx) * 65535.0 / Math.Max(1, vw - 1));
+        int ny = (int)Math.Round((pt.Y - vy) * 65535.0 / Math.Max(1, vh - 1));
+        var inp = new INPUT[]
+        {
+            new()
+            {
+                type = INPUT_MOUSE,
+                u = new INPUTUNION
+                {
+                    mi = new MOUSEINPUT
+                    {
+                        dx = nx,
+                        dy = ny,
+                        dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | flags,
+                    }
+                }
+            }
+        };
+        if (SendInput(1, inp, Marshal.SizeOf<INPUT>()) != 1)
+        {
+            throw new InvalidOperationException($"SendInput(mouse) failed (err={Marshal.GetLastWin32Error()})");
+        }
+    }
+
+    private static void SendKey(ushort vk, bool keyUp)
+    {
+        var inp = new INPUT[]
+        {
+            new()
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = vk,
+                        dwFlags = keyUp ? KEYEVENTF_KEYUP : 0,
+                    }
+                }
+            }
+        };
+        if (SendInput(1, inp, Marshal.SizeOf<INPUT>()) != 1)
+        {
+            throw new InvalidOperationException($"SendInput(key) failed (err={Marshal.GetLastWin32Error()})");
+        }
+    }
+
+    private static void SendTouch(POINT pt, uint flags)
+    {
+        EnsureTouch();
+        var contact = new POINTER_TOUCH_INFO
+        {
+            pointerInfo = new POINTER_INFO
+            {
+                pointerType = PT_TOUCH,
+                pointerId = 0,
+                pointerFlags = flags,
+                ptPixelLocation = pt,
+            },
+            touchFlags = 0,
+            touchMask = 0,
+        };
+        if (!InjectTouchInput(1, new[] { contact }))
+        {
+            throw new InvalidOperationException($"InjectTouchInput failed (err={Marshal.GetLastWin32Error()}, pt={pt.X},{pt.Y}, flags=0x{flags:X})");
+        }
+    }
+
+    private static string DescribeElement(object? obj)
+    {
+        if (obj is FrameworkElement fe)
+        {
+            return string.IsNullOrEmpty(fe.Name) ? fe.GetType().Name : $"{fe.GetType().Name}:{fe.Name}";
+        }
+        return obj?.GetType().Name ?? "none";
+    }
+
+    private static string DescribeFocused(XamlRoot? root) =>
+        root == null ? "none" : DescribeElement(FocusManager.GetFocusedElement(root));
+
+    private static string DescribeControlValue(FrameworkElement target, int clicks) =>
+        target switch
+        {
+            ToggleSwitch ts => $"IsOn={ts.IsOn}",
+            CheckBox cb => $"IsChecked={cb.IsChecked}",
+            Button => $"Clicks={clicks}",
+            TextBox tb => $"Text={tb.Text};Sel={tb.SelectionStart}:{tb.SelectionLength}",
+            Slider sl => $"Value={sl.Value}",
+            _ => "",
+        };
+
+    private static Dictionary<string, object?> SnapshotState(FrameworkElement target, int clicks)
+    {
+        var snap = new Dictionary<string, object?>
+        {
+            ["focused"] = DescribeFocused(target.XamlRoot),
+        };
+        switch (target)
+        {
+            case ToggleSwitch ts:
+                snap["is_on"] = ts.IsOn;
+                break;
+            case CheckBox cb:
+                snap["is_checked"] = cb.IsChecked;
+                break;
+            case Button:
+                snap["clicks"] = clicks;
+                break;
+            case TextBox tb:
+                snap["text"] = tb.Text;
+                snap["selection_start"] = tb.SelectionStart;
+                snap["selection_length"] = tb.SelectionLength;
+                break;
+            case Slider sl:
+                snap["value"] = sl.Value;
+                break;
+        }
+        return snap;
+    }
+
+    public static async Task<ScriptResultDto> RunAsync(Window window, FrameworkElement target, IReadOnlyList<ScriptActionSpec> actions)
+    {
+        var hwnd = WindowNative.GetWindowHandle(window);
+        SetForegroundWindow(hwnd);
+        await Task.Delay(120);
+
+        var result = new ScriptResultDto();
+        int clicks = 0;
+        string currentStep = "init";
+
+        void Record(string evName, string pointerType = "")
+        {
+            result.Events.Add(new ScriptEventDto
+            {
+                Step = currentStep,
+                Event = evName,
+                PointerType = pointerType,
+                Target = DescribeElement(target),
+                Focused = DescribeFocused(target.XamlRoot),
+                State = DescribeControlValue(target, clicks),
+            });
+        }
+
+        RoutedEventHandler gotFocus = (_, _) => Record("GotFocus");
+        RoutedEventHandler lostFocus = (_, _) => Record("LostFocus");
+        PointerEventHandler ptrEntered = (_, e) => Record("PointerEntered", e.Pointer.PointerDeviceType.ToString());
+        PointerEventHandler ptrPressed = (_, e) => Record("PointerPressed", e.Pointer.PointerDeviceType.ToString());
+        PointerEventHandler ptrReleased = (_, e) => Record("PointerReleased", e.Pointer.PointerDeviceType.ToString());
+        PointerEventHandler ptrExited = (_, e) => Record("PointerExited", e.Pointer.PointerDeviceType.ToString());
+        KeyEventHandler keyDown = (_, e) => Record($"KeyDown:{e.Key}");
+        KeyEventHandler keyUp = (_, e) => Record($"KeyUp:{e.Key}");
+        TappedEventHandler tapped = (_, e) => Record("Tapped", e.PointerDeviceType.ToString());
+        RoutedEventHandler clickHandler = (_, _) => { clicks++; Record("Click"); };
+        RoutedEventHandler toggledHandler = (_, _) => Record("Toggled");
+        RoutedEventHandler checkedHandler = (_, _) => Record("Checked");
+        RoutedEventHandler uncheckedHandler = (_, _) => Record("Unchecked");
+
+        target.GotFocus += gotFocus;
+        target.LostFocus += lostFocus;
+        target.AddHandler(UIElement.PointerEnteredEvent, ptrEntered, true);
+        target.AddHandler(UIElement.PointerPressedEvent, ptrPressed, true);
+        target.AddHandler(UIElement.PointerReleasedEvent, ptrReleased, true);
+        target.AddHandler(UIElement.PointerExitedEvent, ptrExited, true);
+        target.AddHandler(UIElement.KeyDownEvent, keyDown, true);
+        target.AddHandler(UIElement.KeyUpEvent, keyUp, true);
+        target.AddHandler(UIElement.TappedEvent, tapped, true);
+        if (target is ButtonBase bb) bb.Click += clickHandler;
+        if (target is ToggleSwitch ts) ts.Toggled += toggledHandler;
+        if (target is ToggleButton tb) { tb.Checked += checkedHandler; tb.Unchecked += uncheckedHandler; }
+
+        // Park pointer outside the control before running script so PointerEntered is deterministic.
+        var outside = TargetScreenPoint(window, target, -30, -30);
+        SendMouse(outside, MOUSEEVENTF_MOVE);
+        await Task.Delay(80);
+
+        try
+        {
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var step = actions[i];
+                currentStep = $"{i}:{step.Action}";
+                switch (step.Action)
+                {
+                    case "focus":
+                        if (target is Control ctrl)
+                        {
+                            ctrl.IsTabStop = true;
+                            await FocusManager.TryFocusAsync(ctrl, FocusState.Keyboard);
+                            await Task.Delay(80);
+                        }
+                        break;
+
+                    case "pointer_click":
+                    {
+                        var pt = TargetScreenPoint(window, target, step.X, step.Y);
+                        SendMouse(pt, MOUSEEVENTF_MOVE);
+                        await Task.Delay(80);
+                        SendMouse(pt, MOUSEEVENTF_LEFTDOWN);
+                        await Task.Delay(80);
+                        SendMouse(pt, MOUSEEVENTF_LEFTUP);
+                        await Task.Delay(120);
+                        SendMouse(outside, MOUSEEVENTF_MOVE);
+                        await Task.Delay(80);
+                        break;
+                    }
+
+                    case "key_press":
+                    {
+                        string keyName = step.Key ?? "Space";
+                        if (!Enum.TryParse<VirtualKey>(keyName, ignoreCase: true, out var vk))
+                        {
+                            throw new InvalidOperationException($"script step {i}: unknown key '{keyName}'");
+                        }
+                        if (target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
+                        {
+                            kCtrl.IsTabStop = true;
+                            await FocusManager.TryFocusAsync(kCtrl, FocusState.Keyboard);
+                            await Task.Delay(80);
+                        }
+                        SendKey((ushort)vk, false);
+                        await Task.Delay(80);
+                        SendKey((ushort)vk, true);
+                        await Task.Delay(120);
+                        break;
+                    }
+
+                    case "touch_tap":
+                    {
+                        var pt = TargetScreenPoint(window, target, step.X, step.Y);
+                        SendTouch(pt, POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT);
+                        await Task.Delay(80);
+                        SendTouch(pt, POINTER_FLAG_UP);
+                        await Task.Delay(140);
+                        break;
+                    }
+
+                    default:
+                        throw new InvalidOperationException($"script step {i}: unknown action '{step.Action}'");
+                }
+            }
+        }
+        finally
+        {
+            target.GotFocus -= gotFocus;
+            target.LostFocus -= lostFocus;
+            target.RemoveHandler(UIElement.PointerEnteredEvent, ptrEntered);
+            target.RemoveHandler(UIElement.PointerPressedEvent, ptrPressed);
+            target.RemoveHandler(UIElement.PointerReleasedEvent, ptrReleased);
+            target.RemoveHandler(UIElement.PointerExitedEvent, ptrExited);
+            target.RemoveHandler(UIElement.KeyDownEvent, keyDown);
+            target.RemoveHandler(UIElement.KeyUpEvent, keyUp);
+            target.RemoveHandler(UIElement.TappedEvent, tapped);
+            if (target is ButtonBase bb2) bb2.Click -= clickHandler;
+            if (target is ToggleSwitch ts2) ts2.Toggled -= toggledHandler;
+            if (target is ToggleButton tb2) { tb2.Checked -= checkedHandler; tb2.Unchecked -= uncheckedHandler; }
+        }
+
+        result.FinalState = SnapshotState(target, clicks);
+        return result;
+    }
+}

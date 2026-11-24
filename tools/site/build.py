@@ -476,7 +476,14 @@ class Site:
         """Impossible UI and real WinUI, from the same cases the tests compare."""
         manifest = json.loads(self.read("tests/reference/cases.json"))
         wide, high = 160, 64
-        cases = [c for c in manifest["cases"] if c.get("control") in ("button", "accent")]
+        legacy_ids = [
+            f"{kind}-{state}-{theme}"
+            for theme in ("Dark", "Light")
+            for kind in ("button", "accent")
+            for state in ("Normal", "PointerOver", "Pressed", "Disabled")
+        ]
+        by_id = {c.get("id", f"{c.get('control')}-{c.get('state')}-{c.get('theme')}"): c for c in manifest["cases"]}
+        cases = [by_id[cid] for cid in legacy_ids if cid in by_id]
         frame = wide * high * 4
         real = [zlib.decompress((self.root / "tests/reference" / f"{c['file']}.z").read_bytes()) for c in cases]
         if self.run:

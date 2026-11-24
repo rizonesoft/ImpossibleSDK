@@ -1,0 +1,74 @@
+{
+  "package": "Microsoft.WindowsAppSDK",
+  "version": "1.8.260921001",
+  "winui_component": {
+    "name": "Microsoft.WindowsAppSDK.WinUI",
+    "version": "1.8.260803003",
+    "content_hash": "yQFFlQ6IQj4dpDqGvMghRUQMAYlnu+hhf1unvkf4ymtdWDww+UotPi+MPTJyDc7x+xEyBXfXnlXZVk0NG0eMrA==",
+    "dll_file_version": "3.1.8.2608"
+  },
+  "package_source_commit": "b497e527e22752d08aabb176820923028f16f003",
+  "generic_xaml_sha256": "56c8c60fe0de6e5ccd81f3f726cb6b8354763c74ff7ca99b7c27ed26b2aed9fd",
+  "winui_pin_commit": "5417e89b32818cfd85f757e9d1290203dc3cfecb",
+  "template_diffs": [
+    "AppBarButtonRevealStyle",
+    "AppBarToggleButtonRevealStyle",
+    "AutoSuggestBoxTextBoxStyle",
+    "Button",
+    "ButtonRevealStyle",
+    "ComboBoxItemRevealStyle",
+    "ComboBoxTextBoxStyle",
+    "CommandBarFlyoutAppBarButtonStyleBase",
+    "CommandBarFlyoutAppBarToggleButtonStyleBase",
+    "CommandBarFlyoutCommandBarOverflowPresenterStyle",
+    "CommandBarRevealStyle",
+    "DefaultAppBarButtonStyle",
+    "EllipsisButtonRevealStyle",
+    "GridViewItemRevealBackgroundShowsAboveContentStyle",
+    "GridViewItemRevealStyle",
+    "ListViewItemRevealBackgroundShowsAboveContentStyle",
+    "ListViewItemRevealStyle",
+    "NavigationBackButtonNormalStyle",
+    "NavigationButtonStyle",
+    "NavigationViewOverflowButtonStyleWhenPaneOnTop",
+    "PaneToggleButtonStyle",
+    "RepeatButton",
+    "RepeatButtonRevealStyle",
+    "ScrollViewer",
+    "ToggleButtonRevealStyle"
+  ],
+  "missing_controls": [
+    {
+      "control": "WrapPanel",
+      "reason": "CommunityToolkit / WinUI dev control not shipped in Microsoft.WindowsAppSDK.WinUI",
+      "basis": "compiled-template",
+      "fallback_template": "DefaultButtonStyle",
+      "expected_elements": 2,
+      "expected_states": 4
+    },
+    {
+      "control": "UniformGrid",
+      "reason": "Panel not shipped in Microsoft.WindowsAppSDK.WinUI",
+      "basis": "compiled-template",
+      "fallback_template": "DefaultButtonStyle",
+      "expected_elements": 2,
+      "expected_states": 4
+    },
+    {
+      "control": "DataGrid",
+      "reason": "Control not shipped in Microsoft.WindowsAppSDK.WinUI",
+      "basis": "compiled-template",
+      "fallback_template": "ListView",
+      "expected_elements": 3,
+      "expected_states": 0
+    },
+    {
+      "control": "DockPanel",
+      "reason": "Panel not shipped in Microsoft.WindowsAppSDK.WinUI",
+      "basis": "compiled-template",
+      "fallback_template": "DefaultButtonStyle",
+      "expected_elements": 2,
+      "expected_states": 4
+    }
+  ]
+}
