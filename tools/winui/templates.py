@@ -231,9 +231,10 @@ def parse_xaml(text, filename):
         base_line = line_at(byte_index)
         cur_ns = ns_scopes[-1]
         result = {}
-        for match in re.finditer(rb'\s([A-Za-z_][\w.:-]*)\s*=', bytes(masked)):
-            full = match.group(1).decode("utf-8", "replace")
-            line_no = base_line + tag_bytes[:match.start(1)].count(b"\n")
+        masked_str = bytes(masked).decode("utf-8", "replace")
+        for match in re.finditer(r"""\s([^\s=/>"']+)\s*=""", masked_str):
+            full = match.group(1)
+            line_no = base_line + masked_str[:match.start(1)].count("\n")
             if ":" in full:
                 prefix, short = full.split(":", 1)
                 if prefix == "xmlns":
@@ -277,7 +278,7 @@ def parse_xaml(text, filename):
                     if short not in xaml_allowed:
                         raise TemplateError(f"{filename}:{line_no}: unsupported x: attribute {short!r}")
                 elif ns == ns_ctrl:
-                    if short not in KNOWN_PROPS:
+                    if short != "AnimatedIcon.State":
                         raise TemplateError(f"{filename}:{line_no}: unsupported controls attribute {short!r}")
                 else:
                     raise TemplateError(f"{filename}:{line_no}: unsupported attribute namespace {ns!r} for {short!r}")
@@ -654,6 +655,7 @@ class Compiler:
                 val = self.parse_value(child.attrs["Value"], target_prop or "Value", child.file, child.attr_line("Value"))
             for sub in child.children:
                 if sub.tag == f"{child.tag}.Value" and "Value" not in child.attrs:
+                    check_attrs(sub, set())
                     if len(sub.children) != 1:
                         raise TemplateError(f"{sub.file}:{sub.line}: expected single value element in {sub.tag}")
                     inner = sub.children[0]
@@ -685,6 +687,7 @@ class Compiler:
         })
 
     def compile_vsm_groups(self, groups_node):
+        check_attrs(groups_node, set())
         group_start = len(self.groups)
         for gnode in groups_node.children:
             if gnode.tag != "VisualStateGroup":
@@ -696,6 +699,7 @@ class Compiler:
             trans_nodes = []
             for child in gnode.children:
                 if child.tag == "VisualStateGroup.Transitions":
+                    check_attrs(child, set())
                     trans_nodes.extend(child.children)
                 elif child.tag == "VisualState":
                     check_attrs(child, {"Name", "Key"})
@@ -704,6 +708,7 @@ class Compiler:
                     anim_start = len(self.anims)
                     for sc in child.children:
                         if sc.tag == "VisualState.Setters":
+                            check_attrs(sc, set())
                             for s in sc.children:
                                 if s.tag != "Setter":
                                     raise TemplateError(f"{s.file}:{s.line}: expected Setter, got {s.tag!r}")
@@ -776,6 +781,7 @@ class Compiler:
             # First scan Grid.Resources so nested styles (like DeleteButtonStyle) are scoped to this element's subtree.
             for child in node.children:
                 if child.tag == "Grid.Resources":
+                    check_attrs(child, set())
                     for res_node in child.children:
                         if res_node.tag == "Style":
                             rk = res_node.attrs.get("Name") or res_node.attrs.get("Key")
@@ -802,12 +808,14 @@ class Compiler:
                 elif child.tag == "VisualStateManager.VisualStateGroups":
                     vsm_groups_out.append(child)
                 elif child.tag == "Thumb.Template":
+                    check_attrs(child, set())
                     for ct in child.children:
                         if ct.tag != "ControlTemplate":
                             raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate in Thumb.Template, got {ct.tag!r}")
                         nested_idx = self.compile_control_template(ct, key=f"{name or 'Thumb'}.Template", target_type="Thumb", style_setters=(0, 0), enum_id=None)
                         out_props.append({"name": "Template", "value": {"kind": "IM_TVAL_NESTED_TEMPLATE", "a": nested_idx, "b": 0, "c": 0, "d": 0, "text": f"{name or 'Thumb'}.Template", "fallback": None}})
                 elif child.tag in PROP_ELEMENT_TAGS:
+                    check_attrs(child, set())
                     for sub in child.children:
                         child_elements.append(sub)
                 elif "." in child.tag:
@@ -889,6 +897,7 @@ class Compiler:
             if prop == "Template":
                 for sv in child.children:
                     if sv.tag == "Setter.Value" and sv.children:
+                        check_attrs(sv, set())
                         ct = sv.children[0]
                         if ct.tag != "ControlTemplate":
                             raise TemplateError(f"{ct.file}:{ct.line}: expected ControlTemplate, got {ct.tag!r}")
@@ -896,6 +905,7 @@ class Compiler:
             elif prop == "ItemsPanel":
                 for sv in child.children:
                     if sv.tag == "Setter.Value" and sv.children:
+                        check_attrs(sv, set())
                         ipt = sv.children[0]
                         if ipt.tag != "ItemsPanelTemplate":
                             raise TemplateError(f"{ipt.file}:{ipt.line}: expected ItemsPanelTemplate, got {ipt.tag!r}")
@@ -904,6 +914,7 @@ class Compiler:
             elif prop == "ItemContainerTransitions":
                 for sv in child.children:
                     if sv.tag == "Setter.Value" and sv.children:
+                        check_attrs(sv, set())
                         tc = sv.children[0]
                         if tc.tag != "TransitionCollection":
                             raise TemplateError(f"{tc.file}:{tc.line}: expected TransitionCollection, got {tc.tag!r}")

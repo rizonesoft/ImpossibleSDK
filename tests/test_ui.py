@@ -516,6 +516,43 @@ class TemplateCompiler(unittest.TestCase):
         self.assertNotEqual(res_xml.returncode, 0)
         self.assertIn(f"{path_xml}:6:", res_xml.stderr)
 
+        # controls:Name, VisualState.Setters attributes, and non-ASCII attribute names must all be rejected on exact lines.
+        xaml_ctrl = (
+            '<ControlTemplate xmlns:c="using:Microsoft.UI.Xaml.Controls" TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G">\n'
+            '    <VisualState\n'
+            '      c:Name="Foreign" />\n'
+            '  </VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_ctrl, path_ctrl = self._run_fixture(xaml_ctrl)
+        self.assertNotEqual(res_ctrl.returncode, 0)
+        self.assertIn(f"{path_ctrl}:4:", res_ctrl.stderr)
+
+        xaml_wrap = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S">\n'
+            '    <VisualState.Setters\n'
+            '      Bogus="1" />\n'
+            '  </VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_wrap, path_wrap = self._run_fixture(xaml_wrap)
+        self.assertNotEqual(res_wrap.returncode, 0)
+        self.assertIn(f"{path_wrap}:4:", res_wrap.stderr)
+
+        xaml_uni = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G">\n'
+            '    <VisualState Name="Normal"\n'
+            '      \u00e9chec="1" />\n'
+            '  </VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_uni, path_uni = self._run_fixture(xaml_uni)
+        self.assertNotEqual(res_uni.returncode, 0)
+        self.assertIn(f"{path_uni}:4:", res_uni.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3

@@ -23,8 +23,8 @@ class Site(unittest.TestCase):
     def setUpClass(cls):
         cls.folder = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         cls.copy = Path(cls.folder.name, "sdk")
-        # Clone local history (isolated from ROOT) so stamped receipt commit SHAs resolve in todo-graph.py.
-        subprocess.run(["git", "clone", "-q", "--local", "--no-checkout", str(ROOT), str(cls.copy)],
+        # Clone local history (isolated from ROOT, no hardlinks for cross-drive Windows temp dirs) so stamped receipt SHAs resolve.
+        subprocess.run(["git", "-c", "safe.directory=*", "clone", "-q", "--no-hardlinks", "--no-checkout", str(ROOT), str(cls.copy)],
                        check=True, capture_output=True, timeout=60)
         skip = shutil.ignore_patterns("__pycache__", "node_modules", "build")
         for name in KEEP:
