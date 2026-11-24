@@ -8,6 +8,7 @@ impossible_add_program(selftest CONSOLE TIER 0 SOURCES tests/fixtures/selftest.c
 impossible_add_program(reopen WINDOW TIER 1 SOURCES tests/fixtures/reopen.c)
 impossible_add_program(ui-tests CONSOLE TIER 0 SOURCES tests/fixtures/ui_tests.c)
 impossible_add_program(image-tests CONSOLE TIER 0 SOURCES tests/fixtures/image_tests.c)
+impossible_add_program(unicode-tests CONSOLE TIER 0 SOURCES tests/fixtures/unicode_tests.c)
 
 impossible_add_program(control-shots CONSOLE TIER 0 SOURCES tests/fixtures/control_shots.c)
 

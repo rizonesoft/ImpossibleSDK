@@ -19,6 +19,15 @@
       "sources": [
         "parts/image/image.c"
       ]
+    },
+    {
+      "name": "unicode",
+      "folder": "parts/unicode",
+      "depends": [],
+      "sources": [
+        "parts/unicode/unicode.c",
+        "parts/unicode/unicode_data.c"
+      ]
     }
   ]
 }

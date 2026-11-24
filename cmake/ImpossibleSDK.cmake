@@ -39,8 +39,11 @@ if(NOT TARGET ImpossibleUI)
 endif()
 
 if(NOT TARGET ImpossibleParts)
-    add_library(ImpossibleParts STATIC "${IMPOSSIBLE_SDK_DIR}/parts/image/image.c")
-    target_include_directories(ImpossibleParts PUBLIC "${IMPOSSIBLE_SDK_DIR}/parts/image")
+    add_library(ImpossibleParts STATIC
+        "${IMPOSSIBLE_SDK_DIR}/parts/image/image.c"
+        "${IMPOSSIBLE_SDK_DIR}/parts/unicode/unicode.c"
+        "${IMPOSSIBLE_SDK_DIR}/parts/unicode/unicode_data.c")
+    target_include_directories(ImpossibleParts PUBLIC "${IMPOSSIBLE_SDK_DIR}/parts/image" "${IMPOSSIBLE_SDK_DIR}/parts/unicode")
     _impossible_compile(ImpossibleParts)
     # As Impossible OS compiles it: floating point does not build.
     target_compile_options(ImpossibleParts PRIVATE -mno-mmx -mno-sse -mno-sse2 -mno-80387)

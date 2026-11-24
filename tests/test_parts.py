@@ -392,5 +392,210 @@ class ImageFixture(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
 
 
+class UnicodePart(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(ROOT / "tools"))
+        import gen_unicode
+        cls.gen = gen_unicode
+        cls.pin = gen_unicode.load_pin()
+        cls.cache = gen_unicode.DEFAULT_CACHE
+        for rel in cls.pin["files"]:
+            gen_unicode.ensure_ucd_file(cls.pin, rel, cls.cache, allow_network=True)
+
+    def test_generator_determinism_license_and_refusal_paths(self):
+        # 1. Committed tables pass --check --no-network.
+        res = subprocess.run(
+            [sys.executable, str(ROOT / "tools/gen_unicode.py"), "--check", "--no-network"],
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+
+        # 2. License notice travels with parts/unicode/ and matches pinned license sha256.
+        want_lic = self.pin["license"]["sha256"]
+        for p in (ROOT / "licenses/UNICODE-LICENSE-V3.txt", ROOT / "parts/unicode/LICENSE.txt"):
+            self.assertTrue(p.is_file(), f"missing {p}")
+            self.assertEqual(self.gen.sha256_bytes(p.read_bytes()), want_lic)
+        for gen_file in (ROOT / "parts/unicode/unicode_data.h", ROOT / "parts/unicode/unicode_data.c"):
+            head = gen_file.read_text(encoding="utf-8")[:600]
+            self.assertIn("Do not edit.", head)
+            self.assertIn("Unicode License v3", head)
+        # 2b. Site API reference discovers unicode.h and omits internal generated unicode_data.h.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("impossible_site_build", ROOT / "tools/site/build.py")
+        site_build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(site_build)
+        site = site_build.Site(ROOT, BUILD, run=False)
+        site.generated()
+        names = {p.name for p in site.pages}
+        self.assertIn("api-unicode", names)
+        self.assertNotIn("api-unicode_data", names)
+
+        # 3. Drifted generated output fails --check WITHOUT rewriting the drifted file.
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "out"
+            out_dir.mkdir()
+            for name in ("unicode_data.h", "unicode_data.c"):
+                shutil.copy2(ROOT / "parts/unicode" / name, out_dir / name)
+            drifted_h = out_dir / "unicode_data.h"
+            drifted_text = drifted_h.read_text(encoding="utf-8") + "\n/* drift */\n"
+            drifted_h.write_text(drifted_text, encoding="utf-8")
+            chk = subprocess.run(
+                [sys.executable, str(ROOT / "tools/gen_unicode.py"), "--check", "--no-network", "--out-dir", str(out_dir)],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertNotEqual(chk.returncode, 0)
+            self.assertEqual(drifted_h.read_text(encoding="utf-8"), drifted_text)
+
+        # 4. Corrupt cached input is refused before use.
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_cache = Path(tmp) / "cache"
+            ver_dir = bad_cache / self.pin["version"]
+            shutil.copytree(self.cache / self.pin["version"], ver_dir)
+            (ver_dir / "UnicodeData.txt").write_bytes(b"corrupted")
+            bad = subprocess.run(
+                [sys.executable, str(ROOT / "tools/gen_unicode.py"), "--check", "--no-network", "--cache-dir", str(bad_cache)],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertNotEqual(bad.returncode, 0)
+            self.assertIn("corrupt cached UCD file", bad.stderr)
+
+    def _run_fixture(self, flag, payload):
+        exe = BUILD / "unicode-tests.exe"
+        self.assertTrue(exe.is_file(), f"missing {exe}; run python3 tools/build.py")
+        args = [str(exe)] + ([flag] if flag else [])
+        res = subprocess.run(args, input=payload, capture_output=True, text=True, timeout=180)
+        return res
+
+    def _assert_suite(self, flag, label, payload, expected_count):
+        res = self._run_fixture(flag, payload)
+        self.assertEqual(res.returncode, 0, f"{label} failed (rc={res.returncode}):\n{res.stdout}\n{res.stderr}")
+        self.assertIn(f"SUITE {label} executed={expected_count} failed=0", res.stdout, res.stdout)
+
+    @unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
+    def test_unicode_self_tests_and_ucd_suites(self):
+        # 1. Self-tests: buffers/guards, wrapped bidi L1/L2, every-cut streaming breaks, mixed casefold, errors.
+        self_res = self._run_fixture(None, "")
+        self.assertEqual(self_res.returncode, 0, f"self-tests failed rc={self_res.returncode}: {self_res.stdout} {self_res.stderr}")
+        self.assertIn("SELF_TESTS OK", self_res.stdout)
+
+        ver_dir = self.cache / self.pin["version"]
+
+        # 2. Break suites: GraphemeBreakTest, WordBreakTest, LineBreakTest (100% of vectors, whole + 1-by-1 streaming).
+        for flag, label, rel in (
+            ("--suite-grapheme", "grapheme", "auxiliary/GraphemeBreakTest.txt"),
+            ("--suite-word", "word", "auxiliary/WordBreakTest.txt"),
+            ("--suite-line", "line", "auxiliary/LineBreakTest.txt"),
+        ):
+            lines = []
+            for raw in (ver_dir / rel).read_text(encoding="utf-8").splitlines():
+                body = raw.split("#", 1)[0].strip()
+                if not body:
+                    continue
+                tokens = body.split()
+                cps = []
+                brks = []
+                for idx, tok in enumerate(tokens):
+                    if idx % 2 == 0:
+                        brks.append("1" if tok == "÷" else "0")
+                    else:
+                        cps.append(tok)
+                lines.append(f"{' '.join(cps)}|{''.join(brks)}")
+            self._assert_suite(flag, label, "\n".join(lines) + "\n", len(lines))
+
+        # 3. BidiTest.txt (all active paragraph modes per bitset).
+        bidi_lines = []
+        bidi_expected = 0
+        cur_levels = []
+        cur_order = []
+        for raw in (ver_dir / "BidiTest.txt").read_text(encoding="utf-8").splitlines():
+            body = raw.split("#", 1)[0].strip()
+            if not body:
+                continue
+            if body.startswith("@Levels:"):
+                cur_levels = ["255" if x == "x" else x for x in body[8:].split()]
+            elif body.startswith("@Reorder:"):
+                cur_order = body[9:].split()
+            else:
+                cls_part, bit_part = body.split(";", 1)
+                bitset = int(bit_part.strip(), 16)
+                cls_nums = [str(self.gen.BIDI_MAP[c]) for c in cls_part.split()]
+                bidi_lines.append(f"{bitset}|{' '.join(cls_nums)}|{' '.join(cur_levels)}|{' '.join(cur_order)}")
+                for m in range(3):
+                    if bitset & (1 << m):
+                        bidi_expected += 1
+        self._assert_suite("--suite-bidi", "bidi", "\n".join(bidi_lines) + "\n", bidi_expected)
+
+        # 4. BidiCharacterTest.txt (100% of vectors).
+        bc_lines = []
+        for raw in (ver_dir / "BidiCharacterTest.txt").read_text(encoding="utf-8").splitlines():
+            body = raw.split("#", 1)[0].strip()
+            if not body:
+                continue
+            parts = [p.strip() for p in body.split(";")]
+            req_base = "-1" if parts[1] == "2" else parts[1]
+            exp_lvls = ["255" if x == "x" else x for x in parts[3].split()]
+            bc_lines.append(f"{req_base}|{parts[0]}|{parts[2]}|{' '.join(exp_lvls)}|{parts[4]}")
+        self._assert_suite("--suite-bidi-char", "bidi_char", "\n".join(bc_lines) + "\n", len(bc_lines))
+
+        # 5. NormalizationTest.txt (100% of vectors across NFD, NFC, NFKD, NFKC).
+        norm_lines = []
+        for raw in (ver_dir / "NormalizationTest.txt").read_text(encoding="utf-8").splitlines():
+            body = raw.split("#", 1)[0].strip()
+            if not body or body.startswith("@"):
+                continue
+            cols = [c.strip() for c in body.split(";")[:5]]
+            norm_lines.append("|".join(cols))
+        self._assert_suite("--suite-norm", "norm", "\n".join(norm_lines) + "\n", len(norm_lines))
+
+        # 6. CaseFolding.txt (all C, F, S, T mappings + unlisted identity defaults across all 3 modes).
+        cf_map = {}
+        for row in self.gen.iter_ucd_rows(ver_dir / "CaseFolding.txt"):
+            cf_map.setdefault(int(row[0], 16), {})[row[1]] = row[2]
+        cf_lines = []
+        for cp, statuses in sorted(cf_map.items()):
+            hex_cp = f"{cp:04X}"
+            full = statuses.get("C") or statuses.get("F") or hex_cp
+            simp = statuses.get("C") or statuses.get("S") or hex_cp
+            turk = statuses.get("T") or full
+            cf_lines.append(f"0|{hex_cp}|{full}")
+            cf_lines.append(f"1|{hex_cp}|{simp}")
+            cf_lines.append(f"2|{hex_cp}|{turk}")
+        # Add unlisted identity defaults (lowercase, digits, punctuation, CJK, emoji, unassigned).
+        for id_cp in (0x0061, 0x0030, 0x0021, 0x4E00, 0x1F600, 0x0378):
+            h = f"{id_cp:04X}"
+            for mode in (0, 1, 2):
+                cf_lines.append(f"{mode}|{h}|{h}")
+        self._assert_suite("--suite-casefold", "casefold", "\n".join(cf_lines) + "\n", len(cf_lines))
+
+        # 7. Properties & Names across all assigned codepoints + unassigned default-bidi ranges.
+        data = self.gen.parse_all_ucd(self.pin, self.cache, allow_network=False)
+        mirror_map = dict(data["mirrors"])
+        bracket_map = {cp: (bt, pair) for cp, pair, bt in data["brackets"]}
+        name_map = dict(data["explicit_names"])
+        algo = data["algo_prefixes"]
+        sample_cps = set(name_map.keys())
+        # Add Hangul, CJK, Tangut, Egyptian Hieroglyph algorithmic boundaries, plus unassigned default-bidi ranges.
+        for lo, hi, _ in algo:
+            sample_cps.update((lo, (lo + hi) // 2, hi))
+        sample_cps.update((0xAC00, 0xAC01, 0xD7A3, 0x0378, 0x0590, 0x0600, 0x089F, 0xFB50, 0xFE70, 0x10800, 0x1EE00, 0x10FFFF))
+        prop_lines = []
+        for cp in sorted(sample_cps):
+            nm = name_map.get(cp, "")
+            if not nm and 0xAC00 <= cp <= 0xD7A3:
+                nm = self.gen.hangul_name(cp)
+            elif not nm:
+                for lo, hi, pfx in algo:
+                    if lo <= cp <= hi:
+                        nm = f"{pfx}{cp:04X}"
+                        break
+            bt, bp = bracket_map.get(cp, (0, 0))
+            prop_lines.append(
+                f"{cp:X}|{data['gc'][cp]}|{data['eaw'][cp]}|{data['ccc'][cp]}|{data['bidi'][cp]}|"
+                f"{data['script_names'][data['script_ids'][cp]]}|{mirror_map.get(cp, 0):X}|{bt}|{bp:X}|{nm}"
+            )
+        self._assert_suite("--suite-props", "props", "\n".join(prop_lines) + "\n", len(prop_lines))
+
+
 if __name__ == "__main__":
     unittest.main()

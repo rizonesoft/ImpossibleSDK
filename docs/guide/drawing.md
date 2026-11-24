@@ -47,4 +47,4 @@ From WinUI's own theme, as [brushes](site:api-theme.html) for dark, light and co
 
 ## Can Impossible OS take it?
 
-Yes. Everything in `ui/` and `parts/` calls no system function and no C library. The tests compile each part alone as a kernel would and refuse any symbol beyond the four memory routines.
+Yes. Everything in `ui/` and `parts/` (including `parts/image/` and `parts/unicode/`) calls no system function and no C library. The tests compile each part alone as a kernel would and refuse any symbol beyond the four memory routines.
