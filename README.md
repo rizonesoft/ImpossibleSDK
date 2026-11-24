@@ -65,7 +65,7 @@ Legend: ✅ works · 🚧 in progress · 📋 planned
 | Impossible UI: drawing, theme, button | ✅ | Light, dark and contrast values, smooth corners, the button, [compared with real WinUI](tests/test_ui.py) |
 | Impossible UI: engine and text | 🚧 | [Interface engine](todo/01-interface/TODO-01-first-controls.md) and [text engine](todo/01-interface/TODO-02-text.md) |
 | Impossible UI: controls and dialogs | 📋 | [Controls](todo/05-controls/TODO-01-controls.md), [more controls](todo/05-controls/TODO-02-more-controls.md) and [dialogs](todo/05-controls/TODO-03-dialogs.md) |
-| Picture formats, shared parts | 📋 | [Formats](todo/02-formats/TODO-01-image-formats.md) and [shared parts](todo/06-shared/TODO-01-shared-parts.md) |
+| Picture formats, shared parts | 🚧 | [Formats](todo/02-formats/TODO-01-image-formats.md) and [shared parts](todo/06-shared/TODO-01-shared-parts.md) |
 | Network: TLS, HTTP, kept secrets | 📋 | [Network](todo/03-network/TODO-01-network.md) |
 | Web readers: HTML and CSS | 📋 | [Web](todo/04-web/TODO-01-web-readers.md) |
 | Clipboard, input methods, screen readers, sound, settings | 📋 | [Windows services](todo/07-windows/TODO-01-windows-services.md) |

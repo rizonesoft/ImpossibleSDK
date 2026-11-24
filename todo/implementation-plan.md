@@ -33,7 +33,7 @@ Sections: 26 | Checklist items: 139
 | [ ]    | D01 T02 §1  | Bundled fonts and font lookup                    | windows-host                  | 6     |
 | [ ]    | D01 T02 §2  | Glyph cache                                      | none                          | 5     |
 | [ ]    | D01 T02 §6  | Icon set                                         | windows-host, display-session | 7     |
-| [ ]    | D02 T01 §1  | Part layout and image type                       | none                          | 4     |
+| [x]    | D02 T01 §1  | Part layout and image type                       | none                          | 4     |
 | [ ]    | D06 T01 §5  | Unicode data                                     | none                          | 4     |
 | [ ]    | D01 T02 §3  | Line, word and grapheme breaking                 | windows-host                  | 5     |
 | [ ]    | D01 T02 §4  | Paragraph layout                                 | windows-host                  | 7     |
@@ -243,6 +243,6 @@ Sections: 1 | Checklist items: 3
 | ------ | ----------- | -------------------- | -------- | ----- |
 | [ ]    | D08 T01 §13 | First public release | operator | 3     |
 
-Progress: 3/188 verified sections, 4 ready to run now.
+Progress: 4/188 verified sections, 17 ready to run now.
 
-Checklist: 14/1541 items completed (includes Commit items).
+Checklist: 15/1541 items completed (includes Commit items).
