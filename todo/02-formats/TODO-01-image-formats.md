@@ -47,6 +47,8 @@ title: "TODO-01 -- Image Formats"
 
 ## 1. Part layout and image type
 
+> **Started:** 2026-11-24T05:13Z
+
 Parts are separate folders with their own tests and dependency list, so Impossible OS can import one without the rest.
 
 **Phase:** 1
