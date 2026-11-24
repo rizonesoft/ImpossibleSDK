@@ -1442,6 +1442,12 @@ def validate_manifest(manifest):
     files = []
     ids = []
     for case in cases:
+        if case.get("basis") == "compiled-template":
+            cid = case.get("id")
+            if not cid or not case.get("template") or "verified_elements" not in case or "verified_states" not in case:
+                raise ValueError(f"compiled-template case missing required fields: {case}")
+            ids.append(cid)
+            continue
         scale = case.get("scale")
         lw, lh = case.get("logical_width"), case.get("logical_height")
         w, h = case.get("width"), case.get("height")
@@ -1881,8 +1887,9 @@ class ReferenceHarness(unittest.TestCase):
             self.assertEqual(len(rframes["button-Normal-Dark.bgra"]), 160 * 64 * 4)
 
         # 10. Cross-host _store_lock contention: Windows prints READY after import, then blocks on _store_lock
-        #     until WSL releases it, proving real overlapping cross-host mutual exclusion with clean teardown.
+        #     until WSL releases it, with a bounded READY deadline and clean process-tree teardown.
         if ref_run.is_wsl() and shutil.which("python.exe"):
+            import select
             import time
             win_ref = ref_run.to_win_path(ROOT / "reference")
             win_store = ref_run.to_win_path(ROOT / "tests/reference")
@@ -1902,6 +1909,8 @@ class ReferenceHarness(unittest.TestCase):
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                         start_new_session=True,
                     )
+                    readable, _, _ = select.select([proc.stdout], [], [], 15.0)
+                    self.assertTrue(readable, "Windows python.exe timed out before printing READY")
                     ready_line = proc.stdout.readline().strip()
                     self.assertEqual(ready_line, "READY", msg=f"unexpected probe startup: {ready_line!r}")
                     time.sleep(0.5)
@@ -2013,6 +2022,25 @@ class ReferenceHarness(unittest.TestCase):
                     {"id": "mc-wrap-bad", "control": "WrapPanel", "expected_elements": 99},
                     committed_pkg, ROOT / "ui/template_data.c",
                 )
+            # Unknown visual state on a fallback control must stop with the state name; valid state on DataGrid passes.
+            dg_ok = check_pkg.check_missing_control_case(
+                {"id": "mc-dgrid-normal", "control": "DataGrid", "state": "Normal"},
+                committed_pkg, ROOT / "ui/template_data.c",
+            )
+            self.assertEqual(dg_ok["basis"], "compiled-template")
+            with self.assertRaises(check_pkg.PackageDrift) as cm_state:
+                check_pkg.check_missing_control_case(
+                    {"id": "mc-wrap-missing-state", "control": "WrapPanel", "state": "MissingState"},
+                    committed_pkg, ROOT / "ui/template_data.c",
+                )
+            self.assertIn("MissingState", str(cm_state.exception))
+            # Downstream drawing manifest validator must accept a manifest containing fallback entries alongside frames.
+            committed_manifest = ref_run.open_reference_manifest(ROOT / "tests/reference")
+            combined_manifest = {
+                **committed_manifest,
+                "cases": list(committed_manifest["cases"]) + [by_mc_id["mc-wrap"]],
+            }
+            validate_manifest(combined_manifest)
 
             # Real compiled-template fallback routed end-to-end through reference/run.py (ToggleSwitch -> DefaultToggleSwitchStyle).
             sim_ok = {

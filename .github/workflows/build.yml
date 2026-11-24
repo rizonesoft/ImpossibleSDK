@@ -43,6 +43,7 @@ jobs:
           path: ~/.cache/impossible-sdk/winui
           key: winui-${{ hashFiles('tools/winui/pin.json') }}
       - name: Fetch pinned WinUI sparse checkout
+        shell: bash
         run: |
           python - <<'EOF'
           import json, shutil, subprocess
@@ -71,6 +72,7 @@ jobs:
           path: ~/.nuget/packages/microsoft.windowsappsdk.winui
           key: winui-nuget-${{ hashFiles('reference/packages.lock.json') }}
       - name: Fetch pinned WinUI NuGet package
+        shell: bash
         run: |
           python - <<'EOF'
           import base64, hashlib, json, urllib.request, zipfile

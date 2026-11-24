@@ -111,12 +111,17 @@ def compute_template_diffs(pkg_generic_xaml, winui_checkout, pin_data):
 
 
 def parse_compiled_templates(template_c_path):
-    """Extract compiled template names, target control, element counts, and total visual state counts from ui/template_data.c."""
+    """Extract compiled template names, target control, element counts, and visual states from ui/template_data.c."""
     text = Path(template_c_path).read_text(encoding="utf-8")
+    states_block = text.split("const im_template_state im_template_states[]", 1)[1].split("};", 1)[0]
+    states_list = [
+        m.group(1)
+        for m in re.finditer(r'\{\s*"([^"]+)",\s*\d+,\s*\d+,\s*\d+,\s*\d+\s*\}', states_block)
+    ]
     groups_block = text.split("const im_template_group im_template_groups[]", 1)[1].split("};", 1)[0]
     groups = [
-        {"name": m.group(1), "state_count": int(m.group(2))}
-        for m in re.finditer(r'\{\s*"([^"]+)",\s*\d+,\s*(\d+),\s*\d+,\s*\d+\s*\}', groups_block)
+        {"name": m.group(1), "state_start": int(m.group(2)), "state_count": int(m.group(3))}
+        for m in re.finditer(r'\{\s*"([^"]+)",\s*(\d+),\s*(\d+),\s*\d+,\s*\d+\s*\}', groups_block)
     ]
 
     tpl_block = text.split("const im_template im_templates[IM_TEMPLATE_COUNT]", 1)[1].split("};", 1)[0]
@@ -129,12 +134,18 @@ def parse_compiled_templates(template_c_path):
         setter_count, elem_count = int(m.group(3)), int(m.group(4))
         group_off, group_count = int(m.group(5)), int(m.group(6))
         state_count = sum(groups[i]["state_count"] for i in range(group_off, group_off + group_count))
+        tpl_states = set()
+        for i in range(group_off, group_off + group_count):
+            ss = groups[i]["state_start"]
+            sc = groups[i]["state_count"]
+            tpl_states.update(states_list[ss:ss + sc])
         out[name] = {
             "target": target,
             "setter_count": setter_count,
             "elem_count": elem_count,
             "group_count": group_count,
             "state_count": state_count,
+            "states": tpl_states,
         }
     return out
 
@@ -174,6 +185,12 @@ def compile_standalone_template(xaml_path):
     gstart = t["group_start"]
     gcount = t["group_count"]
     state_count = sum(comp.groups[g]["state_count"] for g in range(gstart, gstart + gcount))
+    tpl_states = set()
+    for g in range(gstart, gstart + gcount):
+        ss = comp.groups[g]["state_start"]
+        sc = comp.groups[g]["state_count"]
+        for s in range(ss, ss + sc):
+            tpl_states.add(comp.states[s]["name"])
     return {
         t["key"]: {
             "target": t["target_type"],
@@ -181,6 +198,7 @@ def compile_standalone_template(xaml_path):
             "elem_count": t["elem_count"],
             "group_count": gcount,
             "state_count": state_count,
+            "states": tpl_states,
         }
     }
 
@@ -280,6 +298,11 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
     info = _resolve_missing_control_template(entry, compiled, repo_root)
     if info["target"] != ctrl:
         raise PackageDrift(f"case {case_spec.get('id')!r}: compiled template {tpl!r} does not target {ctrl!r}")
+    req_state = case_spec.get("state")
+    if req_state and req_state not in info.get("states", set()):
+        raise PackageDrift(
+            f"case {case_spec.get('id')!r}: visual state {req_state!r} does not exist in compiled template {tpl!r}"
+        )
     for field, actual in (("expected_elements", info["elem_count"]), ("expected_states", info["state_count"]), ("expected_setters", info["setter_count"])):
         if field in case_spec and case_spec[field] != actual:
             raise PackageDrift(f"case {case_spec.get('id')!r}: {field}={case_spec[field]} != compiled {tpl!r} ({actual})")

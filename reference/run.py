@@ -461,44 +461,77 @@ def _pid_is_alive_same_host(pid):
         return True
 
 
-def _try_reclaim_stale_lock(lock_dir, stale_seconds=60.0):
-    """Atomically reclaim a lock directory left behind by a killed or rebooted process."""
-    owner_file = lock_dir / "owner.json"
-    now = time.time()
-    is_stale = False
-    try:
-        st = lock_dir.stat()
-    except FileNotFoundError:
+def _pid_is_alive_cross_host(pid, owner_host):
+    """Check whether a lock owner PID is alive on the same host or across the WSL/Windows boundary."""
+    if not isinstance(pid, int) or pid <= 0:
         return False
-    age = now - st.st_mtime
-    if owner_file.is_file():
-        try:
-            owner = json.loads(owner_file.read_text(encoding="utf-8"))
-            host = "nt" if os.name == "nt" else "posix"
-            if owner.get("host") == host:
-                if not _pid_is_alive_same_host(owner.get("pid")):
-                    is_stale = True
-            elif age > stale_seconds:
-                is_stale = True
-        except (OSError, ValueError):
-            if age > 2.0:
-                is_stale = True
-    elif age > 2.0:
-        is_stale = True
-    if not is_stale:
-        return False
-    reclaim = lock_dir.parent / f"{lock_dir.name}.stale-{os.getpid()}-{time.time_ns()}"
-    try:
-        os.rename(lock_dir, reclaim)
-    except OSError:
-        return False
-    shutil.rmtree(reclaim, ignore_errors=True)
+    cur_host = "nt" if os.name == "nt" else "posix"
+    if owner_host == cur_host:
+        return _pid_is_alive_same_host(pid)
+    if cur_host == "posix" and owner_host == "nt" and shutil.which("tasklist.exe"):
+        res = subprocess.run(
+            ["tasklist.exe", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if res.returncode == 0:
+            return f'"{pid}"' in res.stdout
+        return True  # conservatively assume alive if query failed
+    if cur_host == "nt" and owner_host == "posix" and shutil.which("wsl.exe"):
+        res = subprocess.run(
+            ["wsl.exe", "test", "-d", f"/proc/{pid}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return res.returncode == 0
+    # Unknown foreign host without interop: never steal a potentially live lock based on wall-clock age.
     return True
 
 
+def _owner_is_dead(lock_dir):
+    owner_file = lock_dir / "owner.json"
+    if not owner_file.is_file():
+        try:
+            age = time.time() - lock_dir.stat().st_mtime
+        except FileNotFoundError:
+            return False
+        # Only reclaim an uninitialized lock dir if the creator crashed before writing owner.json.
+        return age > 5.0
+    try:
+        owner = json.loads(owner_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return not _pid_is_alive_cross_host(owner.get("pid"), owner.get("host"))
+
+
+def _try_reclaim_stale_lock(lock_dir):
+    """Serialize stale-lock reclamation via a guard dir and re-verify owner liveness before removing."""
+    if not _owner_is_dead(lock_dir):
+        return False
+    guard = lock_dir.parent / f"{lock_dir.name}.reclaim"
+    try:
+        os.mkdir(guard)
+    except FileExistsError:
+        try:
+            if time.time() - guard.stat().st_mtime > 30.0:
+                os.rmdir(guard)
+        except OSError:
+            pass
+        return False
+    try:
+        # Re-check under the reclaim guard so a concurrent reclaimer can never delete a fresh live lock.
+        if lock_dir.is_dir() and _owner_is_dead(lock_dir):
+            shutil.rmtree(lock_dir, ignore_errors=True)
+            return True
+        return False
+    finally:
+        try:
+            os.rmdir(guard)
+        except OSError:
+            pass
+
+
 @contextlib.contextmanager
-def _store_lock(store_dir, timeout=120.0, stale_seconds=60.0):
-    """Cross-host exclusive lock using atomic mkdir with stale-lock reclamation on crash."""
+def _store_lock(store_dir, timeout=120.0):
+    """Cross-host exclusive lock using atomic mkdir with liveness-checked, serialized stale-lock reclamation."""
     resolved = Path(store_dir).resolve()
     try:
         rel = resolved.relative_to(ROOT.resolve()).as_posix()
@@ -516,20 +549,31 @@ def _store_lock(store_dir, timeout=120.0, stale_seconds=60.0):
             os.mkdir(lock_dir)
             break
         except FileExistsError:
-            if _try_reclaim_stale_lock(lock_dir, stale_seconds=stale_seconds):
+            if _try_reclaim_stale_lock(lock_dir):
                 continue
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"timed out waiting for store lock {lock_dir}")
             time.sleep(0.02)
+    token = f"{os.getpid()}-{time.time_ns()}"
     owner_file = lock_dir / "owner.json"
     try:
         owner_file.write_text(
-            json.dumps({"pid": os.getpid(), "host": "nt" if os.name == "nt" else "posix", "created": time.time()}),
+            json.dumps({
+                "pid": os.getpid(),
+                "host": "nt" if os.name == "nt" else "posix",
+                "token": token,
+                "created": time.time(),
+            }),
             encoding="utf-8",
         )
         yield
     finally:
-        shutil.rmtree(lock_dir, ignore_errors=True)
+        try:
+            cur = json.loads(owner_file.read_text(encoding="utf-8"))
+            if cur.get("token") == token:
+                shutil.rmtree(lock_dir, ignore_errors=True)
+        except (OSError, ValueError):
+            pass
 
 
 def publish_store(fresh_dir, store_dir, expected_specs):
@@ -726,7 +770,13 @@ def main(argv=None):
     frames = list(out.glob("*.bgra"))
     print(f"{len(frames)} frames in {out}")
     if args.update_store:
-        print(f"published {len(specs)} validated compressed frames to {STORE}")
+        manifest = open_reference_manifest(STORE)
+        frame_count = sum(1 for c in manifest.get("cases", []) if c.get("basis") != "compiled-template")
+        fallback_count = sum(1 for c in manifest.get("cases", []) if c.get("basis") == "compiled-template")
+        if fallback_count:
+            print(f"published {frame_count} validated compressed frames and {fallback_count} compiled-template fallbacks to {STORE}")
+        else:
+            print(f"published {frame_count} validated compressed frames to {STORE}")
     return 0
 
 
