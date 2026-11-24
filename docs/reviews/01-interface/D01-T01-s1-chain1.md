@@ -20,3 +20,11 @@ LENS plan: findings
 HIGHEST: P1  
 PLAN: gaps  
 OVERALL: needs-attention
+
+- Planned: manifest-independent exact 26 case identities, scale and pixel dimension checks, and negative tests in 92fbb2d
+- Planned: retain standard button corner limit of 3, tighten accent to 4, defer subtle reference capture to D01 T01 §7, and test subtle corners in ui_tests.c in 92fbb2d
+- Planned: edge-wise proportional corner fitting matching CGeometryBuilder, asymmetric 40x20 probe, and ui/draw.h contract update in 92fbb2d
+- Planned: control_shots.c consumes captured accent palette from cases.json in 92fbb2d
+- Planned: added display-session to D01 T01 §1 Needs in 92fbb2d
+- Planned: update docs/guide/button.md and verify with tools/site/build.py --check in 92fbb2d
+- Planned: separate CGeometryBuilder geometry attribution from measured coverage rule in ui/draw.c comment in 92fbb2d
