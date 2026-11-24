@@ -303,23 +303,31 @@ def verify_missing_controls(pkg_data, template_c_path, pkg_target_types=None, pi
     return results
 
 
+def _num_val(x):
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        raise PackageDrift(f"invalid thickness component: {x!r}")
+    v = float(x)
+    if v != v or v in (float("inf"), float("-inf")) or v < 0:
+        raise PackageDrift(f"invalid thickness component: {x!r}")
+    return int(v) if v.is_integer() else v
+
+
 def _parse_thickness_inset(val):
-    """Parse an int/float, 1/2/4-element number list, or XAML thickness string into (left, top, right, bottom) ints."""
+    """Parse an int/float, 1/2/4-element number list, or XAML thickness string into (left, top, right, bottom) numbers."""
     if isinstance(val, (int, float)) and not isinstance(val, bool):
-        n = max(0, int(round(val)))
+        n = _num_val(val)
         return (n, n, n, n)
     if isinstance(val, (list, tuple)):
-        if all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in val):
-            nums = [max(0, int(round(x))) for x in val]
-            if len(nums) == 1:
-                return (nums[0], nums[0], nums[0], nums[0])
-            if len(nums) == 2:
-                return (nums[0], nums[1], nums[0], nums[1])
-            if len(nums) == 4:
-                return tuple(nums)
+        nums = [_num_val(x) for x in val]
+        if len(nums) == 1:
+            return (nums[0], nums[0], nums[0], nums[0])
+        if len(nums) == 2:
+            return (nums[0], nums[1], nums[0], nums[1])
+        if len(nums) == 4:
+            return tuple(nums)
     if isinstance(val, str):
         parts = [p.strip() for p in val.replace(" ", ",").split(",") if p.strip()]
-        nums = [max(0, int(round(float(p)))) for p in parts]
+        nums = [_num_val(float(p)) for p in parts]
         if len(nums) == 1:
             return (nums[0], nums[0], nums[0], nums[0])
         if len(nums) == 2:
@@ -346,9 +354,11 @@ def _validate_frame_dict(frame, cid):
             raise PackageDrift(f"case {cid!r}: duplicate case-folded frame field {fk!r}")
         seen.add(fl)
         if fl == "background":
+            if fv is not None and not isinstance(fv, str):
+                raise PackageDrift(f"case {cid!r}: frame.{fk} must be a string or null (got {fv!r})")
             continue
-        if not isinstance(fv, int) or isinstance(fv, bool) or fv <= 0:
-            raise PackageDrift(f"case {cid!r}: frame.{fk} must be a positive integer (got {fv!r})")
+        if not isinstance(fv, int) or isinstance(fv, bool) or fv <= 0 or fv > 2147483647:
+            raise PackageDrift(f"case {cid!r}: frame.{fk} must be a positive 32-bit integer (got {fv!r})")
         if fl == "width":
             fw = fv
         else:
@@ -417,11 +427,15 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
             ir = bt[2] + pad[2]
             ib = bt[3] + pad[3]
             if il or it or ir or ib:
+                nx = cur_rect["X"] + il
+                ny = cur_rect["Y"] + it
+                nw = max(0, cur_rect["Width"] - il - ir)
+                nh = max(0, cur_rect["Height"] - it - ib)
                 child_rect = {
-                    "X": cur_rect["X"] + il,
-                    "Y": cur_rect["Y"] + it,
-                    "Width": max(0, cur_rect["Width"] - il - ir),
-                    "Height": max(0, cur_rect["Height"] - it - ib),
+                    "X": int(nx) if float(nx).is_integer() else nx,
+                    "Y": int(ny) if float(ny).is_integer() else ny,
+                    "Width": int(nw) if float(nw).is_integer() else nw,
+                    "Height": int(nh) if float(nh).is_integer() else nh,
                 }
         child_layouts = []
         child_autos = []

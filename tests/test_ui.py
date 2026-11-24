@@ -1925,14 +1925,32 @@ class ReferenceHarness(unittest.TestCase):
                 self.assertTrue((dead_dir / f"tok-{dead_tok}").is_file())
             shutil.rmtree(dead_dir, ignore_errors=True)
 
-            # Force directory rename failure during release -> release falls back to unlinking token and removes lockdir.
+            # Force directory rename failure during release -> release falls back to unlinking token and removes BOTH locks.
+            live_v2 = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockv2"
             with mock.patch.object(ref_run, "_rename_dir_with_retry", return_value=False):
                 with ref_run._store_lock(tstore, timeout=5.0):
                     self.assertTrue(dead_dir.is_dir())
+                    self.assertTrue(live_v2.is_dir())
             self.assertFalse(dead_dir.exists())
+            self.assertFalse(live_v2.exists())
+
+            # PermissionError while releasing .lockv2 must still release .lockdir so the primary lock is never stranded.
+            real_rel = ref_run._release_single_lock_dir
+            def _fail_v2_release(root, ldir, tok):
+                if ldir == live_v2:
+                    raise PermissionError("injected v2 release failure")
+                return real_rel(root, ldir, tok)
+            try:
+                with mock.patch.object(ref_run, "_release_single_lock_dir", side_effect=_fail_v2_release):
+                    with self.assertRaises(PermissionError):
+                        with ref_run._store_lock(tstore, timeout=5.0):
+                            self.assertTrue(dead_dir.is_dir())
+                            self.assertTrue(live_v2.is_dir())
+                self.assertFalse(dead_dir.exists(), ".lockdir must be released even when .lockv2 release fails")
+            finally:
+                shutil.rmtree(live_v2, ignore_errors=True)
 
             # Live .lockv2 owner blocks _store_lock acquisition (and _store_lock holds both .lockdir and .lockv2).
-            live_v2 = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockv2"
             live_v2.mkdir(exist_ok=True)
             live_tok = f"{host}.{os.getpid()}.{ref_run._encode_distro(distro)}.1"
             (live_v2 / f"tok-{live_tok}").write_text(json.dumps({
@@ -2138,19 +2156,22 @@ class ReferenceHarness(unittest.TestCase):
             )
             dg_a_scroll = dg_asym["layout"]["Children"][0]["Children"][0]["Children"][0]
             self.assertEqual(dg_a_scroll["Rect"], {"X": 2, "Y": 3, "Width": 154, "Height": 56})
-            # Unknown frame key ("Widht") and fractional frame dimensions (0.5) must fail.
+            # Fractional DIP padding preserves exact fractional coordinates.
+            dg_frac = check_pkg.check_missing_control_case(
+                {"id": "mc-dgrid-frac", "control": "DataGrid", "properties": {"Padding": [0.5, 1.5, 2.5, 3.5]}},
+                committed_pkg, ROOT / "ui/template_data.c",
+            )
+            dg_f_scroll = dg_frac["layout"]["Children"][0]["Children"][0]["Children"][0]
+            self.assertEqual(dg_f_scroll["Rect"], {"X": 1.5, "Y": 2.5, "Width": 155, "Height": 57})
+            # Unknown frame key ("Widht"), fractional width (0.5), 32-bit overflow, and non-string background must fail.
             with self.assertRaises(ValueError):
                 ref_run.normalize_case_spec({"id": "bad-frame", "control": "DataGrid", "frame": {"Widht": 80}})
-            with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.check_missing_control_case(
-                    {"id": "bad-frame", "control": "DataGrid", "frame": {"Widht": 80}},
-                    committed_pkg, ROOT / "ui/template_data.c",
-                )
-            with self.assertRaises(check_pkg.PackageDrift):
-                check_pkg.check_missing_control_case(
-                    {"id": "bad-frac-frame", "control": "DataGrid", "frame": {"width": 0.5}},
-                    committed_pkg, ROOT / "ui/template_data.c",
-                )
+            for bad_frame in ({"Widht": 80}, {"width": 0.5}, {"width": 2147483648}, {"background": 42}):
+                with self.assertRaises(check_pkg.PackageDrift):
+                    check_pkg.check_missing_control_case(
+                        {"id": "bad-frame", "control": "DataGrid", "frame": bad_frame},
+                        committed_pkg, ROOT / "ui/template_data.c",
+                    )
             # Case-insensitive frame dimensions ({"Width": 80, "Height": 40}) and IsEnabled: False must be honored.
             wrap_sized = check_pkg.check_missing_control_case(
                 {"id": "mc-wrap-sized", "control": "WrapPanel", "frame": {"Width": 80, "Height": 40}, "properties": {"IsEnabled": False}},

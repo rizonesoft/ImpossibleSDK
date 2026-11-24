@@ -528,6 +528,15 @@ def _parse_token_identity(token):
     parts = token.split(".")
     if len(parts) == 4 and parts[0] in ("nt", "posix") and parts[1].isdigit():
         return parts[0], int(parts[1]), _decode_distro(parts[2])
+    # Also recognize legacy b78e066 hyphenated token format: <host>-<pid>-<distro_tag>-<ns>
+    hparts = token.split("-")
+    if len(hparts) >= 4 and hparts[0] in ("nt", "posix") and hparts[1].isdigit():
+        fhost, fpid = hparts[0], int(hparts[1])
+        fdistro = hparts[2] if (fhost == "posix" and hparts[2] not in ("none", "win")) else ""
+        # Underscore in legacy distro_tag may be a substituted hyphen; pass "" so cross-host check stays conservative.
+        if "_" in fdistro:
+            fdistro = ""
+        return fhost, fpid, fdistro
     return None, None, ""
 
 
@@ -687,10 +696,20 @@ def _store_lock(store_dir, timeout=120.0):
         acquired_v2 = True
         yield
     finally:
+        first_err = None
         if acquired_v2:
-            _release_single_lock_dir(lock_root, legacy_v2_dir, token)
+            try:
+                _release_single_lock_dir(lock_root, legacy_v2_dir, token)
+            except Exception as err:
+                first_err = err
         if acquired_main:
-            _release_single_lock_dir(lock_root, lock_dir, token)
+            try:
+                _release_single_lock_dir(lock_root, lock_dir, token)
+            except Exception as err:
+                if first_err is None:
+                    first_err = err
+        if first_err is not None:
+            raise first_err
 
 
 def publish_store(fresh_dir, store_dir, expected_specs):
