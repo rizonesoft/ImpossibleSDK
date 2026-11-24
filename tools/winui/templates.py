@@ -185,10 +185,15 @@ CONTENT_CONTROL_PROPS = CONTROL_PROPS | {
     "Content", "ContentTemplate", "ContentTemplateSelector", "ContentTransitions",
 }
 
-# Properties inherited by Panel subclasses (Grid, ItemsStackPanel).
+# Properties declared on Panel (from WinUI XamlOM: Grid and ItemsStackPanel derive from Panel).
 PANEL_PROPS = {
+    "Background", "BackgroundTransition", "ChildrenTransitions",
+}
+
+# Properties declared on Border (from WinUI XamlOM).
+BORDER_PROPS = {
     "Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush",
-    "BorderThickness", "ChildrenTransitions", "CornerRadius", "Padding",
+    "BorderThickness", "Child", "ChildTransitions", "CornerRadius", "Padding",
 }
 
 # Properties declared on ContentPresenter (inherited by ListViewItemPresenter).
@@ -211,8 +216,11 @@ NON_UI_ELEMENTS = {
 }
 
 ELEMENT_OWN_PROPS = {
-    "Grid": PANEL_PROPS | {"ColumnSpacing", "RowSpacing"},
-    "Border": (PANEL_PROPS - {"ChildrenTransitions"}) | {"Child", "ChildTransitions"},
+    "Grid": PANEL_PROPS | {
+        "BackgroundSizing", "BorderBrush", "BorderThickness", "ColumnSpacing",
+        "CornerRadius", "Padding", "RowSpacing",
+    },
+    "Border": BORDER_PROPS,
     "ContentPresenter": CONTENT_PRESENTER_PROPS,
     "Rectangle": {
         "Fill", "RadiusX", "RadiusY", "Stretch", "Stroke", "StrokeDashArray",
@@ -292,13 +300,13 @@ ELEMENT_OWN_PROPS = {
     "ColumnDefinition": {"Width", "MinWidth", "MaxWidth"},
     "TranslateTransform": {"X", "Y"},
     "ScaleTransform": {"ScaleX", "ScaleY", "CenterX", "CenterY"},
-    "CompositeTransform": {"ScaleX", "ScaleY", "TranslateX", "TranslateY", "CenterX", "CenterY"},
-    "RectangleGeometry": {"Rect"},
+    "CompositeTransform": {"CenterX", "CenterY", "Rotation", "ScaleX", "ScaleY", "SkewX", "SkewY", "TranslateX", "TranslateY"},
+    "RectangleGeometry": {"RadiusX", "RadiusY", "Rect", "Transform"},
     "BrushTransition": {"Duration"},
     "AddDeleteThemeTransition": set(),
     "ContentThemeTransition": set(),
     "ReorderThemeTransition": set(),
-    "EntranceThemeTransition": {"IsStaggeringEnabled"},
+    "EntranceThemeTransition": {"FromHorizontalOffset", "FromVerticalOffset", "IsStaggeringEnabled"},
 }
 
 # XAML inheritance chain for validating owner-qualified Storyboard.TargetProperty paths.
@@ -650,7 +658,7 @@ TYPE_PROPS = {
     "ListViewBase": COMMON_UI_PROPS | ELEMENT_OWN_PROPS["ListView"],
     "IconElement": COMMON_UI_PROPS | {"Foreground"},
     "Transform": set(),
-    "Geometry": set(),
+    "Geometry": {"Transform"},
     "Transition": set(),
 }
 for _tag in ELEMENT_OWN_PROPS:

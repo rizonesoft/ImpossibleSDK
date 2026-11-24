@@ -1159,6 +1159,43 @@ class TemplateCompiler(unittest.TestCase):
         res_fws, _ = self._run_fixture(xaml_fe_width_setter)
         self.assertEqual(res_fws.returncode, 0, res_fws.stderr)
 
+        # Panel does not declare Grid-only Padding/BorderBrush/CornerRadius, while Grid does; Geometry declares Transform inherited by RectangleGeometry.
+        xaml_panel_pad = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(Panel.Padding)" Value="4" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_pp, path_pp = self._run_fixture(xaml_panel_pad)
+        self.assertNotEqual(res_pp.returncode, 0)
+        self.assertIn(f"{path_pp}:3:", res_pp.stderr)
+
+        xaml_grid_pad = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(Grid.Padding)" Value="4" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_gp, _ = self._run_fixture(xaml_grid_pad)
+        self.assertEqual(res_gp.returncode, 0, res_gp.stderr)
+
+        xaml_geom_tf = (
+            '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">\n'
+            '  <Border><Border.Clip><RectangleGeometry x:Name="ClipGeometry" Rect="0,0,10,10" /></Border.Clip><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="ClipGeometry.(Geometry.Transform)" Value="{x:Null}" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Border>\n'
+            '</ControlTemplate>\n'
+        )
+        res_gt, _ = self._run_fixture(xaml_geom_tf)
+        self.assertEqual(res_gt.returncode, 0, res_gt.stderr)
+
+        # Class-level schema invariant: base types in TYPE_PROPS must never include descendant-only properties.
+        self.assertFalse({"Padding", "BorderBrush", "CornerRadius"} & tpl_mod.TYPE_PROPS["Panel"])
+        self.assertFalse({"Width", "Height", "Margin"} & tpl_mod.TYPE_PROPS["UIElement"])
+        self.assertIn("Transform", tpl_mod.TYPE_PROPS["Geometry"])
+
         # Unqualified TargetName on DoubleAnimation must be rejected; UIElement.AccessKeyScopeOwner on ListViewItemPresenter must be accepted.
         xaml_unq_tn = (
             '<ControlTemplate TargetType="Button">\n'
