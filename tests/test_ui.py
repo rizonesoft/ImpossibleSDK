@@ -1313,6 +1313,16 @@ class TemplateCompiler(unittest.TestCase):
         )
         res_sva, _ = self._run_fixture(xaml_sv_attached)
         self.assertEqual(res_sva.returncode, 0, res_sva.stderr)
+
+        xaml_ap_id = (
+            '<ControlTemplate xmlns:c="using:Microsoft.UI.Xaml.Automation" TargetType="Button">\n'
+            '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+            '    <Setter Target="R.(c:AutomationProperties.AutomationId)" Value="SubmitButton" />\n'
+            '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res_api, _ = self._run_fixture(xaml_ap_id)
+        self.assertEqual(res_api.returncode, 0, res_api.stderr)
         xaml_bt_ok = (
             '<ControlTemplate xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:c="using:Microsoft.UI.Xaml" TargetType="Button">\n'
             '  <ContentPresenter><ContentPresenter.BackgroundTransition><BrushTransition x:Name="R" /></ContentPresenter.BackgroundTransition><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
