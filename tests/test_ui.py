@@ -2486,6 +2486,18 @@ class ReferenceHarness(unittest.TestCase):
                         captured_frame={"id": "reb-paste", "rendered_text": []},
                     )
                 self.assertIn("clipboard paste", str(cm_paste.exception))
+            # key_press Control releases a previously held Control, so a subsequent plain key_press V is allowed.
+            ref_run.check_no_prohibited_assets(
+                {"id": "reb-plain-v-after-ctrl-press", "control": "RichEditBox", "properties": {"FontFamily": "Inter"},
+                 "script": [
+                     {"action": "key_down", "key": "Control"},
+                     {"action": "key_press", "key": "Control"},
+                     {"action": "key_press", "key": "V"},
+                 ]},
+                require_installed=True, installed_fonts=["inter"],
+                installed_font_ranges={"inter": [[0x56, 0x56], [0x76, 0x76]]},
+                captured_frame={"id": "reb-plain-v-after-ctrl-press", "rendered_text": [{"element": "RichEditBox", "font": "Inter", "text": "v"}]},
+            )
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},

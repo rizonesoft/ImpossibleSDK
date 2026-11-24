@@ -421,7 +421,9 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 ## 17. Reference program for any control
 
-> **Started:** 2026-11-24T10:16Z
+> **Started:** 2026-11-24T12:29Z
+
+**Corrected 2026-11-24:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-24T10:16Z; its review chain is kept as `docs/reviews/01-interface/D01-T01-s17-chain3.md`.
 
 **Corrected 2026-11-24:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-24T09:19Z; its review chain is kept as `docs/reviews/01-interface/D01-T01-s17-chain2.md`.
 
@@ -435,7 +437,7 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 **Build order:**
 
-1. Harden `reference/App.xaml.cs`, `reference/Dump.cs`, `reference/Script.cs`, `reference/run.py`, and `tools/winui/check_package.py` for plan-review findings (scale mode reporting, strict storyboard timeout, panel-root automation traversal, nested child states, preserved `IsTabStop`, non-clobbering overlapping modifiers, generic property resolution, nested missing-control refusal, verified permitted-font allowlist, strict missing-control field checks, package provenance binding, store unowned-file refusal, and 26-frame baseline comparison). Done when: `python3 reference/run.py --update-store` passes on a 100% Windows display host (single-scale `native-dpi` 150% capture is deferred to `D01 T01 §20`).
+1. Harden `reference/App.xaml.cs`, `reference/Dump.cs`, `reference/Script.cs`, `reference/run.py`, and `tools/winui/check_package.py` for plan-review findings (scale mode reporting, strict storyboard timeout, panel-root automation traversal, nested child states, preserved `IsTabStop`, non-clobbering overlapping modifiers, disallowing non-deterministic ambient clipboard paste `Control+V`/`Shift+Insert` in reference scripts, deterministic `touch_tap` focus settling honoring `AllowFocusOnInteraction`, generic property resolution, nested missing-control refusal, verified permitted-font allowlist with exact installed-family and non-zero-glyph all-face `cmap` coverage on declared and post-script `rendered_text`, strict missing-control field checks, package provenance binding, store unowned-file refusal, and 26-frame baseline comparison). Done when: `python3 reference/run.py --update-store` passes on a 100% Windows display host (single-scale `native-dpi` 150% capture is deferred to `D01 T01 §20`).
 2. Cover all new invariants in `tests/test_ui.py` (including 4-channel alpha-aware rectangle masking and live panel-root, child-state, script, and cleanup tests). Done when: `python3 reference/run.py --compare-baseline tests/reference`, `python3 tools/build.py`, `IMPOSSIBLE_LIVE_REFERENCE=1 python3 -m unittest tests.test_ui.LiveReference -v` (0 skipped), `python3 tools/winui/check_package.py --require-live`, and `python3 tools/site/build.py --check` all exit 0.
 
 - [x] Read cases from `reference/cases/*.json`: control, properties, state, theme, scale, flow direction. Done when: the present 16 cases come from a file with equal pixels. Cheaper substitute: C# per control.

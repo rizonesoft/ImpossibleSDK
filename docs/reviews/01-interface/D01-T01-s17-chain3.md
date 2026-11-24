@@ -535,3 +535,44 @@ RECONCILIATION: gaps
 
 - Implemented: Gap 1, Gap 5 (P1) & Gap 15 (P2): Disallowed non-deterministic clipboard paste chords (`Control+V` and `Shift+Insert`, including across sequenced `key_down`/`key_press` steps) in both `reference/Script.cs` and `reference/run.py:_check_no_clipboard_paste()`, handled `AllCaps`/`SmallCaps` character formatting in `reference/App.xaml.cs:CollectRenderedText()`, and added live regression `reb-paste-refused` in `tests/test_ui.py:LiveReference` (plus unit checks for `Control+V` and `Shift+Insert`) proving `Script.cs` blocks ambient clipboard RTF injection in b29829377a14c2f07c8fbeb84a140aad72a6b310.
 - Implemented: Unused tab-stop false refusal (P2): Gated the `pf.TabCount` / `TabLeader` check in `reference/App.xaml.cs:CollectRenderedText()` on `runText.Contains('\t')` so paragraphs defining an unused non-space tab stop do not emit `TabLeader` in b29829377a14c2f07c8fbeb84a140aad72a6b310.
+
+## Reconciliation review: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: agy
+- Run: 2026-11-24T12:27:22Z
+- Candidate: da3f9531b2a3530d93c89c2e39736f293b83affb
+- Effort: low
+- Lenses: adversarial, integration, plan-delivery, record
+- Lines: 30
+- Digest: c1370c856adc0a1b
+
+1. **Open, P1. Rendered-glyph provenance.** Exact installed-family matching is repaired at `reference/run.py:367`, and the collector now handles all-caps runs at `reference/App.xaml.cs:927`. **Path:** A case author replays Control+V into a `RichEditBox` containing formatted text on the clipboard, the supported path identified by the previous review at `docs/reviews/01-interface/D01-T01-s17.md:506`. **Evidence:** Traced the unconditional replay refusal at `reference/Script.cs:590`. The live test requires the capture process to fail at `tests/test_ui.py:3602`. The implementation receipt at `docs/reviews/01-interface/D01-T01-s17.md:536` therefore demonstrates removal of the reviewed path. It provides no capture evidence for the formatted run on that path.
+2. **Closed. Store refresh and read-back.** The supplied Windows gates report 33 validated frames published, zero manifest diff and successful suite read-back. The writer recorded the repair at `docs/reviews/01-interface/D01-T01-s17.md:116`.
+3. **Closed. Baseline count.** The comparison reports 26 legacy frames independently of the 33 published frames. `reference/run.py:1333`, `docs/reviews/01-interface/D01-T01-s17.md:117`.
+4. **Closed. Original reversal evidence.** The writer recorded the failing assertions for reversions of exact-family matching, child validation and cmap coverage. `docs/reviews/01-interface/D01-T01-s17.md:118`, `docs/reviews/01-interface/D01-T01-s17.md:148`.
+5. **Open, P1. Published text fidelity.** **Path:** A maintainer refreshes a recorded rich-text case that copies known, permitted text and pastes it in the same script. The case itself supplies the clipboard contents. **Evidence:** Traced the publication check at `reference/run.py:1104` through `reference/run.py:319` to `reference/run.py:262`. It rejects the chord regardless of who supplied the text or whether every displayed glyph is covered. This also affects plain Inter text. The implementation at `docs/reviews/01-interface/D01-T01-s17.md:536` narrows which captures can publish to satisfy the obligation at `docs/reviews/01-interface/D01-T01-s17.md:100`.
+6. **Closed. Accented text.** The positive `café` case supplies coverage for `é`. `tests/test_ui.py:2343`, `docs/reviews/01-interface/D01-T01-s17.md:147`.
+7. **Closed. Masked passwords.** The initial-value and scripted-input cases check the displayed mask. `tests/test_ui.py:2349`, `tests/test_ui.py:2388`, `docs/reviews/01-interface/D01-T01-s17.md:185`, `docs/reviews/01-interface/D01-T01-s17.md:291`.
+8. **Closed. Visible passwords.** Visible mode selects the password, and its regression passes without coverage for the unused mask. `reference/App.xaml.cs:950`, `tests/test_ui.py:2353`, `docs/reviews/01-interface/D01-T01-s17.md:219`.
+9. **Closed. Scripted text reaches publication validation.** The live test checks the collected text and family, then passes the frame into `publish_store` and checks the reason for refusal. `tests/test_ui.py:3517`, `docs/reviews/01-interface/D01-T01-s17.md:331`.
+10. **Closed. Repeatable touch order.** Replay waits for the press and expected focus before releasing. The live test asserts `GotFocus` precedes `Click`. `reference/Script.cs:699`, `tests/test_ui.py:3657`, `docs/reviews/01-interface/D01-T01-s17.md:293`.
+11. **Closed. Nested date picker.** Recursive validation receives the captured frame. The fixture exercises a date picker inside a grid. `reference/run.py:472`, `tests/test_ui.py:2417`, `docs/reviews/01-interface/D01-T01-s17.md:294`.
+12. **Closed. Touch with interaction focus disabled.** The wait respects `AllowFocusOnInteraction`, and the live test verifies the click. `reference/Script.cs:691`, `tests/test_ui.py:3526`, `docs/reviews/01-interface/D01-T01-s17.md:332`.
+13. **Closed. Shifted digit.** The fixture uses the supported named key `Number1` with Shift and checks for U+0021. `tests/test_ui.py:2380`, `tests/test_ui.py:2386`, `docs/reviews/01-interface/D01-T01-s17.md:333`.
+14. **Closed. Fitting-label ellipsis.** The collector consults `IsTextTrimmed`, and live frames distinguish a fitting label from an overflowing one. `reference/App.xaml.cs:818`, `tests/test_ui.py:3530`, `docs/reviews/01-interface/D01-T01-s17.md:410`.
+15. **Open, P2. Live regression for renderer-generated rich-text marks.** **Path:** A maintainer removes the collector’s tab-leader detection or all-caps conversion and runs the reported gates. **Evidence:** Traced the plain-letter assertion at `tests/test_ui.py:3552`, the hand-built decoration sentinel at `tests/test_ui.py:2470`, and the expected paste failure at `tests/test_ui.py:3602`. All three assertions survive either deletion at `reference/App.xaml.cs:901` or `reference/App.xaml.cs:932`. The test claimed at `docs/reviews/01-interface/D01-T01-s17.md:536` never presents a generated rich-text mark to the live collector.
+16. **Closed. Trimming mode scanned as text.** The verifier classifies `TextTrimming` as a non-text property. The fitting-label fixture exercises that distinction. `reference/run.py:50`, `tests/test_ui.py:2448`, `docs/reviews/01-interface/D01-T01-s17.md:452`.
+17. **Closed. Misleading rich-text diagnostic.** Plain `RichEditBox` text reaches glyph validation and passes with matching Inter coverage. `tests/test_ui.py:3554`, `docs/reviews/01-interface/D01-T01-s17.md:493`.
+18. **Open, P2. Unused tab stop.** The repair fixes the no-tab heading reported previously, but still rejects a paragraph containing one ordinary tab and a later, unused dotted stop. **Path:** A case author uses a paragraph style with two tab stops and advances only to the first, space-led stop. **Evidence:** Traced `reference/App.xaml.cs:896`. One tab causes the collector to enumerate **every** configured stop. It discards the stop position and emits `TabLeader` for the unused dotted stop at `reference/App.xaml.cs:900`. Publication rejects that sentinel at `reference/run.py:446`. The implementation receipt is at `docs/reviews/01-interface/D01-T01-s17.md:537`.
+19. **Closed. Post-review stamp and contract.** The section resolves. The cumulative candidate diff leaves the TODO file byte-identical. Its open Implementation Order row and Commit item are expected under the supplied post-review stamp rule. `todo/01-interface/TODO-01-first-controls.md:51`, `todo/01-interface/TODO-01-first-controls.md:451`.
+
+**New finding, P2. Python rejects a plain V after replay has released Control.** **Path:** A recorded sequence sends `key_down Control`, `key_press Control`, then `key_press V`. Replay sends Control up and removes it from the held-key set at `reference/Script.cs:637`. The final V is unmodified. **Evidence:** Ran `python3 -B` against `_check_no_clipboard_paste` with those three steps and observed `plain.script[2]: clipboard paste (Control+V / Shift+Insert) is disallowed in reference scripts`. Python clears its held flag only for an explicit `key_up` at `reference/run.py:251`. Consequently the verifier rejects a sequence the live replay treats as ordinary typing.
+
+I used the supplied Windows gate results. The additional key-state reproduction ran locally against the pinned candidate.
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS plan-delivery: findings  
+LENS record: findings  
+HIGHEST: P1  
+RECONCILIATION: gaps

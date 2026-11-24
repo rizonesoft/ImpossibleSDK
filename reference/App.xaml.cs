@@ -893,21 +893,43 @@ public partial class App : Application
                                 ["text"] = "ListMarker",
                             });
                         }
-                        if (runText.Contains('\t'))
+                        if (runText.Contains('\t') && pf.TabCount > 0)
                         {
-                            for (int ti = 0; ti < pf.TabCount; ti++)
+                            bool foundNonSpaceLeader = false;
+                            for (int ci = 0; ci < runText.Length && !foundNonSpaceLeader; ci++)
                             {
-                                pf.GetTab(ti, out _, out _, out var leader);
-                                if (leader != Microsoft.UI.Text.TabLeader.Spaces)
+                                if (runText[ci] != '\t') continue;
+                                var tabRange = reb.Document.GetRange(range.StartPosition + ci, range.StartPosition + ci);
+                                tabRange.GetPoint(
+                                    Microsoft.UI.Text.HorizontalCharacterAlignment.Left,
+                                    Microsoft.UI.Text.VerticalCharacterAlignment.Top,
+                                    Microsoft.UI.Text.PointOptions.ClientCoordinates,
+                                    out var tabPt);
+                                double tabXPt = tabPt.X * 72.0 / 96.0;
+                                float bestPos = float.MaxValue;
+                                var bestLeader = Microsoft.UI.Text.TabLeader.Spaces;
+                                for (int ti = 0; ti < pf.TabCount; ti++)
                                 {
-                                    items.Add(new Dictionary<string, string>
+                                    pf.GetTab(ti, out float stopPos, out _, out var leader);
+                                    if (stopPos > tabXPt && stopPos < bestPos)
                                     {
-                                        ["element"] = elemName,
-                                        ["font"] = "__unverified_rich_decoration__",
-                                        ["text"] = "TabLeader",
-                                    });
-                                    break;
+                                        bestPos = stopPos;
+                                        bestLeader = leader;
+                                    }
                                 }
+                                if (bestPos < float.MaxValue && bestLeader != Microsoft.UI.Text.TabLeader.Spaces)
+                                {
+                                    foundNonSpaceLeader = true;
+                                }
+                            }
+                            if (foundNonSpaceLeader)
+                            {
+                                items.Add(new Dictionary<string, string>
+                                {
+                                    ["element"] = elemName,
+                                    ["font"] = "__unverified_rich_decoration__",
+                                    ["text"] = "TabLeader",
+                                });
                             }
                         }
                     }

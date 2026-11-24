@@ -241,53 +241,50 @@ _SHIFTED_DIGITS = {
 
 
 def _check_no_clipboard_paste(cid, script):
-    ctrl_held = False
-    shift_held = False
+    held = set()
+    ctrl_keys = {"control", "leftcontrol", "rightcontrol"}
+    shift_keys = {"shift", "leftshift", "rightshift"}
     for idx, step in enumerate(script or []):
         if not isinstance(step, dict):
             continue
         act = str(step.get("action") or "").lower()
         key_l = str(step.get("key") or "").lower()
         if act == "key_up":
-            if key_l in ("control", "leftcontrol", "rightcontrol"):
-                ctrl_held = False
-            elif key_l in ("shift", "leftshift", "rightshift"):
-                shift_held = False
+            held.discard(key_l)
             continue
         if act not in ("key_press", "key_down"):
             continue
         mods = {str(m).lower() for m in (step.get("modifiers") or [])}
-        ctrl = ctrl_held or key_l in ("control", "leftcontrol", "rightcontrol") or bool(mods & {"control", "leftcontrol", "rightcontrol"})
-        shift = shift_held or key_l in ("shift", "leftshift", "rightshift") or bool(mods & {"shift", "leftshift", "rightshift"})
-        if (ctrl and key_l == "v") or (shift and key_l == "insert"):
+        active = held | mods | ({key_l} if key_l else set())
+        if (bool(active & ctrl_keys) and "v" in active) or (bool(active & shift_keys) and "insert" in active):
             raise ValueError(f"{cid}.script[{idx}]: clipboard paste (Control+V / Shift+Insert) is disallowed in reference scripts")
-        if act == "key_down":
-            if key_l in ("control", "leftcontrol", "rightcontrol"):
-                ctrl_held = True
-            elif key_l in ("shift", "leftshift", "rightshift"):
-                shift_held = True
+        if act == "key_down" and key_l:
+            held.add(key_l)
+        elif act == "key_press" and key_l:
+            held.discard(key_l)
 
 
 def _script_typed_chars(script):
     """Extract characters that key_press/key_down script actions may type into a control."""
     chars = []
-    shift_held = False
+    held_shift = set()
+    shift_keys = {"shift", "leftshift", "rightshift"}
     for idx, step in enumerate(script or []):
         if not isinstance(step, dict):
             continue
         act = str(step.get("action") or "").lower()
         key = str(step.get("key") or "")
         key_l = key.lower()
-        if act == "key_down" and key_l in ("shift", "leftshift", "rightshift"):
-            shift_held = True
+        if act == "key_down" and key_l in shift_keys:
+            held_shift.add(key_l)
             continue
-        if act == "key_up" and key_l in ("shift", "leftshift", "rightshift"):
-            shift_held = False
+        if act in ("key_up", "key_press") and key_l in shift_keys:
+            held_shift.discard(key_l)
             continue
         if act not in ("key_press", "key_down"):
             continue
         mods = {str(m).lower() for m in (step.get("modifiers") or [])}
-        shifted = shift_held or bool(mods & {"shift", "leftshift", "rightshift"})
+        shifted = bool(held_shift) or bool(mods & shift_keys)
         if len(key) == 1 and key.isalpha():
             chars.append((f"script[{idx}].key({key})", key.upper() + key.lower()))
         elif len(key) == 1 and key.isdigit():
