@@ -821,6 +821,20 @@ class TemplateCompiler(unittest.TestCase):
         res_gr, _ = self._run_fixture(xaml_grid_row)
         self.assertEqual(res_gr.returncode, 0, res_gr.stderr)
 
+        # Element-incompatible properties (R.Text, R.Duration) and non-attached brush paths (R.(Fill.Color)) on a Grid must fail on line 4.
+        for bad_target in ("R.Text", "R.Duration", "R.(Fill.Color)"):
+            xaml_incompat = (
+                '<ControlTemplate TargetType="Button">\n'
+                '  <Grid Name="R"><VisualStateManager.VisualStateGroups><VisualStateGroup Name="G"><VisualState Name="S"><VisualState.Setters>\n'
+                '    <Setter\n'
+                f'      Target="{bad_target}" Value="0" />\n'
+                '  </VisualState.Setters></VisualState></VisualStateGroup></VisualStateManager.VisualStateGroups></Grid>\n'
+                '</ControlTemplate>\n'
+            )
+            res_inc, path_inc = self._run_fixture(xaml_incompat)
+            self.assertNotEqual(res_inc.returncode, 0, f"{bad_target} should be rejected on Grid")
+            self.assertIn(f"{path_inc}:4:", res_inc.stderr)
+
 
 EDGE_LIMIT = 1
 STANDARD_DARK_CORNER_LIMIT = 3

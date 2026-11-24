@@ -98,6 +98,107 @@ KEYFRAME_KINDS = {
 
 BINDING_MODES = {"OneWay", "TwoWay", "OneTime"}
 
+# Attached properties legal on UI elements and as parenthesized targets in VisualState.Setters.
+ATTACHED_PROPS = {
+    "AnimatedIcon.State", "AutomationProperties.AccessibilityView", "Canvas.ZIndex",
+    "Control.IsTemplateFocusTarget", "Grid.Column", "Grid.ColumnSpan", "Grid.Row", "Grid.RowSpan",
+    "ScrollViewer.BringIntoViewOnFocusChange", "ScrollViewer.HorizontalScrollBarVisibility",
+    "ScrollViewer.HorizontalScrollMode", "ScrollViewer.IsDeferredScrollingEnabled",
+    "ScrollViewer.IsHorizontalRailEnabled", "ScrollViewer.IsHorizontalScrollChainingEnabled",
+    "ScrollViewer.IsVerticalRailEnabled", "ScrollViewer.IsVerticalScrollChainingEnabled",
+    "ScrollViewer.VerticalScrollBarVisibility", "ScrollViewer.VerticalScrollMode",
+    "ScrollViewer.ZoomMode",
+}
+
+# Properties inherited by all UIElement / FrameworkElement controls and panels.
+COMMON_UI_PROPS = {
+    "AllowDrop", "AllowFocusOnInteraction", "Clip", "DeferLoadStrategy",
+    "FocusVisualMargin", "FocusVisualPrimaryBrush", "FocusVisualPrimaryThickness",
+    "FocusVisualSecondaryBrush", "FocusVisualSecondaryThickness", "Height",
+    "HighContrastAdjustment", "HorizontalAlignment", "IsHitTestVisible",
+    "IsHoldingEnabled", "Load", "ManipulationMode", "Margin", "MaxWidth",
+    "MinHeight", "MinWidth", "Opacity", "RenderTransform", "RenderTransformOrigin",
+    "Style", "UseSystemFocusVisuals", "VerticalAlignment", "Visibility", "Width",
+}
+
+# Element-specific properties (UI elements also inherit COMMON_UI_PROPS | ATTACHED_PROPS).
+NON_UI_ELEMENTS = {
+    "RowDefinition", "ColumnDefinition", "TranslateTransform", "ScaleTransform",
+    "CompositeTransform", "RectangleGeometry", "BrushTransition",
+    "AddDeleteThemeTransition", "ContentThemeTransition", "ReorderThemeTransition",
+    "EntranceThemeTransition",
+}
+
+ELEMENT_OWN_PROPS = {
+    "Grid": {"Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush", "BorderThickness", "CornerRadius", "Padding"},
+    "Border": {"Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush", "BorderThickness", "CornerRadius", "Padding"},
+    "ContentPresenter": {
+        "Background", "BackgroundSizing", "BackgroundTransition", "BorderBrush", "BorderThickness",
+        "Content", "ContentTemplate", "ContentTransitions", "CornerRadius", "FontFamily", "FontSize",
+        "FontStyle", "FontWeight", "Foreground", "HorizontalContentAlignment", "Padding",
+        "TextWrapping", "VerticalContentAlignment",
+    },
+    "Rectangle": {"Fill", "RadiusX", "RadiusY", "Stroke", "StrokeThickness"},
+    "TextBlock": {
+        "CharacterSpacing", "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground",
+        "IsTextScaleFactorEnabled", "Padding", "Text", "TextAlignment", "TextWrapping",
+    },
+    "Button": {
+        "Background", "BackgroundSizing", "BorderBrush", "BorderThickness", "Content", "ContentTemplate",
+        "CornerRadius", "FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground",
+        "HorizontalContentAlignment", "IsTabStop", "Padding", "TabNavigation", "VerticalContentAlignment",
+    },
+    "ScrollViewer": {
+        "Background", "BorderBrush", "BorderThickness", "BringIntoViewOnFocusChange", "CornerRadius",
+        "Foreground", "HorizontalScrollBarVisibility", "HorizontalScrollMode", "IsDeferredScrollingEnabled",
+        "IsHorizontalRailEnabled", "IsHorizontalScrollChainingEnabled", "IsTabStop",
+        "IsVerticalRailEnabled", "IsVerticalScrollChainingEnabled", "Padding", "TabNavigation",
+        "VerticalScrollBarVisibility", "VerticalScrollMode", "ZoomMode",
+    },
+    "Thumb": {"Background", "BorderBrush", "BorderThickness", "IsTabStop", "Template"},
+    "FontIcon": {"FontFamily", "FontSize", "FontStyle", "FontWeight", "Foreground", "Glyph"},
+    "ListViewItemPresenter": {
+        "CheckBoxBorderBrush", "CheckBoxBrush", "CheckBoxCornerRadius", "CheckBoxDisabledBorderBrush",
+        "CheckBoxDisabledBrush", "CheckBoxPointerOverBorderBrush", "CheckBoxPointerOverBrush",
+        "CheckBoxPressedBorderBrush", "CheckBoxPressedBrush", "CheckBoxSelectedBrush",
+        "CheckBoxSelectedDisabledBrush", "CheckBoxSelectedPointerOverBrush",
+        "CheckBoxSelectedPressedBrush", "CheckBrush", "CheckDisabledBrush", "CheckMode",
+        "CheckPressedBrush", "ContentMargin", "ContentTransitions", "CornerRadius",
+        "DisabledOpacity", "DragBackground", "DragForeground", "DragOpacity", "FocusBorderBrush",
+        "FocusSecondaryBorderBrush", "HorizontalContentAlignment", "PlaceholderBackground",
+        "PointerOverBackground", "PointerOverForeground", "PressedBackground", "ReorderHintOffset",
+        "SelectedBackground", "SelectedDisabledBackground", "SelectedForeground",
+        "SelectedPointerOverBackground", "SelectedPressedBackground",
+        "SelectionCheckMarkVisualEnabled", "SelectionIndicatorBrush",
+        "SelectionIndicatorCornerRadius", "SelectionIndicatorDisabledBrush",
+        "SelectionIndicatorPointerOverBrush", "SelectionIndicatorPressedBrush",
+        "SelectionIndicatorVisualEnabled", "VerticalContentAlignment",
+    },
+    "ItemsStackPanel": {"Orientation"},
+    "ItemsPresenter": {"Footer", "FooterTemplate", "FooterTransitions", "Header", "HeaderTemplate", "HeaderTransitions", "Padding"},
+    "RowDefinition": {"Height", "MinHeight"},
+    "ColumnDefinition": {"Width", "MinWidth", "MaxWidth"},
+    "TranslateTransform": {"X", "Y"},
+    "ScaleTransform": {"ScaleX", "ScaleY", "CenterX", "CenterY"},
+    "CompositeTransform": {"ScaleX", "ScaleY", "TranslateX", "TranslateY", "CenterX", "CenterY"},
+    "RectangleGeometry": {"Rect"},
+    "BrushTransition": {"Duration"},
+    "AddDeleteThemeTransition": set(),
+    "ContentThemeTransition": set(),
+    "ReorderThemeTransition": set(),
+    "EntranceThemeTransition": {"IsStaggeringEnabled"},
+}
+
+
+def allowed_props_for(tag):
+    own = ELEMENT_OWN_PROPS.get(tag)
+    if own is None:
+        return set()
+    if tag in NON_UI_ELEMENTS:
+        return own
+    return COMMON_UI_PROPS | ATTACHED_PROPS | own
+
+
 # Known properties on UI elements, styles, and visual-state setters across the four controls.
 KNOWN_PROPS = {
     "AnimatedIcon.State", "AutomationProperties.AccessibilityView", "Background", "BackgroundSizing",
@@ -757,7 +858,8 @@ class Compiler:
             "kf_count": kf_count,
         })
 
-    def compile_vsm_groups(self, groups_node):
+    def compile_vsm_groups(self, groups_node, named_elements=None):
+        named_elements = named_elements or {}
         groups_node.visit()
         group_start = len(self.groups)
         for gnode in groups_node.children:
@@ -796,7 +898,7 @@ class Compiler:
                                     tgt = raw_tp.strip()
                                     if "." not in tgt:
                                         raise TemplateError(f"{s.file}:{s.attr_line('Target')}: invalid VisualState Setter Target {tgt!r}")
-                                    _part, prop_part = tgt.split(".", 1)
+                                    part_name, prop_part = tgt.split(".", 1)
                                     prop_line = s.attr_line("Target")
                                     if prop_part.startswith("(") and prop_part.endswith(")"):
                                         inner_prop = prop_part[1:-1]
@@ -805,20 +907,26 @@ class Compiler:
                                             if s.ns_map.get(pfx) != "using:Microsoft.UI.Xaml.Controls" or rest_prop != "AnimatedIcon.State":
                                                 raise TemplateError(f"{s.file}:{prop_line}: unsupported prefixed Setter Target {tgt!r}")
                                             prop = rest_prop
-                                        elif "." in inner_prop and inner_prop in KNOWN_PROPS:
+                                        elif inner_prop in ATTACHED_PROPS:
                                             prop = inner_prop
                                         else:
-                                            raise TemplateError(f"{s.file}:{prop_line}: unsupported Setter Target {tgt!r}")
+                                            raise TemplateError(f"{s.file}:{prop_line}: unsupported attached Setter Target {tgt!r}")
                                     elif ":" in prop_part:
                                         raise TemplateError(f"{s.file}:{prop_line}: unsupported prefixed Setter Target {tgt!r}")
                                     else:
                                         prop = prop_part
+                                    part_tag = named_elements.get(part_name)
+                                    if part_tag is not None:
+                                        if prop not in allowed_props_for(part_tag):
+                                            raise TemplateError(f"{s.file}:{prop_line}: property {prop!r} is not supported on {part_tag} ({part_name})")
+                                    elif not prop or prop not in KNOWN_PROPS:
+                                        raise TemplateError(f"{s.file}:{prop_line}: unknown property {prop!r}")
                                 else:
                                     tgt = ""
                                     prop = raw_tp.strip()
                                     prop_line = s.attr_line("Property")
-                                if not prop or prop not in KNOWN_PROPS:
-                                    raise TemplateError(f"{s.file}:{prop_line}: unknown property {prop!r}")
+                                    if not prop or prop not in KNOWN_PROPS:
+                                        raise TemplateError(f"{s.file}:{prop_line}: unknown property {prop!r}")
                                 val = self.parse_value(val_raw, prop, s.file, s.attr_line("Value"))
                                 self.style_setters.append({"target": tgt, "property": prop, "value": val})
                         elif sc.tag == "Storyboard":
@@ -898,11 +1006,12 @@ class Compiler:
                         else:
                             raise TemplateError(f"{res_node.file}:{res_node.line}: unknown resource element {res_node.tag!r}")
 
-            # Collect attributes on this element
+            # Collect attributes on this element (validated against this element's allowed property set)
+            allowed_elem = allowed_props_for(node.tag)
             for k in list(node.attrs):
                 if k == "Name":
                     continue
-                if k not in KNOWN_PROPS:
+                if k not in allowed_elem:
                     raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
                 v = node.take(k)
                 val = self.parse_value(v, k, node.file, node.attr_line(k))
@@ -939,6 +1048,7 @@ class Compiler:
             prop_count = len(out_props) - prop_start
             out_elems.append({
                 "kind": ELEMENT_KINDS[node.tag],
+                "tag": node.tag,
                 "name": name,
                 "parent": parent_idx,
                 "prop_start": prop_start,
@@ -972,10 +1082,11 @@ class Compiler:
             })
         elem_count = len(local_elems)
 
+        named_elements = {e["name"]: e["tag"] for e in local_elems if e["name"]}
         group_start = len(self.groups)
         group_count = 0
         for vsm in vsm_nodes:
-            gs, gc = self.compile_vsm_groups(vsm)
+            gs, gc = self.compile_vsm_groups(vsm, named_elements=named_elements)
             if group_count == 0:
                 group_start = gs
             group_count += gc
