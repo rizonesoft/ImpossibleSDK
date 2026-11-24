@@ -803,7 +803,8 @@ public partial class App : Application
             var sw = System.Diagnostics.Stopwatch.StartNew();
             if (transCompleted != null)
             {
-                var finished = await Task.WhenAny(transCompleted.Task, Task.Delay(timeoutMs));
+                int remTrans = Math.Max(0, timeoutMs - (int)sw.ElapsedMilliseconds);
+                var finished = await Task.WhenAny(transCompleted.Task, Task.Delay(remTrans));
                 if (finished == transCompleted.Task)
                 {
                     storyboardCompleted = true;
@@ -830,14 +831,15 @@ public partial class App : Application
 
             if (stateCompleted != null)
             {
-                var finished = await Task.WhenAny(stateCompleted.Task, Task.Delay(timeoutMs));
+                int remState = Math.Max(0, timeoutMs - (int)sw.ElapsedMilliseconds);
+                var finished = await Task.WhenAny(stateCompleted.Task, Task.Delay(remState));
                 if (finished == stateCompleted.Task)
                 {
                     storyboardCompleted = true;
                 }
                 else
                 {
-                    throw new InvalidOperationException($"{caseId}: storyboard for state '{stateName}' did not complete within {timeoutMs}ms (use_transitions={useTransitions})");
+                    throw new InvalidOperationException($"{caseId}: storyboard for state '{stateName}' did not complete within combined {timeoutMs}ms budget (use_transitions={useTransitions})");
                 }
             }
         }

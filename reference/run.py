@@ -270,7 +270,7 @@ def _check_no_clipboard_paste(cid, script):
             continue
         mods = {str(m).lower() for m in (step.get("modifiers") or [])}
         active = held | mods | ({key_l} if key_l else set())
-        if bool(active & ctrl_keys) and key_l in ("c", "x", "insert"):
+        if (bool(active & ctrl_keys) and key_l in ("c", "x", "insert")) or (bool(active & shift_keys) and key_l == "delete"):
             copied_in_script = True
         if (bool(active & ctrl_keys) and "v" in active) or (bool(active & shift_keys) and "insert" in active):
             if not copied_in_script:
@@ -562,23 +562,42 @@ def open_reference_manifest(store_dir, check_provenance=True):
     return manifest
 
 
+def _check_owned_raw_dir(out):
+    if not out.exists():
+        return
+    if not out.is_dir():
+        raise ValueError(f"{out}: output path exists and is not a directory")
+    entries = list(out.iterdir())
+    if not entries:
+        return
+    if not (out / OUT_MARKER).is_file():
+        raise ValueError(f"{out}: refuses to overwrite existing non-empty directory without {OUT_MARKER} ownership marker")
+    indexed_raw_files = set()
+    out_cases_json = out / "cases.json"
+    if out_cases_json.is_file():
+        try:
+            out_manifest = json.loads(out_cases_json.read_text(encoding="utf-8"))
+            for mc in out_manifest.get("cases") or []:
+                if isinstance(mc, dict) and isinstance(mc.get("file"), str):
+                    indexed_raw_files.add(mc["file"])
+        except Exception as exc:
+            raise ValueError(f"{out}: unreadable existing cases.json before raw output refresh: {exc}") from exc
+    for entry in entries:
+        if entry.is_dir():
+            raise ValueError(f"{out}: refuses to overwrite directory containing unrelated entry {entry.name!r}")
+        if entry.name in ("cases.json", "error.txt", OUT_MARKER):
+            continue
+        if entry.suffix == ".bgra" and entry.name in indexed_raw_files:
+            continue
+        raise ValueError(f"{out}: refuses to overwrite directory containing unindexed or unrelated entry {entry.name!r}")
+
+
 def _ensure_safe_capture_dir(out_dir):
     """Refuse to overwrite any existing non-empty output directory or unrelated sibling backup not owned by reference/run.py."""
     out = Path(out_dir)
     with _store_lock(out):
         _recover_dir_unlocked(out, is_store=False)
-        if not out.exists():
-            return
-        if not out.is_dir():
-            raise ValueError(f"{out}: output path exists and is not a directory")
-        entries = list(out.iterdir())
-        if not entries:
-            return
-        if not (out / OUT_MARKER).is_file():
-            raise ValueError(f"{out}: refuses to overwrite existing non-empty directory without {OUT_MARKER} ownership marker")
-        for entry in entries:
-            if entry.is_dir() or (entry.suffix != ".bgra" and entry.name not in ("cases.json", "error.txt", OUT_MARKER)):
-                raise ValueError(f"{out}: refuses to overwrite directory containing unrelated entry {entry.name!r}")
+        _check_owned_raw_dir(out)
 
 
 def _publish_capture_output(src_dir, out_dir):
@@ -588,15 +607,7 @@ def _publish_capture_output(src_dir, out_dir):
     out.parent.mkdir(parents=True, exist_ok=True)
     with _store_lock(out):
         _recover_dir_unlocked(out, is_store=False)
-        if out.exists():
-            if not out.is_dir():
-                raise ValueError(f"{out}: output path exists and is not a directory")
-            entries = list(out.iterdir())
-            if entries and not (out / OUT_MARKER).is_file():
-                raise ValueError(f"{out}: refuses to overwrite existing non-empty directory without {OUT_MARKER} ownership marker")
-            for entry in entries:
-                if entry.is_dir() or (entry.suffix != ".bgra" and entry.name not in ("cases.json", "error.txt", OUT_MARKER)):
-                    raise ValueError(f"{out}: refuses to overwrite directory containing unrelated entry {entry.name!r}")
+        _check_owned_raw_dir(out)
         stage = Path(tempfile.mkdtemp(dir=out.parent, prefix=f".{out.name}.stage-"))
         backup = out.parent / f".{out.name}.backup"
         try:
@@ -757,16 +768,26 @@ def _validate_store_dir_unlocked(store, expected_specs=None, expected_provenance
         slog = c.get("script_log")
         if isinstance(slog, dict):
             step_pressed = set()
+            step_released = set()
+            gesture_steps = set()
             for ev in slog.get("Events") or []:
                 step = ev.get("Step", "")
                 ename = ev.get("Event", "")
-                if step.endswith(":pointer_click"):
+                if step.endswith(":pointer_click") or step.endswith(":touch_tap"):
+                    gesture_steps.add(step)
                     if ename == "PointerPressed":
                         step_pressed.add(step)
-                    elif ename == "PointerReleased" and step not in step_pressed:
-                        raise ValueError(
-                            f"{store}: case {cid!r} script_log step {step!r} recorded PointerReleased before PointerPressed"
-                        )
+                    elif ename == "PointerReleased":
+                        if step not in step_pressed:
+                            raise ValueError(
+                                f"{store}: case {cid!r} script_log step {step!r} recorded PointerReleased before PointerPressed"
+                            )
+                        step_released.add(step)
+            for gstep in sorted(gesture_steps):
+                if gstep not in step_pressed or gstep not in step_released:
+                    raise ValueError(
+                        f"{store}: case {cid!r} script_log step {gstep!r} missing complete press/release pair (pressed={gstep in step_pressed}, released={gstep in step_released})"
+                    )
 
     actual_files = {p.name for p in store.iterdir() if p.is_file()}
     allowed_files = indexed_files | {"cases.json", STORE_MARKER}

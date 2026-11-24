@@ -414,9 +414,10 @@ One choice from a list that opens over the field, editable or not.
 
 **Build order:**
 
-1. Compile the template and lay it out in `ui/controls/combo_box.c`. Done when: the rectangles equal real WinUI's dump.
-2. Add states, behaviour and the peer in `ui/controls/combo_box.c`. Done when: the recorded script and the automation dump are equal.
-3. Show it in `samples/gallery/combo_box.c`. Done when: the state matrix row passes.
+1. Extend `reference/App.xaml.cs`, `reference/Dump.cs`, and `reference/Script.cs` for open-popup capture (popup pixels, open item geometry, automation, and focus) and `pointer_wheel` script input with delta/target, covered by an open/select/dismiss and wheel fixture in `tests/test_ui.py`. Done when: the open-popup and wheel fixtures fail if only the closed field is recorded or wheel selection is omitted.
+2. Compile the template and lay it out in `ui/controls/combo_box.c`. Done when: the rectangles equal real WinUI's dump.
+3. Add states, behaviour and the peer in `ui/controls/combo_box.c`. Done when: the recorded script and the automation dump are equal.
+4. Show it in `samples/gallery/combo_box.c`. Done when: the state matrix row passes.
 
 - [ ] Compile into `ui/template_data.c` the templates `ComboBox` of `controls/dev/ComboBox/ComboBox_themeresources.xaml` (17 states in the groups CommonStates 4, FocusStates 5, DropDownStates 2, EditableModeStates 6); `ComboBoxItem` of `controls/dev/ComboBox/ComboBox_themeresources.xaml` (states Normal, PointerOver, Disabled, Pressed, Selected, SelectedUnfocused, SelectedDisabled, SelectedPointerOver, SelectedPressed, InputModeDefault, TouchInputMode, GameControllerInputMode). Done when: the listing names every state and part, and an unknown property is refused. Cheaper substitute: drawing by hand.
 - [ ] Draw every state from the theme data in `ui/controls/combo_box.c`, with its cases in `reference/cases/combo_box.json`. Done when: frames equal real WinUI at 100, 150, 200 and 300 percent in light, dark and contrast. Cheaper substitute: one theme.

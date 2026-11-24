@@ -1545,21 +1545,25 @@ def extract_mask_rects(layout_node):
     return rects
 
 
-def compare_frames_with_layout_mask(mine, real, width, height, scale, cand_rects, ref_rects, limit=0, rect_tol_dip=1.0):
-    """Compare candidate and reference text/icon rectangles FIRST, then compare unmasked pixels."""
+def compare_frames_with_layout_mask(mine, real, width, height, scale, cand_rects, ref_rects, limit=0, rect_tol_px=0):
+    """Compare candidate and reference rasterized text/icon pixel bounds FIRST, then compare unmasked pixels."""
     if len(cand_rects) != len(ref_rects):
         raise ValueError(f"masked element count mismatch: candidate={len(cand_rects)} vs reference={len(ref_rects)}")
     pixel_masks = []
     for (cname, cx, cy, cw, ch), (rname, rx, ry, rw, rh) in zip(cand_rects, ref_rects):
         if cname != rname:
             raise ValueError(f"masked element name mismatch: {cname!r} vs {rname!r}")
-        if max(abs(cx - rx), abs(cy - ry), abs(cw - rw), abs(ch - rh)) > rect_tol_dip:
-            raise ValueError(f"masked element {rname!r} moved: cand=({cx},{cy},{cw},{ch}) vs ref=({rx},{ry},{rw},{rh})")
+        cx0, cy0, cx1, cy1 = round(cx * scale), round(cy * scale), round((cx + cw) * scale), round((cy + ch) * scale)
+        rx0, ry0, rx1, ry1 = round(rx * scale), round(ry * scale), round((rx + rw) * scale), round((ry + rh) * scale)
+        if max(abs(cx0 - rx0), abs(cy0 - ry0), abs(cx1 - rx1), abs(cy1 - ry1)) > rect_tol_px:
+            raise ValueError(
+                f"masked element {rname!r} moved at scale={scale}: cand_px=({cx0},{cy0},{cx1},{cy1}) vs ref_px=({rx0},{ry0},{rx1},{ry1})"
+            )
         # Convert logical DIPs to target pixels and clip to frame bounds.
-        x0 = max(0, min(width, round(rx * scale)))
-        y0 = max(0, min(height, round(ry * scale)))
-        x1 = max(0, min(width, round((rx + rw) * scale)))
-        y1 = max(0, min(height, round((ry + rh) * scale)))
+        x0 = max(0, min(width, rx0))
+        y0 = max(0, min(height, ry0))
+        x1 = max(0, min(width, rx1))
+        y1 = max(0, min(height, ry1))
         pixel_masks.append((x0, y0, x1, y1))
 
     worst = 0
@@ -1584,15 +1588,20 @@ def validate_script_log(script_log, require_modalities=("pointer", "keyboard", "
     seen_mods = set()
     clicks = 0
     step_pressed = set()
+    step_released = set()
+    gesture_steps = set()
     for ev in events:
         step = ev.get("Step", "")
         name = ev.get("Event", "")
         ptype = ev.get("PointerType", "")
-        if step.endswith(":pointer_click"):
+        if step.endswith(":pointer_click") or step.endswith(":touch_tap"):
+            gesture_steps.add(step)
             if name == "PointerPressed":
                 step_pressed.add(step)
-            elif name == "PointerReleased" and step not in step_pressed:
-                raise ValueError(f"script log step {step!r} recorded PointerReleased before PointerPressed")
+            elif name == "PointerReleased":
+                if step not in step_pressed:
+                    raise ValueError(f"script log step {step!r} recorded PointerReleased before PointerPressed")
+                step_released.add(step)
         if name == "PointerPressed" and ptype == "Mouse":
             seen_mods.add("pointer")
         elif name.startswith("KeyDown:"):
@@ -1601,6 +1610,9 @@ def validate_script_log(script_log, require_modalities=("pointer", "keyboard", "
             seen_mods.add("touch")
         if name == "Click":
             clicks += 1
+    for gstep in sorted(gesture_steps):
+        if gstep not in step_pressed or gstep not in step_released:
+            raise ValueError(f"script log step {gstep!r} missing complete press/release pair")
     missing = [m for m in require_modalities if m not in seen_mods]
     if missing:
         raise ValueError(f"script log missing required input modalities: {missing}")
@@ -2845,6 +2857,33 @@ class ReferenceHarness(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_script_log(filtered)
 
+        # Stripping PointerReleased must fail BOTH validate_script_log AND store validation.
+        no_rel = {**slog, "Events": [e for e in slog["Events"] if e.get("Event") != "PointerReleased"]}
+        with self.assertRaises(ValueError):
+            validate_script_log(no_rel)
+        # Shift+Delete counts as a same-script cut in Python's script validator (matching Script.cs).
+        ref_run._check_no_clipboard_paste("sd-case", [
+            {"action": "key_press", "key": "Delete", "modifiers": ["Shift"]},
+            {"action": "key_press", "key": "V", "modifiers": ["Control"]},
+        ])
+        # Unindexed .bgra in a marked raw capture output directory must be refused and survive byte-for-byte.
+        with tempfile.TemporaryDirectory() as tmp_raw:
+            raw_out = Path(tmp_raw) / "out"
+            raw_src = Path(tmp_raw) / "src"
+            raw_out.mkdir()
+            raw_src.mkdir()
+            (raw_out / ref_run.OUT_MARKER).write_text("impossible-sdk-reference-output\n", encoding="utf-8")
+            (raw_out / "cases.json").write_text(json.dumps({"cases": [{"id": "a", "file": "a.bgra"}]}), encoding="utf-8")
+            (raw_out / "a.bgra").write_bytes(b"\x01\x02\x03\x04")
+            keep_bytes = b"KEEP_ME_UNINDEXED_RAW_FRAME_BYTES"
+            (raw_out / "keep_me.bgra").write_bytes(keep_bytes)
+            (raw_src / "cases.json").write_text(json.dumps({"cases": []}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                ref_run._ensure_safe_capture_dir(raw_out)
+            with self.assertRaises(ValueError):
+                ref_run._publish_capture_output(raw_src, raw_out)
+            self.assertEqual((raw_out / "keep_me.bgra").read_bytes(), keep_bytes)
+
     def test_rectangle_masking_for_text_and_icon_at_fractional_scale(self):
         ref_run, _ = self._ref_modules()
         folder = ROOT / "tests/reference"
@@ -2867,6 +2906,17 @@ class ReferenceHarness(unittest.TestCase):
             px, py = round((rx + rw * 0.5) * scale), round((ry + rh * 0.5) * scale)
             mut[(py * w + px) * 4:(py * w + px) * 4 + 3] = bytes([255, 0, 255])
         compare_frames_with_layout_mask(bytes(mut), real, w, h, scale, cand_both, ref_both, limit=0)
+
+        # Moving a candidate rectangle by 1 device pixel at EVERY required scale (100%, 150%, 200%, 300%) must fail.
+        for req_scale in (1.0, 1.5, 2.0, 3.0):
+            one_px_dip = 1.0 / req_scale
+            ref_s = [("Lbl", 10.0, 10.0, 20.0, 10.0)]
+            cand_s_moved = [("Lbl", 10.0 + one_px_dip, 10.0, 20.0, 10.0)]
+            buf_s = bytes(round(60 * req_scale) * round(40 * req_scale) * 4)
+            with self.assertRaises(ValueError, msg=f"1-device-pixel move must fail at scale={req_scale}"):
+                compare_frames_with_layout_mask(
+                    buf_s, buf_s, round(60 * req_scale), round(40 * req_scale), req_scale, cand_s_moved, ref_s, limit=0
+                )
 
         # Moving a candidate rectangle by 2 DIPs must fail even though its pixels are masked.
         moved = [(independent_icon[0], independent_icon[1] + 2.0, independent_icon[2], independent_icon[3], independent_icon[4]), independent_text]
@@ -3148,7 +3198,7 @@ class LiveReference(unittest.TestCase):
                         "scale": 1.5,
                         "state": "Normal",
                         "frame": {"width": 160, "height": 64},
-                        "properties": {"Width": 120, "Height": 32, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "properties": {"Width": 120, "Height": 32, "Padding": 0, "IsTabStop": False, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
                         "children": [
                             {"id": "lbl", "control": "TextBlock", "properties": {"Name": "RealLabel", "Text": "Sample", "Width": 48, "Height": 18}}
                         ],
@@ -3667,8 +3717,8 @@ class LiveReference(unittest.TestCase):
                 txt_rects = extract_mask_rects(txt_case["layout"])
                 self.assertEqual(len(txt_rects), 1)
                 self.assertEqual(txt_rects[0][0], "RealLabel")
-                # Independent expected centered TextBlock inside 160x64 frame: left=56, top=23, ~46x19 DIPs.
-                ind_txt = [("RealLabel", 56.0, 23.0, 46.0, 19.0)]
+                # Independent expected centered 48x18 TextBlock inside 160x64 zero-padding Button: (56, 23, 48, 18) DIPs.
+                ind_txt = [("RealLabel", 56.0, 23.0, 48.0, 18.0)]
                 txt_px = (out1 / "btn-text-transient-s150.bgra").read_bytes()
                 mut_txt = bytearray(txt_px)
                 px = round((56.0 + 23.0) * 1.5)
@@ -3937,19 +3987,37 @@ class LiveReference(unittest.TestCase):
                 finfo = json.loads(r_info.stdout)
                 self.assertEqual(finfo[0]["families"], ["inter"])
                 self.assertEqual(finfo[0]["ranges"], [[0x41, 0x4C], [0x4E, 0x5A]])
-                # Run the REAL normal RunCases host-manifest pipeline (no extra-font injection) using an installed
-                # registered SIL OFL font on this host ("Barlow") so installed_fonts and installed_font_ranges["barlow"]
-                # come from real Windows registry discovery, then feed that real manifest directly into publish_store
-                # for both covered 'A' (passes) and uncovered CJK U+4E2D (fails with U+4E2D).
+                # Run the REAL normal RunCases host-manifest pipeline (no extra-font injection) using a dynamically
+                # selected registered permitted open-source font discovered on this host (m1["installed_font_ranges"]),
+                # selecting a verified covered ASCII character and verified uncovered Unicode codepoint from its
+                # actual cmap ranges, then feed that real manifest directly into publish_store for both outcomes.
+                host_ranges = m1.get("installed_font_ranges") or {}
+                avail_fams = sorted(k for k, v in host_ranges.items() if isinstance(v, list) and v)
+                if not avail_fams:
+                    self.fail(
+                        "No permitted open-source font (Inter, Barlow, JetBrains Mono, IBM Plex Sans/Mono, "
+                        "DejaVu Sans/Mono, Liberation Sans/Mono, Noto Sans/Mono) is registered in Windows Fonts; "
+                        "install one (e.g. Inter or Barlow) to run the live host-to-publication font checkpoint."
+                    )
+                chosen_fam = avail_fams[0]
+                chosen_ranges = host_ranges[chosen_fam]
+                covered_cp = next(
+                    (cp for cp in range(0x41, 0x5B) if ref_run._codepoint_in_ranges(cp, chosen_ranges)),
+                    chosen_ranges[0][0],
+                )
+                uncovered_cp = next(
+                    cp for cp in (0x4E2D, 0x2603, 0x05D0, 0x0627, 0x3042, 0xE000)
+                    if not ref_run._codepoint_in_ranges(cp, chosen_ranges)
+                )
                 font_ok_case = {
                     "id": "font-ok", "control": "TextBlock", "theme": "Dark", "scale": 1.0,
                     "frame": {"width": 120, "height": 40},
-                    "properties": {"Text": "A", "FontFamily": "Barlow"},
+                    "properties": {"Text": chr(covered_cp), "FontFamily": chosen_fam},
                 }
                 font_miss_case = {
                     "id": "font-miss", "control": "TextBlock", "theme": "Dark", "scale": 1.0,
                     "frame": {"width": 120, "height": 40},
-                    "properties": {"Text": "\u4e2d", "FontFamily": "Barlow"},
+                    "properties": {"Text": chr(uncovered_cp), "FontFamily": chosen_fam},
                 }
                 for case_obj, should_pass in ((font_ok_case, True), (font_miss_case, False)):
                     cf_path = Path(build_tmp) / f"{case_obj['id']}.json"
@@ -3961,8 +4029,8 @@ class LiveReference(unittest.TestCase):
                         check=True,
                     )
                     m_live_f = json.loads((out_f / "cases.json").read_text(encoding="utf-8"))
-                    self.assertIn("barlow", m_live_f["installed_fonts"])
-                    self.assertTrue(m_live_f["installed_font_ranges"].get("barlow"))
+                    self.assertIn(chosen_fam, m_live_f["installed_fonts"])
+                    self.assertTrue(m_live_f["installed_font_ranges"].get(chosen_fam))
                     store_f = Path(tmp) / f"store_{case_obj['id']}"
                     if should_pass:
                         ref_run.publish_store(out_f, store_f, {case_obj["id"]: case_obj})
@@ -3970,7 +4038,7 @@ class LiveReference(unittest.TestCase):
                     else:
                         with self.assertRaises(ValueError) as cm_gid0:
                             ref_run.publish_store(out_f, store_f, {case_obj["id"]: case_obj})
-                        self.assertIn("U+4E2D", str(cm_gid0.exception))
+                        self.assertIn(f"U+{uncovered_cp:04X}", str(cm_gid0.exception))
 
                 # Class-level clipboard isolation regressions (zero host clipboard access):
                 # 1. Structural invariant: reference C# sources contain no Win32/WinRT desktop clipboard APIs.
@@ -3982,8 +4050,8 @@ class LiveReference(unittest.TestCase):
                     ):
                         self.assertNotIn(forbidden_api, cs_src, f"{cs_rel} must not touch the shared desktop clipboard ({forbidden_api})")
 
-                # 2. Panel-root focused child TextBox copy/paste and multiline RichEditBox with mixed RTF formatting
-                # (AllCaps on line1 + normal Line2 must survive copy and paste intact).
+                # 2. Panel-root focused child TextBox copy/paste, Shift+Delete cut/paste, and multiline RichEditBox
+                # with mixed RTF formatting (AllCaps on line1 + normal Line2 must survive copy and paste intact).
                 iso_cases = [
                     {
                         "id": "panel-child-copy-paste-live",
@@ -3995,7 +4063,7 @@ class LiveReference(unittest.TestCase):
                             {
                                 "id": "child-tb",
                                 "control": "TextBox",
-                                "properties": {"Name": "ChildTb", "Text": "PanHi", "FontFamily": "Barlow", "Width": 160, "Height": 40},
+                                "properties": {"Name": "ChildTb", "Text": "PanHi", "FontFamily": chosen_fam, "Width": 160, "Height": 40},
                             }
                         ],
                         "script": [
@@ -4007,13 +4075,28 @@ class LiveReference(unittest.TestCase):
                         ],
                     },
                     {
+                        "id": "tb-shift-delete-cut-paste-live",
+                        "control": "TextBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 180, "height": 64},
+                        "properties": {"Text": "CutMe", "FontFamily": chosen_fam},
+                        "script": [
+                            {"action": "focus"},
+                            {"action": "key_press", "key": "A", "modifiers": ["Control"]},
+                            {"action": "key_press", "key": "Delete", "modifiers": ["Shift"]},
+                            {"action": "key_press", "key": "V", "modifiers": ["Control"]},
+                            {"action": "key_press", "key": "V", "modifiers": ["Control"]},
+                        ],
+                    },
+                    {
                         "id": "reb-multiline-copy-paste-live",
                         "control": "RichEditBox",
                         "theme": "Dark",
                         "scale": 1.0,
                         "frame": {"width": 220, "height": 100},
                         "rich_text_rtf": r"{\rtf1\ansi {\caps line1}\par Line2\par}",
-                        "properties": {"FontFamily": "Barlow", "AcceptsReturn": True},
+                        "properties": {"FontFamily": chosen_fam, "AcceptsReturn": True},
                         "script": [
                             {"action": "focus"},
                             {"action": "key_press", "key": "A", "modifiers": ["Control"]},
@@ -4029,37 +4112,87 @@ class LiveReference(unittest.TestCase):
                 m_iso = json.loads((out_iso / "cases.json").read_text(encoding="utf-8"))
                 by_iso = {c["id"]: c for c in m_iso["cases"]}
                 self.assertIn("Text=PanHiPanHi", by_iso["panel-child-copy-paste-live"]["script_log"]["FinalState"].get("focused_state", ""))
+                self.assertEqual(by_iso["tb-shift-delete-cut-paste-live"]["script_log"]["FinalState"].get("text"), "CutMeCutMe")
                 reb_texts = [rt["text"] for rt in by_iso["reb-multiline-copy-paste-live"]["rendered_text"]]
                 self.assertGreaterEqual(reb_texts.count("LINE1"), 2, f"RichEditBox AllCaps RTF formatting did not survive copy/paste: {reb_texts!r}")
                 self.assertGreaterEqual(reb_texts.count("Line2"), 2, f"multiline RichEditBox paste missing duplicated Line2: {reb_texts!r}")
 
-                # 3. Read-only TextBox paste must fail explicitly rather than silently succeeding.
-                ro_cf = Path(build_tmp) / "tb_readonly_paste.json"
-                ro_cf.write_text(json.dumps({"cases": [{
-                    "id": "tb-readonly-paste-refused", "control": "TextBox", "theme": "Dark", "scale": 1.0,
-                    "frame": {"width": 160, "height": 48},
-                    "properties": {"Text": "RO", "IsReadOnly": True, "FontFamily": "Barlow"},
-                    "script": [
-                        {"action": "focus"},
-                        {"action": "key_press", "key": "A", "modifiers": ["Control"]},
-                        {"action": "key_press", "key": "C", "modifiers": ["Control"]},
-                        {"action": "key_press", "key": "V", "modifiers": ["Control"]},
-                    ],
+                # 3. Read-only copy source refusal for BOTH TextBox and RichEditBox with a writable sibling destination
+                # (proves refusal happens at the read-only source, not merely at a read-only paste destination).
+                for src_ctrl, src_props in (
+                    ("TextBox", {"Name": "RoSrc", "Text": "RO", "IsReadOnly": True, "FontFamily": chosen_fam, "Width": 140, "Height": 32}),
+                    ("RichEditBox", {"Name": "RoSrc", "IsReadOnly": True, "FontFamily": chosen_fam, "Width": 140, "Height": 32}),
+                ):
+                    ro_src_case = {
+                        "id": f"ro-src-{src_ctrl.lower()}",
+                        "control": "StackPanel",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 180, "height": 90},
+                        "children": [
+                            {"id": "ro-child", "control": src_ctrl, "properties": src_props,
+                             **({"rich_text_rtf": r"{\rtf1\ansi RO\par}"} if src_ctrl == "RichEditBox" else {})},
+                            {"id": "rw-child", "control": "TextBox",
+                             "properties": {"Name": "RwDst", "Text": "", "FontFamily": chosen_fam, "Width": 140, "Height": 32}},
+                        ],
+                        "script": [
+                            {"action": "pointer_click", "x": 70, "y": 16},
+                            {"action": "key_press", "key": "A", "modifiers": ["Control"], "use_focused": True},
+                            {"action": "key_press", "key": "C", "modifiers": ["Control"], "use_focused": True},
+                            {"action": "key_press", "key": "Tab", "use_focused": True},
+                            {"action": "key_press", "key": "V", "modifiers": ["Control"], "use_focused": True},
+                        ],
+                    }
+                    ro_cf = Path(build_tmp) / f"ro_src_{src_ctrl.lower()}.json"
+                    ro_cf.write_text(json.dumps({"cases": [ro_src_case]}), encoding="utf-8")
+                    out_ro = Path(build_tmp) / f"out_ro_src_{src_ctrl.lower()}"
+                    ro_res = ref_run.run_cmd(
+                        str(exe), ref_run.to_win_path(out_ro),
+                        "--cases", ref_run.to_win_path(ro_cf),
+                        capture_output=True, text=True, check=False,
+                    )
+                    self.assertNotEqual(ro_res.returncode, 0, f"copy from read-only {src_ctrl} must fail at source")
+                    ro_err = (out_ro / "error.txt").read_text(encoding="utf-8")
+                    self.assertIn("read-only", ro_err.lower(), f"expected read-only source error for {src_ctrl}, got: {ro_err}")
+
+                # 4. Combined transition + destination storyboard duration exceeding one shared storyboard_timeout_ms must fail.
+                comb_to_tpl = (
+                    "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' "
+                    "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>"
+                    "<Grid x:Name='RootGrid' Width='100' Height='32'>"
+                    "<VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'>"
+                    "<VisualStateGroup.Transitions>"
+                    "<VisualTransition From='Normal' To='Pressed'>"
+                    "<Storyboard><DoubleAnimation Storyboard.TargetName='RootGrid' Storyboard.TargetProperty='Opacity' "
+                    "To='0.5' Duration='0:0:0.25'/></Storyboard>"
+                    "</VisualTransition>"
+                    "</VisualStateGroup.Transitions>"
+                    "<VisualState x:Name='Normal'/>"
+                    "<VisualState x:Name='Pressed'><Storyboard>"
+                    "<DoubleAnimation Storyboard.TargetName='RootGrid' Storyboard.TargetProperty='Opacity' "
+                    "To='1.0' Duration='0:0:0.25'/>"
+                    "</Storyboard></VisualState>"
+                    "</VisualStateGroup></VisualStateManager.VisualStateGroups>"
+                    "<Border Background='#FF0000FF'/></Grid></ControlTemplate>"
+                )
+                comb_cf = Path(build_tmp) / "comb_sb_timeout.json"
+                comb_cf.write_text(json.dumps({"cases": [{
+                    "id": "btn-combined-timeout", "control": "Button", "theme": "Dark", "scale": 1.0,
+                    "state": "Pressed", "use_transitions": True, "storyboard_timeout_ms": 320,
+                    "frame": {"width": 120, "height": 48}, "template_xaml": comb_to_tpl,
                 }]}), encoding="utf-8")
-                out_ro = Path(build_tmp) / "out_tb_readonly_paste"
-                ro_res = ref_run.run_cmd(
-                    str(exe), ref_run.to_win_path(out_ro),
-                    "--cases", ref_run.to_win_path(ro_cf),
+                out_comb = Path(build_tmp) / "out_comb_timeout"
+                comb_res = ref_run.run_cmd(
+                    str(exe), ref_run.to_win_path(out_comb),
+                    "--cases", ref_run.to_win_path(comb_cf),
                     capture_output=True, text=True, check=False,
                 )
-                self.assertNotEqual(ro_res.returncode, 0, "paste into read-only TextBox must fail explicitly")
-                ro_err = (out_ro / "error.txt").read_text(encoding="utf-8")
-                self.assertTrue(
-                    "read-only" in ro_err.lower() or "did not trigger private clipboard paste" in ro_err.lower(),
-                    f"unexpected read-only paste error: {ro_err}",
-                )
+                self.assertNotEqual(comb_res.returncode, 0, "combined transition + state storyboard exceeding timeout must fail")
+                comb_err = (out_comb / "error.txt").read_text(encoding="utf-8")
+                self.assertIn("btn-combined-timeout", comb_err)
+                self.assertIn("Pressed", comb_err)
 
-                # 4. Clipboard chord on non-text Button must be refused before SendKey.
+                # 5. Clipboard chord on non-text Button must be refused before SendKey.
                 btn_clip_cf = Path(build_tmp) / "btn_clip_refused.json"
                 btn_clip_cf.write_text(json.dumps({"cases": [{
                     "id": "btn-copy-refused", "control": "Button", "theme": "Dark", "scale": 1.0,

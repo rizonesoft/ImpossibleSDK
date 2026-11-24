@@ -484,6 +484,11 @@ public static class Script
         TypedEventHandler<TextBox, TextControlCopyingToClipboardEventArgs> tbCopyHandler = (sender, e) =>
         {
             e.Handled = true;
+            if (sender.IsReadOnly)
+            {
+                interceptedClipError ??= "scripted copy targeted a read-only TextBox";
+                return;
+            }
             privateClipboard = sender.SelectedText;
             privateClipboardRtf = null;
             copiedInScript = true;
@@ -491,6 +496,11 @@ public static class Script
         TypedEventHandler<TextBox, TextControlCuttingToClipboardEventArgs> tbCutHandler = (sender, e) =>
         {
             e.Handled = true;
+            if (sender.IsReadOnly)
+            {
+                interceptedClipError ??= "scripted cut targeted a read-only TextBox";
+                return;
+            }
             privateClipboard = sender.SelectedText;
             privateClipboardRtf = null;
             copiedInScript = true;
@@ -520,6 +530,11 @@ public static class Script
         TypedEventHandler<RichEditBox, TextControlCopyingToClipboardEventArgs> rebCopyHandler = (sender, e) =>
         {
             e.Handled = true;
+            if (sender.IsReadOnly)
+            {
+                interceptedClipError ??= "scripted copy targeted a read-only RichEditBox";
+                return;
+            }
             sender.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.None, out string selText);
             sender.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.FormatRtf, out string selRtf);
             privateClipboard = selText;
@@ -529,6 +544,11 @@ public static class Script
         TypedEventHandler<RichEditBox, TextControlCuttingToClipboardEventArgs> rebCutHandler = (sender, e) =>
         {
             e.Handled = true;
+            if (sender.IsReadOnly)
+            {
+                interceptedClipError ??= "scripted cut targeted a read-only RichEditBox";
+                return;
+            }
             sender.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.None, out string selText);
             sender.Document.Selection.GetText(Microsoft.UI.Text.TextGetOptions.FormatRtf, out string selRtf);
             privateClipboard = selText;
@@ -719,7 +739,8 @@ public static class Script
                                 || modVks.Contains((ushort)VirtualKey.RightShift);
                             bool vActive = vk == VirtualKey.V || heldKeys.Contains((ushort)VirtualKey.V);
                             bool insActive = vk == VirtualKey.Insert || heldKeys.Contains((ushort)VirtualKey.Insert);
-                            if (ctrlActive && (vk == VirtualKey.C || vk == VirtualKey.X || vk == VirtualKey.Insert))
+                            bool delActive = vk == VirtualKey.Delete || heldKeys.Contains((ushort)VirtualKey.Delete);
+                            if ((ctrlActive && (vk == VirtualKey.C || vk == VirtualKey.X || vk == VirtualKey.Insert)) || (shiftActive && delActive))
                             {
                                 isCopyOrCutStep = true;
                             }
