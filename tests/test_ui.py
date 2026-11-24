@@ -53,7 +53,7 @@ class Generated(unittest.TestCase):
         res = subprocess.run([sys.executable, script, str(WINUI), "--check"], capture_output=True, text=True, timeout=120)
         self.assertEqual(res.returncode, 0, res.stderr)
 
-        # Round-trip listing must name every compiled style with its own expected elements and states.
+        # Round-trip listing must match the complete ordered element, state, and transition inventory for all 12 templates.
         listed = subprocess.run([sys.executable, script, str(WINUI), "--list"], capture_output=True, text=True, timeout=120, check=True).stdout
         blocks = {}
         current = None
@@ -62,25 +62,183 @@ class Generated(unittest.TestCase):
                 current = line.split("] ", 1)[1].split(":", 1)[0]
                 blocks[current] = []
             elif current is not None:
-                blocks[current].append(line)
-        expected_blocks = {
-            "DefaultButtonStyle (Button)": ("IM_ELEM_CONTENT_PRESENTER name=ContentPresenter", "STATE PointerOver", "STATE Pressed"),
-            "AccentButtonStyle (Button)": ("IM_ELEM_CONTENT_PRESENTER name=ContentPresenter", "STATE PointerOver", "STATE Pressed"),
-            "SubtleButtonStyle (Button)": ("IM_ELEM_CONTENT_PRESENTER name=ContentPresenter", "STATE PointerOver", "STATE Pressed"),
-            "SwitchThumb.Template (Thumb)": ("IM_ELEM_RECTANGLE",),
-            "DefaultToggleSwitchStyle (ToggleSwitch)": ("IM_ELEM_GRID name=SwitchKnob", "STATE Dragging", "TRANSITION Dragging -> On"),
-            "DeleteButtonStyle (Button)": ("IM_ELEM_TEXT_BLOCK name=GlyphElement", "STATE PointerOver"),
-            "DefaultTextBoxStyle (TextBox)": ("IM_ELEM_TEXT_BLOCK name=PlaceholderTextContentPresenter", "STATE Focused"),
-            "ListView.ItemsPanel (ListView)": ("IM_ELEM_ITEMS_STACK_PANEL",),
-            "ListView (ListView)": ("IM_ELEM_SCROLL_VIEWER name=ScrollViewer", "IM_ELEM_ITEMS_PRESENTER"),
-            "DefaultListViewItemStyle (ListViewItem)": ("IM_ELEM_LIST_VIEW_ITEM_PRESENTER",),
-            "ListViewItemExpanded (ListViewItem)": ("IM_ELEM_FONT_ICON name=MultiSelectCheck", "STATE Selected", "STATE BottomReorderHint"),
+                blocks[current].append(line.strip())
+        expected_inventory = {
+            "DefaultButtonStyle (Button)": [
+                "ELEM[0] parent=-1 IM_ELEM_CONTENT_PRESENTER name=ContentPresenter",
+                "ELEM[1] parent=0 IM_ELEM_BRUSH_TRANSITION name=-",
+                "GROUP CommonStates: states=4 transitions=0",
+                "STATE Normal: setters=0 anims=0",
+                "STATE PointerOver: setters=1 anims=3",
+                "STATE Pressed: setters=1 anims=3",
+                "STATE Disabled: setters=1 anims=3",
+            ],
+            "AccentButtonStyle (Button)": [
+                "ELEM[0] parent=-1 IM_ELEM_CONTENT_PRESENTER name=ContentPresenter",
+                "ELEM[1] parent=0 IM_ELEM_BRUSH_TRANSITION name=-",
+                "GROUP CommonStates: states=4 transitions=0",
+                "STATE Normal: setters=0 anims=0",
+                "STATE PointerOver: setters=0 anims=3",
+                "STATE Pressed: setters=0 anims=3",
+                "STATE Disabled: setters=0 anims=3",
+            ],
+            "SubtleButtonStyle (Button)": [
+                "ELEM[0] parent=-1 IM_ELEM_CONTENT_PRESENTER name=ContentPresenter",
+                "ELEM[1] parent=0 IM_ELEM_BRUSH_TRANSITION name=-",
+                "GROUP CommonStates: states=4 transitions=0",
+                "STATE Normal: setters=0 anims=0",
+                "STATE PointerOver: setters=1 anims=3",
+                "STATE Pressed: setters=1 anims=3",
+                "STATE Disabled: setters=1 anims=3",
+            ],
+            "SwitchThumb.Template (Thumb)": [
+                "ELEM[0] parent=-1 IM_ELEM_RECTANGLE name=-",
+            ],
+            "DefaultToggleSwitchStyle (ToggleSwitch)": [
+                "ELEM[0] parent=-1 IM_ELEM_GRID name=-",
+                "ELEM[1] parent=0 IM_ELEM_ROW_DEFINITION name=-",
+                "ELEM[2] parent=0 IM_ELEM_ROW_DEFINITION name=-",
+                "ELEM[3] parent=0 IM_ELEM_CONTENT_PRESENTER name=HeaderContentPresenter",
+                "ELEM[4] parent=0 IM_ELEM_GRID name=-",
+                "ELEM[5] parent=4 IM_ELEM_ROW_DEFINITION name=-",
+                "ELEM[6] parent=4 IM_ELEM_ROW_DEFINITION name=-",
+                "ELEM[7] parent=4 IM_ELEM_ROW_DEFINITION name=-",
+                "ELEM[8] parent=4 IM_ELEM_COLUMN_DEFINITION name=-",
+                "ELEM[9] parent=4 IM_ELEM_COLUMN_DEFINITION name=-",
+                "ELEM[10] parent=4 IM_ELEM_COLUMN_DEFINITION name=-",
+                "ELEM[11] parent=4 IM_ELEM_GRID name=SwitchAreaGrid",
+                "ELEM[12] parent=4 IM_ELEM_CONTENT_PRESENTER name=OffContentPresenter",
+                "ELEM[13] parent=4 IM_ELEM_CONTENT_PRESENTER name=OnContentPresenter",
+                "ELEM[14] parent=4 IM_ELEM_RECTANGLE name=OuterBorder",
+                "ELEM[15] parent=4 IM_ELEM_RECTANGLE name=SwitchKnobBounds",
+                "ELEM[16] parent=4 IM_ELEM_GRID name=SwitchKnob",
+                "ELEM[17] parent=16 IM_ELEM_BORDER name=SwitchKnobOn",
+                "ELEM[18] parent=17 IM_ELEM_COMPOSITE_TRANSFORM name=-",
+                "ELEM[19] parent=16 IM_ELEM_RECTANGLE name=SwitchKnobOff",
+                "ELEM[20] parent=19 IM_ELEM_COMPOSITE_TRANSFORM name=-",
+                "ELEM[21] parent=16 IM_ELEM_TRANSLATE_TRANSFORM name=KnobTranslateTransform",
+                "ELEM[22] parent=4 IM_ELEM_THUMB name=SwitchThumb",
+                "GROUP CommonStates: states=4 transitions=0",
+                "STATE Normal: setters=0 anims=11",
+                "STATE PointerOver: setters=0 anims=11",
+                "STATE Pressed: setters=4 anims=11",
+                "STATE Disabled: setters=0 anims=14",
+                "GROUP ToggleStates: states=3 transitions=5",
+                "STATE Dragging: setters=0 anims=0",
+                "STATE Off: setters=0 anims=0",
+                "STATE On: setters=0 anims=5",
+                "TRANSITION Dragging -> On dur=0ms anims=5",
+                "TRANSITION On -> Dragging dur=0ms anims=3",
+                "TRANSITION Dragging -> Off dur=0ms anims=4",
+                "TRANSITION On -> Off dur=0ms anims=1",
+                "TRANSITION Off -> On dur=0ms anims=5",
+                "GROUP ContentStates: states=2 transitions=0",
+                "STATE OffContent: setters=0 anims=2",
+                "STATE OnContent: setters=0 anims=2",
+            ],
+            "DeleteButtonStyle (Button)": [
+                "ELEM[0] parent=-1 IM_ELEM_GRID name=ButtonLayoutGrid",
+                "ELEM[1] parent=0 IM_ELEM_TEXT_BLOCK name=GlyphElement",
+                "GROUP CommonStates: states=4 transitions=0",
+                "STATE Normal: setters=0 anims=0",
+                "STATE PointerOver: setters=0 anims=3",
+                "STATE Pressed: setters=0 anims=3",
+                "STATE Disabled: setters=0 anims=1",
+            ],
+            "DefaultTextBoxStyle (TextBox)": [
+                "ELEM[0] parent=-1 IM_ELEM_GRID name=-",
+                "ELEM[1] parent=0 IM_ELEM_ROW_DEFINITION name=-",
+                "ELEM[2] parent=0 IM_ELEM_ROW_DEFINITION name=-",
+                "ELEM[3] parent=0 IM_ELEM_ROW_DEFINITION name=-",
+                "ELEM[4] parent=0 IM_ELEM_COLUMN_DEFINITION name=-",
+                "ELEM[5] parent=0 IM_ELEM_COLUMN_DEFINITION name=-",
+                "ELEM[6] parent=0 IM_ELEM_CONTENT_PRESENTER name=HeaderContentPresenter",
+                "ELEM[7] parent=0 IM_ELEM_BORDER name=BorderElement",
+                "ELEM[8] parent=0 IM_ELEM_SCROLL_VIEWER name=ContentElement",
+                "ELEM[9] parent=0 IM_ELEM_TEXT_BLOCK name=PlaceholderTextContentPresenter",
+                "ELEM[10] parent=0 IM_ELEM_BUTTON name=DeleteButton",
+                "ELEM[11] parent=0 IM_ELEM_CONTENT_PRESENTER name=DescriptionPresenter",
+                "GROUP CommonStates: states=4 transitions=0",
+                "STATE Normal: setters=0 anims=0",
+                "STATE Disabled: setters=0 anims=5",
+                "STATE PointerOver: setters=0 anims=4",
+                "STATE Focused: setters=0 anims=5",
+                "GROUP ButtonStates: states=2 transitions=0",
+                "STATE ButtonVisible: setters=0 anims=1",
+                "STATE ButtonCollapsed: setters=0 anims=0",
+            ],
+            "ListView.ItemContainerTransitions (ListView)": [
+                "ELEM[0] parent=-1 IM_ELEM_ADD_DELETE_THEME_TRANSITION name=-",
+                "ELEM[1] parent=-1 IM_ELEM_CONTENT_THEME_TRANSITION name=-",
+                "ELEM[2] parent=-1 IM_ELEM_REORDER_THEME_TRANSITION name=-",
+                "ELEM[3] parent=-1 IM_ELEM_ENTRANCE_THEME_TRANSITION name=-",
+            ],
+            "ListView.ItemsPanel (ListView)": [
+                "ELEM[0] parent=-1 IM_ELEM_ITEMS_STACK_PANEL name=-",
+            ],
+            "ListView (ListView)": [
+                "ELEM[0] parent=-1 IM_ELEM_BORDER name=-",
+                "ELEM[1] parent=0 IM_ELEM_SCROLL_VIEWER name=ScrollViewer",
+                "ELEM[2] parent=1 IM_ELEM_ITEMS_PRESENTER name=-",
+            ],
+            "DefaultListViewItemStyle (ListViewItem)": [
+                "ELEM[0] parent=-1 IM_ELEM_LIST_VIEW_ITEM_PRESENTER name=Root",
+            ],
+            "ListViewItemExpanded (ListViewItem)": [
+                "ELEM[0] parent=-1 IM_ELEM_GRID name=ContentBorder",
+                "ELEM[1] parent=0 IM_ELEM_SCALE_TRANSFORM name=ContentBorderScale",
+                "ELEM[2] parent=0 IM_ELEM_RECTANGLE name=BorderBackground",
+                "ELEM[3] parent=0 IM_ELEM_GRID name=ContentPresenterGrid",
+                "ELEM[4] parent=3 IM_ELEM_TRANSLATE_TRANSFORM name=ContentPresenterTranslateTransform",
+                "ELEM[5] parent=3 IM_ELEM_CONTENT_PRESENTER name=ContentPresenter",
+                "ELEM[6] parent=0 IM_ELEM_TEXT_BLOCK name=PlaceholderTextBlock",
+                "ELEM[7] parent=0 IM_ELEM_RECTANGLE name=PlaceholderRect",
+                "ELEM[8] parent=0 IM_ELEM_BORDER name=MultiSelectSquare",
+                "ELEM[9] parent=8 IM_ELEM_RECTANGLE_GEOMETRY name=-",
+                "ELEM[10] parent=9 IM_ELEM_TRANSLATE_TRANSFORM name=MultiSelectClipTransform",
+                "ELEM[11] parent=8 IM_ELEM_TRANSLATE_TRANSFORM name=MultiSelectCheckBoxTransform",
+                "ELEM[12] parent=8 IM_ELEM_FONT_ICON name=MultiSelectCheck",
+                "ELEM[13] parent=0 IM_ELEM_BORDER name=MultiArrangeOverlayTextBorder",
+                "ELEM[14] parent=13 IM_ELEM_TEXT_BLOCK name=MultiArrangeOverlayText",
+                "GROUP CommonStates: states=6 transitions=0",
+                "STATE Normal: setters=0 anims=0",
+                "STATE PointerOver: setters=0 anims=5",
+                "STATE Pressed: setters=0 anims=5",
+                "STATE Selected: setters=0 anims=6",
+                "STATE PointerOverSelected: setters=0 anims=6",
+                "STATE PressedSelected: setters=0 anims=6",
+                "GROUP DisabledStates: states=2 transitions=0",
+                "STATE Enabled: setters=0 anims=0",
+                "STATE Disabled: setters=0 anims=1",
+                "GROUP MultiSelectStates: states=2 transitions=0",
+                "STATE MultiSelectDisabled: setters=0 anims=4",
+                "STATE MultiSelectEnabled: setters=0 anims=6",
+                "GROUP DataVirtualizationStates: states=2 transitions=0",
+                "STATE DataAvailable: setters=0 anims=0",
+                "STATE DataPlaceholder: setters=0 anims=2",
+                "GROUP ReorderHintStates: states=5 transitions=1",
+                "STATE NoReorderHint: setters=0 anims=0",
+                "STATE BottomReorderHint: setters=0 anims=1",
+                "STATE TopReorderHint: setters=0 anims=1",
+                "STATE RightReorderHint: setters=0 anims=1",
+                "STATE LeftReorderHint: setters=0 anims=1",
+                "TRANSITION * -> NoReorderHint dur=200ms anims=0",
+                "GROUP DragStates: states=11 transitions=1",
+                "STATE NotDragging: setters=0 anims=0",
+                "STATE Dragging: setters=0 anims=2",
+                "STATE DraggingTarget: setters=0 anims=0",
+                "STATE MultipleDraggingPrimary: setters=0 anims=8",
+                "STATE MultipleDraggingSecondary: setters=0 anims=0",
+                "STATE DraggedPlaceholder: setters=0 anims=0",
+                "STATE Reordering: setters=0 anims=1",
+                "STATE ReorderingTarget: setters=0 anims=3",
+                "STATE MultipleReorderingPrimary: setters=0 anims=7",
+                "STATE ReorderedPlaceholder: setters=0 anims=1",
+                "STATE DragOver: setters=0 anims=1",
+                "TRANSITION * -> NotDragging dur=200ms anims=0",
+            ],
         }
-        for key, needles in expected_blocks.items():
-            self.assertIn(key, blocks)
-            body = "\n".join(blocks[key])
-            for needle in needles:
-                self.assertIn(needle, body, f"{key} missing {needle}")
+        self.assertEqual(blocks, expected_inventory)
 
         # Compiled templates must never emit Microsoft font names (Segoe).
         h_orig = (ROOT / "ui/template_data.h").read_text(encoding="utf-8")
@@ -254,6 +412,25 @@ class TemplateCompiler(unittest.TestCase):
         res, path = self._run_fixture(xaml)
         self.assertNotEqual(res.returncode, 0)
         self.assertIn(f"{path}:6:", res.stderr)
+
+    def test_refuses_unknown_visual_state_property_with_exact_line(self):
+        xaml = (
+            '<ControlTemplate TargetType="Button">\n'
+            '  <Grid>\n'
+            '    <VisualStateManager.VisualStateGroups>\n'
+            '      <VisualStateGroup Name="CommonStates">\n'
+            '        <VisualState\n'
+            '          Name="Normal"\n'
+            '          BogusStateAttr="1" />\n'
+            '      </VisualStateGroup>\n'
+            '    </VisualStateManager.VisualStateGroups>\n'
+            '  </Grid>\n'
+            '</ControlTemplate>\n'
+        )
+        res, path = self._run_fixture(xaml)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(f"{path}:7:", res.stderr)
+        self.assertIn("BogusStateAttr", res.stderr)
 
 
 EDGE_LIMIT = 1

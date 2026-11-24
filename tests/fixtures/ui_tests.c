@@ -107,11 +107,13 @@ static int test_templates(void) {
     if (!has_style_setter_brush(acc, "Background", IM_BRUSH_AccentButtonBackground)) return 45;
     if (!has_state_prop_brush(acc, "PointerOver", "ContentPresenter", "Background", IM_BRUSH_AccentButtonBackgroundPointerOver)) return 46;
     if (!has_state_prop_brush(acc, "Pressed", "ContentPresenter", "Background", IM_BRUSH_AccentButtonBackgroundPressed)) return 47;
+    if (!has_state_prop_brush(acc, "Disabled", "ContentPresenter", "Background", IM_BRUSH_AccentButtonBackgroundDisabled)) return 73;
 
     const im_template *sub = &im_templates[IM_TEMPLATE_BUTTON_SUBTLE];
     if (!has_style_setter_brush(sub, "Background", IM_BRUSH_SubtleButtonBackground)) return 48;
     if (!has_state_prop_brush(sub, "PointerOver", "ContentPresenter", "Background", IM_BRUSH_SubtleButtonBackgroundPointerOver)) return 49;
     if (!has_state_prop_brush(sub, "Pressed", "ContentPresenter", "Background", IM_BRUSH_SubtleButtonBackgroundPressed)) return 50;
+    if (!has_state_prop_brush(sub, "Disabled", "ContentPresenter", "Background", IM_BRUSH_SubtleButtonBackgroundDisabled)) return 74;
 
     /* 2. ToggleSwitch: ControlFasterAnimationDuration (83ms) on SwitchKnobBounds Opacity, spline (0,0,0,1), RepositionThemeAnimation offsets, and fixed-point RenderTransformOrigin. */
     const im_template *ts = &im_templates[IM_TEMPLATE_TOGGLE_SWITCH];

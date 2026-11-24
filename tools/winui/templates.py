@@ -327,6 +327,12 @@ def clean_target_property(prop, file, line):
     return stripped
 
 
+def check_attrs(node, allowed):
+    for k in node.attrs:
+        if k not in allowed:
+            raise TemplateError(f"{node.file}:{node.attr_line(k)}: unknown property {k!r} on {node.tag}")
+
+
 class Compiler:
     """Compiles WinUI styles and control templates into flat portable C tables."""
 
@@ -636,6 +642,7 @@ class Compiler:
         for gnode in groups_node.children:
             if gnode.tag != "VisualStateGroup":
                 raise TemplateError(f"{gnode.file}:{gnode.line}: expected VisualStateGroup, got {gnode.tag!r}")
+            check_attrs(gnode, {"Name", "Key"})
             gname = gnode.attrs.get("Name", "")
             state_start = len(self.states)
             trans_start = len(self.transitions)
@@ -644,6 +651,7 @@ class Compiler:
                 if child.tag == "VisualStateGroup.Transitions":
                     trans_nodes.extend(child.children)
                 elif child.tag == "VisualState":
+                    check_attrs(child, {"Name", "Key"})
                     sname = child.attrs.get("Name", "")
                     setter_start = len(self.style_setters)
                     anim_start = len(self.anims)
@@ -652,6 +660,7 @@ class Compiler:
                             for s in sc.children:
                                 if s.tag != "Setter":
                                     raise TemplateError(f"{s.file}:{s.line}: expected Setter, got {s.tag!r}")
+                                check_attrs(s, {"Target", "Property", "Value"})
                                 tgt = s.attrs.get("Target", "")
                                 prop = strip_xml_prefix(tgt.split(".", 1)[-1]).strip("()") if "." in tgt else s.attrs.get("Property", "")
                                 if prop and prop not in KNOWN_PROPS:
@@ -659,6 +668,7 @@ class Compiler:
                                 val = self.parse_value(s.attrs.get("Value", ""), prop, s.file, s.attr_line("Value"))
                                 self.style_setters.append({"target": tgt, "property": prop, "value": val})
                         elif sc.tag == "Storyboard":
+                            check_attrs(sc, {"Name", "Key"})
                             for anim in sc.children:
                                 self.compile_animation(anim)
                         else:
@@ -676,6 +686,7 @@ class Compiler:
             for tnode in trans_nodes:
                 if tnode.tag != "VisualTransition":
                     raise TemplateError(f"{tnode.file}:{tnode.line}: expected VisualTransition, got {tnode.tag!r}")
+                check_attrs(tnode, {"Name", "Key", "From", "To", "GeneratedDuration"})
                 from_s = tnode.attrs.get("From")
                 to_s = tnode.attrs.get("To")
                 dur_ms = 0
@@ -685,6 +696,7 @@ class Compiler:
                 anim_start = len(self.anims)
                 for tc in tnode.children:
                     if tc.tag == "Storyboard":
+                        check_attrs(tc, {"Name", "Key"})
                         for anim in tc.children:
                             self.compile_animation(anim)
                     else:
@@ -771,6 +783,7 @@ class Compiler:
             self.local_resources = saved_resources
 
     def compile_control_template(self, ct_node, key, target_type, style_setters, enum_id):
+        check_attrs(ct_node, {"Key", "Name", "TargetType"})
         local_elems = []
         local_props = []
         vsm_nodes = []
@@ -813,6 +826,7 @@ class Compiler:
         return tpl_idx
 
     def compile_style(self, style_node, key_override=None, enum_id=None):
+        check_attrs(style_node, {"Key", "Name", "TargetType", "BasedOn"})
         key = key_override if key_override is not None else style_node.attrs.get("Key") or style_node.attrs.get("TargetType")
         target_type = style_node.attrs.get("TargetType", "")
         local_setters = []
@@ -821,6 +835,7 @@ class Compiler:
         for child in style_node.children:
             if child.tag != "Setter":
                 raise TemplateError(f"{child.file}:{child.line}: expected Setter in Style, got {child.tag!r}")
+            check_attrs(child, {"Property", "Value"})
             prop = child.attrs.get("Property", "")
             if prop not in KNOWN_PROPS:
                 raise TemplateError(f"{child.file}:{child.attr_line('Property')}: unknown property {prop!r} in Style Setter")
