@@ -420,6 +420,8 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 ## 17. Reference program for any control
 
+> **Started:** 2026-11-24T05:45Z
+
 `reference/` draws buttons without text at one scale. Every control section needs it to draw any control, read its layout and drive it.
 
 **Phase:** 1
