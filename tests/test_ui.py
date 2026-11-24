@@ -1504,13 +1504,14 @@ class GuideDocs(unittest.TestCase):
         self.assertIn(f"{ACCENT_CORNER_LIMIT} of 255", guide)
         self.assertIn(f"{PROBE_LIMIT} of 255", guide)
 
-        # Wang chord sentence must state exact N = 256 (not N = 2560) and smoothing section must not carry the stale 1024 cap.
+        # Wang chord sentence must state exact N = 256 for signed 16.16 radii under 32,768 px and smoothing section must not carry 1024 or 1,024.
         smoothing = guide.split("## How are corners smoothed?", 1)[1].split("\n## ", 1)[0]
         sentences = [s.strip() for s in re.split(r"(?<=\.)\s+", smoothing) if s.strip()]
         wang_sentences = [s for s in sentences if "Wang's formula" in s]
         self.assertEqual(len(wang_sentences), 1)
         self.assertIsNotNone(re.search(r"\bN\s*=\s*256\b", wang_sentences[0]))
-        self.assertNotIn("1024", smoothing)
+        self.assertIn("signed 16.16 radii under 32,768 px", wang_sentences[0])
+        self.assertIsNone(re.search(r"1,?024", smoothing))
 
         # Accent-button explanation sentence must preserve both the measured qualification and horizontal/vertical (not diagonal) symmetry basis.
         accent_sentences = [s for s in sentences if "accent button" in s.lower() and f"{ACCENT_CORNER_LIMIT} of 255" in s]
@@ -1519,6 +1520,20 @@ class GuideDocs(unittest.TestCase):
             f"measured corner limit of {ACCENT_CORNER_LIMIT} of 255 stands on horizontal and vertical reflection symmetry (not diagonal symmetry)",
             accent_sentences[0],
         )
+
+        # The §1 correction paragraph in TODO-01-first-controls.md must stay aligned with docs/guide/button.md.
+        todo_rel = "todo/01-interface/TODO-01-first-controls.md"
+        todo_text = (ROOT / todo_rel).read_text(encoding="utf-8")
+        s1_body = todo_text.split("## 1. Exact corner smoothing", 1)[1].split("\n## 2. ", 1)[0]
+        self.assertIsNotNone(re.search(r"\bN\s*=\s*256\b", s1_body), f"{todo_rel}: missing N=256 in §1")
+        self.assertIn("signed 16.16 radii `< 32,768` px", s1_body, f"{todo_rel}: missing signed 16.16 radius range in §1")
+        self.assertIsNone(re.search(r"1,?024", s1_body), f"{todo_rel}: stale 1024/1,024 cap in §1")
+        self.assertIn(
+            f"measured corner error under horizontal and vertical reflection symmetry is {ACCENT_CORNER_LIMIT} of 255",
+            s1_body,
+            f"{todo_rel}: missing measured 4-way reflection accent error in §1",
+        )
+        self.assertIsNone(re.search(r"6-unit|six-unit|<=\s*4 on accent", s1_body), f"{todo_rel}: superseded accent floor claim in §1")
 
 
 @unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
