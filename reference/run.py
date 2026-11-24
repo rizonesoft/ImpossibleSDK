@@ -209,6 +209,18 @@ def normalize_case_spec(case_spec):
         if kl in out:
             raise ValueError(f"case {case_spec.get('id', '<unknown>')!r}: duplicate case-folded key {k!r}")
         out[kl] = v
+    if isinstance(out.get("frame"), dict):
+        norm_frame = {}
+        for fk, fv in out["frame"].items():
+            if not isinstance(fk, str):
+                raise ValueError(f"case {out.get('id', '<unknown>')!r}: non-string frame key {fk!r}")
+            fl = fk.lower()
+            if fl not in ("width", "height", "background"):
+                raise ValueError(f"case {out.get('id', '<unknown>')!r}: unknown frame key {fk!r}")
+            if fl in norm_frame:
+                raise ValueError(f"case {out.get('id', '<unknown>')!r}: duplicate case-folded frame key {fk!r}")
+            norm_frame[fl] = fv
+        out["frame"] = norm_frame
     if isinstance(out.get("children"), list):
         out["children"] = [normalize_case_spec(ch) for ch in out["children"]]
     return out
@@ -519,8 +531,19 @@ def _parse_token_identity(token):
     return None, None, ""
 
 
+def _rename_dir_with_retry(src, dst, attempts=5):
+    for i in range(attempts):
+        try:
+            os.rename(src, dst)
+            return True
+        except OSError:
+            if i + 1 < attempts:
+                time.sleep(0.02)
+    return False
+
+
 def _try_clear_dead_lock(lock_dir, my_token):
-    """Atomically clear a provably dead lockdir (current tok-* or legacy owner.json) with zero disk writes."""
+    """Atomically clear a provably dead lockdir (current tok-*, two-file tok+owner.json, or legacy owner.json)."""
     try:
         entries = list(lock_dir.iterdir())
     except OSError:
@@ -533,7 +556,8 @@ def _try_clear_dead_lock(lock_dir, my_token):
         except OSError:
             return False
 
-    # Case 1: current-format tok-<token> or interrupted .reclaimed-<token> marker.
+    owner_file = lock_dir / "owner.json"
+    # Case 1: current-format tok-<token>, interrupted .reclaimed-<token>, or two-file legacy tok-* + owner.json.
     tok_files = [p for p in entries if p.is_file() and (p.name.startswith("tok-") or p.name.startswith(".reclaimed-"))]
     if tok_files:
         target = tok_files[0]
@@ -544,25 +568,33 @@ def _try_clear_dead_lock(lock_dir, my_token):
                 owner = json.loads(target.read_text(encoding="utf-8"))
                 host, pid, distro = owner.get("host"), owner.get("pid"), owner.get("distro", "")
             except (OSError, ValueError):
-                return False
+                if owner_file.is_file():
+                    try:
+                        owner = json.loads(owner_file.read_text(encoding="utf-8"))
+                        host, pid, distro = owner.get("host"), owner.get("pid"), owner.get("distro", "")
+                    except (OSError, ValueError):
+                        return False
+                else:
+                    return False
         if _pid_is_alive_cross_host(pid, host, distro):
             return False
-        # CAS claim via rename on the exact dead marker filename; only one caller can ever win.
+        # CAS claim via rename on the exact dead marker filename; roll back if directory rename fails.
         claimed = lock_dir / f".reclaimed-{my_token}"
         try:
             os.rename(target, claimed)
         except OSError:
             return False
         trash = lock_dir.parent / f"{lock_dir.name}.trash-{my_token}"
-        try:
-            os.rename(lock_dir, trash)
-        except OSError:
+        if not _rename_dir_with_retry(lock_dir, trash):
+            try:
+                os.rename(claimed, target)
+            except OSError:
+                pass
             return False
         shutil.rmtree(trash, ignore_errors=True)
         return True
 
     # Case 2: legacy owner.json without tok-* (new locks never create owner.json, so CAS rename cannot touch a new lock).
-    owner_file = lock_dir / "owner.json"
     if owner_file.is_file():
         try:
             owner = json.loads(owner_file.read_text(encoding="utf-8"))
@@ -576,9 +608,11 @@ def _try_clear_dead_lock(lock_dir, my_token):
         except OSError:
             return False
         trash = lock_dir.parent / f"{lock_dir.name}.trash-{my_token}"
-        try:
-            os.rename(lock_dir, trash)
-        except OSError:
+        if not _rename_dir_with_retry(lock_dir, trash):
+            try:
+                os.rename(claimed, owner_file)
+            except OSError:
+                pass
             return False
         shutil.rmtree(trash, ignore_errors=True)
         return True
@@ -597,10 +631,12 @@ def _store_lock(store_dir, timeout=120.0):
         lock_root = ROOT / "build"
         lock_root.mkdir(parents=True, exist_ok=True)
         lock_dir = lock_root / f".ref-{key}.lockdir"
+        legacy_v2_dir = lock_root / f".ref-{key}.lockv2"
     except ValueError:
         key = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:16]
         lock_root = Path(tempfile.gettempdir())
         lock_dir = lock_root / f"impossible-sdk-ref-{key}.lockdir"
+        legacy_v2_dir = lock_root / f"impossible-sdk-ref-{key}.lockv2"
 
     host = "nt" if os.name == "nt" else "posix"
     distro = os.environ.get("WSL_DISTRO_NAME", "") if host == "posix" else ""
@@ -615,6 +651,14 @@ def _store_lock(store_dir, timeout=120.0):
         )
         deadline = time.monotonic() + timeout
         while True:
+            # Coexist safely with any in-flight legacy .lockv2 publisher before acquiring .lockdir.
+            if legacy_v2_dir.is_dir():
+                if _try_clear_dead_lock(legacy_v2_dir, token):
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"timed out waiting for legacy store lock {legacy_v2_dir}")
+                time.sleep(0.02)
+                continue
             try:
                 os.rename(prep, lock_dir)
                 acquired = True
@@ -630,14 +674,16 @@ def _store_lock(store_dir, timeout=120.0):
         if prep.exists():
             shutil.rmtree(prep, ignore_errors=True)
         if acquired and (lock_dir / f"tok-{token}").is_file():
-            # Atomic single-syscall release via rename to trash so an interrupted release can never leave an empty lock_dir.
+            # Atomic single-syscall release via rename to trash; fall back to token unlink if rename hits sharing violation.
             trash = lock_root / f"{lock_dir.name}.rel-{token}"
-            try:
-                os.rename(lock_dir, trash)
-            except OSError:
-                trash = None
-            if trash is not None:
+            if _rename_dir_with_retry(lock_dir, trash):
                 shutil.rmtree(trash, ignore_errors=True)
+            else:
+                os.unlink(lock_dir / f"tok-{token}")
+                try:
+                    os.rmdir(lock_dir)
+                except OSError:
+                    pass
 
 
 def publish_store(fresh_dir, store_dir, expected_specs):

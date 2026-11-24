@@ -303,6 +303,50 @@ def verify_missing_controls(pkg_data, template_c_path, pkg_target_types=None, pi
     return results
 
 
+def _parse_thickness_inset(val):
+    """Parse an int/float or XAML thickness string ('4' or '4,2,4,2') into (left, top, right, bottom) ints."""
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        n = max(0, int(round(val)))
+        return (n, n, n, n)
+    if isinstance(val, str):
+        parts = [p.strip() for p in val.replace(" ", ",").split(",") if p.strip()]
+        nums = [max(0, int(round(float(p)))) for p in parts]
+        if len(nums) == 1:
+            return (nums[0], nums[0], nums[0], nums[0])
+        if len(nums) == 2:
+            return (nums[0], nums[1], nums[0], nums[1])
+        if len(nums) == 4:
+            return tuple(nums)
+    raise PackageDrift(f"invalid thickness value: {val!r}")
+
+
+def _validate_frame_dict(frame, cid):
+    fw, fh = 160, 64
+    if frame is None:
+        return fw, fh
+    if not isinstance(frame, dict):
+        raise PackageDrift(f"case {cid!r}: frame must be a JSON object")
+    seen = set()
+    for fk, fv in frame.items():
+        if not isinstance(fk, str):
+            raise PackageDrift(f"case {cid!r}: frame has non-string key {fk!r}")
+        fl = fk.lower()
+        if fl not in ("width", "height", "background"):
+            raise PackageDrift(f"case {cid!r}: unknown frame field {fk!r}")
+        if fl in seen:
+            raise PackageDrift(f"case {cid!r}: duplicate case-folded frame field {fk!r}")
+        seen.add(fl)
+        if fl == "background":
+            continue
+        if not isinstance(fv, (int, float)) or isinstance(fv, bool) or fv <= 0:
+            raise PackageDrift(f"case {cid!r}: frame.{fk} must be positive (got {fv!r})")
+        if fl == "width":
+            fw = int(fv)
+        else:
+            fh = int(fv)
+    return fw, fh
+
+
 def check_missing_control_case(case_spec, pkg_data, template_c_path):
     """Route a case targeting a missing control to its own compiled template (ui/template_data.c or reference/templates/)."""
     ctrl = case_spec.get("control")
@@ -326,41 +370,62 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
     for field, actual in (("expected_elements", info["elem_count"]), ("expected_states", info["state_count"]), ("expected_setters", info["setter_count"])):
         if field in case_spec and case_spec[field] != actual:
             raise PackageDrift(f"case {case_spec.get('id')!r}: {field}={case_spec[field]} != compiled {tpl!r} ({actual})")
-    frame = case_spec.get("frame") or {}
-    fw, fh = 160, 64
-    if isinstance(frame, dict):
-        for fk, fv in frame.items():
-            if not isinstance(fk, str):
-                continue
-            fl = fk.lower()
-            if fl == "width":
-                fw = int(fv)
-            elif fl == "height":
-                fh = int(fv)
+    fw, fh = _validate_frame_dict(case_spec.get("frame"), case_spec.get("id"))
     props = case_spec.get("properties") or {}
     is_enabled = True
+    def_bt = int(info.get("border_inset", 0))
+    bt = (def_bt, def_bt, def_bt, def_bt)
+    pad = (0, 0, 0, 0)
     if isinstance(props, dict):
         for pk, pv in props.items():
-            if isinstance(pk, str) and pk.lower() == "isenabled" and isinstance(pv, bool):
+            if not isinstance(pk, str):
+                continue
+            pl = pk.lower()
+            if pl == "isenabled" and isinstance(pv, bool):
                 is_enabled = pv
-                break
+            elif pl == "borderthickness":
+                bt = _parse_thickness_inset(pv)
+            elif pl == "padding":
+                pad = _parse_thickness_inset(pv)
     root_rect = {"X": 0, "Y": 0, "Width": fw, "Height": fh}
-    border_inset = int(info.get("border_inset", 0))
     raw_elems = info.get("elements", [])
     children_by_parent = {}
     for idx, e in enumerate(raw_elems):
         children_by_parent.setdefault(e.get("parent", -1), []).append(idx)
 
+    auto_children = []
+    elem_ctrl_types = {
+        "IM_ELEM_SCROLL_VIEWER": ("Pane", ["Scroll"]),
+        "IM_ELEM_ITEMS_PRESENTER": ("List", []),
+        "IM_ELEM_CONTENT_PRESENTER": ("Group", []),
+    }
+
     def _build_layout_node(idx, cur_rect):
         e = raw_elems[idx]
         child_rect = cur_rect
-        if e["type"] == "IM_ELEM_BORDER" and border_inset > 0:
-            child_rect = {
-                "X": cur_rect["X"] + border_inset,
-                "Y": cur_rect["Y"] + border_inset,
-                "Width": max(0, cur_rect["Width"] - 2 * border_inset),
-                "Height": max(0, cur_rect["Height"] - 2 * border_inset),
-            }
+        if e["type"] == "IM_ELEM_BORDER":
+            il = bt[0] + pad[0]
+            it = bt[1] + pad[1]
+            ir = bt[2] + pad[2]
+            ib = bt[3] + pad[3]
+            if il or it or ir or ib:
+                child_rect = {
+                    "X": cur_rect["X"] + il,
+                    "Y": cur_rect["Y"] + it,
+                    "Width": max(0, cur_rect["Width"] - il - ir),
+                    "Height": max(0, cur_rect["Height"] - it - ib),
+                }
+        if e["type"] in elem_ctrl_types:
+            ctype, pats = elem_ctrl_types[e["type"]]
+            auto_children.append({
+                "ControlType": ctype,
+                "Name": e["name"] or ctype,
+                "Rect": dict(cur_rect),
+                "IsEnabled": is_enabled,
+                "HasKeyboardFocus": False,
+                "Patterns": pats,
+                "Children": [],
+            })
         return {
             "Type": e["type"],
             "Name": e["name"],
@@ -395,7 +460,7 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
             "IsEnabled": is_enabled,
             "HasKeyboardFocus": False,
             "Patterns": auto_patterns,
-            "Children": [],
+            "Children": auto_children,
         },
     }
 

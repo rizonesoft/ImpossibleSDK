@@ -1867,18 +1867,20 @@ class ReferenceHarness(unittest.TestCase):
             self.assertEqual((fake_raw_bak / "extra.txt").read_text(encoding="utf-8"), "user notes")
 
         # 9. Interrupted swap (store missing, owned .<name>.backup present) is recovered atomically across all
-        #    dead lock formats: current tok-*, legacy tokenless owner.json, legacy tokenized owner.json, and empty lockdir.
-        for mode in ("current", "legacy-tokenless", "legacy-tokenized", "empty"):
+        #    dead lock formats: current tok-*, legacy tokenless owner.json, legacy tokenized owner.json,
+        #    legacy two-file (owner.json + plain tok-*), legacy .lockv2, and empty lockdir.
+        for mode in ("current", "legacy-tokenless", "legacy-tokenized", "legacy-two-file", "legacy-v2", "empty"):
             with tempfile.TemporaryDirectory() as tmp:
                 tstore = Path(tmp) / "reference"
                 tbackup = Path(tmp) / ".reference.backup"
                 shutil.copytree(ROOT / "tests/reference", tbackup)
                 key = hashlib.sha256(str(tstore.resolve()).encode("utf-8")).hexdigest()[:16]
-                stale_lock = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
+                suffix = ".lockv2" if mode == "legacy-v2" else ".lockdir"
+                stale_lock = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}{suffix}"
                 stale_lock.mkdir(exist_ok=True)
                 host = "nt" if os.name == "nt" else "posix"
                 distro = os.environ.get("WSL_DISTRO_NAME", "") if host == "posix" else ""
-                if mode == "current":
+                if mode in ("current", "legacy-v2"):
                     dead_tok = f"{host}.99999999.{ref_run._encode_distro(distro)}.0"
                     (stale_lock / f"tok-{dead_tok}").write_text(json.dumps({
                         "pid": 99999999, "host": host, "distro": distro, "token": dead_tok, "created": 0,
@@ -1891,6 +1893,11 @@ class ReferenceHarness(unittest.TestCase):
                     (stale_lock / "owner.json").write_text(json.dumps({
                         "pid": 99999999, "host": host, "distro": distro, "token": "legacy-tok-999", "created": 0,
                     }), encoding="utf-8")
+                elif mode == "legacy-two-file":
+                    (stale_lock / "owner.json").write_text(json.dumps({
+                        "pid": 99999999, "host": host, "distro": distro, "token": "99999999-0", "created": 0,
+                    }), encoding="utf-8")
+                    (stale_lock / "tok-99999999-0").write_text("99999999-0", encoding="utf-8")
                 self.assertFalse(tstore.exists())
                 recovered, rframes = ref_run.read_reference_snapshot(tstore, filenames=["button-Normal-Dark.bgra"])
                 self.assertTrue(tstore.is_dir())
@@ -2066,13 +2073,29 @@ class ReferenceHarness(unittest.TestCase):
             self.assertEqual(len(by_mc_id["mc-wrap"]["layout"]["Children"]), 1)
             self.assertEqual(by_mc_id["mc-wrap"]["layout"]["Children"][0]["Name"], "RootBorder")
             self.assertEqual(by_mc_id["mc-wrap"]["layout"]["Children"][0]["Children"][0]["Name"], "ItemsHost")
-            # DataGrid nests RootGrid -> RootBorder (1px inset) -> ScrollHost -> RowsHost and exposes Scroll pattern.
+            # DataGrid nests RootGrid -> RootBorder (1px inset) -> ScrollHost -> RowsHost and exposes Scroll pattern + automation children.
             dg_grid = by_mc_id["mc-dgrid"]["layout"]["Children"][0]
             dg_border = dg_grid["Children"][0]
             dg_scroll = dg_border["Children"][0]
             self.assertEqual((dg_grid["Name"], dg_border["Name"], dg_scroll["Name"]), ("RootGrid", "RootBorder", "ScrollHost"))
             self.assertEqual(dg_scroll["Rect"], {"X": 1, "Y": 1, "Width": 158, "Height": 62})
             self.assertIn("Scroll", by_mc_id["mc-dgrid"]["automation"]["Patterns"])
+            self.assertTrue(len(by_mc_id["mc-dgrid"]["automation"]["Children"]) >= 2)
+            # Configured BorderThickness=4 + Padding=3 must shift ScrollHost inset to (7, 7, 146, 50).
+            dg_custom = check_pkg.check_missing_control_case(
+                {"id": "mc-dgrid-custom", "control": "DataGrid", "properties": {"BorderThickness": 4, "Padding": 3}},
+                committed_pkg, ROOT / "ui/template_data.c",
+            )
+            dg_c_scroll = dg_custom["layout"]["Children"][0]["Children"][0]["Children"][0]
+            self.assertEqual(dg_c_scroll["Rect"], {"X": 7, "Y": 7, "Width": 146, "Height": 50})
+            # Unknown frame key ("Widht") must fail in both normalize_case_spec and check_missing_control_case.
+            with self.assertRaises(ValueError):
+                ref_run.normalize_case_spec({"id": "bad-frame", "control": "DataGrid", "frame": {"Widht": 80}})
+            with self.assertRaises(check_pkg.PackageDrift):
+                check_pkg.check_missing_control_case(
+                    {"id": "bad-frame", "control": "DataGrid", "frame": {"Widht": 80}},
+                    committed_pkg, ROOT / "ui/template_data.c",
+                )
             # Case-insensitive frame dimensions ({"Width": 80, "Height": 40}) and IsEnabled: False must be honored.
             wrap_sized = check_pkg.check_missing_control_case(
                 {"id": "mc-wrap-sized", "control": "WrapPanel", "frame": {"Width": 80, "Height": 40}, "properties": {"IsEnabled": False}},
