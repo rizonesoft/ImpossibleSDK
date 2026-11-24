@@ -626,6 +626,77 @@ public partial class App : Application
         return (pixels, bitmap.PixelWidth, bitmap.PixelHeight);
     }
 
+    private static List<int[]> ReadFontCmapRanges(string fontPath)
+    {
+        var ranges = new List<int[]>();
+        if (!File.Exists(fontPath)) return ranges;
+        byte[] data = File.ReadAllBytes(fontPath);
+        if (data.Length < 12) return ranges;
+        static ushort U16(byte[] b, int o) => (ushort)((b[o] << 8) | b[o + 1]);
+        static uint U32(byte[] b, int o) => ((uint)b[o] << 24) | ((uint)b[o + 1] << 16) | ((uint)b[o + 2] << 8) | b[o + 3];
+        int sfntOffset = 0;
+        if (data[0] == (byte)'t' && data[1] == (byte)'t' && data[2] == (byte)'c' && data[3] == (byte)'f')
+        {
+            if (data.Length < 16 || U32(data, 8) == 0) return ranges;
+            sfntOffset = (int)U32(data, 12);
+        }
+        if (sfntOffset < 0 || sfntOffset + 12 > data.Length) return ranges;
+        int numTables = U16(data, sfntOffset + 4);
+        int cmapOff = -1;
+        for (int i = 0; i < numTables; i++)
+        {
+            int rec = sfntOffset + 12 + i * 16;
+            if (rec + 16 > data.Length) break;
+            if (data[rec] == (byte)'c' && data[rec + 1] == (byte)'m' && data[rec + 2] == (byte)'a' && data[rec + 3] == (byte)'p')
+            {
+                cmapOff = (int)U32(data, rec + 8);
+                break;
+            }
+        }
+        if (cmapOff < 0 || cmapOff + 4 > data.Length) return ranges;
+        int numSub = U16(data, cmapOff + 2);
+        int bestOff = -1;
+        int bestFmt = -1;
+        for (int i = 0; i < numSub; i++)
+        {
+            int sr = cmapOff + 4 + i * 8;
+            if (sr + 8 > data.Length) break;
+            ushort pid = U16(data, sr);
+            int subOff = cmapOff + (int)U32(data, sr + 4);
+            if ((pid == 3 || pid == 0) && subOff >= 0 && subOff + 4 <= data.Length)
+            {
+                ushort fmt = U16(data, subOff);
+                if (fmt == 12) { bestOff = subOff; bestFmt = 12; break; }
+                if (fmt == 4 && bestFmt != 4) { bestOff = subOff; bestFmt = 4; }
+            }
+        }
+        if (bestFmt == 12 && bestOff + 16 <= data.Length)
+        {
+            uint nGroups = U32(data, bestOff + 12);
+            for (uint g = 0; g < nGroups; g++)
+            {
+                int go = bestOff + 16 + (int)g * 12;
+                if (go + 12 > data.Length) break;
+                ranges.Add(new[] { (int)U32(data, go), (int)U32(data, go + 4) });
+            }
+        }
+        else if (bestFmt == 4 && bestOff + 14 <= data.Length)
+        {
+            int segCount = U16(data, bestOff + 6) / 2;
+            int endOff = bestOff + 14;
+            int startOff = endOff + segCount * 2 + 2;
+            for (int s = 0; s < segCount; s++)
+            {
+                if (startOff + s * 2 + 2 > data.Length) break;
+                int st = U16(data, startOff + s * 2);
+                int en = U16(data, endOff + s * 2);
+                if (st == 0xFFFF && en == 0xFFFF) break;
+                ranges.Add(new[] { st, en });
+            }
+        }
+        return ranges;
+    }
+
     private static async Task RunCases(Window window, Grid canvas, string folder, string? casesPath)
     {
         double hostDpi = canvas.XamlRoot.RasterizationScale;
@@ -828,6 +899,13 @@ public partial class App : Application
         }
 
         var installedFonts = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var installedFontRanges = new Dictionary<string, List<int[]>>(StringComparer.OrdinalIgnoreCase);
+        var permittedFamilies = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "inter", "jetbrains mono", "ibm plex sans", "ibm plex mono",
+            "dejavu sans", "dejavu sans mono", "liberation sans", "liberation mono",
+            "noto sans", "noto mono",
+        };
         string[] styleSuffixes =
         {
             " bold italic", " bold oblique", " semibold italic", " extrabold italic", " extralight italic",
@@ -835,6 +913,7 @@ public partial class App : Application
             " regular", " bold", " italic", " oblique", " light", " medium", " semibold",
             " extrabold", " extralight", " semilight", " thin", " black", " book", " roman",
         };
+        string winFontsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts");
         foreach (var rootKey in new[] { Microsoft.Win32.Registry.LocalMachine, Microsoft.Win32.Registry.CurrentUser })
         {
             using var fk = rootKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts");
@@ -853,7 +932,18 @@ public partial class App : Application
                         break;
                     }
                 }
-                if (!string.IsNullOrEmpty(clean)) installedFonts.Add(clean);
+                if (string.IsNullOrEmpty(clean)) continue;
+                installedFonts.Add(clean);
+                if (permittedFamilies.Contains(clean) && !installedFontRanges.ContainsKey(clean))
+                {
+                    string rawVal = fk.GetValue(vname)?.ToString() ?? "";
+                    if (!string.IsNullOrEmpty(rawVal))
+                    {
+                        string fullPath = Path.IsPathRooted(rawVal) ? rawVal : Path.Combine(winFontsDir, rawVal);
+                        var ranges = ReadFontCmapRanges(fullPath);
+                        if (ranges.Count > 0) installedFontRanges[clean] = ranges;
+                    }
+                }
             }
         }
 
@@ -862,6 +952,7 @@ public partial class App : Application
             scale = canvas.XamlRoot.RasterizationScale,
             accents,
             installed_fonts = installedFonts.ToArray(),
+            installed_font_ranges = installedFontRanges,
             cases = results,
         };
         File.WriteAllText(

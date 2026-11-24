@@ -56,6 +56,7 @@ DISPLAYABLE_CONTENT_PROPERTIES = {
     "placeholdertext", "description", "tooltip", "title", "subtitle",
     "message", "label", "caption", "paneheader", "panetitle", "panefooter",
     "displaymemberpath", "selectedvalue", "selecteditem", "accesskey",
+    "password", "passwordchar",
 }
 DISPLAYABLE_CONTENT_SUFFIXES = (
     "text", "content", "header", "footer", "title", "label", "caption", "message", "description", "tooltip",
@@ -228,7 +229,11 @@ def normalize_case_spec(case_spec):
     return out
 
 
-def check_no_prohibited_assets(case_spec, require_installed=False, installed_fonts=None):
+def _codepoint_in_ranges(cp, ranges):
+    return any(isinstance(r, (list, tuple)) and len(r) == 2 and r[0] <= cp <= r[1] for r in ranges)
+
+
+def check_no_prohibited_assets(case_spec, require_installed=False, installed_fonts=None, installed_font_ranges=None):
     """Refuse unknown/colliding keys, Microsoft fonts, unverified/uninstalled fonts, or stock Microsoft glyph controls."""
     norm = normalize_case_spec(case_spec)
     cid = norm.get("id", "<unknown>")
@@ -287,21 +292,40 @@ def check_no_prohibited_assets(case_spec, require_installed=False, installed_fon
                 raise ValueError(
                     f"{cid}: permitted FontFamily {ff!r} is not an exact installed font family on the capture host (WinUI would fall back to a system font)"
                 )
-            # Ensure all persisted display text uses printable ASCII covered natively by the permitted Latin font (no fallback glyphs).
+            norm_ranges = {
+                str(k).strip().lower(): v for k, v in (installed_font_ranges or {}).items()
+                if isinstance(k, str) and isinstance(v, list)
+            }
+            cmap_ranges = norm_ranges.get(ff)
+            if not cmap_ranges:
+                raise ValueError(
+                    f"{cid}: no verified cmap glyph coverage recorded for installed FontFamily {ff!r}"
+                )
+            # Check EVERY non-allowlisted string property (including PasswordChar, Password, Text, Content, items)
+            # against the installed font face's actual cmap coverage so accented text passes while uncovered glyphs fail.
             text_values = []
             for k, v in props.items():
-                if isinstance(k, str) and _is_displayable_content_property(k) and isinstance(v, str):
+                if isinstance(k, str) and isinstance(v, str) and v != "" and k.lower() not in SAFE_NON_TEXT_PROPERTIES:
                     text_values.append((k, v))
+            if ctrl_l == "passwordbox" and _ci_get(props, "passwordchar", None) is None:
+                text_values.append(("PasswordChar(default)", "\u25CF"))
             for idx, it in enumerate(items or []):
-                if isinstance(it, str):
+                if isinstance(it, str) and it != "":
                     text_values.append((f"items[{idx}]", it))
             for field_name, tv in text_values:
-                if any(ord(ch) < 0x20 or ord(ch) > 0x7E for ch in tv):
-                    raise ValueError(
-                        f"{cid}.{field_name}: non-ASCII character in persisted text could trigger unverified system font fallback"
-                    )
+                for ch in tv:
+                    cp = ord(ch)
+                    if cp < 0x20:
+                        continue
+                    if not _codepoint_in_ranges(cp, cmap_ranges):
+                        raise ValueError(
+                            f"{cid}.{field_name}: codepoint U+{cp:04X} is not covered by installed FontFamily {ff!r} cmap (would trigger unverified system font fallback)"
+                        )
     for child in norm.get("children") or []:
-        check_no_prohibited_assets(child, require_installed=require_installed, installed_fonts=installed_fonts)
+        check_no_prohibited_assets(
+            child, require_installed=require_installed,
+            installed_fonts=installed_fonts, installed_font_ranges=installed_font_ranges,
+        )
 
 
 def _is_owned_backup(backup_path, is_store):
@@ -923,8 +947,12 @@ def publish_store(fresh_dir, store_dir, expected_specs):
     manifest = json.loads((fresh / "cases.json").read_text(encoding="utf-8"))
 
     installed_fonts = manifest.get("installed_fonts")
+    installed_font_ranges = manifest.get("installed_font_ranges")
     for spec in expected_specs.values():
-        check_no_prohibited_assets(spec, require_installed=True, installed_fonts=installed_fonts)
+        check_no_prohibited_assets(
+            spec, require_installed=True,
+            installed_fonts=installed_fonts, installed_font_ranges=installed_font_ranges,
+        )
 
     with _store_lock(store):
         backup = store.parent / f".{store.name}.backup"
