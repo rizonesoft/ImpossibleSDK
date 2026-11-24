@@ -2318,6 +2318,14 @@
           },
           {
             "Step": "3:touch_tap",
+            "Event": "GotFocus",
+            "PointerType": "",
+            "Target": "Button:ScriptedButton",
+            "Focused": "Button:ScriptedButton",
+            "State": "Clicks=2"
+          },
+          {
+            "Step": "3:touch_tap",
             "Event": "Click",
             "PointerType": "",
             "Target": "Button:ScriptedButton",
@@ -2347,14 +2355,6 @@
             "Target": "ContentPresenter:ContentPresenter",
             "Focused": "Button:ScriptedButton",
             "State": ""
-          },
-          {
-            "Step": "3:touch_tap",
-            "Event": "GotFocus",
-            "PointerType": "",
-            "Target": "Button:ScriptedButton",
-            "Focused": "Button:ScriptedButton",
-            "State": "Clicks=3"
           }
         ],
         "FinalState": {

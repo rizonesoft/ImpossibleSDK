@@ -2349,13 +2349,22 @@ class ReferenceHarness(unittest.TestCase):
                 require_installed=True, installed_fonts=["dejavu sans mono"],
                 installed_font_ranges={"dejavu sans mono": latin_ranges},
             )
-            with self.assertRaises(ValueError) as cm_num_lbl:
-                ref_run.check_no_prohibited_assets(
-                    {"id": "ts-num-uncovered", "control": "ToggleSwitch", "properties": {"OnContent": 123, "OffContent": 123, "FontFamily": "Inter"}},
-                    require_installed=True, installed_fonts=["inter"],
-                    installed_font_ranges={"inter": [[0x41, 0x5A]]},
-                )
-            self.assertIn("not covered by installed FontFamily", str(cm_num_lbl.exception))
+            ref_run.check_no_prohibited_assets(
+                {"id": "pw-visible-ok", "control": "PasswordBox", "properties": {"Password": "abc", "PasswordRevealMode": "Visible", "FontFamily": "DejaVu Sans Mono"}},
+                require_installed=True, installed_fonts=["dejavu sans mono"],
+                installed_font_ranges={"dejavu sans mono": latin_ranges},
+            )
+            for bad_num_case in (
+                {"id": "ts-num-uncovered", "control": "ToggleSwitch", "properties": {"OnContent": 123, "OffContent": 123, "FontFamily": "Inter"}},
+                {"id": "nb-num-uncovered", "control": "NumberBox", "properties": {"Value": 123, "FontFamily": "Inter"}},
+            ):
+                with self.assertRaises(ValueError) as cm_num_lbl:
+                    ref_run.check_no_prohibited_assets(
+                        bad_num_case,
+                        require_installed=True, installed_fonts=["inter"],
+                        installed_font_ranges={"inter": [[0x41, 0x5A]]},
+                    )
+                self.assertIn("not covered by installed FontFamily", str(cm_num_lbl.exception))
             # RTL compiled-template fallback must mirror asymmetric horizontal insets (Padding [2, 0, 8, 0] -> X=2 LTR vs X=8 RTL).
             dg_ltr = check_pkg.check_missing_control_case(
                 {"id": "mc-dg-ltr", "control": "DataGrid", "flow_direction": "LeftToRight", "properties": {"Padding": [2, 0, 8, 0]}},
@@ -3360,6 +3369,50 @@ class LiveReference(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError) as cm_nt:
                     ref_run.run_reference(exe, Path(tmp) / "out_no_tab", cases_path=no_tab_case, work_dir=build_tmp)
                 self.assertIn("IsTabStop=False", cm_nt.exception.stderr)
+
+                # Verify C# ReadFontCmapRanges + IntersectRanges on real synthetic SFNT format-4 .ttf and 2-face .ttc:
+                # face 1 maps A..Z with 'M' (0x4D) explicitly mapped to glyph ID 0; face 2 maps A..F.
+                import struct
+                def _make_sfnt_fmt4(start_c, end_c, zero_c=None):
+                    # Format 4 cmap with idRangeOffset pointing to glyphIdArray so zero_c maps to gid=0.
+                    seg_count = 2
+                    gids = [0 if c == zero_c else (c - start_c + 1) for c in range(start_c, end_c + 1)]
+                    end_codes = struct.pack(">HH", end_c, 0xFFFF)
+                    start_codes = struct.pack(">HH", start_c, 0xFFFF)
+                    id_deltas = struct.pack(">hh", 0, 1)
+                    # idRangeOffset for seg 0 = 4 (skips seg 0 + seg 1 idRangeOffset words into glyphIdArray)
+                    id_range_offs = struct.pack(">HH", 4, 0)
+                    glyph_arr = b"".join(struct.pack(">H", g) for g in gids)
+                    sub_len = 14 + len(end_codes) + 2 + len(start_codes) + len(id_deltas) + len(id_range_offs) + len(glyph_arr)
+                    sub = struct.pack(">HHHHHHH", 4, sub_len, 0, seg_count * 2, 2, 0, 2) + end_codes + b"\x00\x00" + start_codes + id_deltas + id_range_offs + glyph_arr
+                    cmap = struct.pack(">HH", 0, 1) + struct.pack(">HHI", 3, 1, 12) + sub
+                    return cmap
+                def _wrap_ttf(cmap_bytes, base_off=0):
+                    # 12-byte offset table + 16-byte table record + cmap
+                    cmap_off = base_off + 28
+                    hdr = struct.pack(">IHHHH", 0x00010000, 1, 16, 0, 0)
+                    rec = b"cmap" + struct.pack(">III", 0, cmap_off, len(cmap_bytes))
+                    return hdr + rec + cmap_bytes
+                c1 = _make_sfnt_fmt4(0x41, 0x5A, zero_c=0x4D)
+                c2 = _make_sfnt_fmt4(0x41, 0x46, zero_c=None)
+                f1 = Path(build_tmp) / "face1.ttf"
+                f2 = Path(build_tmp) / "face2.ttf"
+                f1.write_bytes(_wrap_ttf(c1))
+                f2.write_bytes(_wrap_ttf(c2))
+                # Build a 2-face TTC containing face1 (offset 20) and face2.
+                ttc_hdr_len = 12 + 8
+                ttc_f1 = _wrap_ttf(c1, base_off=ttc_hdr_len)
+                ttc_f2_off = ttc_hdr_len + len(ttc_f1)
+                ttc_f2 = _wrap_ttf(c2, base_off=ttc_f2_off)
+                ttc = Path(build_tmp) / "both.ttc"
+                ttc.write_bytes(b"ttcf" + struct.pack(">IIII", 0x00010000, 2, ttc_hdr_len, ttc_f2_off) + ttc_f1 + ttc_f2)
+
+                r_f1 = ref_run.run_cmd(str(exe), "--dump-cmap", ref_run.to_win_path(f1), capture_output=True, text=True)
+                self.assertEqual(json.loads(r_f1.stdout), [[0x41, 0x4C], [0x4E, 0x5A]])
+                r_both = ref_run.run_cmd(str(exe), "--dump-cmap", ref_run.to_win_path(f1), ref_run.to_win_path(f2), capture_output=True, text=True)
+                self.assertEqual(json.loads(r_both.stdout), [[0x41, 0x46]])
+                r_ttc = ref_run.run_cmd(str(exe), "--dump-cmap", ref_run.to_win_path(ttc), capture_output=True, text=True)
+                self.assertEqual(json.loads(r_ttc.stdout), [[0x41, 0x46]])
 
                 # Scripted button gives identical event + focus log across two independent runs.
                 validate_script_log(by1["btn-script-live"]["script_log"])

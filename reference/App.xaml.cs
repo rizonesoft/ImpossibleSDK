@@ -66,6 +66,18 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var cli = Environment.GetCommandLineArgs();
+        if (cli.Length >= 3 && cli[1] == "--dump-cmap")
+        {
+            List<int[]>? acc = null;
+            for (int i = 2; i < cli.Length; i++)
+            {
+                var r = ReadFontCmapRanges(cli[i]);
+                acc = acc == null ? r : IntersectRanges(acc, r);
+            }
+            Console.WriteLine(JsonSerializer.Serialize(acc ?? new List<int[]>()));
+            Environment.Exit(0);
+            return;
+        }
         string folder = cli.Length > 1 ? cli[1] : throw new InvalidOperationException("Usage: Reference.exe <out_dir> [--cases <path>]");
         string? casesPath = null;
         for (int i = 2; i < cli.Length; i++)
@@ -660,21 +672,12 @@ public partial class App : Application
         return outList;
     }
 
-    private static List<int[]> ReadFontCmapRanges(string fontPath)
+    private static List<int[]> ReadSingleFaceCmapRanges(byte[] data, int sfntOffset)
     {
         var ranges = new List<int[]>();
-        if (!File.Exists(fontPath)) return ranges;
-        byte[] data = File.ReadAllBytes(fontPath);
-        if (data.Length < 12) return ranges;
         static ushort U16(byte[] b, int o) => (ushort)((b[o] << 8) | b[o + 1]);
         static short I16(byte[] b, int o) => (short)((b[o] << 8) | b[o + 1]);
         static uint U32(byte[] b, int o) => ((uint)b[o] << 24) | ((uint)b[o + 1] << 16) | ((uint)b[o + 2] << 8) | b[o + 3];
-        int sfntOffset = 0;
-        if (data[0] == (byte)'t' && data[1] == (byte)'t' && data[2] == (byte)'c' && data[3] == (byte)'f')
-        {
-            if (data.Length < 16 || U32(data, 8) == 0) return ranges;
-            sfntOffset = (int)U32(data, 12);
-        }
         if (sfntOffset < 0 || sfntOffset + 12 > data.Length) return ranges;
         int numTables = U16(data, sfntOffset + 4);
         int cmapOff = -1;
@@ -772,6 +775,31 @@ public partial class App : Application
             }
         }
         return MergeRanges(ranges);
+    }
+
+    private static List<int[]> ReadFontCmapRanges(string fontPath)
+    {
+        if (!File.Exists(fontPath)) return new List<int[]>();
+        byte[] data = File.ReadAllBytes(fontPath);
+        if (data.Length < 12) return new List<int[]>();
+        static uint U32(byte[] b, int o) => ((uint)b[o] << 24) | ((uint)b[o + 1] << 16) | ((uint)b[o + 2] << 8) | b[o + 3];
+        if (data[0] == (byte)'t' && data[1] == (byte)'t' && data[2] == (byte)'c' && data[3] == (byte)'f')
+        {
+            if (data.Length < 16) return new List<int[]>();
+            uint numFonts = U32(data, 8);
+            if (numFonts == 0 || 12 + numFonts * 4 > (uint)data.Length) return new List<int[]>();
+            List<int[]>? acc = null;
+            for (uint fi = 0; fi < numFonts; fi++)
+            {
+                int off = (int)U32(data, 12 + (int)fi * 4);
+                var faceRanges = ReadSingleFaceCmapRanges(data, off);
+                if (faceRanges.Count == 0) return new List<int[]>();
+                acc = acc == null ? faceRanges : IntersectRanges(acc, faceRanges);
+                if (acc.Count == 0) return acc;
+            }
+            return acc ?? new List<int[]>();
+        }
+        return ReadSingleFaceCmapRanges(data, 0);
     }
 
     private static async Task RunCases(Window window, Grid canvas, string folder, string? casesPath)
@@ -1014,17 +1042,12 @@ public partial class App : Application
                 if (permittedFamilies.Contains(clean))
                 {
                     string rawVal = fk.GetValue(vname)?.ToString() ?? "";
-                    if (!string.IsNullOrEmpty(rawVal))
-                    {
-                        string fullPath = Path.IsPathRooted(rawVal) ? rawVal : Path.Combine(winFontsDir, rawVal);
-                        var ranges = ReadFontCmapRanges(fullPath);
-                        if (ranges.Count > 0)
-                        {
-                            installedFontRanges[clean] = installedFontRanges.TryGetValue(clean, out var prev)
-                                ? IntersectRanges(prev, ranges)
-                                : ranges;
-                        }
-                    }
+                    var ranges = string.IsNullOrEmpty(rawVal)
+                        ? new List<int[]>()
+                        : ReadFontCmapRanges(Path.IsPathRooted(rawVal) ? rawVal : Path.Combine(winFontsDir, rawVal));
+                    installedFontRanges[clean] = installedFontRanges.TryGetValue(clean, out var prev)
+                        ? IntersectRanges(prev, ranges)
+                        : ranges;
                 }
             }
         }

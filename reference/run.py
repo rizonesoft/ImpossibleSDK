@@ -312,12 +312,20 @@ def check_no_prohibited_assets(case_spec, require_installed=False, installed_fon
                 kl = k.lower()
                 if ctrl_l == "passwordbox" and kl == "password" and not pw_visible:
                     continue
+                if ctrl_l == "passwordbox" and kl == "passwordchar" and pw_visible:
+                    continue
                 if _is_displayable_content_property(k):
+                    text_values.append((k, str(v)))
+                elif ctrl_l == "numberbox" and kl in ("value", "minimum", "maximum"):
                     text_values.append((k, str(v)))
                 elif isinstance(v, str) and kl not in SAFE_NON_TEXT_PROPERTIES:
                     text_values.append((k, v))
-            if ctrl_l == "passwordbox" and _ci_get(props, "passwordchar", None) is None:
+            if ctrl_l == "passwordbox" and not pw_visible and _ci_get(props, "passwordchar", None) is None:
                 text_values.append(("PasswordChar(default)", "\u25CF"))
+            if ctrl_l == "numberbox":
+                text_values.append(("NumberBox(digits)", "0123456789.-+"))
+            elif ctrl_l in ("datepicker", "timepicker", "calendarview", "calendardatepicker"):
+                text_values.append((f"{ctrl}(formatted)", "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:-/, "))
             for idx, it in enumerate(items or []):
                 if it is not None and str(it) != "":
                     text_values.append((f"items[{idx}]", str(it)))
