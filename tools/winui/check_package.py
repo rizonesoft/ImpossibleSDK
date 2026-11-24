@@ -194,9 +194,21 @@ def compile_standalone_template(xaml_path):
     estart = t["elem_start"]
     ecount = t["elem_count"]
     elems = [
-        {"type": comp.elements[i]["kind"], "name": comp.elements[i].get("name", "")}
+        {
+            "type": comp.elements[i]["kind"],
+            "name": comp.elements[i].get("name", ""),
+            "parent": comp.elements[i].get("parent", -1),
+        }
         for i in range(estart, estart + ecount)
     ]
+    border_inset = 0
+    for child in doc.children:
+        if child.tag == "Setter" and child.attrs.get("Property") == "BorderThickness":
+            raw_bt = child.attrs.get("Value", "0").split(",")[0].strip()
+            try:
+                border_inset = max(0, int(float(raw_bt)))
+            except ValueError:
+                border_inset = 0
     return {
         t["key"]: {
             "target": t["target_type"],
@@ -206,6 +218,7 @@ def compile_standalone_template(xaml_path):
             "state_count": state_count,
             "states": tpl_states,
             "elements": elems,
+            "border_inset": border_inset,
         }
     }
 
@@ -314,8 +327,16 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
         if field in case_spec and case_spec[field] != actual:
             raise PackageDrift(f"case {case_spec.get('id')!r}: {field}={case_spec[field]} != compiled {tpl!r} ({actual})")
     frame = case_spec.get("frame") or {}
-    fw = int(frame.get("width", 160)) if isinstance(frame, dict) else 160
-    fh = int(frame.get("height", 64)) if isinstance(frame, dict) else 64
+    fw, fh = 160, 64
+    if isinstance(frame, dict):
+        for fk, fv in frame.items():
+            if not isinstance(fk, str):
+                continue
+            fl = fk.lower()
+            if fl == "width":
+                fw = int(fv)
+            elif fl == "height":
+                fh = int(fv)
     props = case_spec.get("properties") or {}
     is_enabled = True
     if isinstance(props, dict):
@@ -323,11 +344,32 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
             if isinstance(pk, str) and pk.lower() == "isenabled" and isinstance(pv, bool):
                 is_enabled = pv
                 break
-    rect = {"X": 0, "Y": 0, "Width": fw, "Height": fh}
-    elem_children = [
-        {"Type": e["type"], "Name": e["name"], "Rect": rect, "Children": []}
-        for e in info.get("elements", [])
-    ]
+    root_rect = {"X": 0, "Y": 0, "Width": fw, "Height": fh}
+    border_inset = int(info.get("border_inset", 0))
+    raw_elems = info.get("elements", [])
+    children_by_parent = {}
+    for idx, e in enumerate(raw_elems):
+        children_by_parent.setdefault(e.get("parent", -1), []).append(idx)
+
+    def _build_layout_node(idx, cur_rect):
+        e = raw_elems[idx]
+        child_rect = cur_rect
+        if e["type"] == "IM_ELEM_BORDER" and border_inset > 0:
+            child_rect = {
+                "X": cur_rect["X"] + border_inset,
+                "Y": cur_rect["Y"] + border_inset,
+                "Width": max(0, cur_rect["Width"] - 2 * border_inset),
+                "Height": max(0, cur_rect["Height"] - 2 * border_inset),
+            }
+        return {
+            "Type": e["type"],
+            "Name": e["name"],
+            "Rect": dict(cur_rect),
+            "Children": [_build_layout_node(c_idx, child_rect) for c_idx in children_by_parent.get(idx, [])],
+        }
+
+    elem_children = [_build_layout_node(r_idx, root_rect) for r_idx in children_by_parent.get(-1, [])]
+    auto_patterns = ["Scroll"] if any(e["type"] == "IM_ELEM_SCROLL_VIEWER" for e in raw_elems) else []
     return {
         "id": case_spec.get("id"),
         "control": ctrl,
@@ -340,7 +382,7 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
             "Type": ctrl,
             "Name": tpl,
             "Basis": "compiled-template",
-            "Rect": rect,
+            "Rect": root_rect,
             "ElementCount": info["elem_count"],
             "States": sorted(info.get("states", set())),
             "Children": elem_children,
@@ -349,10 +391,10 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
             "ControlType": ctrl,
             "Name": tpl,
             "Basis": "compiled-template",
-            "Rect": rect,
+            "Rect": root_rect,
             "IsEnabled": is_enabled,
             "HasKeyboardFocus": False,
-            "Patterns": [],
+            "Patterns": auto_patterns,
             "Children": [],
         },
     }

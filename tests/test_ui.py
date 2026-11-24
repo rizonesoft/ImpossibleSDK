@@ -1866,31 +1866,37 @@ class ReferenceHarness(unittest.TestCase):
                 ref_run.read_reference_snapshot(Path(tmp) / "mystore")
             self.assertEqual((fake_raw_bak / "extra.txt").read_text(encoding="utf-8"), "user notes")
 
-        # 9. Interrupted swap (store missing, owned .<name>.backup present, AND stale lockv2 from killed publisher)
-        #    is recovered atomically by read_reference_snapshot via single-file token CAS takeover.
-        with tempfile.TemporaryDirectory() as tmp:
-            tstore = Path(tmp) / "reference"
-            tbackup = Path(tmp) / ".reference.backup"
-            shutil.copytree(ROOT / "tests/reference", tbackup)
-            key = hashlib.sha256(str(tstore.resolve()).encode("utf-8")).hexdigest()[:16]
-            stale_lock = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockv2"
-            stale_lock.mkdir(exist_ok=True)
-            host = "nt" if os.name == "nt" else "posix"
-            distro = os.environ.get("WSL_DISTRO_NAME", "") if host == "posix" else ""
-            dead_tok = f"{host}-99999999-{(distro or 'none').replace('-', '_')}-0"
-            (stale_lock / f"tok-{dead_tok}").write_text(json.dumps({
-                "pid": 99999999,
-                "host": host,
-                "distro": distro,
-                "token": dead_tok,
-                "created": 0,
-            }), encoding="utf-8")
-            self.assertFalse(tstore.exists())
-            recovered, rframes = ref_run.read_reference_snapshot(tstore, filenames=["button-Normal-Dark.bgra"])
-            self.assertTrue(tstore.is_dir())
-            self.assertFalse(stale_lock.exists())
-            self.assertEqual(len(recovered["cases"]), len(specs))
-            self.assertEqual(len(rframes["button-Normal-Dark.bgra"]), 160 * 64 * 4)
+        # 9. Interrupted swap (store missing, owned .<name>.backup present) is recovered atomically across all
+        #    dead lock formats: current tok-*, legacy tokenless owner.json, legacy tokenized owner.json, and empty lockdir.
+        for mode in ("current", "legacy-tokenless", "legacy-tokenized", "empty"):
+            with tempfile.TemporaryDirectory() as tmp:
+                tstore = Path(tmp) / "reference"
+                tbackup = Path(tmp) / ".reference.backup"
+                shutil.copytree(ROOT / "tests/reference", tbackup)
+                key = hashlib.sha256(str(tstore.resolve()).encode("utf-8")).hexdigest()[:16]
+                stale_lock = Path(tempfile.gettempdir()) / f"impossible-sdk-ref-{key}.lockdir"
+                stale_lock.mkdir(exist_ok=True)
+                host = "nt" if os.name == "nt" else "posix"
+                distro = os.environ.get("WSL_DISTRO_NAME", "") if host == "posix" else ""
+                if mode == "current":
+                    dead_tok = f"{host}.99999999.{ref_run._encode_distro(distro)}.0"
+                    (stale_lock / f"tok-{dead_tok}").write_text(json.dumps({
+                        "pid": 99999999, "host": host, "distro": distro, "token": dead_tok, "created": 0,
+                    }), encoding="utf-8")
+                elif mode == "legacy-tokenless":
+                    (stale_lock / "owner.json").write_text(json.dumps({
+                        "pid": 99999999, "host": host, "distro": distro, "created": 0,
+                    }), encoding="utf-8")
+                elif mode == "legacy-tokenized":
+                    (stale_lock / "owner.json").write_text(json.dumps({
+                        "pid": 99999999, "host": host, "distro": distro, "token": "legacy-tok-999", "created": 0,
+                    }), encoding="utf-8")
+                self.assertFalse(tstore.exists())
+                recovered, rframes = ref_run.read_reference_snapshot(tstore, filenames=["button-Normal-Dark.bgra"])
+                self.assertTrue(tstore.is_dir())
+                self.assertFalse(stale_lock.exists())
+                self.assertEqual(len(recovered["cases"]), len(specs))
+                self.assertEqual(len(rframes["button-Normal-Dark.bgra"]), 160 * 64 * 4)
 
         # 10. Cross-host _store_lock contention: Windows prints READY after import, then blocks on _store_lock
         #     until WSL releases it, with a bounded READY deadline and clean process-tree teardown.
@@ -2041,11 +2047,11 @@ class ReferenceHarness(unittest.TestCase):
                 )
             self.assertIn("MissingState", str(cm_state.exception))
             # Downstream drawing manifest validator and unfiltered per-case dump assertions must both accept fallbacks,
-            # verifying non-null Rect + Children on layout and ControlType + Rect + IsEnabled on automation.
+            # verifying real nested hierarchy, border inset, case-insensitive frame dimensions, and ControlType.
             committed_manifest = ref_run.open_reference_manifest(ROOT / "tests/reference")
             combined_manifest = {
                 **committed_manifest,
-                "cases": list(committed_manifest["cases"]) + [by_mc_id["mc-wrap"]],
+                "cases": list(committed_manifest["cases"]) + [by_mc_id["mc-wrap"], by_mc_id["mc-dgrid"]],
             }
             validate_manifest(combined_manifest)
             for c in combined_manifest["cases"]:
@@ -2053,14 +2059,27 @@ class ReferenceHarness(unittest.TestCase):
                 self.assertIsInstance(c["layout"].get("Rect"), dict)
                 self.assertIsInstance(c["layout"].get("Children"), list)
                 self.assertIsInstance(c.get("automation"), dict)
+                self.assertTrue(isinstance(c["automation"].get("ControlType"), str) and c["automation"]["ControlType"])
                 self.assertIsInstance(c["automation"].get("Rect"), dict)
                 self.assertIsInstance(c["automation"].get("IsEnabled"), bool)
-            self.assertEqual(len(by_mc_id["mc-wrap"]["layout"]["Children"]), 2)
-            wrap_disabled = check_pkg.check_missing_control_case(
-                {"id": "mc-wrap-dis", "control": "WrapPanel", "properties": {"IsEnabled": False}},
+            # WrapPanel nests ItemsHost inside RootBorder (1 immediate child, 1 grandchild).
+            self.assertEqual(len(by_mc_id["mc-wrap"]["layout"]["Children"]), 1)
+            self.assertEqual(by_mc_id["mc-wrap"]["layout"]["Children"][0]["Name"], "RootBorder")
+            self.assertEqual(by_mc_id["mc-wrap"]["layout"]["Children"][0]["Children"][0]["Name"], "ItemsHost")
+            # DataGrid nests RootGrid -> RootBorder (1px inset) -> ScrollHost -> RowsHost and exposes Scroll pattern.
+            dg_grid = by_mc_id["mc-dgrid"]["layout"]["Children"][0]
+            dg_border = dg_grid["Children"][0]
+            dg_scroll = dg_border["Children"][0]
+            self.assertEqual((dg_grid["Name"], dg_border["Name"], dg_scroll["Name"]), ("RootGrid", "RootBorder", "ScrollHost"))
+            self.assertEqual(dg_scroll["Rect"], {"X": 1, "Y": 1, "Width": 158, "Height": 62})
+            self.assertIn("Scroll", by_mc_id["mc-dgrid"]["automation"]["Patterns"])
+            # Case-insensitive frame dimensions ({"Width": 80, "Height": 40}) and IsEnabled: False must be honored.
+            wrap_sized = check_pkg.check_missing_control_case(
+                {"id": "mc-wrap-sized", "control": "WrapPanel", "frame": {"Width": 80, "Height": 40}, "properties": {"IsEnabled": False}},
                 committed_pkg, ROOT / "ui/template_data.c",
             )
-            self.assertFalse(wrap_disabled["automation"]["IsEnabled"])
+            self.assertEqual(wrap_sized["layout"]["Rect"], {"X": 0, "Y": 0, "Width": 80, "Height": 40})
+            self.assertFalse(wrap_sized["automation"]["IsEnabled"])
 
             # Real compiled-template fallback routed end-to-end through reference/run.py (ToggleSwitch -> DefaultToggleSwitchStyle).
             sim_ok = {
@@ -2200,6 +2219,7 @@ class ReferenceHarness(unittest.TestCase):
             self.assertIsInstance(c["layout"].get("Rect"), dict)
             self.assertIsInstance(c["layout"].get("Children"), list)
             self.assertIsInstance(c.get("automation"), dict)
+            self.assertTrue(isinstance(c["automation"].get("ControlType"), str) and c["automation"]["ControlType"])
             self.assertIsInstance(c["automation"].get("Rect"), dict)
             self.assertIsInstance(c["automation"].get("IsEnabled"), bool)
         by_id = {c["id"]: c for c in manifest["cases"]}
@@ -2478,11 +2498,15 @@ class LiveReference(unittest.TestCase):
                     ref_run.run_reference(exe, Path(tmp) / "out_bad4", cases_path=bad_id, work_dir=build_tmp)
                 self.assertIn("invalid case id", ctx4.exception.stderr)
 
-                # Case-colliding keys ("Control" + "control") and unknown fields must be rejected, while unambiguous "Properties" works.
+                # Case-colliding keys ("Control" + "control") and unknown fields must be rejected by both Python and C#.
+                no_missing = Path(tmp) / "no_missing.json"
+                no_missing.write_text('{"missing_controls": []}', encoding="utf-8")
                 bad_collide = Path(tmp) / "bad_collide.json"
                 bad_collide.write_text('{"cases":[{"id":"collide","Control":"Border","control":"TextBlock","theme":"Dark","scale":1.0,"frame":{"width":160,"height":64}}]}', encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    ref_run.run_reference(exe, Path(tmp) / "out_bad5_py", cases_path=bad_collide, work_dir=build_tmp)
                 with self.assertRaises(subprocess.CalledProcessError) as ctx5:
-                    ref_run.run_reference(exe, Path(tmp) / "out_bad5", cases_path=bad_collide, work_dir=build_tmp)
+                    ref_run.run_reference(exe, Path(tmp) / "out_bad5", cases_path=bad_collide, work_dir=build_tmp, pkg_manifest_path=no_missing)
                 self.assertIn("case-colliding", ctx5.exception.stderr)
 
                 bad_unknown = Path(tmp) / "bad_unknown.json"
@@ -2494,8 +2518,10 @@ class LiveReference(unittest.TestCase):
                     "frame": {"width": 160, "height": 64},
                     "BogusField": 123,
                 }]}), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    ref_run.run_reference(exe, Path(tmp) / "out_bad6_py", cases_path=bad_unknown, work_dir=build_tmp)
                 with self.assertRaises(subprocess.CalledProcessError) as ctx6:
-                    ref_run.run_reference(exe, Path(tmp) / "out_bad6", cases_path=bad_unknown, work_dir=build_tmp)
+                    ref_run.run_reference(exe, Path(tmp) / "out_bad6", cases_path=bad_unknown, work_dir=build_tmp, pkg_manifest_path=no_missing)
                 self.assertIn("BogusField", ctx6.exception.stderr)
 
                 # 3. Non-button controls: ToggleSwitch (ts-off vs animated ts-on vs independently settled ts-on-settled),

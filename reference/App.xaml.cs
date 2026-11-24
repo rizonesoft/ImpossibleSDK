@@ -687,13 +687,9 @@ public partial class App : Application
             string file = $"{spec.Id}.bgra";
             File.WriteAllBytes(Path.Combine(folder, file), pixels);
 
-            LayoutNode? layoutDump = null;
-            AutomationNode? automationDump = null;
-            if (spec.DumpTree)
-            {
-                layoutDump = Dump.DumpLayout(innerFrame, isProbe ? scale : 1.0);
-                automationDump = Dump.DumpAutomation(innerFrame, element, scale);
-            }
+            // Always dump element rectangles and automation tree per case (section contract).
+            LayoutNode layoutDump = Dump.DumpLayout(innerFrame, isProbe ? scale : 1.0);
+            AutomationNode automationDump = Dump.DumpAutomation(innerFrame, element, scale);
 
             var entry = new Dictionary<string, object?>
             {
