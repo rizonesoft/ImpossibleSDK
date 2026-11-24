@@ -46,6 +46,7 @@ public sealed class CaseSpec
     [JsonPropertyName("flow_direction")] public string? FlowDirection { get; set; }
     [JsonPropertyName("state")] public string? State { get; set; }
     [JsonPropertyName("use_transitions")] public bool UseTransitions { get; set; }
+    [JsonPropertyName("storyboard_timeout_ms")] public int StoryboardTimeoutMs { get; set; } = 3000;
     [JsonPropertyName("frame")] public FrameSpec Frame { get; set; } = new();
     [JsonPropertyName("properties")] public Dictionary<string, JsonElement>? Properties { get; set; }
     [JsonPropertyName("items")] public List<string>? Items { get; set; }
@@ -505,7 +506,7 @@ public partial class App : Application
         }
     }
 
-    private static async Task<bool> ApplyVisualStateAsync(string caseId, Control control, string stateName, bool useTransitions)
+    private static async Task<bool> ApplyVisualStateAsync(string caseId, Control control, string stateName, bool useTransitions, int timeoutMs = 3000)
     {
         control.ApplyTemplate();
         VisualStateGroup? foundGroup = null;
@@ -561,14 +562,14 @@ public partial class App : Application
 
             if (completed != null)
             {
-                var finished = await Task.WhenAny(completed.Task, Task.Delay(3000));
+                var finished = await Task.WhenAny(completed.Task, Task.Delay(timeoutMs));
                 if (finished == completed.Task)
                 {
                     storyboardCompleted = true;
                 }
                 else
                 {
-                    throw new InvalidOperationException($"{caseId}: storyboard for state '{stateName}' did not complete within 3000ms (use_transitions={useTransitions})");
+                    throw new InvalidOperationException($"{caseId}: storyboard for state '{stateName}' did not complete within {timeoutMs}ms (use_transitions={useTransitions})");
                 }
             }
         }
@@ -707,7 +708,7 @@ public partial class App : Application
                 {
                     throw new InvalidOperationException($"{spec.Id}.state: '{spec.Control}' is not a Control and has no visual states");
                 }
-                storyboardAwaited = await ApplyVisualStateAsync(spec.Id, ctrl, spec.State, spec.UseTransitions);
+                storyboardAwaited = await ApplyVisualStateAsync(spec.Id, ctrl, spec.State, spec.UseTransitions, spec.StoryboardTimeoutMs);
             }
 
             ScriptResultDto? scriptResult = null;
@@ -724,7 +725,7 @@ public partial class App : Application
             double dumpLayoutScale = (isProbe && !nativeScaleMatch) ? scale : 1.0;
             double dumpAutoLogicalScale = nativeScaleMatch ? 1.0 : scale;
             LayoutNode layoutDump = Dump.DumpLayout(innerFrame, dumpLayoutScale);
-            AutomationNode automationDump = Dump.DumpAutomation(innerFrame, element, dumpAutoLogicalScale);
+            AutomationNode automationDump = Dump.DumpAutomation(innerFrame, element, dumpAutoLogicalScale, dumpLayoutScale);
 
             var entry = new Dictionary<string, object?>
             {
@@ -734,7 +735,7 @@ public partial class App : Application
                 ["theme"] = spec.Theme,
                 ["scale"] = scale,
                 ["host_rasterization_scale"] = hostDpi,
-                ["effective_rasterization_scale"] = nativeScaleMatch ? hostDpi : scale,
+                ["effective_rasterization_scale"] = hostDpi,
                 ["scale_mode"] = scaleMode,
                 ["flow_direction"] = flowDirName,
                 ["logical_width"] = logicalW,

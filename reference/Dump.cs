@@ -102,11 +102,12 @@ public static class Dump
         return node;
     }
 
-    public static AutomationNode DumpAutomation(FrameworkElement frameRoot, FrameworkElement targetRoot, double logicalScale = 1.0)
+    public static AutomationNode DumpAutomation(FrameworkElement frameRoot, FrameworkElement targetRoot, double logicalScale = 1.0, double layoutNormalizeScale = 1.0)
     {
         double hostDpi = frameRoot.XamlRoot?.RasterizationScale ?? 1.0;
         double totalScale = hostDpi * (logicalScale > 0 ? logicalScale : 1.0);
         double inv = totalScale > 0 ? 1.0 / totalScale : 1.0;
+        double normInv = layoutNormalizeScale > 0 ? 1.0 / layoutNormalizeScale : 1.0;
 
         Point frameOrigin = new(0, 0);
         var framePeer = FrameworkElementAutomationPeer.CreatePeerForElement(frameRoot);
@@ -143,10 +144,10 @@ public static class Dump
                 Name = targetRoot.Name ?? "",
                 Rect = new RectDto
                 {
-                    X = Math.Round(relBounds.X, 3),
-                    Y = Math.Round(relBounds.Y, 3),
-                    Width = Math.Round(relBounds.Width, 3),
-                    Height = Math.Round(relBounds.Height, 3),
+                    X = Math.Round(relBounds.X * normInv, 3),
+                    Y = Math.Round(relBounds.Y * normInv, 3),
+                    Width = Math.Round(relBounds.Width * normInv, 3),
+                    Height = Math.Round(relBounds.Height * normInv, 3),
                 },
                 IsEnabled = targetRoot is Control c ? c.IsEnabled : true,
             };

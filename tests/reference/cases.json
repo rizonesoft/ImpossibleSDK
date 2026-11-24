@@ -1329,7 +1329,7 @@
       "theme": "Dark",
       "scale": 1.5,
       "host_rasterization_scale": 1,
-      "effective_rasterization_scale": 1.5,
+      "effective_rasterization_scale": 1,
       "scale_mode": "viewbox-vector",
       "flow_direction": "LeftToRight",
       "logical_width": 160,
@@ -1411,7 +1411,7 @@
       "theme": "Dark",
       "scale": 2,
       "host_rasterization_scale": 1,
-      "effective_rasterization_scale": 2,
+      "effective_rasterization_scale": 1,
       "scale_mode": "viewbox-vector",
       "flow_direction": "LeftToRight",
       "logical_width": 160,
@@ -1493,7 +1493,7 @@
       "theme": "Dark",
       "scale": 3,
       "host_rasterization_scale": 1,
-      "effective_rasterization_scale": 3,
+      "effective_rasterization_scale": 1,
       "scale_mode": "viewbox-vector",
       "flow_direction": "LeftToRight",
       "logical_width": 160,
@@ -1737,7 +1737,7 @@
       "theme": "Dark",
       "scale": 1.5,
       "host_rasterization_scale": 1,
-      "effective_rasterization_scale": 1.5,
+      "effective_rasterization_scale": 1,
       "scale_mode": "viewbox-vector",
       "flow_direction": "LeftToRight",
       "logical_width": 160,
@@ -1939,17 +1939,17 @@
             "Step": "0:pointer_click",
             "Event": "PointerEntered",
             "PointerType": "Mouse",
-            "Target": "Button:ScriptedButton",
+            "Target": "ContentPresenter:ContentPresenter",
             "Focused": "none",
-            "State": "Clicks=0"
+            "State": ""
           },
           {
             "Step": "0:pointer_click",
             "Event": "PointerPressed",
             "PointerType": "Mouse",
-            "Target": "Button:ScriptedButton",
+            "Target": "ContentPresenter:ContentPresenter",
             "Focused": "Button:ScriptedButton",
-            "State": "Clicks=0"
+            "State": ""
           },
           {
             "Step": "0:pointer_click",
@@ -1971,25 +1971,25 @@
             "Step": "0:pointer_click",
             "Event": "PointerReleased",
             "PointerType": "Mouse",
-            "Target": "Button:ScriptedButton",
+            "Target": "ContentPresenter:ContentPresenter",
             "Focused": "Button:ScriptedButton",
-            "State": "Clicks=1"
+            "State": ""
           },
           {
             "Step": "0:pointer_click",
             "Event": "Tapped",
             "PointerType": "Mouse",
-            "Target": "Button:ScriptedButton",
+            "Target": "ContentPresenter:ContentPresenter",
             "Focused": "Button:ScriptedButton",
-            "State": "Clicks=1"
+            "State": ""
           },
           {
             "Step": "0:pointer_click",
             "Event": "PointerExited",
             "PointerType": "Mouse",
-            "Target": "Button:ScriptedButton",
+            "Target": "Grid",
             "Focused": "Button:ScriptedButton",
-            "State": "Clicks=1"
+            "State": ""
           },
           {
             "Step": "1:focus",
@@ -2027,17 +2027,17 @@
             "Step": "3:touch_tap",
             "Event": "PointerEntered",
             "PointerType": "Touch",
-            "Target": "Button:ScriptedButton",
+            "Target": "ContentPresenter:ContentPresenter",
             "Focused": "Button:ScriptedButton",
-            "State": "Clicks=2"
+            "State": ""
           },
           {
             "Step": "3:touch_tap",
             "Event": "PointerPressed",
             "PointerType": "Touch",
-            "Target": "Button:ScriptedButton",
+            "Target": "ContentPresenter:ContentPresenter",
             "Focused": "Button:ScriptedButton",
-            "State": "Clicks=2"
+            "State": ""
           },
           {
             "Step": "3:touch_tap",
@@ -2051,25 +2051,25 @@
             "Step": "3:touch_tap",
             "Event": "PointerReleased",
             "PointerType": "Touch",
-            "Target": "Button:ScriptedButton",
+            "Target": "ContentPresenter:ContentPresenter",
             "Focused": "Button:ScriptedButton",
-            "State": "Clicks=3"
+            "State": ""
           },
           {
             "Step": "3:touch_tap",
             "Event": "Tapped",
             "PointerType": "Touch",
-            "Target": "Button:ScriptedButton",
+            "Target": "ContentPresenter:ContentPresenter",
             "Focused": "Button:ScriptedButton",
-            "State": "Clicks=3"
+            "State": ""
           },
           {
             "Step": "3:touch_tap",
             "Event": "PointerExited",
             "PointerType": "Touch",
-            "Target": "Button:ScriptedButton",
+            "Target": "ContentPresenter:ContentPresenter",
             "Focused": "Button:ScriptedButton",
-            "State": "Clicks=3"
+            "State": ""
           },
           {
             "Step": "3:touch_tap",
@@ -2169,7 +2169,7 @@
       "theme": "Dark",
       "scale": 1.5,
       "host_rasterization_scale": 1,
-      "effective_rasterization_scale": 1.5,
+      "effective_rasterization_scale": 1,
       "scale_mode": "probe-dip",
       "flow_direction": "LeftToRight",
       "logical_width": 64,
@@ -2223,10 +2223,10 @@
         "HasKeyboardFocus": false,
         "Patterns": [],
         "Rect": {
-          "X": 12,
-          "Y": 12,
-          "Width": 72,
-          "Height": 72
+          "X": 8,
+          "Y": 8,
+          "Width": 48,
+          "Height": 48
         },
         "Children": []
       },
@@ -2241,7 +2241,7 @@
       "theme": "Dark",
       "scale": 2,
       "host_rasterization_scale": 1,
-      "effective_rasterization_scale": 2,
+      "effective_rasterization_scale": 1,
       "scale_mode": "probe-dip",
       "flow_direction": "LeftToRight",
       "logical_width": 64,
@@ -2295,10 +2295,10 @@
         "HasKeyboardFocus": false,
         "Patterns": [],
         "Rect": {
-          "X": 16,
-          "Y": 16,
-          "Width": 96,
-          "Height": 96
+          "X": 8,
+          "Y": 8,
+          "Width": 48,
+          "Height": 48
         },
         "Children": []
       },
@@ -2385,7 +2385,7 @@
       "theme": "Dark",
       "scale": 1.5,
       "host_rasterization_scale": 1,
-      "effective_rasterization_scale": 1.5,
+      "effective_rasterization_scale": 1,
       "scale_mode": "probe-dip",
       "flow_direction": "LeftToRight",
       "logical_width": 64,
@@ -2439,10 +2439,10 @@
         "HasKeyboardFocus": false,
         "Patterns": [],
         "Rect": {
-          "X": 12,
-          "Y": 12,
-          "Width": 72,
-          "Height": 72
+          "X": 8,
+          "Y": 8,
+          "Width": 48,
+          "Height": 48
         },
         "Children": []
       },
@@ -2457,7 +2457,7 @@
       "theme": "Dark",
       "scale": 2,
       "host_rasterization_scale": 1,
-      "effective_rasterization_scale": 2,
+      "effective_rasterization_scale": 1,
       "scale_mode": "probe-dip",
       "flow_direction": "LeftToRight",
       "logical_width": 64,
@@ -2511,10 +2511,10 @@
         "HasKeyboardFocus": false,
         "Patterns": [],
         "Rect": {
-          "X": 16,
-          "Y": 16,
-          "Width": 96,
-          "Height": 96
+          "X": 8,
+          "Y": 8,
+          "Width": 48,
+          "Height": 48
         },
         "Children": []
       },
@@ -2601,7 +2601,7 @@
       "theme": "Dark",
       "scale": 1.5,
       "host_rasterization_scale": 1,
-      "effective_rasterization_scale": 1.5,
+      "effective_rasterization_scale": 1,
       "scale_mode": "probe-dip",
       "flow_direction": "LeftToRight",
       "logical_width": 64,
@@ -2655,10 +2655,10 @@
         "HasKeyboardFocus": false,
         "Patterns": [],
         "Rect": {
-          "X": 12,
-          "Y": 12,
-          "Width": 72,
-          "Height": 72
+          "X": 8,
+          "Y": 8,
+          "Width": 48,
+          "Height": 48
         },
         "Children": []
       },
@@ -2673,7 +2673,7 @@
       "theme": "Dark",
       "scale": 2,
       "host_rasterization_scale": 1,
-      "effective_rasterization_scale": 2,
+      "effective_rasterization_scale": 1,
       "scale_mode": "probe-dip",
       "flow_direction": "LeftToRight",
       "logical_width": 64,
@@ -2727,10 +2727,10 @@
         "HasKeyboardFocus": false,
         "Patterns": [],
         "Rect": {
-          "X": 16,
-          "Y": 16,
-          "Width": 96,
-          "Height": 96
+          "X": 8,
+          "Y": 8,
+          "Width": 48,
+          "Height": 48
         },
         "Children": []
       },
@@ -2822,6 +2822,7 @@
     "package_source_commit": "b497e527e22752d08aabb176820923028f16f003",
     "package_sha256": "d07b2b78a9a367ad508db36a64d038b603e32fdb0e14c2f905e371e390709781",
     "pin_sha256": "089167a2197df8d90590c5afc5eb39e3a2684306f4ee767bec4e1f11c4525ae3",
-    "template_data_sha256": "c18952d256feffe7f332bd013b6da88ba4c4bbfc52c26855d90fa2ec2c2811e1"
+    "template_data_sha256": "c18952d256feffe7f332bd013b6da88ba4c4bbfc52c26855d90fa2ec2c2811e1",
+    "templates_sha256": "b01bcd2083710ea4950a700aaaa6a2ebc46c6e9e334e61843f75f1e09e1b74ee"
   }
 }

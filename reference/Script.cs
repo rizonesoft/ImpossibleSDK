@@ -321,8 +321,26 @@ public static class Script
                 snap["value"] = sl.Value;
                 break;
         }
+        var focusedEl = target.XamlRoot != null ? FocusManager.GetFocusedElement(target.XamlRoot) as FrameworkElement : null;
+        if (focusedEl != null && !ReferenceEquals(focusedEl, target))
+        {
+            snap["focused_state"] = DescribeControlValue(focusedEl, clicks);
+        }
         return snap;
     }
+
+    private static readonly HashSet<VirtualKey> AllowedModifiers = new()
+    {
+        VirtualKey.Shift, VirtualKey.LeftShift, VirtualKey.RightShift,
+        VirtualKey.Control, VirtualKey.LeftControl, VirtualKey.RightControl,
+    };
+
+    private static readonly HashSet<VirtualKey> ForbiddenSystemKeys = new()
+    {
+        VirtualKey.LeftWindows, VirtualKey.RightWindows,
+        VirtualKey.Menu, VirtualKey.LeftMenu, VirtualKey.RightMenu,
+        VirtualKey.F4, VirtualKey.Print, VirtualKey.Snapshot, VirtualKey.Sleep,
+    };
 
     public static async Task<ScriptResultDto> RunAsync(Window window, FrameworkElement target, IReadOnlyList<ScriptActionSpec> actions)
     {
@@ -338,32 +356,34 @@ public static class Script
         int clicks = 0;
         string currentStep = "init";
 
-        void Record(string evName, string pointerType = "")
+        void Record(string evName, string pointerType = "", object? source = null)
         {
+            object activeTarget = source ?? target;
+            FrameworkElement stateTarget = (source as FrameworkElement) ?? target;
             result.Events.Add(new ScriptEventDto
             {
                 Step = currentStep,
                 Event = evName,
                 PointerType = pointerType,
-                Target = DescribeElement(target),
+                Target = DescribeElement(activeTarget),
                 Focused = DescribeFocused(target.XamlRoot),
-                State = DescribeControlValue(target, clicks),
+                State = DescribeControlValue(stateTarget, clicks),
             });
         }
 
-        RoutedEventHandler gotFocus = (_, _) => Record("GotFocus");
-        RoutedEventHandler lostFocus = (_, _) => Record("LostFocus");
-        PointerEventHandler ptrEntered = (_, e) => Record("PointerEntered", e.Pointer.PointerDeviceType.ToString());
-        PointerEventHandler ptrPressed = (_, e) => Record("PointerPressed", e.Pointer.PointerDeviceType.ToString());
-        PointerEventHandler ptrReleased = (_, e) => Record("PointerReleased", e.Pointer.PointerDeviceType.ToString());
-        PointerEventHandler ptrExited = (_, e) => Record("PointerExited", e.Pointer.PointerDeviceType.ToString());
-        KeyEventHandler keyDown = (_, e) => Record($"KeyDown:{e.Key}");
-        KeyEventHandler keyUp = (_, e) => Record($"KeyUp:{e.Key}");
-        TappedEventHandler tapped = (_, e) => Record("Tapped", e.PointerDeviceType.ToString());
-        RoutedEventHandler clickHandler = (_, _) => { clicks++; Record("Click"); };
-        RoutedEventHandler toggledHandler = (_, _) => Record("Toggled");
-        RoutedEventHandler checkedHandler = (_, _) => Record("Checked");
-        RoutedEventHandler uncheckedHandler = (_, _) => Record("Unchecked");
+        RoutedEventHandler gotFocus = (_, e) => Record("GotFocus", "", e.OriginalSource);
+        RoutedEventHandler lostFocus = (_, e) => Record("LostFocus", "", e.OriginalSource);
+        PointerEventHandler ptrEntered = (_, e) => Record("PointerEntered", e.Pointer.PointerDeviceType.ToString(), e.OriginalSource);
+        PointerEventHandler ptrPressed = (_, e) => Record("PointerPressed", e.Pointer.PointerDeviceType.ToString(), e.OriginalSource);
+        PointerEventHandler ptrReleased = (_, e) => Record("PointerReleased", e.Pointer.PointerDeviceType.ToString(), e.OriginalSource);
+        PointerEventHandler ptrExited = (_, e) => Record("PointerExited", e.Pointer.PointerDeviceType.ToString(), e.OriginalSource);
+        KeyEventHandler keyDown = (_, e) => Record($"KeyDown:{e.Key}", "", e.OriginalSource);
+        KeyEventHandler keyUp = (_, e) => Record($"KeyUp:{e.Key}", "", e.OriginalSource);
+        TappedEventHandler tapped = (_, e) => Record("Tapped", e.PointerDeviceType.ToString(), e.OriginalSource);
+        RoutedEventHandler clickHandler = (_, e) => { clicks++; Record("Click", "", e.OriginalSource); };
+        RoutedEventHandler toggledHandler = (_, e) => Record("Toggled", "", e.OriginalSource);
+        RoutedEventHandler checkedHandler = (_, e) => Record("Checked", "", e.OriginalSource);
+        RoutedEventHandler uncheckedHandler = (_, e) => Record("Unchecked", "", e.OriginalSource);
 
         target.GotFocus += gotFocus;
         target.LostFocus += lostFocus;
@@ -483,17 +503,33 @@ public static class Script
                         {
                             throw new InvalidOperationException($"script step {i}: unknown key '{keyName}'");
                         }
-                        var modVks = new List<ushort>();
-                        if (step.Modifiers != null)
+                        if (ForbiddenSystemKeys.Contains(vk))
                         {
+                            throw new InvalidOperationException($"script step {i}: system key '{keyName}' is disallowed in reference scripts");
+                        }
+                        var modVks = new List<ushort>();
+                        if (step.Modifiers != null && step.Modifiers.Count > 0)
+                        {
+                            if (step.Action != "key_press")
+                            {
+                                throw new InvalidOperationException($"script step {i}: modifiers is only supported on key_press (not '{step.Action}')");
+                            }
                             foreach (var m in step.Modifiers)
                             {
                                 if (!Enum.TryParse<VirtualKey>(m, ignoreCase: true, out var mvk))
                                 {
                                     throw new InvalidOperationException($"script step {i}: unknown modifier '{m}'");
                                 }
+                                if (!AllowedModifiers.Contains(mvk))
+                                {
+                                    throw new InvalidOperationException($"script step {i}: modifier '{m}' is disallowed (only Shift/Control allowed)");
+                                }
                                 modVks.Add((ushort)mvk);
                             }
+                        }
+                        if (modVks.Contains((ushort)VirtualKey.Control) && vk == VirtualKey.Escape)
+                        {
+                            throw new InvalidOperationException($"script step {i}: Control+Escape is disallowed in reference scripts");
                         }
                         if (!step.UseFocused && target is Control kCtrl && !ReferenceEquals(FocusManager.GetFocusedElement(target.XamlRoot), kCtrl))
                         {

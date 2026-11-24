@@ -396,6 +396,21 @@ def check_missing_control_case(case_spec, pkg_data, template_c_path):
         if not isinstance(ck, str) or ck.lower() not in allowed_case_keys:
             if cv is not None:
                 raise PackageDrift(f"case {cid!r}: compiled-template fallback does not support field {ck!r}")
+    req_style = case_spec.get("style")
+    if req_style is not None and req_style != tpl:
+        raise PackageDrift(f"case {cid!r}: compiled-template fallback does not support style {req_style!r} (only {tpl!r})")
+    if case_spec.get("use_transitions"):
+        raise PackageDrift(f"case {cid!r}: compiled-template fallback does not support use_transitions=True")
+    req_theme = case_spec.get("theme")
+    if req_theme is not None and req_theme not in ("Dark", "Light", "Default"):
+        raise PackageDrift(f"case {cid!r}: invalid theme {req_theme!r}")
+    req_scale = case_spec.get("scale")
+    if req_scale is not None:
+        if isinstance(req_scale, bool) or not isinstance(req_scale, (int, float)) or req_scale <= 0:
+            raise PackageDrift(f"case {cid!r}: scale must be a positive number (got {req_scale!r})")
+    req_flow = case_spec.get("flow_direction")
+    if req_flow is not None and req_flow not in ("LeftToRight", "RightToLeft"):
+        raise PackageDrift(f"case {cid!r}: invalid flow_direction {req_flow!r}")
     for field, actual in (("expected_elements", info["elem_count"]), ("expected_states", info["state_count"]), ("expected_setters", info["setter_count"])):
         if field in case_spec and case_spec[field] != actual:
             raise PackageDrift(f"case {cid!r}: {field}={case_spec[field]} != compiled {tpl!r} ({actual})")

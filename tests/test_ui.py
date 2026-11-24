@@ -1866,7 +1866,7 @@ class ReferenceHarness(unittest.TestCase):
                 ref_run.read_reference_snapshot(Path(tmp) / "mystore")
             self.assertEqual((fake_raw_bak / "extra.txt").read_text(encoding="utf-8"), "user notes")
 
-            # Refreshing a store containing an unrelated file (e.g. diagnostic.txt) must be refused without deleting it.
+            # Refreshing a store containing an unrelated file (diagnostic.txt or unindexed trial.bgra.z) must be refused without deleting it.
             mixed_store = Path(tmp) / "mixed_store"
             shutil.copytree(ROOT / "tests/reference", mixed_store)
             (mixed_store / "diagnostic.txt").write_text("keep me", encoding="utf-8")
@@ -1881,6 +1881,11 @@ class ReferenceHarness(unittest.TestCase):
                 ref_run.publish_store(fake_fresh, mixed_store, specs)
             self.assertEqual((mixed_store / "diagnostic.txt").read_text(encoding="utf-8"), "keep me")
             self.assertEqual((mixed_store / "cases.json").read_text(encoding="utf-8"), prev_cases)
+            (mixed_store / "diagnostic.txt").unlink()
+            (mixed_store / "trial.bgra.z").write_bytes(b"unindexed-diagnostic-frame")
+            with self.assertRaises(ValueError):
+                ref_run.publish_store(fake_fresh, mixed_store, specs)
+            self.assertEqual((mixed_store / "trial.bgra.z").read_bytes(), b"unindexed-diagnostic-frame")
 
             # Baseline 26-frame comparison passes on matching frames and names the exact frame when 1 pixel byte changes.
             self.assertEqual(ref_run.compare_baseline_frames(fake_fresh, ROOT / "tests/reference"), 26)
@@ -2275,13 +2280,26 @@ class ReferenceHarness(unittest.TestCase):
                 )
             self.assertIn("mc-dg-script", str(cm_script.exception))
             self.assertIn("script", str(cm_script.exception))
-            # Stock-label ToggleSwitch (omitting OnContent/OffContent) is refused; explicit empty strings pass.
+            for bad_case in (
+                {"id": "mc-dg-style", "control": "DataGrid", "style": "NoSuchStyle"},
+                {"id": "mc-dg-trans", "control": "DataGrid", "use_transitions": True},
+                {"id": "mc-dg-theme", "control": "DataGrid", "theme": "typo"},
+                {"id": "mc-dg-scale", "control": "DataGrid", "scale": -1},
+            ):
+                with self.assertRaises(check_pkg.PackageDrift):
+                    check_pkg.check_missing_control_case(bad_case, committed_pkg, ROOT / "ui/template_data.c")
+            # Stock-label controls (ToggleSwitch omitting OnContent/OffContent, DatePicker without permitted font) are refused.
             with self.assertRaises(ValueError) as cm_ts:
                 ref_run.check_no_prohibited_assets({"id": "ts-stock", "control": "ToggleSwitch", "properties": {"IsOn": True}})
             self.assertIn("OnContent/OffContent", str(cm_ts.exception))
+            with self.assertRaises(ValueError):
+                ref_run.check_no_prohibited_assets({"id": "date-stock", "control": "DatePicker"})
             ref_run.check_no_prohibited_assets({
                 "id": "ts-empty", "control": "ToggleSwitch", "properties": {"IsOn": True, "OnContent": "", "OffContent": ""}
             })
+            # Committed probe-r4-s15 layout child and automation root must agree in normalized logical coordinates.
+            probe15 = next(c for c in ref_run.open_reference_manifest(ROOT / "tests/reference")["cases"] if c["id"] == "probe-r4-s15")
+            self.assertEqual(probe15["layout"]["Children"][0]["Rect"], probe15["automation"]["Rect"])
             # Alpha difference outside mask must fail compare_frames_with_layout_mask (4-channel BGRA check).
             with self.assertRaises(ValueError):
                 compare_frames_with_layout_mask(bytes([0, 0, 0, 0]), bytes([0, 0, 0, 255]), 1, 1, 1.0, [], [], limit=0)
@@ -2900,6 +2918,36 @@ class LiveReference(unittest.TestCase):
                             {"action": "pointer_up", "x": -10, "y": -10},
                         ],
                     },
+                    {
+                        "id": "panel-tab-traversal",
+                        "control": "StackPanel",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 200, "height": 80},
+                        "properties": {"Width": 180, "Height": 70, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "children": [
+                            {"id": "tb-first", "control": "Button", "properties": {"Name": "FirstBtn", "Width": 80, "Height": 28, "IsTabStop": True}},
+                            {"id": "tb-second", "control": "Button", "properties": {"Name": "SecondBtn", "Width": 80, "Height": 28, "IsTabStop": True}},
+                        ],
+                        "script": [
+                            {"action": "pointer_click", "x": 40, "y": 14},
+                            {"action": "key_press", "key": "Tab", "use_focused": True},
+                        ],
+                    },
+                    {
+                        "id": "textbox-select-undo",
+                        "control": "TextBox",
+                        "theme": "Dark",
+                        "scale": 1.0,
+                        "frame": {"width": 180, "height": 64},
+                        "properties": {"Name": "EditBox", "Text": "Hello", "Width": 140, "Height": 32, "IsTabStop": True, "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                        "script": [
+                            {"action": "focus"},
+                            {"action": "key_press", "key": "A", "modifiers": ["Control"]},
+                            {"action": "key_press", "key": "Back"},
+                            {"action": "key_press", "key": "Z", "modifiers": ["Control"]},
+                        ],
+                    },
                 ]}), encoding="utf-8")
 
                 out1 = ref_run.run_reference(exe, Path(tmp) / "out1", cases_path=combo, work_dir=build_tmp)
@@ -2926,20 +2974,49 @@ class LiveReference(unittest.TestCase):
                 self.assertEqual(by1["lv-rtl"]["flow_direction"], "RightToLeft")
                 self.assertEqual(by1["lv-rtl"]["automation"]["ControlType"], "List")
 
-                # Panel-root without an automation peer must still expose descendant Button peer with Invoke and bounds.
+                # Panel-root without an automation peer must still expose descendant Button peer with Name, Invoke, and frame-relative bounds.
                 panel_auto = by1["panel-root-auto"]["automation"]
                 self.assertEqual(panel_auto["ControlType"], "StackPanel")
                 self.assertGreaterEqual(len(panel_auto["Children"]), 1)
                 inner_btn = panel_auto["Children"][0]
                 self.assertEqual(inner_btn["ControlType"], "Button")
+                self.assertEqual(inner_btn["Name"], "Go")
                 self.assertIn("Invoke", inner_btn["Patterns"])
-                self.assertGreater(inner_btn["Rect"]["Width"], 0)
-                self.assertGreater(inner_btn["Rect"]["Height"], 0)
+                self.assertGreaterEqual(inner_btn["Rect"]["X"], 0)
+                self.assertLessEqual(inner_btn["Rect"]["X"] + inner_btn["Rect"]["Width"], 160.5)
+                self.assertGreaterEqual(inner_btn["Rect"]["Y"], 0)
+                self.assertLessEqual(inner_btn["Rect"]["Y"] + inner_btn["Rect"]["Height"], 64.5)
 
-                # Cancelled click (press -> move outside -> release) must produce 0 clicks.
+                # Cancelled click must have received PointerPressed and produced 0 clicks.
+                cancel_events = by1["btn-cancel-click"]["script_log"]["Events"]
+                self.assertTrue(any(ev["Event"] == "PointerPressed" for ev in cancel_events))
                 self.assertEqual(by1["btn-cancel-click"]["script_log"]["FinalState"]["clicks"], 0)
 
-                # Forced failure after pointer_down / key_down / touch_down must run balanced input cleanup.
+                # Tab traversal with use_focused must move focus from FirstBtn to SecondBtn.
+                self.assertIn("SecondBtn", by1["panel-tab-traversal"]["script_log"]["FinalState"]["focused"])
+
+                # TextBox Ctrl+A -> Backspace -> Ctrl+Z undo must restore "Hello".
+                self.assertEqual(by1["textbox-select-undo"]["script_log"]["FinalState"]["text"], "Hello")
+
+                # Negative storyboard timeout with use_transitions=False must fail naming the case and state.
+                timeout_case = Path(tmp) / "sb_timeout.json"
+                timeout_case.write_text(json.dumps({"cases": [{
+                    "id": "ts-timeout-notrans",
+                    "control": "ToggleSwitch",
+                    "theme": "Dark",
+                    "scale": 1.0,
+                    "state": "On",
+                    "use_transitions": False,
+                    "storyboard_timeout_ms": 0,
+                    "frame": {"width": 160, "height": 64},
+                    "properties": {"IsOn": False, "OnContent": "", "OffContent": "", "HorizontalAlignment": "Center", "VerticalAlignment": "Center"},
+                }]}), encoding="utf-8")
+                with self.assertRaises(subprocess.CalledProcessError) as cm_to:
+                    ref_run.run_reference(exe, Path(tmp) / "out_sb_timeout", cases_path=timeout_case, work_dir=build_tmp)
+                self.assertIn("ts-timeout-notrans", cm_to.exception.stderr)
+                self.assertIn("use_transitions=False", cm_to.exception.stderr)
+
+                # Forced failure after pointer_down / key_down / touch_down must run balanced input cleanup with no cleanup errors.
                 for down_action, expected_rel in (
                     ({"action": "pointer_down"}, "mouse_left_up"),
                     ({"action": "key_down", "key": "Shift"}, "key_up:Shift"),
@@ -2957,12 +3034,13 @@ class LiveReference(unittest.TestCase):
                     }]}), encoding="utf-8")
                     with self.assertRaises(subprocess.CalledProcessError) as cm_abort:
                         ref_run.run_reference(exe, Path(tmp) / f"out_{expected_rel.replace(':', '_')}", cases_path=abort_case, work_dir=build_tmp)
-                    self.assertIn(expected_rel, cm_abort.exception.stderr)
+                    self.assertIn(f"cleanup_releases=[{expected_rel}]", cm_abort.exception.stderr)
+                    self.assertNotIn("cleanup_errors=", cm_abort.exception.stderr)
 
                 # Real transient TextBlock at 150% is discovered by Dump.cs and masked cleanly by compare_frames_with_layout_mask.
                 txt_case = by1["btn-text-transient-s150"]
                 self.assertIn("scale_mode", txt_case)
-                self.assertIn("host_rasterization_scale", txt_case)
+                self.assertEqual(txt_case["effective_rasterization_scale"], txt_case["host_rasterization_scale"])
                 txt_rects = extract_mask_rects(txt_case["layout"])
                 self.assertEqual(len(txt_rects), 1)
                 self.assertEqual(txt_rects[0][0], "RealLabel")

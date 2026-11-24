@@ -189,7 +189,7 @@ def _ci_get(mapping, key, default=None):
 
 ALLOWED_CASE_KEYS = {
     "id", "case_group", "control", "style", "theme", "scale", "flow_direction",
-    "state", "use_transitions", "frame", "properties", "items", "children",
+    "state", "use_transitions", "storyboard_timeout_ms", "frame", "properties", "items", "children",
     "script", "dump_tree", "probe_box", "probe_radii",
     "expected_elements", "expected_states", "expected_setters",
 }
@@ -256,8 +256,15 @@ def check_no_prohibited_assets(case_spec):
         )
         for k, v in props.items()
     )
+    stock_text_controls = {
+        "textblock", "textbox", "passwordbox", "richeditbox", "autosuggestbox",
+        "datepicker", "timepicker", "calendarview", "calendardatepicker",
+        "numberbox", "ratingcontrol", "navigationview", "breadcrumbbar",
+        "tabview", "expander", "infobar", "teachingtip", "contentdialog",
+        "menubar", "commandbar",
+    }
     has_text = (
-        ctrl_l in ("textblock", "textbox")
+        ctrl_l in stock_text_controls
         or bool(items)
         or has_non_allowlisted_prop
     )
@@ -277,11 +284,24 @@ def _is_owned_backup(backup_path, is_store):
     marker = STORE_MARKER if is_store else OUT_MARKER
     if not (backup_path / marker).is_file():
         return False
+    indexed_z = None
+    if is_store:
+        idx_path = backup_path / "cases.json"
+        if not idx_path.is_file():
+            return False
+        try:
+            manifest = json.loads(idx_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        cases = manifest.get("cases")
+        if not isinstance(cases, list):
+            return False
+        indexed_z = {f"{c['file']}.z" for c in cases if isinstance(c, dict) and isinstance(c.get("file"), str)}
     for entry in backup_path.iterdir():
         if entry.is_dir():
             return False
         if is_store:
-            if entry.name not in ("cases.json", STORE_MARKER) and not entry.name.endswith(".bgra.z"):
+            if entry.name not in ("cases.json", STORE_MARKER) and entry.name not in indexed_z:
                 return False
         else:
             if entry.name not in ("cases.json", "error.txt", OUT_MARKER) and entry.suffix != ".bgra":
@@ -303,12 +323,18 @@ def _recover_dir_unlocked(target_dir, is_store):
     return False
 
 
-def read_reference_snapshot(store_dir, filenames=None):
+def read_reference_snapshot(store_dir, filenames=None, check_provenance=True):
     """Atomically read cases.json and requested decompressed .bgra.z frames under the store lock (with crash recovery)."""
     store = Path(store_dir)
     with _store_lock(store):
         _recover_dir_unlocked(store, is_store=True)
         manifest = json.loads((store / "cases.json").read_text(encoding="utf-8"))
+        if check_provenance:
+            want_prov = compute_package_fingerprint()
+            if manifest.get("provenance") != want_prov:
+                raise ValueError(
+                    f"{store / 'cases.json'}: package/template provenance mismatch (store is stale relative to reference/package.json, pin.json, or templates)"
+                )
         wanted = set(filenames) if filenames is not None else {c["file"] for c in manifest.get("cases", []) if "file" in c}
         frames = {}
         for fn in wanted:
@@ -316,9 +342,9 @@ def read_reference_snapshot(store_dir, filenames=None):
         return manifest, frames
 
 
-def open_reference_manifest(store_dir):
+def open_reference_manifest(store_dir, check_provenance=True):
     """Read tests/reference/cases.json under the store lock, recovering an interrupted swap if needed."""
-    manifest, _ = read_reference_snapshot(store_dir, filenames=())
+    manifest, _ = read_reference_snapshot(store_dir, filenames=(), check_provenance=check_provenance)
     return manifest
 
 
@@ -386,12 +412,17 @@ def _publish_capture_output(src_dir, out_dir):
             shutil.rmtree(stage, ignore_errors=True)
 
 
-def compute_package_fingerprint(pkg_path=None, pin_path=None, template_c_path=None):
+def compute_package_fingerprint(pkg_path=None, pin_path=None, template_c_path=None, templates_dir=None):
     """Compute a deterministic provenance fingerprint binding stored frames to the WinUI package and template inputs."""
     p_pkg = Path(pkg_path) if pkg_path else (HERE / "package.json")
     p_pin = Path(pin_path) if pin_path else (ROOT / "tools/winui/pin.json")
     p_tpl = Path(template_c_path) if template_c_path else (ROOT / "ui/template_data.c")
+    p_tdir = Path(templates_dir) if templates_dir else (HERE / "templates")
     pkg = json.loads(p_pkg.read_text(encoding="utf-8"))
+    tpl_h = hashlib.sha256()
+    if p_tdir.is_dir():
+        for xf in sorted(p_tdir.glob("*.xaml")):
+            tpl_h.update(xf.name.encode("utf-8") + b"\0" + xf.read_bytes() + b"\0")
     return {
         "version": pkg.get("version"),
         "winui_component": pkg.get("winui_component"),
@@ -399,6 +430,7 @@ def compute_package_fingerprint(pkg_path=None, pin_path=None, template_c_path=No
         "package_sha256": hashlib.sha256(p_pkg.read_bytes()).hexdigest(),
         "pin_sha256": hashlib.sha256(p_pin.read_bytes()).hexdigest(),
         "template_data_sha256": hashlib.sha256(p_tpl.read_bytes()).hexdigest(),
+        "templates_sha256": tpl_h.hexdigest(),
     }
 
 
@@ -423,14 +455,17 @@ def compare_baseline_frames(fresh_dir, baseline_store_dir, baseline_ids=None):
     fresh = Path(fresh_dir)
     fresh_manifest = json.loads((fresh / "cases.json").read_text(encoding="utf-8"))
     fresh_by_id = {c["id"]: c for c in fresh_manifest.get("cases", []) if "id" in c}
-    base_manifest, base_frames = read_reference_snapshot(baseline_store_dir)
-    base_by_id = {c["id"]: c for c in base_manifest.get("cases", []) if "id" in c and "file" in c}
+    base_index = open_reference_manifest(baseline_store_dir, check_provenance=False)
+    base_by_id = {c["id"]: c for c in base_index.get("cases", []) if "id" in c and "file" in c}
     ids = list(baseline_ids) if baseline_ids is not None else list(LEGACY_BASELINE_IDS)
     if not ids:
         raise ValueError("baseline comparison has no frame IDs to verify")
+    missing_base = [cid for cid in ids if cid not in base_by_id]
+    if missing_base:
+        raise ValueError(f"baseline store missing expected frame {missing_base[0]!r}")
+    wanted_files = [base_by_id[cid]["file"] for cid in ids]
+    _, base_frames = read_reference_snapshot(baseline_store_dir, filenames=wanted_files, check_provenance=False)
     for cid in ids:
-        if cid not in base_by_id:
-            raise ValueError(f"baseline store missing expected frame {cid!r}")
         if cid not in fresh_by_id:
             raise ValueError(f"fresh capture missing baseline frame {cid!r}")
         bc = base_by_id[cid]
@@ -447,24 +482,27 @@ def compare_baseline_frames(fresh_dir, baseline_store_dir, baseline_ids=None):
     return len(ids)
 
 
-def validate_store_dir(store_dir, expected_specs=None, _locked=False, expected_provenance=None):
+def validate_store_dir(store_dir, expected_specs=None, _locked=False, expected_provenance=None, check_provenance=True):
     """Validate that store_dir has a self-consistent index, no missing/extra/stale frames, and valid digests."""
     store = Path(store_dir)
     ctx = contextlib.nullcontext() if _locked else _store_lock(store)
     with ctx:
         _recover_dir_unlocked(store, is_store=True)
-        return _validate_store_dir_unlocked(store, expected_specs, expected_provenance=expected_provenance)
+        return _validate_store_dir_unlocked(
+            store, expected_specs, expected_provenance=expected_provenance, check_provenance=check_provenance
+        )
 
 
-def _validate_store_dir_unlocked(store, expected_specs=None, expected_provenance=None):
+def _validate_store_dir_unlocked(store, expected_specs=None, expected_provenance=None, check_provenance=True):
     index_path = store / "cases.json"
     if not index_path.is_file():
         raise ValueError(f"{store}: missing cases.json")
     manifest = json.loads(index_path.read_text(encoding="utf-8"))
-    if expected_provenance is not None:
-        if manifest.get("provenance") != expected_provenance:
+    if check_provenance:
+        want_prov = expected_provenance if expected_provenance is not None else compute_package_fingerprint()
+        if manifest.get("provenance") != want_prov:
             raise ValueError(
-                f"{index_path}: package/template provenance mismatch (store is stale relative to reference/package.json or pin.json)"
+                f"{index_path}: package/template provenance mismatch (store is stale relative to reference/package.json, pin.json, or templates)"
             )
     cases = manifest.get("cases")
     if not isinstance(cases, list) or not cases:
@@ -1052,12 +1090,17 @@ def main(argv=None):
     parser.add_argument("--cases", type=Path, default=None, help="single case JSON file or directory (cannot be combined with --update-store)")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output directory for fresh captures")
     parser.add_argument("--update-store", action="store_true", help="atomically publish validated compressed frames into tests/reference/")
-    parser.add_argument("--compare-baseline", type=Path, default=None, help="compare fresh 26 legacy frames against a baseline store before publishing")
+    parser.add_argument("--compare-baseline", type=Path, default=None, help="compare fresh 26 legacy frames against a baseline store before publishing (defaults to tests/reference on --update-store)")
+    parser.add_argument("--skip-baseline", action="store_true", help="skip the automatic 26-frame baseline check during --update-store (only for intentional WinUI upgrades)")
     args = parser.parse_args(argv)
 
     if args.update_store and args.cases is not None:
         print("error: --update-store refuses --cases (partial runs cannot replace the full reference store)", file=sys.stderr)
         return 2
+
+    baseline = args.compare_baseline
+    if args.update_store and baseline is None and not args.skip_baseline and STORE.is_dir():
+        baseline = STORE
 
     # Snapshot case specifications BEFORE capture so publication hashes the exact private capture rendered by Reference.exe.
     specs = load_case_specs(CASES_DIR) if args.update_store else None
@@ -1066,10 +1109,10 @@ def main(argv=None):
         args.cases,
         snapshotted_specs=specs,
         store_dir=STORE if args.update_store else None,
-        compare_baseline=args.compare_baseline,
+        compare_baseline=baseline,
     )
-    if args.compare_baseline is not None:
-        print(f"baseline comparison passed against {args.compare_baseline}")
+    if baseline is not None:
+        print(f"baseline comparison passed against {baseline}")
     if args.update_store:
         out, (frame_count, fallback_count) = result
     else:
