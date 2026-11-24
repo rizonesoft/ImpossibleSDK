@@ -31,7 +31,7 @@ IMPOSSIBLE_DISPLAY=desktop python3 reference/run.py               # fresh WinUI 
 IMPOSSIBLE_DISPLAY=desktop python3 reference/run.py --update-store # refresh tests/reference/ atomically
 ```
 
-Today the 16 100-percent button cases and 10 corner-radius probes have a matching SDK pixel test (`control-shots.exe`); multi-scale, RTL, icon, and scripted captures are verified in the store and ready for the element-tree renderer.
+Today the 16 100-percent button cases and 10 corner-radius probes have a matching SDK pixel test (`control-shots.exe`), and the element-tree layout engine (`ui/tree.c`, `ui/layout.c`) is verified offline against `tests/fixtures/layout_reference.json` at five scales (100, 125, 150, 200, and 300 percent) while `tests/live-pass.json` proves that the Hyper-V guest verified both the stored frames and the five-scale panel layout oracle directly against real WinUI 3.
 
 ## What is a proof?
 

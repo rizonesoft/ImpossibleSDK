@@ -5,7 +5,7 @@ How do we know it looks like Windows 11? A small program draws the same control 
 
 ## What is compared today?
 
-The standard and the accent button, at rest, hovered, pressed and disabled, dark and light (sixteen cases at 100 percent, without text), plus ten white-on-black corner radius probes (radii 4, 8 and 16 at scales 1, 1.5 and 2, and an asymmetric 40 by 20 probe with a single radius-16 corner) are compared pixel by pixel against `control-shots.exe`. Additional multi-scale (150, 200 and 300 percent), RTL, SDK-owned icon, disabled-property, and scripted input captures live in the same verified store (`tests/reference/cases.json`) ahead of the element-tree renderer.
+The standard and the accent button, at rest, hovered, pressed and disabled, dark and light (sixteen cases at 100 percent, without text), plus ten white-on-black corner radius probes (radii 4, 8 and 16 at scales 1, 1.5 and 2, and an asymmetric 40 by 20 probe with a single radius-16 corner) are compared pixel by pixel against `control-shots.exe`. Additional multi-scale (150, 200 and 300 percent), RTL, SDK-owned icon, disabled-property, and scripted input captures live in the same verified store (`tests/reference/cases.json`), alongside the five-scale (100, 125, 150, 200 and 300 percent) panel layout oracle (`tests/fixtures/layout_reference.json`) for `Grid`, `StackPanel`, `Border`, `ContentPresenter`, and instantiated `Button` templates.
 
 Run `python3 tools/winvm/live.py` to hold fresh WinUI captures against the stored ones in the test machine, and `IMPOSSIBLE_DISPLAY=desktop python3 reference/run.py --update-store` to atomically refresh `tests/reference/`.
 

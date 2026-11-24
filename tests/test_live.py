@@ -1233,3 +1233,36 @@ class LiveReference(unittest.TestCase):
                 self.assertIn("GotFocus", touch_evts)
                 self.assertIn("Click", touch_evts)
                 self.assertLess(touch_evts.index("GotFocus"), touch_evts.index("Click"))
+
+    def test_live_five_scale_panel_layouts_match_oracle(self):
+        sys.path.insert(0, str(ROOT / "reference"))
+        sys.path.insert(0, str(ROOT / "tests"))
+        import run as ref_run
+        import layout_cases
+
+        oracle = json.loads((ROOT / "tests/fixtures/layout_reference.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(dir=ref_run.host_temp_root(), prefix="impossible-live-layout-") as build_tmp:
+            exe = ref_run.build_reference(build_tmp)
+            cases_file = Path(build_tmp) / "layout_cases.json"
+            cases_file.write_text(json.dumps({"cases": layout_cases.build_winui_cases()}), encoding="utf-8")
+            out_dir = Path(build_tmp) / "out"
+            ref_run.run_reference(exe, out_dir, cases_path=cases_file, work_dir=build_tmp)
+            manifest = json.loads((out_dir / "cases.json").read_text(encoding="utf-8"))
+            by_id = {c["id"]: c for c in manifest["cases"]}
+
+            all_diffs = []
+            for scale in layout_cases.SCALES:
+                tag = layout_cases.scale_tag(scale)
+                expected_mode = "native-1x" if abs(scale - 1.0) < 1e-6 else "scaled-inputs"
+                for base_name in layout_cases.REQUIRED_NODES:
+                    cid = f"{base_name}-{tag}"
+                    self.assertIn(cid, by_id, f"live WinUI missing {cid}")
+                    entry = by_id[cid]
+                    self.assertEqual(entry.get("layout_capture_mode"), expected_mode, cid)
+                    self.assertAlmostEqual(float(entry.get("layout_scale", 0)), scale, places=3, msg=cid)
+                    actual_nodes = layout_cases.index_named_nodes(entry["layout"])
+                    diffs = layout_cases.compare_named_layouts(
+                        cid, base_name, oracle[cid]["nodes"], actual_nodes, tol=0.05
+                    )
+                    all_diffs.extend(diffs)
+            self.assertEqual(all_diffs, [], "WinUI vs ui/layout.c mismatches:\n" + "\n".join(all_diffs[:60]))

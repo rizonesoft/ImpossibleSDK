@@ -35,6 +35,8 @@ PASS = "tests/live-pass.json"
 COVERED = (
     "tests/test_live.py",
     "tests/frames.py",
+    "tests/layout_cases.py",
+    "tests/fixtures/layout_reference.json",
     "tools/winui/check_package.py",
     "tools/winui/pin.json",
     "tools/winvm/needs.json",

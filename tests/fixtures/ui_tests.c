@@ -1,6 +1,7 @@
 /* Exits 0, or with the number of the first check that failed. */
 #include <impossible/base.h>
 #include "button.h"
+#include "layout.h"
 #include "template.h"
 
 enum { W = 64, H = 64 };
@@ -187,6 +188,258 @@ static int test_templates(void) {
     return 0;
 }
 
+/* Fault-injecting tracked allocator for transactional tree tests. */
+typedef struct tracked_alloc {
+    uint8_t pool[65536];
+    size_t used;
+    uint32_t alloc_calls;
+    uint32_t fail_on_call; /* 0 = never fail, N >= 1 = fail on Nth alloc/realloc call */
+    uint32_t live_allocs;
+    size_t live_bytes;
+} tracked_alloc;
+
+static void *t_alloc(void *ctx, size_t size) {
+    tracked_alloc *a = (tracked_alloc *)ctx;
+    a->alloc_calls++;
+    if (a->fail_on_call != 0 && a->alloc_calls == a->fail_on_call) return NULL;
+    size_t aligned = (size + 7u) & ~(size_t)7u;
+    if (a->used + aligned > sizeof(a->pool)) return NULL;
+    void *p = &a->pool[a->used];
+    a->used += aligned;
+    a->live_allocs++;
+    a->live_bytes += size;
+    return p;
+}
+
+static void *t_realloc(void *ctx, void *ptr, size_t old_size, size_t new_size) {
+    tracked_alloc *a = (tracked_alloc *)ctx;
+    a->alloc_calls++;
+    if (a->fail_on_call != 0 && a->alloc_calls == a->fail_on_call) return NULL;
+    size_t aligned = (new_size + 7u) & ~(size_t)7u;
+    if (a->used + aligned > sizeof(a->pool)) return NULL;
+    void *n = &a->pool[a->used];
+    a->used += aligned;
+    if (ptr && old_size > 0) {
+        size_t copy = old_size < new_size ? old_size : new_size;
+        uint8_t *d = (uint8_t *)n;
+        const uint8_t *s = (const uint8_t *)ptr;
+        for (size_t i = 0; i < copy; i++) d[i] = s[i];
+    }
+    if (!ptr) {
+        a->live_allocs++;
+    } else {
+        a->live_bytes -= old_size;
+    }
+    a->live_bytes += new_size;
+    return n;
+}
+
+static void t_free(void *ctx, void *ptr, size_t size) {
+    tracked_alloc *a = (tracked_alloc *)ctx;
+    if (!ptr) return;
+    if (a->live_allocs > 0) a->live_allocs--;
+    a->live_bytes -= size;
+}
+
+static im_fixed fxi(int v) { return (im_fixed)(v * IM_ONE); }
+
+static int test_tree_and_layout(void) {
+    tracked_alloc ta = {0};
+    im_allocator alloc = {t_alloc, t_realloc, t_free, &ta};
+    im_palette pal = {IM_DARK, {0}};
+
+    /* 1. Baseline tree + layout + observable failure on EVERY injected allocation + unchanged state + retry + zero leaks. */
+    im_tree tree;
+    if (!im_tree_init(&tree, alloc)) return 70;
+    im_node *root = im_tree_create_node(&tree, IM_ELEM_STACK_PANEL, "Root");
+    if (!root) return 71;
+    tree.root = root;
+    im_node_set_stack(root, IM_ORIENT_VERTICAL, fxi(6));
+    im_node *a = im_tree_create_node(&tree, IM_ELEM_BORDER, "A");
+    im_node *b = im_tree_create_node(&tree, IM_ELEM_BORDER, "B");
+    if (!a || !b) return 72;
+    im_node_set_size(a, fxi(40), fxi(12));
+    im_node_set_size(b, fxi(50), fxi(18));
+    if (!im_tree_append_child(&tree, root, a)) return 73;
+    if (!im_tree_append_child(&tree, root, b)) return 74;
+    im_layout_run(&tree, root, fxi(100), fxi(100), IM_ONE);
+    im_rect base_a = a->absolute_rect;
+    im_rect base_b = b->absolute_rect;
+    uint32_t base_nodes = tree.node_count;
+
+    /* Inject failure on create_node: must return NULL and leave tree unchanged. */
+    ta.fail_on_call = ta.alloc_calls + 1u;
+    if (im_tree_create_node(&tree, IM_ELEM_BORDER, "FailNode") != NULL) return 75;
+    if (tree.node_count != base_nodes || root->child_count != 2u) return 76;
+    if (a->absolute_rect.left != base_a.left || b->absolute_rect.top != base_b.top) return 77;
+    ta.fail_on_call = 0;
+
+    /* Fill child_cap (4) then inject failure on the 5th append realloc: parent and child stay untouched. */
+    im_node *c = im_tree_create_node(&tree, IM_ELEM_BORDER, "C");
+    im_node *d = im_tree_create_node(&tree, IM_ELEM_BORDER, "D");
+    im_node *e = im_tree_create_node(&tree, IM_ELEM_BORDER, "E");
+    if (!c || !d || !e) return 78;
+    if (!im_tree_append_child(&tree, root, c)) return 79;
+    if (!im_tree_append_child(&tree, root, d)) return 80;
+    ta.fail_on_call = ta.alloc_calls + 1u;
+    if (im_tree_append_child(&tree, root, e)) return 81;
+    if (root->child_count != 4u || e->parent != NULL) return 82;
+    /* Retry succeeds once fault injection is cleared. */
+    ta.fail_on_call = 0;
+    if (!im_tree_append_child(&tree, root, e)) return 83;
+    if (root->child_count != 5u || e->parent != root) return 84;
+
+    /* Inject failure on set_grid_rows: existing rows stay intact. */
+    im_node *g = im_tree_create_node(&tree, IM_ELEM_GRID, "G");
+    if (!g || !im_tree_append_child(&tree, root, g)) return 85;
+    im_grid_def r1[2] = {{IM_GRID_PIXEL, fxi(10), 0, IM_FIXED_INF}, {IM_GRID_STAR, fxi(1), 0, IM_FIXED_INF}};
+    im_grid_def r2[3] = {{IM_GRID_AUTO, 0, 0, IM_FIXED_INF}, {IM_GRID_AUTO, 0, 0, IM_FIXED_INF}, {IM_GRID_AUTO, 0, 0, IM_FIXED_INF}};
+    if (!im_tree_set_grid_rows(&tree, g, r1, 2u)) return 86;
+    ta.fail_on_call = ta.alloc_calls + 1u;
+    if (im_tree_set_grid_rows(&tree, g, r2, 3u)) return 87;
+    if (g->row_count != 2u || g->rows[0].unit != IM_GRID_PIXEL || g->rows[0].value != fxi(10)) return 88;
+    ta.fail_on_call = 0;
+
+    /* Inject failure at EVERY allocation step of im_tree_instantiate_template(IM_TEMPLATE_BUTTON): must rollback cleanly. */
+    uint32_t nodes_before_tpl = tree.node_count;
+    uint32_t live_before_tpl = ta.live_allocs;
+    size_t bytes_before_tpl = ta.live_bytes;
+    uint32_t max_steps = 0;
+    for (uint32_t step = 1u; step <= 16u; step++) {
+        ta.fail_on_call = ta.alloc_calls + step;
+        im_node *btn_try = im_tree_instantiate_template(&tree, &pal, IM_TEMPLATE_BUTTON, "BtnFail");
+        ta.fail_on_call = 0;
+        if (!btn_try) {
+            max_steps = step;
+            if (tree.node_count != nodes_before_tpl || ta.live_allocs != live_before_tpl || ta.live_bytes != bytes_before_tpl) return 89;
+        } else {
+            im_tree_destroy_subtree(&tree, btn_try);
+            if (tree.node_count != nodes_before_tpl || ta.live_allocs != live_before_tpl || ta.live_bytes != bytes_before_tpl) return 90;
+            break;
+        }
+    }
+    if (max_steps == 0) return 91;
+
+    im_tree_destroy(&tree);
+    if (tree.node_count != 0 || ta.live_allocs != 0 || ta.live_bytes != 0) return 92;
+
+    /* 2. Collapse/restore, child replacement, and grandchild mutation remeasurement on the same tree. */
+    ta.used = 0;
+    if (!im_tree_init(&tree, alloc)) return 93;
+    im_node *sp = im_tree_create_node(&tree, IM_ELEM_STACK_PANEL, "Sp");
+    im_node_set_stack(sp, IM_ORIENT_VERTICAL, fxi(5));
+    im_node *c1 = im_tree_create_node(&tree, IM_ELEM_BORDER, "C1");
+    im_node *c2 = im_tree_create_node(&tree, IM_ELEM_BORDER, "C2");
+    im_node *c3 = im_tree_create_node(&tree, IM_ELEM_BORDER, "C3");
+    im_node *gc = im_tree_create_node(&tree, IM_ELEM_BORDER, "GC");
+    im_node_set_size(c1, fxi(30), fxi(10));
+    im_node_set_size(c2, fxi(30), fxi(20));
+    im_node_set_size(gc, fxi(30), fxi(14));
+    im_tree_append_child(&tree, c3, gc);
+    im_tree_append_child(&tree, sp, c1);
+    im_tree_append_child(&tree, sp, c2);
+    im_tree_append_child(&tree, sp, c3);
+    tree.root = sp;
+    im_layout_run(&tree, sp, fxi(100), fxi(100), IM_ONE);
+    /* Visible: C1(0..10) + 5 + C2(15..35) + 5 + C3(40..54). */
+    if (c3->absolute_rect.top != fxi(40) || sp->desired_size.height != fxi(54)) return 94;
+    /* Collapse C2: C1(0..10) + 5 + C3(15..29). */
+    im_node_set_visibility(c2, IM_VIS_COLLAPSED);
+    im_layout_run(&tree, sp, fxi(100), fxi(100), IM_ONE);
+    if (c3->absolute_rect.top != fxi(15) || sp->desired_size.height != fxi(29)) return 95;
+    /* Restore C2: back to 40 and 54. */
+    im_node_set_visibility(c2, IM_VIS_VISIBLE);
+    im_layout_run(&tree, sp, fxi(100), fxi(100), IM_ONE);
+    if (c3->absolute_rect.top != fxi(40) || sp->desired_size.height != fxi(54)) return 96;
+    /* Grandchild resize bubbles measure-dirty to sp. */
+    im_node_set_size(gc, fxi(30), fxi(24));
+    if (!sp->measure_dirty || !c3->measure_dirty) return 97;
+    im_layout_run(&tree, sp, fxi(100), fxi(100), IM_ONE);
+    if (sp->desired_size.height != fxi(64)) return 98;
+    /* Replace C2 with a 10px border: C3 moves from 40 to 30. */
+    im_node *c2_new = im_tree_create_node(&tree, IM_ELEM_BORDER, "C2New");
+    im_node_set_size(c2_new, fxi(30), fxi(10));
+    im_node *removed = im_tree_replace_child(&tree, sp, 1u, c2_new);
+    if (removed != c2 || c2->parent != NULL) return 99;
+    im_tree_destroy_subtree(&tree, removed);
+    im_layout_run(&tree, sp, fxi(100), fxi(100), IM_ONE);
+    if (c3->absolute_rect.top != fxi(30) || sp->desired_size.height != fxi(54)) return 100;
+    im_tree_destroy(&tree);
+    if (ta.live_allocs != 0 || ta.live_bytes != 0) return 101;
+
+    /* 3. Button template instantiation: im_value 4-component padding, no BrushTransition visual child,
+       local Padding override flows through TemplateBinding, and clearing returns to theme default. */
+    ta.used = 0;
+    if (!im_tree_init(&tree, alloc)) return 102;
+    im_node *btn = im_tree_instantiate_template(&tree, &pal, IM_TEMPLATE_BUTTON, "Btn");
+    if (!btn) return 103;
+    tree.root = btn;
+    /* Must have 1 visual child (ContentPresenter), NOT 2 (BrushTransition is non-visual). */
+    if (btn->child_count != 1u || btn->children[0]->kind != IM_ELEM_CONTENT_PRESENTER) return 104;
+    im_node *cp = btn->children[0];
+    const im_fixed *pad_v = im_value(&pal, IM_VALUE_ButtonPadding);
+    im_thickness eff_pad = im_node_effective_padding(cp);
+    if (eff_pad.left != pad_v[0] || eff_pad.top != pad_v[1] || eff_pad.right != pad_v[2] || eff_pad.bottom != pad_v[3]) return 105;
+    im_node *child = im_tree_create_node(&tree, IM_ELEM_BORDER, "Child");
+    im_node_set_size(child, fxi(20), fxi(10));
+    im_tree_append_child(&tree, cp, child);
+    im_node_set_size(btn, fxi(100), fxi(40));
+    im_node_set_content_alignment(btn, IM_ALIGN_START, IM_ALIGN_START);
+    im_layout_run(&tree, btn, fxi(100), fxi(40), IM_ONE);
+    /* BorderThickness(1,1,1,1) + ButtonPadding(11,5,11,6) => child at (12, 6). */
+    im_rect def_child = child->absolute_rect;
+    if (def_child.left != fxi(1) + pad_v[0] || def_child.top != fxi(1) + pad_v[1]) return 106;
+    /* Override Button local Padding asymmetrically -> ContentPresenter picks it up via TemplateBinding. */
+    im_node_set_padding(btn, (im_thickness){fxi(5), fxi(3), fxi(13), fxi(7)});
+    im_layout_run(&tree, btn, fxi(100), fxi(40), IM_ONE);
+    if (child->absolute_rect.left != fxi(6) || child->absolute_rect.top != fxi(4)) return 107;
+    /* Clear local Padding -> returns to exact default geometry. */
+    im_node_clear_padding(btn);
+    im_layout_run(&tree, btn, fxi(100), fxi(40), IM_ONE);
+    if (child->absolute_rect.left != def_child.left || child->absolute_rect.top != def_child.top) return 108;
+    im_tree_destroy(&tree);
+    if (ta.live_allocs != 0 || ta.live_bytes != 0) return 109;
+
+    /* 4. Compiled StackPanel template instantiation via im_tree_instantiate_custom_template. */
+    ta.used = 0;
+    if (!im_tree_init(&tree, alloc)) return 110;
+    static const im_template_prop sp_props[] = {
+        {"Orientation", {IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Horizontal", NULL}},
+        {"Spacing", {IM_TVAL_FIXED, 8 * IM_ONE, 0, 0, 0, NULL, NULL}},
+        {"Width", {IM_TVAL_FIXED, 20 * IM_ONE, 0, 0, 0, NULL, NULL}},
+        {"Height", {IM_TVAL_FIXED, 10 * IM_ONE, 0, 0, 0, NULL, NULL}},
+        {"Width", {IM_TVAL_FIXED, 30 * IM_ONE, 0, 0, 0, NULL, NULL}},
+        {"Height", {IM_TVAL_FIXED, 10 * IM_ONE, 0, 0, 0, NULL, NULL}},
+    };
+    static const im_template_element sp_elems[] = {
+        {IM_ELEM_STACK_PANEL, "TplStack", -1, 0, 2},
+        {IM_ELEM_BORDER, "TplA", 0, 2, 2},
+        {IM_ELEM_BORDER, "TplB", 0, 4, 2},
+    };
+    static const im_template sp_tpl = {"StackTest", "ContentControl", 0, 0, 0, 3, 0, 0};
+    im_node *st_ctrl = im_tree_instantiate_custom_template(&tree, &pal, &sp_tpl, NULL, sp_elems, sp_props, "StackHost");
+    if (!st_ctrl) return 111;
+    tree.root = st_ctrl;
+    im_layout_run(&tree, st_ctrl, fxi(100), fxi(40), IM_ONE);
+    im_node *tb = im_tree_find_by_name(st_ctrl, "TplB");
+    if (!tb || tb->absolute_rect.left != fxi(28) || (tb->absolute_rect.right - tb->absolute_rect.left) != fxi(30)) return 112;
+    im_tree_destroy(&tree);
+    if (ta.live_allocs != 0 || ta.live_bytes != 0) return 113;
+
+    /* 5. im_layout_round exact plateau values at 100%, 125%, 150%, 200%, 300% + INF/AUTO passthrough. */
+    if (im_layout_round(IM_FIXED_INF, IM_ONE) != IM_FIXED_INF) return 114;
+    if (im_layout_round(IM_FIXED_AUTO, IM_ONE) != IM_FIXED_AUTO) return 115;
+    /* 9.5 at 100% -> 10.0; at 125% -> 12/1.25 = 9.6; at 150% -> 14/1.5 = 9.333...; at 200% -> 9.5; at 300% -> 29/3 = 9.667. */
+    im_fixed nine_half = 9 * IM_ONE + IM_ONE / 2;
+    if (im_layout_round(nine_half, 65536) != 10 * IM_ONE) return 116;
+    if (im_layout_round(nine_half, 81920) != (im_fixed)((12LL * 65536LL * 65536LL + 40960) / 81920)) return 117;
+    if (im_layout_round(nine_half, 98304) != (im_fixed)((14LL * 65536LL * 65536LL + 49152) / 98304)) return 118;
+    if (im_layout_round(nine_half, 131072) != nine_half) return 119;
+    if (im_layout_round(nine_half, 196608) != (im_fixed)((29LL * 65536LL * 65536LL + 98304) / 196608)) return 120;
+
+    return 0;
+}
+
 int im_main(void) {
     const im_radii square = {0}, round = {4 * IM_ONE, 4 * IM_ONE, 4 * IM_ONE, 4 * IM_ONE};
     const enum im_brush_id white = IM_BRUSH_TextFillColorPrimaryBrush; /* #FFFFFF in the dark theme */
@@ -314,5 +567,7 @@ int im_main(void) {
     clear();
     im_fill(&surface, box(8, 8, 56, 56), (im_radii){8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE}, white);
     if ((at(8, 12) & 255) != 37 || (at(8, 13) & 255) != 126) return 35;
-    return test_templates();
+    int r = test_templates();
+    if (r != 0) return r;
+    return test_tree_and_layout();
 }

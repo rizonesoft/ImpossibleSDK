@@ -39,7 +39,8 @@ STORE_MARKER = ".impossible-reference-store"
 # OnContent/OffContent/Header/Text/Content, whether string or numeric) requires a permitted non-Microsoft FontFamily.
 SAFE_NON_TEXT_PROPERTIES = {
     "name", "width", "height", "minwidth", "minheight", "maxwidth", "maxheight",
-    "horizontalalignment", "verticalalignment", "margin", "padding",
+    "horizontalalignment", "verticalalignment", "horizontalcontentalignment", "verticalcontentalignment",
+    "margin", "padding", "uselayoutrounding", "rowspacing", "columnspacing",
     "isenabled", "istabstop", "allowfocusoninteraction", "cornerradius", "background", "foreground",
     "borderbrush", "borderthickness", "opacity", "visibility",
     "ison", "ischecked", "isthreestate", "isopen", "isdropdownopen",
@@ -204,7 +205,7 @@ ALLOWED_CASE_KEYS = {
     "id", "case_group", "control", "style", "theme", "scale", "flow_direction",
     "state", "use_transitions", "storyboard_timeout_ms", "frame", "properties", "items", "children",
     "script", "dump_tree", "probe_box", "probe_radii", "template_xaml", "rich_text_rtf",
-    "expected_elements", "expected_states", "expected_setters",
+    "expected_elements", "expected_states", "expected_setters", "layout_at_scale",
 }
 
 

@@ -58,6 +58,7 @@ ELEMENT_KINDS = {
     "ContentThemeTransition": "IM_ELEM_CONTENT_THEME_TRANSITION",
     "ReorderThemeTransition": "IM_ELEM_REORDER_THEME_TRANSITION",
     "EntranceThemeTransition": "IM_ELEM_ENTRANCE_THEME_TRANSITION",
+    "StackPanel": "IM_ELEM_STACK_PANEL",
 }
 
 # Property-element wrapper tags accepted inside element subtrees.
@@ -235,6 +236,10 @@ ELEMENT_OWN_PROPS = {
     "Grid": PANEL_PROPS | {
         "BackgroundSizing", "BorderBrush", "BorderThickness", "ColumnSpacing",
         "CornerRadius", "Padding", "RowSpacing",
+    },
+    "StackPanel": PANEL_PROPS | {
+        "AreScrollSnapPointsRegular", "BackgroundSizing", "BorderBrush",
+        "BorderThickness", "CornerRadius", "Orientation", "Padding", "Spacing",
     },
     "Border": BORDER_PROPS,
     "ContentPresenter": CONTENT_PRESENTER_PROPS,

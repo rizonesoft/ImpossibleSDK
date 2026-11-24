@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-24 -->
+<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,ui/tree.h,ui/layout.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-24 -->
 # Drawing
 
 How do you draw Windows 11's shapes and colours? Describe your canvas as a surface, then fill shapes with the brushes of the theme.

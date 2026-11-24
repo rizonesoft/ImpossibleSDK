@@ -2882,6 +2882,41 @@ class Drawing(unittest.TestCase):
     def test_drawing(self):
         self.assertEqual(subprocess.run([str(BUILD / "ui-tests.exe")], stdin=subprocess.DEVNULL, capture_output=True, timeout=60).returncode, 0)
 
+    def test_five_scale_panel_layout_matches_winui_oracle(self):
+        sys.path.insert(0, str(ROOT / "tests"))
+        import layout_cases
+        oracle_path = ROOT / "tests/fixtures/layout_reference.json"
+        oracle = json.loads(oracle_path.read_text(encoding="utf-8"))
+        proc = subprocess.run([str(BUILD / "layout-dump.exe")], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        actual = json.loads(proc.stdout)
+
+        # Verify every required base case at all 5 scales independently of whichever entries appear in the file.
+        for scale in layout_cases.SCALES:
+            tag = layout_cases.scale_tag(scale)
+            for base_name in layout_cases.REQUIRED_NODES:
+                cid = f"{base_name}-{tag}"
+                self.assertIn(cid, oracle, f"oracle missing {cid}")
+                self.assertIn(cid, actual, f"layout-dump missing {cid}")
+                diffs = layout_cases.compare_named_layouts(
+                    cid, base_name, oracle[cid]["nodes"], actual[cid]["nodes"], tol=0.05
+                )
+                self.assertEqual(diffs, [], "\n".join(diffs))
+
+        # Verify fractional plateau rounding actually differs from unrounded coordinates at 100%, 125%, 150%, 300%.
+        for tag in ("s100", "s125", "s150", "s300"):
+            nodes = actual[f"border-round-{tag}"]["nodes"]
+            rx = nodes["RoundedChild"]["Rect"]["X"]
+            ux = nodes["UnroundedChild"]["Rect"]["X"] - 60.0
+            self.assertNotAlmostEqual(rx, ux, places=2, msg=f"expected rounding difference at {tag}: rounded={rx} unrounded={ux}")
+
+        # Verify compiled StackPanel template support in tools/winui/templates.py.
+        sys.path.insert(0, str(ROOT / "tools/winui"))
+        import templates as tpl_mod
+        self.assertEqual(tpl_mod.ELEMENT_KINDS.get("StackPanel"), "IM_ELEM_STACK_PANEL")
+        self.assertIn("Spacing", tpl_mod.ELEMENT_OWN_PROPS["StackPanel"])
+        self.assertIn("Orientation", tpl_mod.ELEMENT_OWN_PROPS["StackPanel"])
+
     def test_manifest_validation_catches_faults(self):
         sys.path.insert(0, str(ROOT / "reference"))
         import run as ref_run

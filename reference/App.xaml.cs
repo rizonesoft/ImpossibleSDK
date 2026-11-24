@@ -57,6 +57,7 @@ public sealed class CaseSpec
     [JsonPropertyName("probe_radii")] public double[]? ProbeRadii { get; set; }
     [JsonPropertyName("template_xaml")] public string? TemplateXaml { get; set; }
     [JsonPropertyName("rich_text_rtf")] public string? RichTextRtf { get; set; }
+    [JsonPropertyName("layout_at_scale")] public bool LayoutAtScale { get; set; }
 }
 
 public partial class App : Application
@@ -490,6 +491,12 @@ public partial class App : Application
                 if (string.IsNullOrEmpty(childSpec.Id)) childSpec.Id = $"{caseId}.child";
                 border.Child = CreateElement(childSpec, scaleFactor, pendingStates, isChild: true);
             }
+            else if (el is ContentPresenter cp && spec.Children.Count == 1)
+            {
+                var childSpec = spec.Children[0];
+                if (string.IsNullOrEmpty(childSpec.Id)) childSpec.Id = $"{caseId}.content";
+                cp.Content = CreateElement(childSpec, scaleFactor, pendingStates, isChild: true);
+            }
             else
             {
                 throw new InvalidOperationException($"{caseId}.children: control '{spec.Control}' cannot accept {spec.Children.Count} children");
@@ -518,6 +525,12 @@ public partial class App : Application
             case "MinHeight":
                 el.MinHeight = val.GetDouble() * scaleFactor;
                 break;
+            case "MaxWidth":
+                el.MaxWidth = val.GetDouble() * scaleFactor;
+                break;
+            case "MaxHeight":
+                el.MaxHeight = val.GetDouble() * scaleFactor;
+                break;
             case "HorizontalAlignment":
                 el.HorizontalAlignment = ParseEnum<HorizontalAlignment>(caseId, prop, val.GetString() ?? "");
                 break;
@@ -525,7 +538,7 @@ public partial class App : Application
                 el.VerticalAlignment = ParseEnum<VerticalAlignment>(caseId, prop, val.GetString() ?? "");
                 break;
             case "Margin":
-                el.Margin = ParseThickness(caseId, prop, val);
+                el.Margin = ScaleThickness(ParseThickness(caseId, prop, val), scaleFactor);
                 break;
             case "IsEnabled":
                 if (el is Control cEn) cEn.IsEnabled = val.GetBoolean();
@@ -537,13 +550,31 @@ public partial class App : Application
                 break;
             case "Content":
                 if (el is ContentControl cc) cc.Content = val.GetString() ?? "";
+                else if (el is ContentPresenter cpC) cpC.Content = val.GetString() ?? "";
                 else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
                 break;
             case "Padding":
-                if (el is Control cPad) cPad.Padding = ParseThickness(caseId, prop, val);
-                else if (el is Border bPad) bPad.Padding = ParseThickness(caseId, prop, val);
+            {
+                var pad = ScaleThickness(ParseThickness(caseId, prop, val), scaleFactor);
+                if (el is Control cPad) cPad.Padding = pad;
+                else if (el is Border bPad) bPad.Padding = pad;
+                else if (el is ContentPresenter cpPad) cpPad.Padding = pad;
+                else if (el is Grid gPad) gPad.Padding = pad;
+                else if (el is StackPanel spPad) spPad.Padding = pad;
                 else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
                 break;
+            }
+            case "BorderThickness":
+            {
+                var bt = ScaleThickness(ParseThickness(caseId, prop, val), scaleFactor);
+                if (el is Control cBt) cBt.BorderThickness = bt;
+                else if (el is Border bBt) bBt.BorderThickness = bt;
+                else if (el is ContentPresenter cpBt) cpBt.BorderThickness = bt;
+                else if (el is Grid gBt) gBt.BorderThickness = bt;
+                else if (el is StackPanel spBt) spBt.BorderThickness = bt;
+                else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            }
             case "CornerRadius":
             {
                 var cr = ParseCornerRadius(caseId, prop, val);
@@ -554,6 +585,7 @@ public partial class App : Application
                     cr.BottomLeft * scaleFactor);
                 if (el is Border bCr) bCr.CornerRadius = scaled;
                 else if (el is Control cCr) cCr.CornerRadius = scaled;
+                else if (el is ContentPresenter cpCr) cpCr.CornerRadius = scaled;
                 else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
                 break;
             }
@@ -563,6 +595,7 @@ public partial class App : Application
                 if (el is Border bBg) bBg.Background = brush;
                 else if (el is Control cBg) cBg.Background = brush;
                 else if (el is Panel pBg) pBg.Background = brush;
+                else if (el is ContentPresenter cpBg) cpBg.Background = brush;
                 else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
                 break;
             }
@@ -631,7 +664,15 @@ public partial class App : Application
                 else goto default;
                 break;
             case "Spacing":
-                if (el is StackPanel spS) spS.Spacing = val.GetDouble();
+                if (el is StackPanel spS) spS.Spacing = val.GetDouble() * scaleFactor;
+                else goto default;
+                break;
+            case "RowSpacing":
+                if (el is Grid grRs) grRs.RowSpacing = val.GetDouble() * scaleFactor;
+                else goto default;
+                break;
+            case "ColumnSpacing":
+                if (el is Grid grCs) grCs.ColumnSpacing = val.GetDouble() * scaleFactor;
                 else goto default;
                 break;
             case "Data":
@@ -650,7 +691,18 @@ public partial class App : Application
                     grRows.RowDefinitions.Clear();
                     foreach (var item in val.EnumerateArray())
                     {
-                        grRows.RowDefinitions.Add(new RowDefinition { Height = ParseGridLength(caseId, prop, item) });
+                        var rd = new RowDefinition();
+                        if (item.ValueKind == JsonValueKind.Object)
+                        {
+                            if (item.TryGetProperty("length", out var lenEl)) rd.Height = ParseGridLength(caseId, prop, lenEl, scaleFactor);
+                            if (item.TryGetProperty("min", out var minEl)) rd.MinHeight = minEl.GetDouble() * scaleFactor;
+                            if (item.TryGetProperty("max", out var maxEl)) rd.MaxHeight = maxEl.GetDouble() * scaleFactor;
+                        }
+                        else
+                        {
+                            rd.Height = ParseGridLength(caseId, prop, item, scaleFactor);
+                        }
+                        grRows.RowDefinitions.Add(rd);
                     }
                 }
                 else throw new InvalidOperationException($"{caseId}.{prop}: requires a Grid and JSON array");
@@ -661,7 +713,18 @@ public partial class App : Application
                     grCols.ColumnDefinitions.Clear();
                     foreach (var item in val.EnumerateArray())
                     {
-                        grCols.ColumnDefinitions.Add(new ColumnDefinition { Width = ParseGridLength(caseId, prop, item) });
+                        var cd = new ColumnDefinition();
+                        if (item.ValueKind == JsonValueKind.Object)
+                        {
+                            if (item.TryGetProperty("length", out var lenEl)) cd.Width = ParseGridLength(caseId, prop, lenEl, scaleFactor);
+                            if (item.TryGetProperty("min", out var minEl)) cd.MinWidth = minEl.GetDouble() * scaleFactor;
+                            if (item.TryGetProperty("max", out var maxEl)) cd.MaxWidth = maxEl.GetDouble() * scaleFactor;
+                        }
+                        else
+                        {
+                            cd.Width = ParseGridLength(caseId, prop, item, scaleFactor);
+                        }
+                        grCols.ColumnDefinitions.Add(cd);
                     }
                 }
                 else throw new InvalidOperationException($"{caseId}.{prop}: requires a Grid and JSON array");
@@ -722,11 +785,17 @@ public partial class App : Application
         }
     }
 
-    private static GridLength ParseGridLength(string caseId, string prop, JsonElement val)
+    private static Thickness ScaleThickness(Thickness t, double scaleFactor)
+    {
+        if (Math.Abs(scaleFactor - 1.0) < 1e-9) return t;
+        return new Thickness(t.Left * scaleFactor, t.Top * scaleFactor, t.Right * scaleFactor, t.Bottom * scaleFactor);
+    }
+
+    private static GridLength ParseGridLength(string caseId, string prop, JsonElement val, double scaleFactor = 1.0)
     {
         if (val.ValueKind == JsonValueKind.Number)
         {
-            return new GridLength(val.GetDouble(), GridUnitType.Pixel);
+            return new GridLength(val.GetDouble() * scaleFactor, GridUnitType.Pixel);
         }
         string s = (val.GetString() ?? "").Trim();
         if (string.Equals(s, "Auto", StringComparison.OrdinalIgnoreCase))
@@ -741,7 +810,7 @@ public partial class App : Application
         }
         if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double px))
         {
-            return new GridLength(px, GridUnitType.Pixel);
+            return new GridLength(px * scaleFactor, GridUnitType.Pixel);
         }
         throw new InvalidOperationException($"{caseId}.{prop}: invalid GridLength '{s}'");
     }
@@ -1468,9 +1537,9 @@ public partial class App : Application
             Grid innerFrame;
             FrameworkElement captureTarget;
             var pendingStates = new List<(CaseSpec Spec, FrameworkElement Element)>();
-            if (isProbe)
+            if (isProbe || spec.LayoutAtScale)
             {
-                scaleMode = nativeScaleMatch ? "native-dpi" : "probe-dip";
+                scaleMode = nativeScaleMatch ? (Math.Abs(scale - 1.0) < 1e-6 ? "native-1x" : "native-dpi") : (isProbe ? "probe-dip" : "scaled-inputs");
                 double propScale = nativeScaleMatch ? 1.0 : scale;
                 element = CreateElement(spec, propScale, pendingStates);
                 innerFrame = new Grid
@@ -1550,9 +1619,9 @@ public partial class App : Application
             File.WriteAllBytes(Path.Combine(folder, file), pixels);
 
             // Always dump element rectangles and automation tree per case (section contract).
-            double dumpLayoutScale = (isProbe && !nativeScaleMatch) ? scale : 1.0;
+            double dumpLayoutScale = ((isProbe || spec.LayoutAtScale) && !nativeScaleMatch) ? scale : 1.0;
             double dumpAutoLogicalScale = nativeScaleMatch ? 1.0 : scale;
-            LayoutNode layoutDump = Dump.DumpLayout(innerFrame, dumpLayoutScale);
+            LayoutNode layoutDump = Dump.DumpLayout(innerFrame, dumpLayoutScale, includeDesiredSize: spec.LayoutAtScale);
             AutomationNode automationDump = Dump.DumpAutomation(innerFrame, element, dumpAutoLogicalScale, dumpLayoutScale);
 
             var entry = new Dictionary<string, object?>
@@ -1572,6 +1641,11 @@ public partial class App : Application
                 ["width"] = width,
                 ["height"] = height,
             };
+            if (spec.LayoutAtScale)
+            {
+                entry["layout_scale"] = scale;
+                entry["layout_capture_mode"] = scaleMode;
+            }
             if (!string.IsNullOrEmpty(spec.State))
             {
                 entry["state"] = spec.State;

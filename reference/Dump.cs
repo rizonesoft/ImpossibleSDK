@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
@@ -9,6 +10,12 @@ using Windows.Foundation;
 
 namespace Reference;
 
+public sealed class SizeDto
+{
+    public double Width { get; set; }
+    public double Height { get; set; }
+}
+
 public sealed class LayoutNode
 {
     public string Type { get; set; } = "";
@@ -17,6 +24,8 @@ public sealed class LayoutNode
     public bool IsText { get; set; }
     public bool IsIcon { get; set; }
     public RectDto Rect { get; set; } = new();
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SizeDto? DesiredSize { get; set; }
     public List<LayoutNode> Children { get; set; } = new();
 }
 
@@ -55,12 +64,12 @@ public static class Dump
         PatternInterface.Text,
     };
 
-    public static LayoutNode DumpLayout(FrameworkElement frameRoot, double logicalScale = 1.0)
+    public static LayoutNode DumpLayout(FrameworkElement frameRoot, double logicalScale = 1.0, bool includeDesiredSize = false)
     {
-        return WalkVisual(frameRoot, frameRoot, logicalScale);
+        return WalkVisual(frameRoot, frameRoot, logicalScale, includeDesiredSize);
     }
 
-    private static LayoutNode WalkVisual(DependencyObject current, FrameworkElement frameRoot, double logicalScale)
+    private static LayoutNode WalkVisual(DependencyObject current, FrameworkElement frameRoot, double logicalScale, bool includeDesiredSize)
     {
         var node = new LayoutNode
         {
@@ -85,6 +94,14 @@ public static class Dump
                     Width = Math.Round(bounds.Width * inv, 3),
                     Height = Math.Round(bounds.Height * inv, 3),
                 };
+                if (includeDesiredSize)
+                {
+                    node.DesiredSize = new SizeDto
+                    {
+                        Width = Math.Round(fe.DesiredSize.Width * inv, 3),
+                        Height = Math.Round(fe.DesiredSize.Height * inv, 3),
+                    };
+                }
             }
             catch
             {
@@ -96,7 +113,7 @@ public static class Dump
         for (int i = 0; i < count; i++)
         {
             var child = VisualTreeHelper.GetChild(current, i);
-            node.Children.Add(WalkVisual(child, frameRoot, logicalScale));
+            node.Children.Add(WalkVisual(child, frameRoot, logicalScale, includeDesiredSize));
         }
 
         return node;

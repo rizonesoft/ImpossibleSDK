@@ -105,7 +105,15 @@ class LivePass(unittest.TestCase):
         self.assertEqual(code, 1)
 
     def test_everything_that_decides_the_verdict_owes_a_pass(self):
-        for name in ("tests/reference/cases.json", "tests/frames.py", "tools/winui/check_package.py", "tools/winvm/needs.json", "ui/template_data.c"):
+        for name in (
+            "tests/reference/cases.json",
+            "tests/frames.py",
+            "tests/layout_cases.py",
+            "tests/fixtures/layout_reference.json",
+            "tools/winui/check_package.py",
+            "tools/winvm/needs.json",
+            "ui/template_data.c",
+        ):
             self.attempt(0, {"outcome": "ran", "exit": 0})
             self.assertFalse(live.owed(self.root))
             (self.root / name).parent.mkdir(parents=True, exist_ok=True)

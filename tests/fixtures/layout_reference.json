@@ -1,0 +1,2062 @@
+{
+  "grid-mixed-s100": {
+    "scale": 1,
+    "nodes": {
+      "GridRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 120
+        },
+        "DesiredSize": {
+          "Width": 81,
+          "Height": 85
+        }
+      },
+      "CellPix": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 7,
+          "Width": 25,
+          "Height": 21
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellSpanCol": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 36,
+          "Y": 7,
+          "Width": 114,
+          "Height": 21
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellSpanRow": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 33,
+          "Width": 25,
+          "Height": 39
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellAuto": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 36,
+          "Y": 33,
+          "Width": 28,
+          "Height": 19
+        },
+        "DesiredSize": {
+          "Width": 28,
+          "Height": 19
+        }
+      },
+      "CellStar": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 71,
+          "Y": 77,
+          "Width": 79,
+          "Height": 30
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      }
+    }
+  },
+  "grid-unbounded-s100": {
+    "scale": 1,
+    "nodes": {
+      "OuterStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 120
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 43
+        }
+      },
+      "InnerGrid": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 43
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 43
+        }
+      },
+      "RowA": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 50,
+          "Height": 17
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 17
+        }
+      },
+      "RowB": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 20,
+          "Width": 70,
+          "Height": 23
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 23
+        }
+      }
+    }
+  },
+  "stack-vert-s100": {
+    "scale": 1,
+    "nodes": {
+      "VStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 140,
+          "Height": 100
+        },
+        "DesiredSize": {
+          "Width": 12,
+          "Height": 57
+        }
+      },
+      "VFirst": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 6,
+          "Width": 128,
+          "Height": 15
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 15
+        }
+      },
+      "VMidCollapsed": {
+        "Visibility": "Collapsed",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "VLast": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 28,
+          "Width": 128,
+          "Height": 19
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 19
+        }
+      }
+    }
+  },
+  "stack-horiz-s100": {
+    "scale": 1,
+    "nodes": {
+      "HStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 80
+        },
+        "DesiredSize": {
+          "Width": 85,
+          "Height": 23
+        }
+      },
+      "HTop": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 21,
+          "Height": 17
+        },
+        "DesiredSize": {
+          "Width": 21,
+          "Height": 17
+        }
+      },
+      "HCenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 26,
+          "Y": 31,
+          "Width": 25,
+          "Height": 19
+        },
+        "DesiredSize": {
+          "Width": 25,
+          "Height": 19
+        }
+      },
+      "HBottom": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 56,
+          "Y": 57,
+          "Width": 29,
+          "Height": 23
+        },
+        "DesiredSize": {
+          "Width": 29,
+          "Height": 23
+        }
+      }
+    }
+  },
+  "border-round-s100": {
+    "scale": 1,
+    "nodes": {
+      "RoundGrid": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 120,
+          "Height": 60
+        },
+        "DesiredSize": {
+          "Width": 120,
+          "Height": 54
+        }
+      },
+      "RoundedBorder": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 3,
+          "Y": 5,
+          "Width": 40,
+          "Height": 40
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 54
+        }
+      },
+      "RoundedChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 17,
+          "Y": 20,
+          "Width": 11,
+          "Height": 11
+        },
+        "DesiredSize": {
+          "Width": 11,
+          "Height": 11
+        }
+      },
+      "UnroundedBorder": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 63,
+          "Y": 5,
+          "Width": 40,
+          "Height": 40
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 54
+        }
+      },
+      "UnroundedChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 76.5,
+          "Y": 20,
+          "Width": 11,
+          "Height": 11
+        },
+        "DesiredSize": {
+          "Width": 11,
+          "Height": 11
+        }
+      }
+    }
+  },
+  "presenter-rtl-s100": {
+    "scale": 1,
+    "nodes": {
+      "RtlRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 80
+        },
+        "DesiredSize": {
+          "Width": 114,
+          "Height": 60
+        }
+      },
+      "RtlPresenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 57,
+          "Y": 4,
+          "Width": 100,
+          "Height": 50
+        },
+        "DesiredSize": {
+          "Width": 114,
+          "Height": 60
+        }
+      },
+      "RtlChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 128,
+          "Y": 30,
+          "Width": 23,
+          "Height": 13
+        },
+        "DesiredSize": {
+          "Width": 23,
+          "Height": 13
+        }
+      }
+    }
+  },
+  "button-child-s100": {
+    "scale": 1,
+    "nodes": {
+      "BtnRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 25,
+          "Y": 14,
+          "Width": 110,
+          "Height": 36
+        },
+        "DesiredSize": {
+          "Width": 110,
+          "Height": 36
+        }
+      },
+      "ContentPresenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 25,
+          "Y": 14,
+          "Width": 110,
+          "Height": 36
+        },
+        "DesiredSize": {
+          "Width": 51,
+          "Height": 25
+        }
+      },
+      "BtnChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 31,
+          "Y": 29,
+          "Width": 31,
+          "Height": 13
+        },
+        "DesiredSize": {
+          "Width": 31,
+          "Height": 13
+        }
+      }
+    }
+  },
+  "grid-mixed-s125": {
+    "scale": 1.25,
+    "nodes": {
+      "GridRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 120
+        },
+        "DesiredSize": {
+          "Width": 81.6,
+          "Height": 84.8
+        }
+      },
+      "CellPix": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 7.2,
+          "Width": 24.8,
+          "Height": 20.8
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellSpanCol": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 36,
+          "Y": 7.2,
+          "Width": 113.6,
+          "Height": 20.8
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellSpanRow": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 32.8,
+          "Width": 24.8,
+          "Height": 39.2
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellAuto": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 36,
+          "Y": 32.8,
+          "Width": 28,
+          "Height": 19.2
+        },
+        "DesiredSize": {
+          "Width": 28,
+          "Height": 19.2
+        }
+      },
+      "CellStar": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 71.2,
+          "Y": 77.6,
+          "Width": 78.4,
+          "Height": 29.6
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      }
+    }
+  },
+  "grid-unbounded-s125": {
+    "scale": 1.25,
+    "nodes": {
+      "OuterStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 120
+        },
+        "DesiredSize": {
+          "Width": 70.4,
+          "Height": 43.2
+        }
+      },
+      "InnerGrid": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 43.2
+        },
+        "DesiredSize": {
+          "Width": 70.4,
+          "Height": 43.2
+        }
+      },
+      "RowA": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 50.4,
+          "Height": 16.8
+        },
+        "DesiredSize": {
+          "Width": 50.4,
+          "Height": 16.8
+        }
+      },
+      "RowB": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 20,
+          "Width": 70.4,
+          "Height": 23.2
+        },
+        "DesiredSize": {
+          "Width": 70.4,
+          "Height": 23.2
+        }
+      }
+    }
+  },
+  "stack-vert-s125": {
+    "scale": 1.25,
+    "nodes": {
+      "VStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 140,
+          "Height": 100
+        },
+        "DesiredSize": {
+          "Width": 12,
+          "Height": 57.6
+        }
+      },
+      "VFirst": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 6.4,
+          "Width": 128,
+          "Height": 15.2
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 15.2
+        }
+      },
+      "VMidCollapsed": {
+        "Visibility": "Collapsed",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "VLast": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 28,
+          "Width": 128,
+          "Height": 19.2
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 19.2
+        }
+      }
+    }
+  },
+  "stack-horiz-s125": {
+    "scale": 1.25,
+    "nodes": {
+      "HStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 80
+        },
+        "DesiredSize": {
+          "Width": 84.8,
+          "Height": 23.2
+        }
+      },
+      "HTop": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 20.8,
+          "Height": 16.8
+        },
+        "DesiredSize": {
+          "Width": 20.8,
+          "Height": 16.8
+        }
+      },
+      "HCenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 25.6,
+          "Y": 30.4,
+          "Width": 24.8,
+          "Height": 19.2
+        },
+        "DesiredSize": {
+          "Width": 24.8,
+          "Height": 19.2
+        }
+      },
+      "HBottom": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 56,
+          "Y": 56.8,
+          "Width": 28.8,
+          "Height": 23.2
+        },
+        "DesiredSize": {
+          "Width": 28.8,
+          "Height": 23.2
+        }
+      }
+    }
+  },
+  "border-round-s125": {
+    "scale": 1.25,
+    "nodes": {
+      "RoundGrid": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 120,
+          "Height": 60
+        },
+        "DesiredSize": {
+          "Width": 120,
+          "Height": 54.4
+        }
+      },
+      "RoundedBorder": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 3.2,
+          "Y": 4.8,
+          "Width": 40,
+          "Height": 40
+        },
+        "DesiredSize": {
+          "Width": 50.4,
+          "Height": 54.4
+        }
+      },
+      "RoundedChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 16.8,
+          "Y": 20,
+          "Width": 11.2,
+          "Height": 11.2
+        },
+        "DesiredSize": {
+          "Width": 11.2,
+          "Height": 11.2
+        }
+      },
+      "UnroundedBorder": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 63,
+          "Y": 5,
+          "Width": 40,
+          "Height": 40
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 54
+        }
+      },
+      "UnroundedChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 76.5,
+          "Y": 20,
+          "Width": 11,
+          "Height": 11
+        },
+        "DesiredSize": {
+          "Width": 11,
+          "Height": 11
+        }
+      }
+    }
+  },
+  "presenter-rtl-s125": {
+    "scale": 1.25,
+    "nodes": {
+      "RtlRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 80
+        },
+        "DesiredSize": {
+          "Width": 114.4,
+          "Height": 60.8
+        }
+      },
+      "RtlPresenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 56.8,
+          "Y": 4,
+          "Width": 100,
+          "Height": 50.4
+        },
+        "DesiredSize": {
+          "Width": 114.4,
+          "Height": 60.8
+        }
+      },
+      "RtlChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 128,
+          "Y": 30.4,
+          "Width": 23.2,
+          "Height": 12.8
+        },
+        "DesiredSize": {
+          "Width": 23.2,
+          "Height": 12.8
+        }
+      }
+    }
+  },
+  "button-child-s125": {
+    "scale": 1.25,
+    "nodes": {
+      "BtnRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 24.8,
+          "Y": 14.4,
+          "Width": 110.4,
+          "Height": 36
+        },
+        "DesiredSize": {
+          "Width": 110.4,
+          "Height": 36
+        }
+      },
+      "ContentPresenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 24.8,
+          "Y": 14.4,
+          "Width": 110.4,
+          "Height": 36
+        },
+        "DesiredSize": {
+          "Width": 50.4,
+          "Height": 24.8
+        }
+      },
+      "BtnChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 30.4,
+          "Y": 29.6,
+          "Width": 31.2,
+          "Height": 12.8
+        },
+        "DesiredSize": {
+          "Width": 31.2,
+          "Height": 12.8
+        }
+      }
+    }
+  },
+  "grid-mixed-s150": {
+    "scale": 1.5,
+    "nodes": {
+      "GridRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 120
+        },
+        "DesiredSize": {
+          "Width": 82,
+          "Height": 86
+        }
+      },
+      "CellPix": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4.667,
+          "Y": 7.333,
+          "Width": 25.333,
+          "Height": 21.333
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellSpanCol": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 36.667,
+          "Y": 7.333,
+          "Width": 113.333,
+          "Height": 21.333
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellSpanRow": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4.667,
+          "Y": 33.333,
+          "Width": 25.333,
+          "Height": 39.333
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellAuto": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 36.667,
+          "Y": 33.333,
+          "Width": 28,
+          "Height": 19.333
+        },
+        "DesiredSize": {
+          "Width": 28,
+          "Height": 19.333
+        }
+      },
+      "CellStar": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 71.333,
+          "Y": 77.333,
+          "Width": 78,
+          "Height": 29.333
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      }
+    }
+  },
+  "grid-unbounded-s150": {
+    "scale": 1.5,
+    "nodes": {
+      "OuterStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 120
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 43.333
+        }
+      },
+      "InnerGrid": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 43.333
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 43.333
+        }
+      },
+      "RowA": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 50,
+          "Height": 17.333
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 17.333
+        }
+      },
+      "RowB": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 20,
+          "Width": 70,
+          "Height": 23.333
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 23.333
+        }
+      }
+    }
+  },
+  "stack-vert-s150": {
+    "scale": 1.5,
+    "nodes": {
+      "VStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 140,
+          "Height": 100
+        },
+        "DesiredSize": {
+          "Width": 12,
+          "Height": 57.333
+        }
+      },
+      "VFirst": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 6,
+          "Width": 128,
+          "Height": 15.333
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 15.333
+        }
+      },
+      "VMidCollapsed": {
+        "Visibility": "Collapsed",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "VLast": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 28,
+          "Width": 128,
+          "Height": 19.333
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 19.333
+        }
+      }
+    }
+  },
+  "stack-horiz-s150": {
+    "scale": 1.5,
+    "nodes": {
+      "HStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 80
+        },
+        "DesiredSize": {
+          "Width": 86,
+          "Height": 23.333
+        }
+      },
+      "HTop": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 21.333,
+          "Height": 17.333
+        },
+        "DesiredSize": {
+          "Width": 21.333,
+          "Height": 17.333
+        }
+      },
+      "HCenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 26,
+          "Y": 30.667,
+          "Width": 25.333,
+          "Height": 19.333
+        },
+        "DesiredSize": {
+          "Width": 25.333,
+          "Height": 19.333
+        }
+      },
+      "HBottom": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 56.667,
+          "Y": 56.667,
+          "Width": 29.333,
+          "Height": 23.333
+        },
+        "DesiredSize": {
+          "Width": 29.333,
+          "Height": 23.333
+        }
+      }
+    }
+  },
+  "border-round-s150": {
+    "scale": 1.5,
+    "nodes": {
+      "RoundGrid": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 120,
+          "Height": 60
+        },
+        "DesiredSize": {
+          "Width": 120,
+          "Height": 54
+        }
+      },
+      "RoundedBorder": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 3.333,
+          "Y": 5.333,
+          "Width": 40,
+          "Height": 40
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 54
+        }
+      },
+      "RoundedChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 16.667,
+          "Y": 20,
+          "Width": 11.333,
+          "Height": 11.333
+        },
+        "DesiredSize": {
+          "Width": 11.333,
+          "Height": 11.333
+        }
+      },
+      "UnroundedBorder": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 63,
+          "Y": 5,
+          "Width": 40,
+          "Height": 40
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 54
+        }
+      },
+      "UnroundedChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 76.5,
+          "Y": 20,
+          "Width": 11,
+          "Height": 11
+        },
+        "DesiredSize": {
+          "Width": 11,
+          "Height": 11
+        }
+      }
+    }
+  },
+  "presenter-rtl-s150": {
+    "scale": 1.5,
+    "nodes": {
+      "RtlRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 80
+        },
+        "DesiredSize": {
+          "Width": 114,
+          "Height": 60
+        }
+      },
+      "RtlPresenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 56.667,
+          "Y": 4,
+          "Width": 100,
+          "Height": 50
+        },
+        "DesiredSize": {
+          "Width": 114,
+          "Height": 60
+        }
+      },
+      "RtlChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 126.667,
+          "Y": 29.333,
+          "Width": 23.333,
+          "Height": 13.333
+        },
+        "DesiredSize": {
+          "Width": 23.333,
+          "Height": 13.333
+        }
+      }
+    }
+  },
+  "button-child-s150": {
+    "scale": 1.5,
+    "nodes": {
+      "BtnRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 25.333,
+          "Y": 14,
+          "Width": 110,
+          "Height": 36
+        },
+        "DesiredSize": {
+          "Width": 110,
+          "Height": 36
+        }
+      },
+      "ContentPresenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 25.333,
+          "Y": 14,
+          "Width": 110,
+          "Height": 36
+        },
+        "DesiredSize": {
+          "Width": 52.667,
+          "Height": 26.667
+        }
+      },
+      "BtnChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 32,
+          "Y": 28,
+          "Width": 31.333,
+          "Height": 13.333
+        },
+        "DesiredSize": {
+          "Width": 31.333,
+          "Height": 13.333
+        }
+      }
+    }
+  },
+  "grid-mixed-s200": {
+    "scale": 2,
+    "nodes": {
+      "GridRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 120
+        },
+        "DesiredSize": {
+          "Width": 81,
+          "Height": 85
+        }
+      },
+      "CellPix": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 7,
+          "Width": 25,
+          "Height": 21
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellSpanCol": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 36,
+          "Y": 7,
+          "Width": 114,
+          "Height": 21
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellSpanRow": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 33,
+          "Width": 25,
+          "Height": 39
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellAuto": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 36,
+          "Y": 33,
+          "Width": 28,
+          "Height": 19
+        },
+        "DesiredSize": {
+          "Width": 28,
+          "Height": 19
+        }
+      },
+      "CellStar": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 71,
+          "Y": 77,
+          "Width": 79,
+          "Height": 30
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      }
+    }
+  },
+  "grid-unbounded-s200": {
+    "scale": 2,
+    "nodes": {
+      "OuterStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 120
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 43
+        }
+      },
+      "InnerGrid": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 43
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 43
+        }
+      },
+      "RowA": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 50,
+          "Height": 17
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 17
+        }
+      },
+      "RowB": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 20,
+          "Width": 70,
+          "Height": 23
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 23
+        }
+      }
+    }
+  },
+  "stack-vert-s200": {
+    "scale": 2,
+    "nodes": {
+      "VStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 140,
+          "Height": 100
+        },
+        "DesiredSize": {
+          "Width": 12,
+          "Height": 57
+        }
+      },
+      "VFirst": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 6,
+          "Width": 128,
+          "Height": 15
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 15
+        }
+      },
+      "VMidCollapsed": {
+        "Visibility": "Collapsed",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "VLast": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 28,
+          "Width": 128,
+          "Height": 19
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 19
+        }
+      }
+    }
+  },
+  "stack-horiz-s200": {
+    "scale": 2,
+    "nodes": {
+      "HStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 80
+        },
+        "DesiredSize": {
+          "Width": 85,
+          "Height": 23
+        }
+      },
+      "HTop": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 21,
+          "Height": 17
+        },
+        "DesiredSize": {
+          "Width": 21,
+          "Height": 17
+        }
+      },
+      "HCenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 26,
+          "Y": 30.5,
+          "Width": 25,
+          "Height": 19
+        },
+        "DesiredSize": {
+          "Width": 25,
+          "Height": 19
+        }
+      },
+      "HBottom": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 56,
+          "Y": 57,
+          "Width": 29,
+          "Height": 23
+        },
+        "DesiredSize": {
+          "Width": 29,
+          "Height": 23
+        }
+      }
+    }
+  },
+  "border-round-s200": {
+    "scale": 2,
+    "nodes": {
+      "RoundGrid": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 120,
+          "Height": 60
+        },
+        "DesiredSize": {
+          "Width": 120,
+          "Height": 54
+        }
+      },
+      "RoundedBorder": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 3,
+          "Y": 5,
+          "Width": 40,
+          "Height": 40
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 54
+        }
+      },
+      "RoundedChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 16.5,
+          "Y": 20,
+          "Width": 11,
+          "Height": 11
+        },
+        "DesiredSize": {
+          "Width": 11,
+          "Height": 11
+        }
+      },
+      "UnroundedBorder": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 63,
+          "Y": 5,
+          "Width": 40,
+          "Height": 40
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 54
+        }
+      },
+      "UnroundedChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 76.5,
+          "Y": 20,
+          "Width": 11,
+          "Height": 11
+        },
+        "DesiredSize": {
+          "Width": 11,
+          "Height": 11
+        }
+      }
+    }
+  },
+  "presenter-rtl-s200": {
+    "scale": 2,
+    "nodes": {
+      "RtlRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 80
+        },
+        "DesiredSize": {
+          "Width": 114,
+          "Height": 60
+        }
+      },
+      "RtlPresenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 57,
+          "Y": 4,
+          "Width": 100,
+          "Height": 50
+        },
+        "DesiredSize": {
+          "Width": 114,
+          "Height": 60
+        }
+      },
+      "RtlChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 128,
+          "Y": 30,
+          "Width": 23,
+          "Height": 13
+        },
+        "DesiredSize": {
+          "Width": 23,
+          "Height": 13
+        }
+      }
+    }
+  },
+  "button-child-s200": {
+    "scale": 2,
+    "nodes": {
+      "BtnRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 25,
+          "Y": 14,
+          "Width": 110,
+          "Height": 36
+        },
+        "DesiredSize": {
+          "Width": 110,
+          "Height": 36
+        }
+      },
+      "ContentPresenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 25,
+          "Y": 14,
+          "Width": 110,
+          "Height": 36
+        },
+        "DesiredSize": {
+          "Width": 51,
+          "Height": 25
+        }
+      },
+      "BtnChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 31,
+          "Y": 29,
+          "Width": 31,
+          "Height": 13
+        },
+        "DesiredSize": {
+          "Width": 31,
+          "Height": 13
+        }
+      }
+    }
+  },
+  "grid-mixed-s300": {
+    "scale": 3,
+    "nodes": {
+      "GridRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 120
+        },
+        "DesiredSize": {
+          "Width": 81,
+          "Height": 85
+        }
+      },
+      "CellPix": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 7,
+          "Width": 25,
+          "Height": 21
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellSpanCol": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 36,
+          "Y": 7,
+          "Width": 114,
+          "Height": 21
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellSpanRow": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 33,
+          "Width": 25,
+          "Height": 39
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "CellAuto": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 36,
+          "Y": 33,
+          "Width": 28,
+          "Height": 19
+        },
+        "DesiredSize": {
+          "Width": 28,
+          "Height": 19
+        }
+      },
+      "CellStar": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 71,
+          "Y": 77,
+          "Width": 79,
+          "Height": 30
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      }
+    }
+  },
+  "grid-unbounded-s300": {
+    "scale": 3,
+    "nodes": {
+      "OuterStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 120
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 43
+        }
+      },
+      "InnerGrid": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 43
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 43
+        }
+      },
+      "RowA": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 50,
+          "Height": 17
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 17
+        }
+      },
+      "RowB": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 20,
+          "Width": 70,
+          "Height": 23
+        },
+        "DesiredSize": {
+          "Width": 70,
+          "Height": 23
+        }
+      }
+    }
+  },
+  "stack-vert-s300": {
+    "scale": 3,
+    "nodes": {
+      "VStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 140,
+          "Height": 100
+        },
+        "DesiredSize": {
+          "Width": 12,
+          "Height": 57
+        }
+      },
+      "VFirst": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 6,
+          "Width": 128,
+          "Height": 15
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 15
+        }
+      },
+      "VMidCollapsed": {
+        "Visibility": "Collapsed",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 0
+        }
+      },
+      "VLast": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 4,
+          "Y": 28,
+          "Width": 128,
+          "Height": 19
+        },
+        "DesiredSize": {
+          "Width": 0,
+          "Height": 19
+        }
+      }
+    }
+  },
+  "stack-horiz-s300": {
+    "scale": 3,
+    "nodes": {
+      "HStack": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 80
+        },
+        "DesiredSize": {
+          "Width": 85,
+          "Height": 23
+        }
+      },
+      "HTop": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 21,
+          "Height": 17
+        },
+        "DesiredSize": {
+          "Width": 21,
+          "Height": 17
+        }
+      },
+      "HCenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 26,
+          "Y": 30.667,
+          "Width": 25,
+          "Height": 19
+        },
+        "DesiredSize": {
+          "Width": 25,
+          "Height": 19
+        }
+      },
+      "HBottom": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 56,
+          "Y": 57,
+          "Width": 29,
+          "Height": 23
+        },
+        "DesiredSize": {
+          "Width": 29,
+          "Height": 23
+        }
+      }
+    }
+  },
+  "border-round-s300": {
+    "scale": 3,
+    "nodes": {
+      "RoundGrid": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 120,
+          "Height": 60
+        },
+        "DesiredSize": {
+          "Width": 120,
+          "Height": 54
+        }
+      },
+      "RoundedBorder": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 3,
+          "Y": 5,
+          "Width": 40,
+          "Height": 40
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 54
+        }
+      },
+      "RoundedChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 16.667,
+          "Y": 20,
+          "Width": 11,
+          "Height": 11
+        },
+        "DesiredSize": {
+          "Width": 11,
+          "Height": 11
+        }
+      },
+      "UnroundedBorder": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 63,
+          "Y": 5,
+          "Width": 40,
+          "Height": 40
+        },
+        "DesiredSize": {
+          "Width": 50,
+          "Height": 54
+        }
+      },
+      "UnroundedChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 76.5,
+          "Y": 20,
+          "Width": 11,
+          "Height": 11
+        },
+        "DesiredSize": {
+          "Width": 11,
+          "Height": 11
+        }
+      }
+    }
+  },
+  "presenter-rtl-s300": {
+    "scale": 3,
+    "nodes": {
+      "RtlRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 0,
+          "Y": 0,
+          "Width": 160,
+          "Height": 80
+        },
+        "DesiredSize": {
+          "Width": 114,
+          "Height": 60
+        }
+      },
+      "RtlPresenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 57,
+          "Y": 4,
+          "Width": 100,
+          "Height": 50
+        },
+        "DesiredSize": {
+          "Width": 114,
+          "Height": 60
+        }
+      },
+      "RtlChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 128,
+          "Y": 30,
+          "Width": 23,
+          "Height": 13
+        },
+        "DesiredSize": {
+          "Width": 23,
+          "Height": 13
+        }
+      }
+    }
+  },
+  "button-child-s300": {
+    "scale": 3,
+    "nodes": {
+      "BtnRoot": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 25,
+          "Y": 14,
+          "Width": 110,
+          "Height": 36
+        },
+        "DesiredSize": {
+          "Width": 110,
+          "Height": 36
+        }
+      },
+      "ContentPresenter": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 25,
+          "Y": 14,
+          "Width": 110,
+          "Height": 36
+        },
+        "DesiredSize": {
+          "Width": 51,
+          "Height": 25
+        }
+      },
+      "BtnChild": {
+        "Visibility": "Visible",
+        "Rect": {
+          "X": 31,
+          "Y": 29,
+          "Width": 31,
+          "Height": 13
+        },
+        "DesiredSize": {
+          "Width": 31,
+          "Height": 13
+        }
+      }
+    }
+  }
+}
