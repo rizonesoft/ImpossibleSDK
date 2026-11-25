@@ -124,6 +124,22 @@ static void test_api_contracts(void) {
     check(rc == IM_DEFLATE_OUT_FULL && out_len == 5u && out[5] == 0xCCu,
           "im_deflate_all undersized buffer -> OUT_FULL without overrun");
 
+    /* Empty gzip stream with 1-byte output buffer: caller passes is_eof=true on call 1 (gets OUT_FULL
+       during header) and then drains with is_eof=false; EOF must be preserved across header drain! */
+    check(im_deflate_init(&g_def1, IM_DEFLATE_GZIP, IM_DEFLATE_BALANCED) == IM_DEFLATE_OK,
+          "empty gzip 1B drain: init OK");
+    uint8_t gz_empty[64];
+    size_t gz_pos = 0;
+    rc = im_deflate_step(&g_def1, NULL, 0, true, &in_used, gz_empty, 1u, &out_used);
+    check(rc == IM_DEFLATE_OUT_FULL && in_used == 0 && out_used == 1u,
+          "empty gzip 1B drain: call 1 returns OUT_FULL with 1 header byte");
+    gz_pos += out_used;
+    while (rc == IM_DEFLATE_OUT_FULL && gz_pos < sizeof(gz_empty)) {
+        rc = im_deflate_step(&g_def1, NULL, 0, false, &in_used, gz_empty + gz_pos, 1u, &out_used);
+        gz_pos += out_used;
+    }
+    check(rc == IM_DEFLATE_OK && gz_pos == 20u, "empty gzip 1B drain finishes with is_eof=false retries");
+
     /* NULL/0 empty input succeeds in all 3 formats. */
     for (int f = 0; f < 3; ++f) {
         rc = im_deflate_all(&g_def1, (im_deflate_format)f, IM_DEFLATE_FAST,
@@ -185,18 +201,33 @@ static bool stream_compress(im_deflate *st, im_deflate_format fmt, im_deflate_ef
 }
 
 static void test_window_slide_and_boundary_determinism(void) {
-    /* 1. Oldest valid match (dist == 32768) + first position after a slide + stored-block fallback spanning slide. */
+    /* 1. Oldest valid match (dist == 32768) + first position after a slide + stored-block fallback. */
     uint32_t rng = 0x12345678u;
     for (size_t i = 0; i < sizeof(g_big_in); ++i) {
         g_big_in[i] = (uint8_t)(xorshift32(&rng) & 0xFFu);
     }
-    /* Copy 258 bytes from offset 0 to offset 32768 (exact dist == 32768). */
+
+    /* Measure baseline size on pure incompressible random bytes first, and verify BTYPE==0 (stored) is emitted! */
+    size_t raw_rnd_len = 0;
+    im_deflate_status rc0 = im_deflate_all(&g_def1, IM_DEFLATE_RAW, IM_DEFLATE_BALANCED,
+                                           g_big_in, sizeof(g_big_in), g_big_out1, sizeof(g_big_out1), &raw_rnd_len);
+    check(rc0 == IM_DEFLATE_OK && ((g_big_out1[0] >> 1) & 3u) == 0u,
+          "incompressible multi-block stream uses stored block (BTYPE==0)");
+
+    /* Now plant a 258-byte match at exact dist == 32768 and two 258-byte matches at/after slide (65274, 65536). */
     for (size_t i = 0; i < 258u; ++i) g_big_in[32768u + i] = g_big_in[i];
-    /* Copy 258 bytes from offset 33000 to offset 65274 (right at slide boundary) and 65536 (just after slide). */
     for (size_t i = 0; i < 258u; ++i) {
         g_big_in[65274u + i] = g_big_in[33000u + i];
         g_big_in[65536u + i] = g_big_in[33000u + i];
     }
+
+    /* Observable compression proof for dist==32768 and post-slide 258-byte matches:
+       3 x 258-byte matches save > 500 bytes vs the unplanted random baseline! */
+    size_t raw_planted_len = 0;
+    rc0 = im_deflate_all(&g_def1, IM_DEFLATE_RAW, IM_DEFLATE_BALANCED,
+                         g_big_in, sizeof(g_big_in), g_big_out1, sizeof(g_big_out1), &raw_planted_len);
+    check(rc0 == IM_DEFLATE_OK && raw_planted_len + 500u < raw_rnd_len,
+          "dist==32768 and post-slide 258-byte matches measurably compress (>500B saved)");
 
     for (int e = 0; e < 3; ++e) {
         size_t len1 = 0, len2 = 0, dec_len = 0;

@@ -1852,6 +1852,29 @@ class DeflatePart(unittest.TestCase):
         exe = BUILD / "deflate-tests.exe"
         self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
 
+        # 0. Verify every function in parts/deflate/deflate.c keeps stack frame <= 1024 bytes
+        #    (combined with _Static_assert(sizeof(im_deflate) + sizeof(im_inflate) < 1,000,000), total peak < 1 MB).
+        with tempfile.TemporaryDirectory() as tmp:
+            obj = Path(tmp) / "deflate.o"
+            fres = subprocess.run(
+                [
+                    str(LLVM / f"clang{EXE}"),
+                    *OS_CFLAGS,
+                    "-Wframe-larger-than=1024",
+                    f"-I{ROOT / 'parts' / 'deflate'}",
+                    f"-I{ROOT / 'parts' / 'checksum'}",
+                    "-c",
+                    str(ROOT / "parts" / "deflate" / "deflate.c"),
+                    "-o",
+                    str(obj),
+                ],
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                timeout=60,
+            )
+            self.assertEqual(fres.returncode, 0, fres.stdout + fres.stderr)
+
         # 1. Self-contained C unit tests (API contracts, window slides, stored fallback, EOF boundaries).
         res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
@@ -1985,15 +2008,20 @@ class DeflatePart(unittest.TestCase):
                     raw = bytes(out_b)
 
                 eff = idx % 3
-                fmt = (idx // 3) % 3
-                rc, comp = compress_req(0, fmt, eff, raw, label=f"rand:{idx}:f{fmt}:e{eff}")
-                self.assertEqual(rc, 0, f"rand:{idx} failed with rc={rc}")
-                verify_strict(fmt, eff, raw, comp, f"rand:{idx}")
-                if fmt == 0:
-                    zip_entries.append((f"e{idx:04d}.bin", raw, comp))
+                # Every single one of the 1,000 inputs is verified in raw DEFLATE (zlib -15 + zipfile)
+                # AND in a wrapped format (zlib 15 or gzip 31).
+                rc_raw, comp_raw = compress_req(0, 0, eff, raw, label=f"rand:{idx}:raw:e{eff}")
+                self.assertEqual(rc_raw, 0, f"rand:{idx} raw failed with rc={rc_raw}")
+                verify_strict(0, eff, raw, comp_raw, f"rand:{idx}:raw")
+                zip_entries.append((f"e{idx:04d}.bin", raw, comp_raw))
 
-            # Verify all raw-deflated random inputs inside Python's zipfile.ZipFile!
-            self.assertGreaterEqual(len(zip_entries), 330)
+                wfmt = 1 if (idx % 2 == 0) else 2
+                rc_w, comp_w = compress_req(0, wfmt, eff, raw, label=f"rand:{idx}:f{wfmt}:e{eff}")
+                self.assertEqual(rc_w, 0, f"rand:{idx} fmt={wfmt} failed with rc={rc_w}")
+                verify_strict(wfmt, eff, raw, comp_w, f"rand:{idx}:f{wfmt}")
+
+            # Verify ALL 1,000 raw-deflated random inputs inside Python's zipfile.ZipFile!
+            self.assertEqual(len(zip_entries), 1000)
             zbytes = self._build_zip_from_raw_deflate(zip_entries)
             with zipfile.ZipFile(io.BytesIO(zbytes), "r") as zf:
                 self.assertIsNone(zf.testzip())

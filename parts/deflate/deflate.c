@@ -282,19 +282,20 @@ static void build_huff_lengths(im_deflate *st, const uint32_t *freq, uint32_t n_
 }
 
 /* RLE-encode combined lit_len[0..hlit-1] + dist_len[0..hdist-1] into st->rle_sym/extra. */
+static uint8_t combined_len_at(const im_deflate *st, uint32_t idx) {
+    return (idx < st->hlit) ? st->lit_len[idx] : st->dist_len[idx - st->hlit];
+}
+
 static void encode_code_lengths(im_deflate *st) {
-    uint8_t combined[286 + 30];
     uint32_t total = (uint32_t)st->hlit + (uint32_t)st->hdist;
-    for (uint32_t i = 0; i < st->hlit; ++i) combined[i] = st->lit_len[i];
-    for (uint32_t i = 0; i < st->hdist; ++i) combined[st->hlit + i] = st->dist_len[i];
 
     for (uint32_t i = 0; i < 19u; ++i) st->clen_freq[i] = 0;
     uint32_t out = 0;
     uint32_t i = 0;
     while (i < total) {
-        uint8_t cur = combined[i];
+        uint8_t cur = combined_len_at(st, i);
         uint32_t run = 1u;
-        while (i + run < total && combined[i + run] == cur) ++run;
+        while (i + run < total && combined_len_at(st, i + run) == cur) ++run;
 
         uint32_t orig_run = run;
         if (cur == 0u) {
@@ -422,16 +423,30 @@ static void prepare_block(im_deflate *st, bool is_final) {
         st->blk_type = 0u;
     } else if (fixed_bits <= dyn_bits) {
         st->blk_type = 1u;
-        uint8_t flens[288];
-        uint16_t fcodes[288];
-        for (uint32_t i = 0; i < 288u; ++i) flens[i] = (uint8_t)fixed_lit_len(i);
-        build_canonical_codes(flens, 288u, fcodes);
+        /* RFC 1951 s3.2.6 exact fixed literal/length codes (zero stack table). */
         for (uint32_t i = 0; i < 286u; ++i) {
-            st->lit_len[i] = flens[i];
-            st->lit_code[i] = fcodes[i];
+            uint16_t code;
+            uint8_t len;
+            if (i <= 143u) {
+                code = (uint16_t)(0x30u + i);
+                len = 8u;
+            } else if (i <= 255u) {
+                code = (uint16_t)(0x190u + (i - 144u));
+                len = 9u;
+            } else if (i <= 279u) {
+                code = (uint16_t)(i - 256u);
+                len = 7u;
+            } else {
+                code = (uint16_t)(0xC0u + (i - 280u));
+                len = 8u;
+            }
+            st->lit_len[i] = len;
+            st->lit_code[i] = reverse_bits(code, len);
         }
-        for (uint32_t i = 0; i < 30u; ++i) st->dist_len[i] = 5u;
-        build_canonical_codes(st->dist_len, 30u, st->dist_code);
+        for (uint32_t i = 0; i < 30u; ++i) {
+            st->dist_len[i] = 5u;
+            st->dist_code[i] = reverse_bits((uint16_t)i, 5u);
+        }
     } else {
         st->blk_type = 2u;
         build_canonical_codes(st->lit_len, 286u, st->lit_code);
@@ -775,6 +790,9 @@ im_deflate_status im_deflate_step(im_deflate *st,
     const effort_cfg *cfg = &k_effort[st->effort];
 
     for (;;) {
+        if (is_eof && in_pos == in_len) {
+            st->eof_latched = true;
+        }
         if (st->state == ST_HEADER) {
             while (st->wrap_pos < st->wrap_len && out_pos < out_cap) {
                 out[out_pos++] = st->wrap_buf[st->wrap_pos++];
