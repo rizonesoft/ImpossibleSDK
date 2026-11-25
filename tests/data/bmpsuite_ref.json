@@ -313,6 +313,13 @@
       "width": 127,
       "height": 64,
       "rgba8_sha256": "9f33d52c158d285928d5c27e5b59b84aaa26a53ab5d204383d72889c6f6d9051"
+    },
+    "pal8os2v2-40sz.bmp": {
+      "file_sha256": "b9b8c9c6e10ae8e29b21d0a3312db49bcbdbe998413e3650b909312cc0ebefda",
+      "ref_png": "pal8.png",
+      "width": 127,
+      "height": 64,
+      "rgba8_sha256": "9f33d52c158d285928d5c27e5b59b84aaa26a53ab5d204383d72889c6f6d9051"
     }
   },
   "bad": {

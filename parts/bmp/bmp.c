@@ -264,8 +264,10 @@ static im_image_error parse_header(const uint8_t *data, size_t len,
         if (pal_off + pal_bytes > (uint64_t)bf_off) return IM_IMAGE_INVALID;
     }
 
-    /* OS/2 1.x and 2.x headers may store the combined header size in bfSize (14 + hdr_size). */
-    bool os2_hdr_size_conv = ((is_os2_1 || is_os2_2) && bf_size == 14u + hdr_size);
+    /* OS/2 1.x/2.x (12/16/64-byte DIB, or 40-byte OS/2 v2 when bfOffBits > 54) may store the
+       combined header size in bfSize (14 + hdr_size). */
+    bool os2_hdr_size_conv = ((is_os2_1 || is_os2_2) && bf_size == 14u + hdr_size) ||
+                             (hdr_size == 40u && bf_size == 54u && bf_off > 54u);
     if (bf_size != 0u && !os2_hdr_size_conv) {
         if (bf_size < bf_off) return IM_IMAGE_INVALID;
         uint64_t decl_payload = (uint64_t)bf_size - (uint64_t)bf_off;
@@ -494,7 +496,8 @@ im_image_error im_bmp_decode(const uint8_t *data, size_t len,
 
     /* Determine logical file_end (bounding all payload and profile reads). */
     bool is_os2 = (p.info.header_size == 12u || p.info.header_size == 16u || p.info.header_size == 64u);
-    bool os2_hdr_size_conv = (is_os2 && p.bf_size == 14u + p.info.header_size);
+    bool os2_hdr_size_conv = (is_os2 && p.bf_size == 14u + p.info.header_size) ||
+                             (p.info.header_size == 40u && p.bf_size == 54u && p.bf_off_bits > 54u);
     size_t file_end = len;
     if (p.bf_size != 0u && !os2_hdr_size_conv) {
         if ((size_t)p.bf_size > len) return IM_IMAGE_TRUNCATED;

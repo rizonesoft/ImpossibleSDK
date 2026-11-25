@@ -1401,19 +1401,21 @@ class BmpDecoder(unittest.TestCase):
                     verify_accepted("b", name, meta)
                 else:
                     raw = (suite_dir / "b" / name).read_bytes()
-                    err, w, h, bsz, leak, _ = decode_buf(raw, bgra=False, label=f"decode:b/{name}")
-                    self.assertEqual(leak, 0, f"b/{name}: leak/zero invariant failed")
-                    want = err_enum[meta["expected_error"]]
-                    self.assertEqual(err, want, f"b/{name}: expected {meta['expected_error']} ({want}), got {err}")
+                    for bgra in (False, True):
+                        err, w, h, bsz, leak, _ = decode_buf(raw, bgra=bgra, label=f"decode:b/{name}:bgra={bgra}")
+                        self.assertEqual(leak, 0, f"b/{name}: leak/zero invariant failed")
+                        want = err_enum[meta["expected_error"]]
+                        self.assertEqual(err, want, f"b/{name}: expected {meta['expected_error']} ({want}), got {err}")
                     bad_cnt, first_bad, ok_pre = check_all_prefixes(raw, label=f"prefixes:b/{name}")
                     self.assertEqual((bad_cnt, ok_pre), (0, 0), f"b/{name}: bad={bad_cnt} ok_pre={ok_pre} first={first_bad}")
 
-            # 2c. Unsupported JPEG/PNG BMPs: both probe and decode return IM_IMAGE_UNSUPPORTED (4).
+            # 2c. Unsupported JPEG/PNG BMPs: both probe and decode (RGBA8 & BGRA8) return IM_IMAGE_UNSUPPORTED (4).
             for name, meta in sorted(manifest["unsupported"].items()):
                 raw = (suite_dir / "q" / name).read_bytes()
                 pe, _, _, _ = probe_buf(raw, label=f"probe:q/{name}")
-                de, _, _, _, leak, _ = decode_buf(raw, bgra=False, label=f"decode:q/{name}")
-                self.assertEqual((pe, de, leak), (4, 4, 0), f"q/{name}: expected UNSUPPORTED on probe & decode")
+                for bgra in (False, True):
+                    de, _, _, _, leak, _ = decode_buf(raw, bgra=bgra, label=f"decode:q/{name}:bgra={bgra}")
+                    self.assertEqual((pe, de, leak), (4, 4, 0), f"q/{name}: expected UNSUPPORTED on probe & decode")
                 bad_cnt, first_bad, ok_pre = check_all_prefixes(raw, label=f"prefixes:q/{name}")
                 self.assertEqual((bad_cnt, ok_pre), (0, 0), f"q/{name}: bad={bad_cnt} ok_pre={ok_pre} first={first_bad}")
 
