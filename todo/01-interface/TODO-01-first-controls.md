@@ -42,7 +42,7 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | 8 | §8 | Host callback table | §3 | [x] |
 | 9 | §9 | Dirty rectangles and frame timing | §4, §8 | [x] |
 | 10 | §10 | Clips, opacity and layers | §1, §17 | [x] |
-| 11 | §11 | Transforms and pictures | §10 | [ ] |
+| 11 | §11 | Transforms and pictures | §10 | [x] |
 | 12 | §12 | Shadows and materials | §8, §10 | [ ] |
 | 13 | §13 | Paths, arcs and gradients | §1, §17 | [ ] |
 | 14 | §14 | Theme, accent and contrast changes while running | §4, §8 | [ ] |
@@ -348,6 +348,9 @@ Moving, scaling and turning elements, and drawing a picture held in memory.
 - [x] Commit: `ui: transforms and pictures`
 
 **Test checkpoint:** `python3 tools/build.py`, `python3 tools/check_parts.py`, `python3 tools/site/build.py --check`, and `python3 tools/winvm/live.py` exit 0, and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-25 | §11 | 5ea861d386d1d08d17888b8bc8530e835beddcae
+> **Review:** `docs/reviews/d01-t01-s11.json`
 
 ## 12. Shadows and materials
 

@@ -22,7 +22,7 @@ Sections: 26 | Checklist items: 142
 | [x]    | D01 T01 §8  | Host callback table                              | none                          | 6     |
 | [x]    | D01 T01 §9  | Dirty rectangles and frame timing                | windows-host                  | 6     |
 | [x]    | D01 T01 §10 | Clips, opacity and layers                        | windows-host                  | 5     |
-| [ ]    | D01 T01 §11 | Transforms and pictures                          | windows-host                  | 6     |
+| [x]    | D01 T01 §11 | Transforms and pictures                          | windows-host                  | 6     |
 | [ ]    | D01 T01 §12 | Shadows and materials                            | windows-host, display-session | 6     |
 | [ ]    | D01 T01 §13 | Paths, arcs and gradients                        | windows-host                  | 6     |
 | [ ]    | D01 T01 §14 | Theme, accent and contrast changes while running | windows-host, display-session | 6     |
@@ -244,6 +244,6 @@ Sections: 2 | Checklist items: 6
 | [ ]    | D01 T01 §20 | Native 150% DPI fractional layout | windows-host, display-session, operator | 3     |
 | [ ]    | D08 T01 §13 | First public release              | operator                                | 3     |
 
-Progress: 11/189 verified sections, 23 ready to run now.
+Progress: 12/189 verified sections, 23 ready to run now.
 
 Checklist: 63/1547 items completed (includes Commit items).
