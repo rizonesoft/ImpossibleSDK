@@ -50,6 +50,9 @@ void im_layer_destroy(im_layer_ctx *ctx);
 /* Push a rectangular clip on ctx. Returns false on allocation failure, leaving stack unchanged. */
 bool im_layer_push_clip_rect(im_layer_ctx *ctx, im_rect rect);
 
+/* Push a wide integer-pixel rectangular clip [left, right) x [top, bottom) on ctx without 16.16 limits. */
+bool im_layer_push_clip_irect(im_layer_ctx *ctx, int left, int top, int right, int bottom);
+
 /* Push a rounded-rectangle clip on ctx. Returns false on allocation failure, leaving stack unchanged. */
 bool im_layer_push_clip_rounded(im_layer_ctx *ctx, im_rect rect, im_radii radii);
 

@@ -53,7 +53,9 @@ static bool ensure_clip_cap(im_clip_stack *stack, uint32_t needed) {
     return true;
 }
 
-static bool push_clip_impl(im_clip_stack *stack, im_rect rect, im_radii radii, bool is_rounded) {
+static bool push_clip_wide_impl(im_clip_stack *stack,
+                                int64_t l_fx, int64_t t_fx, int64_t r_fx, int64_t b_fx,
+                                im_rect rect, im_radii radii, bool is_rounded) {
     if (!stack || stack->count == UINT32_MAX) return false;
     if (!ensure_clip_cap(stack, stack->count + 1u)) return false;
 
@@ -73,10 +75,10 @@ static bool push_clip_impl(im_clip_stack *stack, im_rect rect, im_radii radii, b
         pb = prev->int_bottom;
     }
 
-    int64_t eff_l = (int64_t)rect.left > prev_l ? (int64_t)rect.left : prev_l;
-    int64_t eff_t = (int64_t)rect.top > prev_t ? (int64_t)rect.top : prev_t;
-    int64_t eff_r = (int64_t)rect.right < prev_r ? (int64_t)rect.right : prev_r;
-    int64_t eff_b = (int64_t)rect.bottom < prev_b ? (int64_t)rect.bottom : prev_b;
+    int64_t eff_l = l_fx > prev_l ? l_fx : prev_l;
+    int64_t eff_t = t_fx > prev_t ? t_fx : prev_t;
+    int64_t eff_r = r_fx < prev_r ? r_fx : prev_r;
+    int64_t eff_b = b_fx < prev_b ? b_fx : prev_b;
 
     int cl, ct, cr, cb;
     if (eff_l >= eff_r || eff_t >= eff_b) {
@@ -112,11 +114,18 @@ static bool push_clip_impl(im_clip_stack *stack, im_rect rect, im_radii radii, b
 }
 
 bool im_clip_push_rect(im_clip_stack *stack, im_rect rect) {
-    return push_clip_impl(stack, rect, (im_radii){0, 0, 0, 0}, false);
+    return push_clip_wide_impl(stack, rect.left, rect.top, rect.right, rect.bottom, rect, (im_radii){0, 0, 0, 0}, false);
+}
+
+bool im_clip_push_irect(im_clip_stack *stack, int left, int top, int right, int bottom) {
+    return push_clip_wide_impl(stack,
+                               (int64_t)left * IM_ONE, (int64_t)top * IM_ONE,
+                               (int64_t)right * IM_ONE, (int64_t)bottom * IM_ONE,
+                               (im_rect){0, 0, 0, 0}, (im_radii){0, 0, 0, 0}, false);
 }
 
 bool im_clip_push_rounded(im_clip_stack *stack, im_rect rect, im_radii radii) {
-    return push_clip_impl(stack, rect, radii, true);
+    return push_clip_wide_impl(stack, rect.left, rect.top, rect.right, rect.bottom, rect, radii, true);
 }
 
 void im_clip_pop(im_clip_stack *stack) {
@@ -151,10 +160,14 @@ uint32_t im_clip_pixel_coverage_range(const im_clip_stack *stack, uint32_t from_
     bool has_rounded = false;
     for (uint32_t i = from_idx; i < to_idx; i++) {
         const im_clip_entry *e = &stack->entries[i];
-        if (e->rect.left > ix0) ix0 = e->rect.left;
-        if (e->rect.right < ix1) ix1 = e->rect.right;
-        if (e->rect.top > iy0) iy0 = e->rect.top;
-        if (e->rect.bottom < iy1) iy1 = e->rect.bottom;
+        int64_t el = e->is_rounded ? (int64_t)e->rect.left : e->eff_left;
+        int64_t er = e->is_rounded ? (int64_t)e->rect.right : e->eff_right;
+        int64_t et = e->is_rounded ? (int64_t)e->rect.top : e->eff_top;
+        int64_t eb = e->is_rounded ? (int64_t)e->rect.bottom : e->eff_bottom;
+        if (el > ix0) ix0 = el;
+        if (er < ix1) ix1 = er;
+        if (et > iy0) iy0 = et;
+        if (eb < iy1) iy1 = eb;
         if (ix1 <= ix0 || iy1 <= iy0) return 0;
         if (e->is_rounded) has_rounded = true;
     }
@@ -173,10 +186,10 @@ uint32_t im_clip_pixel_coverage_range(const im_clip_stack *stack, uint32_t from_
         const im_clip_entry *e = &stack->entries[i];
         if (!e->is_rounded) {
             any_non_rounded = true;
-            if (e->rect.left > rx0) rx0 = e->rect.left;
-            if (e->rect.right < rx1) rx1 = e->rect.right;
-            if (e->rect.top > ry0) ry0 = e->rect.top;
-            if (e->rect.bottom < ry1) ry1 = e->rect.bottom;
+            if (e->eff_left > rx0) rx0 = e->eff_left;
+            if (e->eff_right < rx1) rx1 = e->eff_right;
+            if (e->eff_top > ry0) ry0 = e->eff_top;
+            if (e->eff_bottom < ry1) ry1 = e->eff_bottom;
         } else {
             uint32_t c = im_shape_coverage(e->rect, e->radii, x, y);
             if (c == 0) return 0;

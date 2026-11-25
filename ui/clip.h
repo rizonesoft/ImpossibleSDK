@@ -40,6 +40,10 @@ void im_clip_destroy(im_clip_stack *stack);
 /* Push a rectangular clip. Returns false on allocation failure, leaving the stack unchanged. */
 bool im_clip_push_rect(im_clip_stack *stack, im_rect rect);
 
+/* Push a wide integer-pixel rectangular clip [left, right) x [top, bottom) without 16.16 range limits.
+   Returns false on allocation failure, leaving the stack unchanged. */
+bool im_clip_push_irect(im_clip_stack *stack, int left, int top, int right, int bottom);
+
 /* Push a rounded-rectangle clip. Returns false on allocation failure, leaving the stack unchanged. */
 bool im_clip_push_rounded(im_clip_stack *stack, im_rect rect, im_radii radii);
 

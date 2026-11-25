@@ -780,77 +780,91 @@ static void test_shared_transform_and_input(void) {
     im_layout_run(&tree, root, FX(120), FX(80), SCALE);
     im_dirty_clear(&dirty);
 
-    /* Zoomed wide-bounds damage regression: [0, 4096) x [0, 1) at 8x horizontal zoom (100% scale,
-       transformed right = 32768 > 16.16 max) must invalidate visible pixel (0, 0) on both repaint
-       and detach, matching full redraw byte-for-byte. */
+    /* Zoomed wide-bounds damage regression: on a 32,769 x 1 surface at 100% scale, a 4,097-DIP
+       node at 8x horizontal zoom covers pixel (32768, 0). Both im_dirty_collect_tree and
+       im_dirty_push_clip must handle >= 32,768 device pixels without truncation on repaint and detach. */
     {
-        im_tree zt;
-        im_tree_init(&zt, alloc);
-        im_node *zroot = im_tree_create_node(&zt, IM_ELEM_GRID, "zroot");
-        im_node *zbox = im_tree_create_node(&zt, IM_ELEM_BORDER, "zbox");
-        zbox->use_layout_rounding = false;
-        zbox->h_align = IM_ALIGN_START;
-        zbox->v_align = IM_ALIGN_START;
-        zbox->width = FX(4096);
-        zbox->height = FX(1);
-        im_tree_append_child(&zt, zroot, zbox);
-        im_layout_run(&zt, zroot, FX(4096), FX(8), IM_ONE);
-        im_transform z8 = im_transform_scale(FX(8), IM_ONE);
-        im_node_set_render_transform(zbox, &z8, 0, 0);
+        enum { ZW = 32769, ZH = 1 };
+        uint32_t *zp_part = (uint32_t *)alloc.alloc(alloc.ctx, (size_t)(ZW * ZH) * sizeof(uint32_t));
+        uint32_t *zp_full = (uint32_t *)alloc.alloc(alloc.ctx, (size_t)(ZW * ZH) * sizeof(uint32_t));
+        CHECK(zp_part != NULL && zp_full != NULL, "alloc 32769x1 zoomed damage buffers");
+        if (zp_part && zp_full) {
+            im_tree zt;
+            im_tree_init(&zt, alloc);
+            im_node *zroot = im_tree_create_node(&zt, IM_ELEM_GRID, "zroot");
+            im_node *zbox = im_tree_create_node(&zt, IM_ELEM_BORDER, "zbox");
+            zbox->use_layout_rounding = false;
+            zbox->h_align = IM_ALIGN_START;
+            zbox->v_align = IM_ALIGN_START;
+            zbox->width = FX(4097);
+            zbox->height = FX(1);
+            im_tree_append_child(&zt, zroot, zbox);
+            im_layout_run(&zt, zroot, FX(4097), FX(1), IM_ONE);
+            im_transform z8 = im_transform_scale(FX(8), IM_ONE);
+            im_node_set_render_transform(zbox, &z8, 0, 0);
 
-        uint32_t zp_part[16 * 4], zp_full[16 * 4];
-        im_layer_ctx zl_part, zl_full;
-        im_surface zs_part = { zp_part, 16, 4, 16, pal, IM_ONE, &zl_part, NULL };
-        im_surface zs_full = { zp_full, 16, 4, 16, pal, IM_ONE, &zl_full, NULL };
-        im_layer_init(&zl_part, &zs_part, alloc, 1024u * 1024u);
-        im_layer_init(&zl_full, &zs_full, alloc, 1024u * 1024u);
-        im_dirty_list zd;
-        im_dirty_init(&zd, 16, 4);
+            im_layer_ctx zl_part, zl_full;
+            im_surface zs_part = { zp_part, ZW, ZH, ZW, pal, IM_ONE, &zl_part, NULL };
+            im_surface zs_full = { zp_full, ZW, ZH, ZW, pal, IM_ONE, &zl_full, NULL };
+            im_layer_init(&zl_part, &zs_part, alloc, 1024u * 1024u);
+            im_layer_init(&zl_full, &zs_full, alloc, 1024u * 1024u);
+            im_dirty_list zd;
+            im_dirty_init(&zd, ZW, ZH);
 
-        /* Initial frame with fill color 1. */
-        im_dirty_collect_tree(&zd, &zt, zroot, IM_ONE);
-        CHECK(zd.count > 0u, "zoomed 4096x1 node initial frame emits dirty rect");
-        im_fill_argb(&zs_part, (im_rect){0, 0, FX(16), FX(4)}, (im_radii){0, 0, 0, 0}, 0xFF101010u);
-        paint_node_transformed(&zs_part, zbox, IM_ONE, 0xFF2288EEu);
-        memcpy(zp_full, zp_part, sizeof(zp_part));
-        CHECK((zp_part[0] & 0x00FFFFFFu) == 0x002288EEu, "zoomed 4096x1 node paints pixel (0, 0) initially");
-        im_dirty_clear(&zd);
+            /* Initial frame with fill color 1. */
+            im_dirty_collect_tree(&zd, &zt, zroot, IM_ONE);
+            CHECK(zd.count == 1u && zd.rects[0].left == 0 && zd.rects[0].right == ZW,
+                  "zoomed 4097x1 node on 32769x1 surface emits full [0, 32769) dirty rect");
+            for (int x = 0; x < ZW; x++) zp_part[x] = 0x00101010u;
+            paint_node_transformed(&zs_part, zbox, IM_ONE, 0xFF2288EEu);
+            memcpy(zp_full, zp_part, (size_t)(ZW * ZH) * sizeof(uint32_t));
+            CHECK((zp_part[0] & 0x00FFFFFFu) == 0x002288EEu &&
+                  (zp_part[32768] & 0x00FFFFFFu) == 0x002288EEu,
+                  "zoomed 4097x1 node paints both (0, 0) and (32768, 0) initially");
+            im_dirty_clear(&zd);
 
-        /* Change fill and invalidate paint: partial redraw must match full redraw. */
-        im_tree_invalidate_paint(zbox);
-        im_dirty_collect_tree(&zd, &zt, zroot, IM_ONE);
-        CHECK(zd.count > 0u, "zoomed 4096x1 node repaint emits dirty rect");
-        for (uint32_t i = 0; i < zd.count; i++) {
-            CHECK(im_dirty_push_clip(&zl_part, zd.rects[i]), "push zoomed repaint clip");
-            im_fill_argb(&zs_part, (im_rect){0, 0, FX(16), FX(4)}, (im_radii){0, 0, 0, 0}, 0xFF101010u);
-            paint_node_transformed(&zs_part, zbox, IM_ONE, 0xFFEE4422u);
-            im_layer_pop_clip(&zl_part);
+            /* Change fill and invalidate paint: partial redraw via im_dirty_push_clip must update (32768, 0). */
+            im_tree_invalidate_paint(zbox);
+            im_dirty_collect_tree(&zd, &zt, zroot, IM_ONE);
+            CHECK(zd.count == 1u && zd.rects[0].right == ZW,
+                  "zoomed 4097x1 node repaint emits [0, 32769) dirty rect");
+            for (uint32_t i = 0; i < zd.count; i++) {
+                CHECK(im_dirty_push_clip(&zl_part, zd.rects[i]), "push wide >= 32768 zoomed repaint clip");
+                for (int x = zd.rects[i].left; x < zd.rects[i].right; x++) zp_part[x] = 0x00101010u;
+                paint_node_transformed(&zs_part, zbox, IM_ONE, 0xFFEE4422u);
+                im_layer_pop_clip(&zl_part);
+            }
+            for (int x = 0; x < ZW; x++) zp_full[x] = 0x00101010u;
+            paint_node_transformed(&zs_full, zbox, IM_ONE, 0xFFEE4422u);
+            CHECK((zp_part[0] & 0x00FFFFFFu) == 0x00EE4422u &&
+                  (zp_part[32768] & 0x00FFFFFFu) == 0x00EE4422u &&
+                  bytes_eq(zp_part, zp_full, (size_t)(ZW * ZH) * sizeof(uint32_t)),
+                  "partial redraw after repainting zoomed 4097x1 node equals full redraw including (32768, 0)");
+            im_dirty_clear(&zd);
+
+            /* Detach zoomed node: partial redraw must restore background at (32768, 0) and match full redraw. */
+            im_tree_remove_child(&zt, zroot, zbox);
+            im_dirty_collect_tree(&zd, &zt, zroot, IM_ONE);
+            CHECK(zd.count == 1u && zd.rects[0].right == ZW,
+                  "detaching zoomed 4097x1 node emits [0, 32769) dirty rect");
+            for (uint32_t i = 0; i < zd.count; i++) {
+                CHECK(im_dirty_push_clip(&zl_part, zd.rects[i]), "push wide >= 32768 zoomed detach clip");
+                for (int x = zd.rects[i].left; x < zd.rects[i].right; x++) zp_part[x] = 0x00101010u;
+                im_layer_pop_clip(&zl_part);
+            }
+            for (int x = 0; x < ZW; x++) zp_full[x] = 0x00101010u;
+            CHECK((zp_part[0] & 0x00FFFFFFu) == 0x00101010u &&
+                  (zp_part[32768] & 0x00FFFFFFu) == 0x00101010u &&
+                  bytes_eq(zp_part, zp_full, (size_t)(ZW * ZH) * sizeof(uint32_t)),
+                  "partial redraw after detaching zoomed 4097x1 node equals full redraw including (32768, 0)");
+
+            im_layer_destroy(&zl_part);
+            im_layer_destroy(&zl_full);
+            im_tree_destroy_subtree(&zt, zbox);
+            im_tree_destroy_subtree(&zt, zroot);
         }
-        im_fill_argb(&zs_full, (im_rect){0, 0, FX(16), FX(4)}, (im_radii){0, 0, 0, 0}, 0xFF101010u);
-        paint_node_transformed(&zs_full, zbox, IM_ONE, 0xFFEE4422u);
-        CHECK((zp_part[0] & 0x00FFFFFFu) == 0x00EE4422u &&
-              bytes_eq(zp_part, zp_full, sizeof(zp_part)),
-              "partial redraw after repainting zoomed 4096x1 node equals full redraw");
-        im_dirty_clear(&zd);
-
-        /* Detach zoomed node: partial redraw must restore background at (0, 0) and match full redraw. */
-        im_tree_remove_child(&zt, zroot, zbox);
-        im_dirty_collect_tree(&zd, &zt, zroot, IM_ONE);
-        CHECK(zd.count > 0u, "detaching zoomed 4096x1 node emits dirty rect");
-        for (uint32_t i = 0; i < zd.count; i++) {
-            CHECK(im_dirty_push_clip(&zl_part, zd.rects[i]), "push zoomed detach clip");
-            im_fill_argb(&zs_part, (im_rect){0, 0, FX(16), FX(4)}, (im_radii){0, 0, 0, 0}, 0xFF101010u);
-            im_layer_pop_clip(&zl_part);
-        }
-        im_fill_argb(&zs_full, (im_rect){0, 0, FX(16), FX(4)}, (im_radii){0, 0, 0, 0}, 0xFF101010u);
-        CHECK((zp_part[0] & 0x00FFFFFFu) == 0x00101010u &&
-              bytes_eq(zp_part, zp_full, sizeof(zp_part)),
-              "partial redraw after detaching zoomed 4096x1 node equals full redraw");
-
-        im_layer_destroy(&zl_part);
-        im_layer_destroy(&zl_full);
-        im_tree_destroy_subtree(&zt, zbox);
-        im_tree_destroy_subtree(&zt, zroot);
+        if (zp_part) alloc.free(alloc.ctx, zp_part, (size_t)(ZW * ZH) * sizeof(uint32_t));
+        if (zp_full) alloc.free(alloc.ctx, zp_full, (size_t)(ZW * ZH) * sizeof(uint32_t));
     }
 
     /* Q30 half-open boundary regression: 1-unit-wide node at 2x scale must hit at 2*IM_ONE - 1. */

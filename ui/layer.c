@@ -104,6 +104,11 @@ bool im_layer_push_clip_rect(im_layer_ctx *ctx, im_rect rect) {
     return im_clip_push_rect(&ctx->clips, rect);
 }
 
+bool im_layer_push_clip_irect(im_layer_ctx *ctx, int left, int top, int right, int bottom) {
+    if (!ctx) return false;
+    return im_clip_push_irect(&ctx->clips, left, top, right, bottom);
+}
+
 bool im_layer_push_clip_rounded(im_layer_ctx *ctx, im_rect rect, im_radii radii) {
     if (!ctx) return false;
     return im_clip_push_rounded(&ctx->clips, rect, radii);

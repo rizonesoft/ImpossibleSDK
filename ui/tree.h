@@ -186,6 +186,8 @@ typedef struct im_node {
     bool paint_dirty;
     bool had_prev_rect;
     im_rect prev_absolute_rect;
+    bool had_prev_device_rect;
+    int32_t prev_dev_left, prev_dev_top, prev_dev_right, prev_dev_bottom;
 
     /* Optional RenderTransform applied around (render_transform_origin_x * w, render_transform_origin_y * h). */
     bool has_render_transform;
@@ -206,6 +208,8 @@ typedef struct im_tree {
     uint32_t node_count;
     im_rect pending_damage[IM_TREE_PENDING_DAMAGE_CAP];
     uint32_t pending_damage_count;
+    int32_t pending_dev_damage[IM_TREE_PENDING_DAMAGE_CAP][4];
+    uint32_t pending_dev_damage_count;
     bool pending_damage_overflow;
 } im_tree;
 

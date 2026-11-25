@@ -179,31 +179,74 @@ static void collect_node_recursive(im_dirty_list *list, im_node *node, im_fixed 
     if (!node) return;
     bool visible = !ancestor_collapsed && node->visibility != IM_VIS_COLLAPSED;
     bool transformed = ancestor_transformed || node->has_render_transform;
-    im_rect cur = {0, 0, 0, 0};
-    bool cur_nonempty = false;
-    if (visible) {
-        if (transformed) {
-            cur_nonempty = im_node_transformed_logical_bounds(node, &cur) &&
-                           cur.left < cur.right && cur.top < cur.bottom;
-        } else {
+    if (transformed) {
+        int dl = 0, dt = 0, dr = 0, db = 0;
+        bool cur_dev_nonempty = false;
+        if (visible) {
+            int64_t w_q30 = im_fixed_to_q30(node->absolute_rect.right) - im_fixed_to_q30(node->absolute_rect.left);
+            int64_t h_q30 = im_fixed_to_q30(node->absolute_rect.bottom) - im_fixed_to_q30(node->absolute_rect.top);
+            im_transform dev_tr;
+            if (w_q30 > 0 && h_q30 > 0 &&
+                im_node_device_transform(node, scale, &dev_tr) &&
+                im_transform_viewport_bounds_q30(&dev_tr, 0, 0, w_q30, h_q30,
+                                                 0, 0, list->width, list->height,
+                                                 &dl, &dt, &dr, &db)) {
+                cur_dev_nonempty = true;
+            }
+        }
+        bool changed = node->paint_dirty || node->had_prev_rect ||
+                       (cur_dev_nonempty != node->had_prev_device_rect) ||
+                       (cur_dev_nonempty &&
+                        (dl != node->prev_dev_left || dt != node->prev_dev_top ||
+                         dr != node->prev_dev_right || db != node->prev_dev_bottom));
+        if (changed) {
+            if (node->had_prev_rect) {
+                im_dirty_add_scaled(list, node->prev_absolute_rect, scale);
+            }
+            if (node->had_prev_device_rect) {
+                im_dirty_add(list, (im_irect){node->prev_dev_left, node->prev_dev_top,
+                                              node->prev_dev_right, node->prev_dev_bottom});
+            }
+            if (cur_dev_nonempty) {
+                im_dirty_add(list, (im_irect){dl, dt, dr, db});
+            }
+        }
+        node->had_prev_rect = false;
+        node->prev_absolute_rect = (im_rect){0, 0, 0, 0};
+        node->had_prev_device_rect = cur_dev_nonempty;
+        node->prev_dev_left = cur_dev_nonempty ? dl : 0;
+        node->prev_dev_top = cur_dev_nonempty ? dt : 0;
+        node->prev_dev_right = cur_dev_nonempty ? dr : 0;
+        node->prev_dev_bottom = cur_dev_nonempty ? db : 0;
+        node->paint_dirty = false;
+    } else {
+        im_rect cur = {0, 0, 0, 0};
+        bool cur_nonempty = false;
+        if (visible) {
             cur = node->absolute_rect;
             cur_nonempty = cur.left < cur.right && cur.top < cur.bottom;
         }
-    }
-
-    bool changed = node->paint_dirty || (cur_nonempty != node->had_prev_rect) ||
-                   (cur_nonempty && !fixed_rect_eq(cur, node->prev_absolute_rect));
-    if (changed) {
-        if (node->had_prev_rect) {
-            im_dirty_add_scaled(list, node->prev_absolute_rect, scale);
+        bool changed = node->paint_dirty || node->had_prev_device_rect ||
+                       (cur_nonempty != node->had_prev_rect) ||
+                       (cur_nonempty && !fixed_rect_eq(cur, node->prev_absolute_rect));
+        if (changed) {
+            if (node->had_prev_device_rect) {
+                im_dirty_add(list, (im_irect){node->prev_dev_left, node->prev_dev_top,
+                                              node->prev_dev_right, node->prev_dev_bottom});
+            }
+            if (node->had_prev_rect) {
+                im_dirty_add_scaled(list, node->prev_absolute_rect, scale);
+            }
+            if (cur_nonempty) {
+                im_dirty_add_scaled(list, cur, scale);
+            }
         }
-        if (cur_nonempty) {
-            im_dirty_add_scaled(list, cur, scale);
-        }
+        node->had_prev_device_rect = false;
+        node->prev_dev_left = node->prev_dev_top = node->prev_dev_right = node->prev_dev_bottom = 0;
+        node->had_prev_rect = cur_nonempty;
+        node->prev_absolute_rect = cur_nonempty ? cur : (im_rect){0, 0, 0, 0};
+        node->paint_dirty = false;
     }
-    node->had_prev_rect = cur_nonempty;
-    node->prev_absolute_rect = cur_nonempty ? cur : (im_rect){0, 0, 0, 0};
-    node->paint_dirty = false;
 
     for (uint32_t i = 0; i < node->child_count; i++) {
         collect_node_recursive(list, node->children[i], scale, !visible, transformed);
@@ -228,8 +271,13 @@ void im_dirty_collect_tree(im_dirty_list *list, im_tree *tree, im_node *root, im
             for (uint32_t i = 0; i < tree->pending_damage_count; i++) {
                 im_dirty_add_scaled(list, tree->pending_damage[i], scale);
             }
+            for (uint32_t i = 0; i < tree->pending_dev_damage_count; i++) {
+                const int32_t *r = tree->pending_dev_damage[i];
+                im_dirty_add(list, (im_irect){r[0], r[1], r[2], r[3]});
+            }
         }
         tree->pending_damage_count = 0u;
+        tree->pending_dev_damage_count = 0u;
         tree->pending_damage_overflow = false;
     }
 
@@ -288,17 +336,5 @@ bool im_dirty_covers(const im_dirty_list *list, im_irect rect) {
 
 bool im_dirty_push_clip(im_layer_ctx *ctx, im_irect rect) {
     if (!ctx || rect_empty(rect)) return false;
-    if (rect.left < -32768 || rect.left > 32767 ||
-        rect.top < -32768 || rect.top > 32767 ||
-        rect.right < -32768 || rect.right > 32767 ||
-        rect.bottom < -32768 || rect.bottom > 32767) {
-        return false;
-    }
-    im_rect fr = {
-        (im_fixed)((int64_t)rect.left * (int64_t)IM_ONE),
-        (im_fixed)((int64_t)rect.top * (int64_t)IM_ONE),
-        (im_fixed)((int64_t)rect.right * (int64_t)IM_ONE),
-        (im_fixed)((int64_t)rect.bottom * (int64_t)IM_ONE)
-    };
-    return im_layer_push_clip_rect(ctx, fr);
+    return im_layer_push_clip_irect(ctx, rect.left, rect.top, rect.right, rect.bottom);
 }

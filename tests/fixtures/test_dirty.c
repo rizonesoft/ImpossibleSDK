@@ -547,9 +547,10 @@ static void test_dirty_list_properties(void) {
           "scale change triggers full viewport dirty rect");
     im_tree_destroy_subtree(&stree, sroot);
 
-    /* Large device coordinates >= 32768 must be refused cleanly instead of wrapping to empty clip. */
-    CHECK(!im_dirty_push_clip(&layers, (im_irect){0, 0, 32768, 100}),
-          "im_dirty_push_clip refuses right >= 32768 instead of overflowing 16.16");
+    /* Large device coordinates >= 32768 must succeed cleanly via 64-bit integer-pixel clips. */
+    CHECK(im_dirty_push_clip(&layers, (im_irect){0, 0, 32768, 100}),
+          "im_dirty_push_clip accepts right >= 32768 without 16.16 overflow");
+    im_layer_pop_clip(&layers);
 
     /* Clip-push refusal with pending damage extending outside outer clip:
        verify outer clip is preserved, pending damage survives, and retry paints exact pixels. */
