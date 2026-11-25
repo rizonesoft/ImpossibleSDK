@@ -61,14 +61,6 @@ typedef enum im_orientation {
     IM_ORIENT_HORIZONTAL
 } im_orientation;
 
-/* Stretch mode matching WinUI Stretch (Viewbox and Path). */
-typedef enum im_stretch {
-    IM_STRETCH_NONE = 0,
-    IM_STRETCH_FILL = 1,
-    IM_STRETCH_UNIFORM = 2,
-    IM_STRETCH_UNIFORM_TO_FILL = 3
-} im_stretch;
-
 /* StretchDirection matching WinUI StretchDirection (Viewbox). */
 typedef enum im_stretch_dir {
     IM_STRETCH_DIR_BOTH = 0,
@@ -299,9 +291,10 @@ typedef struct im_node {
     im_fixed item_spacing;
     im_fixed line_spacing;
     im_wrap_stretch wrap_stretch;
+    im_fixed wrap_measure_u;
 
-    /* RelativePanel attached properties (name-based so sibling remove/replace/destroy never dangles). */
-    const char *rel_target[IM_REL_COUNT];
+    /* RelativePanel attached properties (node-owned inline strings so caller/sibling lifetimes never dangle). */
+    char rel_target[IM_REL_COUNT][64];
     uint32_t rel_panel_flags;
 
     /* VariableSizedWrapGrid, ItemsWrapGrid, and ItemsStackPanel properties. */
@@ -312,8 +305,14 @@ typedef struct im_node {
     im_align v_children_align;
     int32_t vswg_row_span;
     int32_t vswg_col_span;
+    im_fixed vswg_measured_iw;
+    im_fixed vswg_measured_ih;
+    uint32_t vswg_measured_ipl;
+    uint32_t vswg_measured_max_lines;
+    bool vswg_has_measured_grid;
     im_thickness group_padding;
     bool is_group_header;
+    bool layout_overflowed;
 } im_node;
 
 /* Maximum number of detached/destroyed subtree bounds buffered before overflowing to a full repaint. */
@@ -456,7 +455,8 @@ void im_node_set_uniform_grid(im_node *node, uint32_t rows, uint32_t cols, uint3
 void im_node_set_wrap_panel(im_node *node, im_orientation orientation, im_fixed item_spacing,
                             im_fixed line_spacing, im_wrap_stretch stretch);
 
-/* Set or clear one RelativePanel sibling constraint by sibling name (NULL clears). Invalidates parent measure. */
+/* Set or clear one RelativePanel sibling constraint by sibling name (copied into node-owned
+   64-byte storage; NULL or empty string clears). Invalidates parent measure on change. */
 void im_node_set_relative_target(im_node *node, im_rel_slot slot, const char *target_name);
 
 /* Set RelativePanel panel-edge alignment bitmask (IM_REL_PANEL_*). Invalidates parent measure on change. */
@@ -468,6 +468,9 @@ void im_node_set_wrap_grid(im_node *node, im_orientation orientation, im_fixed i
 
 /* Set VariableSizedWrapGrid.RowSpan and ColumnSpan attached properties. Invalidates parent measure on change. */
 void im_node_set_vswg_span(im_node *node, int32_t row_span, int32_t col_span);
+
+/* Set VariableSizedWrapGrid HorizontalChildrenAlignment and VerticalChildrenAlignment. Invalidates arrange on change. */
+void im_node_set_vswg_children_alignment(im_node *node, im_align h_align, im_align v_align);
 
 /* Set ItemsStackPanel / ItemsWrapGrid GroupPadding. Invalidates measure on change. */
 void im_node_set_group_padding(im_node *node, im_thickness group_padding);

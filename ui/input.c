@@ -140,7 +140,7 @@ bool im_input_to_local(const im_node *node, im_fixed scale,
 static im_node *hit_test_recursive(im_node *node, im_fixed scale,
                                    im_fixed dev_x, im_fixed dev_y,
                                    im_fixed *out_local_x, im_fixed *out_local_y) {
-    if (!node || node->visibility == IM_VIS_COLLAPSED) return NULL;
+    if (!node || node->visibility == IM_VIS_COLLAPSED || node->layout_overflowed) return NULL;
 
     /* If this node's transform chain is singular, neither it nor its subtree can be hit. */
     im_transform dev_tr, inv;
@@ -148,8 +148,15 @@ static im_node *hit_test_recursive(im_node *node, im_fixed scale,
     if (!im_transform_invert(&dev_tr, &inv)) return NULL;
 
     /* Front-to-back: visit children in reverse paint order first (even if child extends outside parent).
-       For Canvas, reverse stable Canvas.ZIndex order (highest Z first, higher insertion index first on ties). */
+       For Canvas, O(N) fast-path when all Z-indices are equal; otherwise reverse stable Canvas.ZIndex order. */
+    bool canvas_mixed_z = false;
     if (node->kind == IM_ELEM_CANVAS && node->child_count > 1u) {
+        int32_t z0 = node->children[0]->canvas_z;
+        for (uint32_t i = 1u; i < node->child_count; i++) {
+            if (node->children[i]->canvas_z != z0) { canvas_mixed_z = true; break; }
+        }
+    }
+    if (canvas_mixed_z) {
         int32_t prev_z = INT32_MAX;
         uint32_t prev_idx = UINT32_MAX;
         bool has_prev = false;

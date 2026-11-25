@@ -4,15 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "draw.h"
+#include "template.h"
 #include "transform.h"
-
-/* WinUI Stretch modes for picture placement inside a destination rectangle. */
-typedef enum im_stretch {
-    IM_STRETCH_NONE = 0,            /* Native size scaled by surface->scale, centered, clipped to dst_rect. */
-    IM_STRETCH_FILL,                /* Stretched independently on X and Y to fill dst_rect. */
-    IM_STRETCH_UNIFORM,             /* Uniformly scaled to fit inside dst_rect (centered, letterboxed). */
-    IM_STRETCH_UNIFORM_TO_FILL      /* Uniformly scaled to cover dst_rect (centered, cropped to dst_rect). */
-} im_stretch;
 
 /* Premultiplied 0xAARRGGBB image held in memory, top row first. */
 typedef struct im_picture {

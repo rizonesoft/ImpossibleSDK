@@ -38,16 +38,22 @@ COVERED = (
     "tests/layout_cases.py",
     "tests/fixtures/layout_reference.json",
     "tests/fixtures/layout_dump.c",
+    "tests/fixtures/test_panels.c",
     "tests/fixtures/control_shots.c",
+    "tests/test_ui.py",
     "tools/winui/check_package.py",
     "tools/winui/pin.json",
     "tools/winvm/needs.json",
     "ui/clip.c",
     "ui/clip.h",
+    "ui/dirty.c",
+    "ui/dirty.h",
     "ui/draw.c",
     "ui/draw.h",
     "ui/gradient.c",
     "ui/gradient.h",
+    "ui/input.c",
+    "ui/input.h",
     "ui/layer.c",
     "ui/layer.h",
     "ui/layout.c",
@@ -199,13 +205,14 @@ def pack(root):
     packed = fingerprint(job / "repo", names)
     if not (root / "build/linux/build.ninja").is_file() or not shutil.which("cmake"):
         raise RuntimeError("pack requires cmake and configured build/linux to rebuild control-shots.exe")
-    _run_with_tree_kill(["cmake", "--build", str(root / "build/linux"), "--target", "control-shots"], cwd=root, timeout=300, check=True)
-    shots_bin = root / "build/linux/control-shots.exe"
-    if not shots_bin.is_file():
-        raise RuntimeError(f"control-shots.exe missing after rebuild: {shots_bin}")
-    dst_shots = job / "repo/build/control-shots.exe"
-    dst_shots.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(shots_bin, dst_shots)
+    _run_with_tree_kill(["cmake", "--build", str(root / "build/linux"), "--target", "control-shots", "test-panels"], cwd=root, timeout=300, check=True)
+    for bin_name in ("control-shots.exe", "test-panels.exe"):
+        src_bin = root / "build/linux" / bin_name
+        if not src_bin.is_file():
+            raise RuntimeError(f"{bin_name} missing after rebuild: {src_bin}")
+        dst_bin = job / "repo/build" / bin_name
+        dst_bin.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src_bin, dst_bin)
     needs = read(HERE / "needs.json")
     with zipfile.ZipFile(fetch(needs["python"])) as archive:
         archive.extractall(job / "python")

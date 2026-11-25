@@ -3976,37 +3976,58 @@ class Drawing(unittest.TestCase):
                 spans = [(lt[4 + 2 * k], lt[5 + 2 * k]) for k in range(cnt)]
                 horiz = (ori == 1)
                 iw, ih = 20 * 65536, 15 * 65536
-                items_per_line = min(200 // (20 if horiz else 15), max_rc)
+                main_cell = iw if horiz else ih
+                cross_cell = ih if horiz else iw
+                sum_is = sum(max(1, cs if horiz else rs) for rs, cs in spans)
+                sum_ls = sum(max(1, rs if horiz else cs) for rs, cs in spans)
+                items_per_line = min(sum_is, max(1, (200 * 65536) // main_cell), max_rc)
+                max_lines = min(sum_ls, max(1, (200 * 65536) // cross_cell))
                 occ = set()
                 cur_line, cur_item = 0, 0
+                full = False
                 for k, (rs, cs) in enumerate(spans):
-                    rs = rs if rs > 0 else 1
-                    cs = cs if cs > 0 else 1
-                    ispan = min(cs if horiz else rs, items_per_line)
-                    lspan = rs if horiz else cs
-                    while True:
-                        if cur_item + ispan > items_per_line:
-                            cur_line += 1
-                            cur_item = 0
-                            continue
-                        if all((cur_line + dl, cur_item + di) not in occ for dl in range(lspan) for di in range(ispan)):
-                            break
-                        cur_item += 1
+                    raw_rs = rs if rs > 0 else 1
+                    raw_cs = cs if cs > 0 else 1
+                    raw_ispan = raw_cs if horiz else raw_rs
+                    raw_lspan = raw_rs if horiz else raw_cs
+                    ispan = min(raw_ispan, items_per_line)
+                    lspan = min(raw_lspan, max_lines)
+                    placed = False
+                    if not full:
+                        while cur_line + lspan <= max_lines:
+                            if cur_item + ispan > items_per_line:
+                                cur_line += 1
+                                cur_item = 0
+                                continue
+                            if all((cur_line + dl, cur_item + di) not in occ for dl in range(lspan) for di in range(ispan)):
+                                placed = True
+                                break
+                            cur_item += 1
+                        if not placed:
+                            full = True
+                    got = tuple(rt[4 * k: 4 * k + 4])
+                    if not placed:
+                        self.assertEqual(got, (0, 0, 0, 0), f"VSWG200 overflow list={_li} k={k}")
+                        continue
                     for dl in range(lspan):
                         for di in range(ispan):
                             occ.add((cur_line + dl, cur_item + di))
+                    draw_ispan = ispan
+                    if cur_item == 0 and raw_ispan > items_per_line:
+                        max_draw = (200 * 65536) // main_cell
+                        if max_draw > draw_ispan:
+                            draw_ispan = min(raw_ispan, max_draw)
                     col = cur_item if horiz else cur_line
                     row = cur_line if horiz else cur_item
-                    cw = (ispan if horiz else lspan) * iw
-                    ch = (lspan if horiz else ispan) * ih
+                    cw = (draw_ispan if horiz else lspan) * iw
+                    ch = (lspan if horiz else draw_ispan) * ih
                     ex = (col * iw, row * ih, col * iw + cw, row * ih + ch)
-                    got = tuple(rt[4 * k: 4 * k + 4])
                     self.assertEqual(got, ex, f"VSWG200 list={_li} k={k}")
                     cur_item += ispan
                 vswg_count += 1
         self.assertEqual(vswg_count, 200)
 
-        # 4. Template compiler accepts all new panel elements and attached properties cleanly.
+        # 4. Template compiler accepts all new panel elements/properties AND instantiating/running the compiled C template works!
         sys.path.insert(0, str(ROOT / "tools" / "winui"))
         import templates as tpl_mod
         panel_xaml = (
@@ -4018,14 +4039,14 @@ class Drawing(unittest.TestCase):
             '        <ControlTemplate TargetType="Button">\n'
             '          <RelativePanel Padding="4">\n'
             '            <Canvas x:Name="C" Width="40" Height="20" RelativePanel.AlignLeftWithPanel="True">\n'
-            '              <Border Canvas.Left="5" Canvas.Top="6" Canvas.ZIndex="3" Width="10" Height="10" />\n'
+            '              <Border x:Name="CB" Canvas.Left="5" Canvas.Top="6" Canvas.ZIndex="3" Width="10" Height="10" />\n'
             '            </Canvas>\n'
             '            <Viewbox Stretch="Uniform" StretchDirection="DownOnly" RelativePanel.RightOf="C">\n'
             '              <UniformGrid Rows="2" Columns="2" FirstColumn="1" />\n'
             '            </Viewbox>\n'
             '            <WrapPanel Orientation="Horizontal" ItemSpacing="4" LineSpacing="6" ItemsStretch="Last" />\n'
-            '            <VariableSizedWrapGrid ItemWidth="20" ItemHeight="15" MaximumRowsOrColumns="3">\n'
-            '              <Border VariableSizedWrapGrid.RowSpan="2" VariableSizedWrapGrid.ColumnSpan="2" />\n'
+            '            <VariableSizedWrapGrid x:Name="VSWG" Width="100" Height="60" ItemWidth="20" ItemHeight="15" MaximumRowsOrColumns="3" HorizontalChildrenAlignment="Center" VerticalChildrenAlignment="Bottom">\n'
+            '              <Border x:Name="Tile" VariableSizedWrapGrid.RowSpan="1" VariableSizedWrapGrid.ColumnSpan="1" />\n'
             '            </VariableSizedWrapGrid>\n'
             '            <ItemsWrapGrid ItemWidth="20" ItemHeight="20" GroupPadding="4" />\n'
             '          </RelativePanel>\n'
@@ -4040,6 +4061,67 @@ class Drawing(unittest.TestCase):
         comp.compile_style(doc.children[0], enum_id="IM_TPL_PANELS")
         tpl_mod.verify_fully_consumed(doc.children[0])
         self.assertGreaterEqual(len(comp.elements), 9)
+        emitted = tpl_mod.emit(comp)
+        cc = None
+        for comp_cmake in sorted((BUILD / "CMakeFiles").glob("*/CMakeCCompiler.cmake")):
+            for line in comp_cmake.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith('set(CMAKE_C_COMPILER "') and line.endswith('")'):
+                    cand = line[len('set(CMAKE_C_COMPILER "'):-2]
+                    if Path(cand).is_file():
+                        cc = cand
+                        break
+            if cc:
+                break
+        self.assertIsNotNone(cc, f"C compiler not found in {BUILD}")
+        with tempfile.TemporaryDirectory() as tmp:
+            tp = Path(tmp)
+            gen_c = emitted["template_data.c"].replace('#include "template.h"', "").replace(
+                "const im_template im_templates[IM_TEMPLATE_COUNT]", "static const im_template p_templates[1]"
+            )
+            for sym in (
+                "im_template_setters", "im_template_elements", "im_template_props",
+                "im_template_groups", "im_template_states", "im_template_transitions",
+                "im_template_anims", "im_template_keyframes", "im_template_path_segs",
+            ):
+                gen_c = gen_c.replace(sym, "p_" + sym[len("im_"):])
+            (tp / "tpl_panels.c").write_text(gen_c, encoding="utf-8")
+            (tp / "main.c").write_text(
+                '#include <stdint.h>\n#include <stddef.h>\n#include "tree.h"\n#include "layout.h"\n'
+                '#include "tpl_panels.c"\n'
+                'static uint8_t mem[131072]; static size_t used = 0;\n'
+                'static void *al(void *c, size_t n){(void)c; n=(n+7u)&~7u; if(used+n>sizeof(mem))return NULL; void *p=&mem[used]; used+=n; return p;}\n'
+                'static void *rl(void *c, void *p, size_t o, size_t n){void *q=al(c,n); if(!q)return NULL; if(p){for(size_t i=0;i<(o<n?o:n);i++)((uint8_t*)q)[i]=((uint8_t*)p)[i];} return q;}\n'
+                'static void fr(void *c, void *p, size_t n){(void)c;(void)p;(void)n;}\n'
+                'int main(void){\n'
+                '  im_tree t; im_palette pal={IM_DARK,{0}}; im_allocator a={al,rl,fr,NULL};\n'
+                '  if(!im_tree_init(&t,a)) return 1;\n'
+                '  im_node *r=im_tree_instantiate_custom_template(&t,&pal,&p_templates[0],p_template_setters,p_template_elements,p_template_props,"P");\n'
+                '  if(!r) return 2;\n'
+                '  t.root=r; im_layout_run(&t,r,200*IM_ONE,120*IM_ONE,IM_ONE);\n'
+                '  im_node *cb=im_tree_find_by_name(r,"CB");\n'
+                '  im_node *vswg=im_tree_find_by_name(r,"VSWG");\n'
+                '  im_node *tile=im_tree_find_by_name(r,"Tile");\n'
+                '  if(!cb || cb->absolute_rect.left != 9*IM_ONE || cb->absolute_rect.top != 10*IM_ONE) return 3;\n'
+                '  if(!vswg || !tile) return 4;\n'
+                '  /* Tile (20x15) inside VSWG (100x60) with HorizontalChildrenAlignment=Center & VerticalChildrenAlignment=Bottom -> offset (40,45) */\n'
+                '  if(tile->absolute_rect.left - vswg->absolute_rect.left != 40*IM_ONE) return 5;\n'
+                '  if(tile->absolute_rect.top - vswg->absolute_rect.top != 45*IM_ONE) return 6;\n'
+                '  im_tree_destroy(&t); return 0;\n'
+                '}\n',
+                encoding="utf-8",
+            )
+            exe_p = tp / "panels_tpl_test.exe"
+            comp_res = subprocess.run(
+                [cc, "-std=gnu23", "-I", str(ROOT / "ui"), str(tp / "main.c"),
+                 str(ROOT / "ui/tree.c"), str(ROOT / "ui/layout.c"), str(ROOT / "ui/panels.c"),
+                 str(ROOT / "ui/transform.c"), str(ROOT / "ui/theme.c"),
+                 str(ROOT / "ui/theme_data.c"), str(ROOT / "ui/template_data.c"),
+                 "-o", str(exe_p)],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(comp_res.returncode, 0, f"compile failed: {comp_res.stderr}")
+            r_res = subprocess.run([str(exe_p)], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+            self.assertEqual(r_res.returncode, 0, f"compiled panel template failed rc={r_res.returncode}")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,14 @@
 #include <stdint.h>
 #include "theme.h"
 
+/* Stretch mode matching WinUI Stretch (shared by Picture, Viewbox, and Path). */
+typedef enum im_stretch {
+    IM_STRETCH_NONE = 0,
+    IM_STRETCH_FILL = 1,
+    IM_STRETCH_UNIFORM = 2,
+    IM_STRETCH_UNIFORM_TO_FILL = 3
+} im_stretch;
+
 /* Portable SDK icon identifiers mapped from WinUI SymbolThemeFontFamily glyphs. */
 typedef enum im_icon_id {
     IM_ICON_NONE = 0,

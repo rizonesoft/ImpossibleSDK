@@ -1522,82 +1522,112 @@ class LiveReference(unittest.TestCase):
         sys.path.insert(0, str(ROOT / "reference"))
         import run as ref_run
 
-        cases = [
-            {
-                "id": "panel-canvas-ltr",
-                "case_group": "panel",
-                "control": "Canvas",
-                "theme": "Dark",
-                "scale": 1.0,
-                "width": 120,
-                "height": 80,
-                "properties": {"Name": "CvRoot", "Width": 100, "Height": 60},
-                "children": [
-                    {"id": "cv-a", "control": "Border", "properties": {"Name": "A", "Canvas.Left": 10, "Canvas.Top": 8, "Width": 20, "Height": 12}},
-                    {"id": "cv-b", "control": "Border", "properties": {"Name": "B", "Canvas.Left": 40, "Canvas.Top": 24, "Width": 30, "Height": 16}},
-                ],
-            },
-            {
-                "id": "panel-canvas-rtl",
-                "case_group": "panel",
-                "control": "Canvas",
-                "theme": "Dark",
-                "scale": 1.0,
-                "flow_direction": "RightToLeft",
-                "width": 120,
-                "height": 80,
-                "properties": {"Name": "CvRtl", "Width": 100, "Height": 60},
-                "children": [
-                    {"id": "cvr-a", "control": "Border", "properties": {"Name": "A", "Canvas.Left": 10, "Canvas.Top": 8, "Width": 20, "Height": 12}},
-                ],
-            },
-            {
-                "id": "panel-viewbox-uniform",
-                "case_group": "panel",
-                "control": "Viewbox",
-                "theme": "Dark",
-                "scale": 1.0,
-                "width": 120,
-                "height": 80,
-                "properties": {"Name": "VbRoot", "Width": 80, "Height": 60, "Stretch": "Uniform"},
-                "children": [
-                    {"id": "vb-ch", "control": "Border", "properties": {"Name": "Ch", "Width": 20, "Height": 10}},
-                ],
-            },
-            {
-                "id": "panel-relative-ltr",
-                "case_group": "panel",
-                "control": "RelativePanel",
-                "theme": "Dark",
-                "scale": 1.0,
-                "width": 140,
-                "height": 90,
-                "properties": {"Name": "RpRoot", "Width": 120, "Height": 80, "Padding": [4, 5, 4, 5], "BorderThickness": [2, 3, 2, 3]},
-                "children": [
-                    {"id": "rp-a", "control": "Border", "properties": {"Name": "Alpha", "Width": 30, "Height": 20, "RelativePanel.RightOf": "Beta", "RelativePanel.AlignTopWith": "Beta"}},
-                    {"id": "rp-b", "control": "Border", "properties": {"Name": "Beta", "Width": 25, "Height": 15, "RelativePanel.AlignLeftWithPanel": True, "RelativePanel.AlignTopWithPanel": True}},
-                ],
-            },
-            {
-                "id": "panel-vswg-spans",
-                "case_group": "panel",
-                "control": "VariableSizedWrapGrid",
-                "theme": "Dark",
-                "scale": 1.0,
-                "width": 140,
-                "height": 90,
-                "properties": {"Name": "VgRoot", "Width": 100, "Height": 60, "Orientation": "Horizontal", "ItemWidth": 20, "ItemHeight": 15, "MaximumRowsOrColumns": 4},
-                "children": [
-                    {"id": "vg-0", "control": "Border", "properties": {"Name": "C0", "VariableSizedWrapGrid.RowSpan": 2, "VariableSizedWrapGrid.ColumnSpan": 2}},
-                    {"id": "vg-1", "control": "Border", "properties": {"Name": "C1", "VariableSizedWrapGrid.RowSpan": 1, "VariableSizedWrapGrid.ColumnSpan": 1}},
-                ],
-            },
-        ]
+        panels_exe = ROOT / "build" / "linux" / "test-panels.exe"
+        if not panels_exe.exists():
+            panels_exe = ROOT / "build" / "test-panels.exe"
+        self.assertTrue(panels_exe.exists(), f"missing test-panels.exe at {panels_exe}")
+        sdk_out = subprocess.check_output([str(panels_exe), "--live-dump"], text=True, stdin=subprocess.DEVNULL)
+        sdk_rects = {}
+        for line in sdk_out.splitlines():
+            parts = line.split()
+            if parts and parts[0] == "LIVE":
+                cid, nm = parts[1], parts[2]
+                sdk_rects[(cid, nm)] = tuple(int(v) / 65536.0 for v in parts[3:7])
+        self.assertGreater(len(sdk_rects), 0, "test-panels.exe --live-dump produced no LIVE records")
+
+        scales = ((1.0, "s100"), (1.25, "s125"), (1.5, "s150"), (2.0, "s200"), (3.0, "s300"))
+        cases = []
+        for sc, tag in scales:
+            cases.extend([
+                {
+                    "id": f"panel-canvas-ltr-{tag}",
+                    "case_group": "panel",
+                    "control": "Canvas",
+                    "theme": "Dark",
+                    "scale": sc,
+                    "layout_at_scale": True,
+                    "frame": {"width": 120, "height": 80},
+                    "properties": {"Name": "CvRoot", "Width": 100, "Height": 60, "HorizontalAlignment": "Left", "VerticalAlignment": "Top"},
+                    "children": [
+                        {"id": "cv-a", "control": "Border", "properties": {"Name": "A", "Canvas.Left": 10, "Canvas.Top": 8, "Width": 20, "Height": 12}},
+                        {"id": "cv-b", "control": "Border", "properties": {"Name": "B", "Canvas.Left": 40, "Canvas.Top": 24, "Width": 30, "Height": 16}},
+                    ],
+                },
+                {
+                    "id": f"panel-canvas-rtl-{tag}",
+                    "case_group": "panel",
+                    "control": "Canvas",
+                    "theme": "Dark",
+                    "scale": sc,
+                    "layout_at_scale": True,
+                    "flow_direction": "RightToLeft",
+                    "frame": {"width": 120, "height": 80},
+                    "properties": {"Name": "CvRtl", "Width": 100, "Height": 60, "HorizontalAlignment": "Left", "VerticalAlignment": "Top"},
+                    "children": [
+                        {"id": "cvr-a", "control": "Border", "properties": {"Name": "A", "Canvas.Left": 10, "Canvas.Top": 8, "Width": 20, "Height": 12}},
+                    ],
+                },
+                {
+                    "id": f"panel-viewbox-uniform-{tag}",
+                    "case_group": "panel",
+                    "control": "Viewbox",
+                    "theme": "Dark",
+                    "scale": sc,
+                    "layout_at_scale": True,
+                    "frame": {"width": 120, "height": 80},
+                    "properties": {"Name": "VbRoot", "Width": 80, "Height": 60, "Stretch": "Uniform", "HorizontalAlignment": "Left", "VerticalAlignment": "Top"},
+                    "children": [
+                        {"id": "vb-ch", "control": "Border", "properties": {"Name": "Ch", "Width": 20, "Height": 10}},
+                    ],
+                },
+                {
+                    "id": f"panel-relative-ltr-{tag}",
+                    "case_group": "panel",
+                    "control": "RelativePanel",
+                    "theme": "Dark",
+                    "scale": sc,
+                    "layout_at_scale": True,
+                    "frame": {"width": 140, "height": 90},
+                    "properties": {"Name": "RpRoot", "Width": 120, "Height": 80, "Padding": [4, 5, 4, 5], "BorderThickness": [2, 3, 2, 3], "HorizontalAlignment": "Left", "VerticalAlignment": "Top"},
+                    "children": [
+                        {"id": "rp-a", "control": "Border", "properties": {"Name": "Alpha", "Width": 30, "Height": 20, "RelativePanel.RightOf": "Beta", "RelativePanel.AlignTopWith": "Beta"}},
+                        {"id": "rp-b", "control": "Border", "properties": {"Name": "Beta", "Width": 25, "Height": 15, "RelativePanel.AlignLeftWithPanel": True, "RelativePanel.AlignTopWithPanel": True}},
+                    ],
+                },
+                {
+                    "id": f"panel-vswg-spans-{tag}",
+                    "case_group": "panel",
+                    "control": "VariableSizedWrapGrid",
+                    "theme": "Dark",
+                    "scale": sc,
+                    "layout_at_scale": True,
+                    "frame": {"width": 140, "height": 90},
+                    "properties": {"Name": "VgRoot", "Width": 100, "Height": 60, "Orientation": "Horizontal", "ItemWidth": 20, "ItemHeight": 15, "MaximumRowsOrColumns": 4, "HorizontalAlignment": "Left", "VerticalAlignment": "Top"},
+                    "children": [
+                        {"id": "vg-0", "control": "Border", "properties": {"Name": "C0", "VariableSizedWrapGrid.RowSpan": 2, "VariableSizedWrapGrid.ColumnSpan": 2}},
+                        {"id": "vg-1", "control": "Border", "properties": {"Name": "C1", "VariableSizedWrapGrid.RowSpan": 1, "VariableSizedWrapGrid.ColumnSpan": 1}},
+                    ],
+                },
+                {
+                    "id": f"panel-items-stack-{tag}",
+                    "case_group": "panel",
+                    "control": "ListView",
+                    "theme": "Dark",
+                    "scale": sc,
+                    "layout_at_scale": True,
+                    "frame": {"width": 140, "height": 120},
+                    "properties": {"Name": "LvRoot", "Width": 120, "Height": 100, "HorizontalAlignment": "Left", "VerticalAlignment": "Top"},
+                    "children": [
+                        {"id": "lv-0", "control": "Border", "properties": {"Name": "Row0", "Width": 80, "Height": 18}},
+                        {"id": "lv-1", "control": "Border", "properties": {"Name": "Row1", "Width": 80, "Height": 35}},
+                    ],
+                },
+            ])
 
         def find_named(node, name):
-            if node.get("name") == name:
+            if node.get("Name") == name:
                 return node
-            for ch in node.get("children", []):
+            for ch in node.get("Children", []):
                 hit = find_named(ch, name)
                 if hit is not None:
                     return hit
@@ -1609,36 +1639,44 @@ class LiveReference(unittest.TestCase):
             cf.write_text(json.dumps({"cases": cases}), encoding="utf-8")
             out_dir = Path(build_tmp) / "out"
             ref_run.run_reference(exe, out_dir, cases_path=cf, work_dir=build_tmp)
+            manifest = json.loads((out_dir / "cases.json").read_text(encoding="utf-8"))
+            by_id = {c["id"]: c for c in manifest["cases"]}
 
-            # Verify Canvas LTR + RTL mirror
-            cv_ltr = json.loads((out_dir / "panel-canvas-ltr.layout.json").read_text(encoding="utf-8"))
-            a_ltr = find_named(cv_ltr, "A")["rect"]
-            b_ltr = find_named(cv_ltr, "B")["rect"]
-            r_ltr = find_named(cv_ltr, "CvRoot")["rect"]
-            self.assertAlmostEqual(a_ltr["x"] - r_ltr["x"], 10.0, delta=1.0)
-            self.assertAlmostEqual(b_ltr["x"] - r_ltr["x"], 40.0, delta=1.0)
-            cv_rtl = json.loads((out_dir / "panel-canvas-rtl.layout.json").read_text(encoding="utf-8"))
-            a_rtl = find_named(cv_rtl, "A")["rect"]
-            r_rtl = find_named(cv_rtl, "CvRtl")["rect"]
-            self.assertAlmostEqual(a_rtl["x"] - r_rtl["x"], 70.0, delta=1.0)
+            checks = [
+                ("panel-canvas-ltr", "CvRoot", ["A", "B"]),
+                ("panel-canvas-rtl", "CvRtl", ["A"]),
+                ("panel-viewbox-uniform", "VbRoot", ["Ch"]),
+                ("panel-relative-ltr", "RpRoot", ["Beta", "Alpha"]),
+                ("panel-vswg-spans", "VgRoot", ["C0", "C1"]),
+            ]
+            for sc, tag in scales:
+                expected_mode = "native-1x" if abs(sc - 1.0) < 1e-6 else "scaled-inputs"
+                for base, root_name, child_names in checks:
+                    cid = f"{base}-{tag}"
+                    entry = by_id[cid]
+                    self.assertEqual(entry.get("layout_capture_mode"), expected_mode, cid)
+                    root_n = find_named(entry["layout"], root_name)
+                    self.assertIsNotNone(root_n, f"{cid} missing {root_name}")
+                    rr = root_n["Rect"]
+                    for cname in child_names:
+                        cn = find_named(entry["layout"], cname)
+                        self.assertIsNotNone(cn, f"{cid} missing {cname}")
+                        cr = cn["Rect"]
+                        got = (cr["X"] - rr["X"], cr["Y"] - rr["Y"], cr["Width"], cr["Height"])
+                        want = sdk_rects[(cid, cname)]
+                        for k, (gv, wv) in enumerate(zip(got, want)):
+                            self.assertAlmostEqual(gv, wv, delta=1.0, msg=f"{cid}.{cname}[{k}] winui={gv} sdk={wv}")
 
-            # Verify Viewbox Uniform 20x10 inside 80x60 scales child to 80x40
-            vb_doc = json.loads((out_dir / "panel-viewbox-uniform.layout.json").read_text(encoding="utf-8"))
-            vb_ch = find_named(vb_doc, "Ch")["rect"]
-            self.assertAlmostEqual(vb_ch["width"], 80.0, delta=1.0)
-            self.assertAlmostEqual(vb_ch["height"], 40.0, delta=1.0)
-
-            # Verify RelativePanel forward RightOf + border/padding chrome (6, 8) -> Beta at 6, Alpha at 31
-            rp_doc = json.loads((out_dir / "panel-relative-ltr.layout.json").read_text(encoding="utf-8"))
-            rp_r = find_named(rp_doc, "RpRoot")["rect"]
-            rp_b = find_named(rp_doc, "Beta")["rect"]
-            rp_a = find_named(rp_doc, "Alpha")["rect"]
-            self.assertAlmostEqual(rp_b["x"] - rp_r["x"], 6.0, delta=1.0)
-            self.assertAlmostEqual(rp_a["x"] - rp_r["x"], 31.0, delta=1.0)
-
-            # Verify VariableSizedWrapGrid 2x2 span puts C1 at x=40, y=0
-            vg_doc = json.loads((out_dir / "panel-vswg-spans.layout.json").read_text(encoding="utf-8"))
-            vg_r = find_named(vg_doc, "VgRoot")["rect"]
-            vg_1 = find_named(vg_doc, "C1")["rect"]
-            self.assertAlmostEqual(vg_1["x"] - vg_r["x"], 40.0, delta=1.0)
-            self.assertAlmostEqual(vg_1["y"] - vg_r["y"], 0.0, delta=1.0)
+                # ListView hosting ItemsStackPanel with unequal-height containers: verify realized unequal heights match SDK.
+                lv_cid = f"panel-items-stack-{tag}"
+                lv_entry = by_id[lv_cid]
+                self.assertEqual(lv_entry.get("layout_capture_mode"), expected_mode, lv_cid)
+                r0 = find_named(lv_entry["layout"], "Row0")
+                r1 = find_named(lv_entry["layout"], "Row1")
+                self.assertIsNotNone(r0, f"{lv_cid} missing Row0")
+                self.assertIsNotNone(r1, f"{lv_cid} missing Row1")
+                sdk_r0 = sdk_rects[(lv_cid, "Row0")]
+                sdk_r1 = sdk_rects[(lv_cid, "Row1")]
+                self.assertAlmostEqual(r0["Rect"]["Height"], sdk_r0[3], delta=1.0, msg=f"{lv_cid} Row0 height")
+                self.assertAlmostEqual(r1["Rect"]["Height"], sdk_r1[3], delta=1.0, msg=f"{lv_cid} Row1 height")
+                self.assertGreater(r1["Rect"]["Y"], r0["Rect"]["Y"] + r0["Rect"]["Height"] - 0.5, f"{lv_cid} stacked order")

@@ -997,7 +997,10 @@ static void compute_absolute_rect(im_node *node) {
         im_rect pabs = node->parent->absolute_rect;
         im_flow_dir pflow = im_node_effective_flow_direction(node->parent);
         im_fixed pw = pabs.right - pabs.left;
-        im_fixed abs_x = (pflow == IM_FLOW_RTL)
+        /* Viewbox applies its own scaling + RTL placement via viewbox_transform; do not mirror
+           unscaled child layout_rect before scaling. */
+        bool mirror_x = (pflow == IM_FLOW_RTL) && (node->parent->kind != IM_ELEM_VIEWBOX);
+        im_fixed abs_x = mirror_x
             ? add_fixed(pabs.left, (pw - node->layout_rect.left - arrange_w))
             : add_fixed(pabs.left, node->layout_rect.left);
         im_fixed abs_y = add_fixed(pabs.top, node->layout_rect.top);
@@ -1031,6 +1034,7 @@ void im_layout_arrange(im_tree *tree, im_node *node, im_rect final_rect, im_fixe
 
     node->last_arrange_rect = final_rect;
     node->last_arrange_scale = scale;
+    node->layout_overflowed = false;
 
     if (node->visibility == IM_VIS_COLLAPSED) {
         node->layout_rect = (im_rect){0, 0, 0, 0};

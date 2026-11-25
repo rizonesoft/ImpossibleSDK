@@ -804,10 +804,23 @@ void im_node_set_wrap_panel(im_node *node, im_orientation orientation, im_fixed 
     im_tree_invalidate_measure(node);
 }
 
+static void copy_rel_name(char dst[64], const char *src) {
+    size_t i = 0u;
+    if (src) {
+        while (src[i] != '\0' && i + 1u < 64u) {
+            dst[i] = src[i];
+            i++;
+        }
+    }
+    dst[i] = '\0';
+}
+
 void im_node_set_relative_target(im_node *node, im_rel_slot slot, const char *target_name) {
     if (!node || (uint32_t)slot >= (uint32_t)IM_REL_COUNT) return;
-    if (str_eq(node->rel_target[slot], target_name)) return;
-    node->rel_target[slot] = target_name;
+    char tmp[64];
+    copy_rel_name(tmp, target_name);
+    if (str_eq(node->rel_target[slot], tmp)) return;
+    copy_rel_name(node->rel_target[slot], tmp);
     im_tree_invalidate_measure(node->parent ? node->parent : node);
 }
 
@@ -836,6 +849,14 @@ void im_node_set_vswg_span(im_node *node, int32_t row_span, int32_t col_span) {
     node->vswg_row_span = row_span;
     node->vswg_col_span = col_span;
     im_tree_invalidate_measure(node->parent ? node->parent : node);
+}
+
+void im_node_set_vswg_children_alignment(im_node *node, im_align h_align, im_align v_align) {
+    if (!node) return;
+    if (node->h_children_align == h_align && node->v_children_align == v_align) return;
+    node->h_children_align = h_align;
+    node->v_children_align = v_align;
+    im_tree_invalidate_arrange(node);
 }
 
 void im_node_set_group_padding(im_node *node, im_thickness group_padding) {
@@ -1132,26 +1153,34 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
         node->vswg_col_span = v->a;
     } else if (str_eq(prop, "GroupPadding") && resolve_thickness_val(palette, v, &th)) {
         node->group_padding = th;
+    } else if (str_eq(prop, "HorizontalChildrenAlignment") && v->kind == IM_TVAL_ENUM_STR) {
+        if (str_eq(v->text, "Center")) node->h_children_align = IM_ALIGN_CENTER;
+        else if (str_eq(v->text, "Right")) node->h_children_align = IM_ALIGN_END;
+        else node->h_children_align = IM_ALIGN_START;
+    } else if (str_eq(prop, "VerticalChildrenAlignment") && v->kind == IM_TVAL_ENUM_STR) {
+        if (str_eq(v->text, "Center")) node->v_children_align = IM_ALIGN_CENTER;
+        else if (str_eq(v->text, "Bottom")) node->v_children_align = IM_ALIGN_END;
+        else node->v_children_align = IM_ALIGN_START;
     } else if (str_eq(prop, "RelativePanel.LeftOf") && v->kind == IM_TVAL_ENUM_STR) {
-        node->rel_target[IM_REL_LEFT_OF] = v->text;
+        copy_rel_name(node->rel_target[IM_REL_LEFT_OF], v->text);
     } else if (str_eq(prop, "RelativePanel.Above") && v->kind == IM_TVAL_ENUM_STR) {
-        node->rel_target[IM_REL_ABOVE] = v->text;
+        copy_rel_name(node->rel_target[IM_REL_ABOVE], v->text);
     } else if (str_eq(prop, "RelativePanel.RightOf") && v->kind == IM_TVAL_ENUM_STR) {
-        node->rel_target[IM_REL_RIGHT_OF] = v->text;
+        copy_rel_name(node->rel_target[IM_REL_RIGHT_OF], v->text);
     } else if (str_eq(prop, "RelativePanel.Below") && v->kind == IM_TVAL_ENUM_STR) {
-        node->rel_target[IM_REL_BELOW] = v->text;
+        copy_rel_name(node->rel_target[IM_REL_BELOW], v->text);
     } else if (str_eq(prop, "RelativePanel.AlignLeftWith") && v->kind == IM_TVAL_ENUM_STR) {
-        node->rel_target[IM_REL_ALIGN_LEFT] = v->text;
+        copy_rel_name(node->rel_target[IM_REL_ALIGN_LEFT], v->text);
     } else if (str_eq(prop, "RelativePanel.AlignTopWith") && v->kind == IM_TVAL_ENUM_STR) {
-        node->rel_target[IM_REL_ALIGN_TOP] = v->text;
+        copy_rel_name(node->rel_target[IM_REL_ALIGN_TOP], v->text);
     } else if (str_eq(prop, "RelativePanel.AlignRightWith") && v->kind == IM_TVAL_ENUM_STR) {
-        node->rel_target[IM_REL_ALIGN_RIGHT] = v->text;
+        copy_rel_name(node->rel_target[IM_REL_ALIGN_RIGHT], v->text);
     } else if (str_eq(prop, "RelativePanel.AlignBottomWith") && v->kind == IM_TVAL_ENUM_STR) {
-        node->rel_target[IM_REL_ALIGN_BOTTOM] = v->text;
+        copy_rel_name(node->rel_target[IM_REL_ALIGN_BOTTOM], v->text);
     } else if (str_eq(prop, "RelativePanel.AlignHorizontalCenterWith") && v->kind == IM_TVAL_ENUM_STR) {
-        node->rel_target[IM_REL_ALIGN_HCENTER] = v->text;
+        copy_rel_name(node->rel_target[IM_REL_ALIGN_HCENTER], v->text);
     } else if (str_eq(prop, "RelativePanel.AlignVerticalCenterWith") && v->kind == IM_TVAL_ENUM_STR) {
-        node->rel_target[IM_REL_ALIGN_VCENTER] = v->text;
+        copy_rel_name(node->rel_target[IM_REL_ALIGN_VCENTER], v->text);
     } else if (str_eq(prop, "RelativePanel.AlignLeftWithPanel") && v->kind == IM_TVAL_BOOL && v->a) {
         node->rel_panel_flags |= IM_REL_PANEL_LEFT;
     } else if (str_eq(prop, "RelativePanel.AlignTopWithPanel") && v->kind == IM_TVAL_BOOL && v->a) {

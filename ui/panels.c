@@ -179,8 +179,13 @@ static void arrange_viewbox(im_tree *tree, im_node *node, im_size final_size, im
     int64_t sx = IM_TR_ONE, sy = IM_TR_ONE;
     compute_viewbox_scale(final_size, child_d, node->viewbox_stretch, node->viewbox_stretch_dir, &sx, &sy);
     im_layout_arrange(tree, ch, (im_rect){0, 0, child_d.width, child_d.height}, scale);
-    node->viewbox_transform = (im_transform){ sx, 0, 0, sy, 0, 0 };
-    node->has_viewbox_transform = (sx != IM_TR_ONE || sy != IM_TR_ONE);
+    int64_t dx_q30 = 0;
+    if (im_node_effective_flow_direction(node) == IM_FLOW_RTL) {
+        im_fixed scaled_w = scale_fx_q30(child_d.width, sx);
+        dx_q30 = im_fixed_to_q30(sub_nonneg_fx(final_size.width, scaled_w));
+    }
+    node->viewbox_transform = (im_transform){ sx, 0, 0, sy, dx_q30, 0 };
+    node->has_viewbox_transform = (sx != IM_TR_ONE || sy != IM_TR_ONE || dx_q30 != 0);
 }
 
 /* ---------- UniformGrid ---------- */
@@ -242,11 +247,11 @@ static im_size measure_uniform_grid(im_tree *tree, im_node *node, im_size avail,
 
     im_fixed max_w = 0, max_h = 0;
     uint32_t vis_idx = 0u;
-    uint32_t cap = rows * cols;
+    uint64_t cap = (uint64_t)rows * (uint64_t)cols;
     for (uint32_t i = 0; i < node->child_count; i++) {
         im_node *ch = node->children[i];
         if (ch->visibility == IM_VIS_COLLAPSED) continue;
-        uint32_t slot = first_col + vis_idx++;
+        uint64_t slot = (uint64_t)first_col + (uint64_t)vis_idx++;
         if (slot >= cap) {
             (void)im_layout_measure(tree, ch, (im_size){0, 0}, scale);
             continue;
@@ -283,7 +288,7 @@ static void arrange_uniform_grid(im_tree *tree, im_node *node, im_size final_siz
     im_fixed cell_h = (im_fixed)(sub_nonneg_fx(inner_h, total_rsp) / (int32_t)rows);
 
     uint32_t vis_idx = 0u;
-    uint32_t cap = rows * cols;
+    uint64_t cap = (uint64_t)rows * (uint64_t)cols;
     for (uint32_t i = 0; i < node->child_count; i++) {
         im_node *ch = node->children[i];
         if (ch->visibility == IM_VIS_COLLAPSED) {
@@ -293,16 +298,18 @@ static void arrange_uniform_grid(im_tree *tree, im_node *node, im_size final_siz
             ch->has_arranged = true;
             continue;
         }
-        uint32_t slot = first_col + vis_idx++;
+        uint64_t slot = (uint64_t)first_col + (uint64_t)vis_idx++;
         if (slot >= cap) {
             ch->layout_rect = (im_rect){0, 0, 0, 0};
             ch->absolute_rect = (im_rect){0, 0, 0, 0};
+            ch->layout_overflowed = true;
+            ch->has_arranged = false;
             ch->arrange_dirty = false;
-            ch->has_arranged = true;
             continue;
         }
-        uint32_t r = slot / cols;
-        uint32_t c = slot % cols;
+        ch->layout_overflowed = false;
+        uint64_t r = slot / (uint64_t)cols;
+        uint64_t c = slot % (uint64_t)cols;
         im_fixed x = add_fx(ins.left, clamp_i64_fx((int64_t)c * ((int64_t)cell_w + (int64_t)csp)));
         im_fixed y = add_fx(ins.top, clamp_i64_fx((int64_t)r * ((int64_t)cell_h + (int64_t)rsp)));
         im_layout_arrange(tree, ch, (im_rect){x, y, add_fx(x, cell_w), add_fx(y, cell_h)}, scale);
@@ -375,16 +382,16 @@ static im_size run_wrap_panel(im_tree *tree, im_node *node, im_size avail, im_fi
             row_vis = 0u;
         }
 
-        /* Pinned WrapPanel.cpp:144: only the final collection entry stretches when ItemsStretch == Last. */
+        /* Pinned WrapPanel.cpp:124,144: only the final collection entry stretches to parent.U - pos.U. */
         bool is_last = (i + 1u == node->child_count) && (node->wrap_stretch == IM_WRAP_STRETCH_LAST);
         if (is_last && parent_u != IM_FIXED_INF) {
-            cu = sub_nonneg_fx(sub_nonneg_fx(parent_u, pos_u), pad_u1);
+            cu = sub_nonneg_fx(parent_u, pos_u);
         }
 
         if (cv > row_v) row_v = cv;
-        im_fixed item_end_u = add_fx(pos_u, cu);
-        if (item_end_u > final_u) final_u = item_end_u;
-        pos_u = add_fx(item_end_u, sp_u);
+        /* Pinned WrapPanel.cpp:129: position.U += desired.U + spacing.U; final.U = max(final.U, position.U). */
+        pos_u = add_fx(add_fx(pos_u, cu), sp_u);
+        if (pos_u > final_u) final_u = pos_u;
         row_vis++;
         final_v = add_fx(pos_v, row_v);
     }
@@ -397,7 +404,7 @@ static im_size run_wrap_panel(im_tree *tree, im_node *node, im_size avail, im_fi
             im_fixed rcu = horiz ? rc->desired_size.width : rc->desired_size.height;
             bool is_last = (k + 1u == node->child_count) && (node->wrap_stretch == IM_WRAP_STRETCH_LAST);
             if (is_last && parent_u != IM_FIXED_INF) {
-                rcu = sub_nonneg_fx(sub_nonneg_fx(parent_u, au), pad_u1);
+                rcu = sub_nonneg_fx(parent_u, au);
             }
             im_rect rr = horiz
                 ? (im_rect){ au, pos_v, add_fx(au, rcu), add_fx(pos_v, row_v) }
@@ -431,11 +438,22 @@ static im_size measure_wrap_panel(im_tree *tree, im_node *node, im_size avail, i
             (void)im_layout_measure(tree, ch, child_avail, scale);
         }
     }
+    node->wrap_measure_u = (node->orientation == IM_ORIENT_HORIZONTAL) ? avail.width : avail.height;
     return run_wrap_panel(tree, node, avail, scale, rounding, false);
 }
 
 static void arrange_wrap_panel(im_tree *tree, im_node *node, im_size final_size, im_fixed scale, bool rounding) {
-    (void)run_wrap_panel(tree, node, final_size, scale, rounding, true);
+    /* Pinned WrapPanel.cpp:46: only reflow rows when finalSize along main axis < DesiredSize;
+       otherwise keep the measured wrap width so wider arrange slots do not unwrap rows. */
+    bool horiz = (node->orientation == IM_ORIENT_HORIZONTAL);
+    im_fixed fin_u = horiz ? final_size.width : final_size.height;
+    im_fixed des_u = horiz ? node->desired_size.width : node->desired_size.height;
+    im_size use = final_size;
+    if (fin_u >= des_u && node->wrap_measure_u != IM_FIXED_INF) {
+        if (horiz) use.width = node->wrap_measure_u;
+        else use.height = node->wrap_measure_u;
+    }
+    (void)run_wrap_panel(tree, node, use, scale, rounding, true);
 }
 
 /* ---------- RelativePanel (pinned dxaml/xcp/core/core/elements/RelativePanel.cpp) ---------- */
@@ -506,7 +524,7 @@ static bool resolve_relative_panel(im_tree *tree, im_node *node, im_size inner_a
         im_node *ch = node->children[i];
         for (int s = 0; s < IM_REL_COUNT; s++) {
             const char *tname = ch->rel_target[s];
-            if (!tname) {
+            if (tname[0] == '\0') {
                 st[i].deps[s] = -1;
             } else {
                 int32_t idx = find_sibling_by_name(node, tname);
@@ -534,7 +552,8 @@ static bool resolve_relative_panel(im_tree *tree, im_node *node, im_size inner_a
         }
     }
 
-    im_fixed max_r = 0, max_b = 0;
+    bool any_vis = false;
+    im_fixed min_l = 0, max_r = 0, min_t = 0, max_b = 0;
     im_fixed pw = inner_avail.width;
     im_fixed ph = inner_avail.height;
 
@@ -612,8 +631,11 @@ static bool resolve_relative_panel(im_tree *tree, im_node *node, im_size inner_a
         st[i].right = add_fx(fx0, w);
         st[i].bottom = add_fx(fy0, h);
 
-        if (st[i].right > max_r) max_r = st[i].right;
-        if (st[i].bottom > max_b) max_b = st[i].bottom;
+        if (!any_vis || st[i].left < min_l) min_l = st[i].left;
+        if (!any_vis || st[i].right > max_r) max_r = st[i].right;
+        if (!any_vis || st[i].top < min_t) min_t = st[i].top;
+        if (!any_vis || st[i].bottom > max_b) max_b = st[i].bottom;
+        any_vis = true;
 
         if (do_arrange) {
             im_rect ar = {
@@ -629,7 +651,10 @@ static bool resolve_relative_panel(im_tree *tree, im_node *node, im_size inner_a
     tree->alloc.free(tree->alloc.ctx, order, ord_bytes);
     tree->alloc.free(tree->alloc.ctx, st, st_bytes);
     if (ok && out_inner_desired) {
-        *out_inner_desired = (im_size){ max_r, max_b };
+        /* Pinned RPGraph.cpp:218: desired extent is maxX - minX, maxY - minY across the dependency graph. */
+        *out_inner_desired = any_vis
+            ? (im_size){ sub_nonneg_fx(max_r, min_l), sub_nonneg_fx(max_b, min_t) }
+            : (im_size){ 0, 0 };
     }
     return ok;
 }
@@ -664,12 +689,13 @@ static void arrange_relative_panel(im_tree *tree, im_node *node, im_size final_s
 
 /* ---------- VariableSizedWrapGrid (pinned VariableSizedWrapGrid_Partial.cpp + OccupancyMap) ---------- */
 
-typedef struct vswg_place {
-    uint32_t line;
-    uint32_t item;
-    uint32_t line_span;
-    uint32_t item_span;
-} vswg_place;
+static bool occ_get(const uint8_t *bits, size_t idx) {
+    return (bits[idx >> 3] & (uint8_t)(1u << (idx & 7u))) != 0u;
+}
+
+static void occ_set(uint8_t *bits, size_t idx) {
+    bits[idx >> 3] |= (uint8_t)(1u << (idx & 7u));
+}
 
 static bool run_vswg(im_tree *tree, im_node *node, im_size avail, im_fixed scale,
                      bool rounding, bool do_measure, bool do_arrange, im_size *out_size) {
@@ -700,72 +726,111 @@ static bool run_vswg(im_tree *tree, im_node *node, im_size avail, im_fixed scale
         return true;
     }
 
-    /* Pinned VariableSizedWrapGrid_Partial.cpp:127,135: auto ItemWidth/ItemHeight from first visible child. */
+    bool horiz = (node->orientation == IM_ORIENT_HORIZONTAL);
     im_fixed iw = node->item_width;
     im_fixed ih = node->item_height;
-    if (iw == IM_FIXED_AUTO || ih == IM_FIXED_AUTO || iw <= 0 || ih <= 0) {
-        im_size fd = do_measure
-            ? im_layout_measure(tree, first_vis, (im_size){IM_FIXED_INF, IM_FIXED_INF}, scale)
-            : first_vis->desired_size;
-        int32_t fc = (first_vis->vswg_col_span > 0) ? first_vis->vswg_col_span : 1;
-        int32_t fr = (first_vis->vswg_row_span > 0) ? first_vis->vswg_row_span : 1;
-        if (iw == IM_FIXED_AUTO || iw <= 0) iw = (fd.width > 0) ? (fd.width / fc) : IM_ONE;
-        if (ih == IM_FIXED_AUTO || ih <= 0) ih = (fd.height > 0) ? (fd.height / fr) : IM_ONE;
-    }
-    if (iw <= 0) iw = IM_ONE;
-    if (ih <= 0) ih = IM_ONE;
-
-    bool horiz = (node->orientation == IM_ORIENT_HORIZONTAL);
-    im_fixed main_cell = horiz ? iw : ih;
-    im_fixed main_avail = horiz ? inner.width : inner.height;
-
     uint32_t items_per_line = 0u;
-    if (main_avail != IM_FIXED_INF) {
-        int64_t fit = (int64_t)main_avail / (int64_t)main_cell;
-        items_per_line = (fit > 1) ? (uint32_t)fit : 1u;
+    uint32_t max_lines = 0u;
+
+    if (do_arrange && !do_measure && node->vswg_has_measured_grid) {
+        /* Pinned VariableSizedWrapGrid_Partial.cpp:318: reuse measured grid dimensions on arrange. */
+        iw = node->vswg_measured_iw;
+        ih = node->vswg_measured_ih;
+        items_per_line = node->vswg_measured_ipl;
+        max_lines = node->vswg_measured_max_lines;
     } else {
-        items_per_line = 0u; /* unbounded unless max_rows_or_cols > 0 */
-    }
-    if (node->max_rows_or_cols > 0) {
-        uint32_t cap = (uint32_t)node->max_rows_or_cols;
-        if (items_per_line == 0u || cap < items_per_line) items_per_line = cap;
+        /* Pinned VariableSizedWrapGrid_Partial.cpp:125-145: measure child 0 with applicable constraints
+           and use each automatic desired dimension directly (never dividing by its spans). */
+        if (iw == IM_FIXED_AUTO || ih == IM_FIXED_AUTO || iw <= 0 || ih <= 0) {
+            im_fixed mw = (iw == IM_FIXED_AUTO || iw <= 0) ? inner.width : iw;
+            im_fixed mh = (ih == IM_FIXED_AUTO || ih <= 0) ? inner.height : ih;
+            im_size fd = do_measure
+                ? im_layout_measure(tree, first_vis, (im_size){mw, mh}, scale)
+                : first_vis->desired_size;
+            if (iw == IM_FIXED_AUTO || iw <= 0) iw = (fd.width > 0) ? fd.width : IM_ONE;
+            if (ih == IM_FIXED_AUTO || ih <= 0) ih = (fd.height > 0) ? fd.height : IM_ONE;
+        }
+        if (iw <= 0) iw = IM_ONE;
+        if (ih <= 0) ih = IM_ONE;
+
+        im_fixed main_cell = horiz ? iw : ih;
+        im_fixed cross_cell = horiz ? ih : iw;
+        im_fixed main_avail = horiz ? inner.width : inner.height;
+        im_fixed cross_avail = horiz ? inner.height : inner.width;
+
+        uint64_t sum_item_spans = 0u;
+        uint64_t sum_line_spans = 0u;
+        for (uint32_t i = 0; i < n; i++) {
+            im_node *ch = node->children[i];
+            if (ch->visibility == IM_VIS_COLLAPSED) continue;
+            uint32_t cs = (ch->vswg_col_span > 0) ? (uint32_t)ch->vswg_col_span : 1u;
+            uint32_t rs = (ch->vswg_row_span > 0) ? (uint32_t)ch->vswg_row_span : 1u;
+            sum_item_spans += (horiz ? cs : rs);
+            sum_line_spans += (horiz ? rs : cs);
+        }
+        if (sum_item_spans == 0u) sum_item_spans = 1u;
+        if (sum_line_spans == 0u) sum_line_spans = 1u;
+
+        uint64_t ipl = sum_item_spans;
+        if (main_avail != IM_FIXED_INF) {
+            int64_t fit = (int64_t)main_avail / (int64_t)main_cell;
+            uint64_t f = (fit > 1) ? (uint64_t)fit : 1u;
+            if (f < ipl) ipl = f;
+        }
+        if (node->max_rows_or_cols > 0 && (uint64_t)node->max_rows_or_cols < ipl) {
+            ipl = (uint64_t)node->max_rows_or_cols;
+        }
+        if (ipl == 0u) ipl = 1u;
+
+        uint64_t ml = sum_line_spans;
+        if (cross_avail != IM_FIXED_INF) {
+            int64_t cfit = (int64_t)cross_avail / (int64_t)cross_cell;
+            uint64_t cf = (cfit > 1) ? (uint64_t)cfit : 1u;
+            if (cf < ml) ml = cf;
+        } else if (main_avail == IM_FIXED_INF && node->max_rows_or_cols <= 0) {
+            /* Unbounded main axis with no max_rows_or_cols: all children fit on 1..max_lspan lines. */
+            uint64_t max_ls = 1u;
+            for (uint32_t i = 0; i < n; i++) {
+                im_node *ch = node->children[i];
+                if (ch->visibility == IM_VIS_COLLAPSED) continue;
+                uint32_t ls = horiz ? ((ch->vswg_row_span > 0) ? (uint32_t)ch->vswg_row_span : 1u)
+                                    : ((ch->vswg_col_span > 0) ? (uint32_t)ch->vswg_col_span : 1u);
+                if (ls > max_ls) max_ls = ls;
+            }
+            ml = max_ls;
+        }
+        if (ml == 0u) ml = 1u;
+        if (ipl > UINT32_MAX || ml > UINT32_MAX) {
+            record_layout_error(tree, IM_LAYOUT_ERR_OOM, node->name ? node->name : "VariableSizedWrapGrid");
+            return false;
+        }
+        items_per_line = (uint32_t)ipl;
+        max_lines = (uint32_t)ml;
+        if (do_measure) {
+            node->vswg_measured_iw = iw;
+            node->vswg_measured_ih = ih;
+            node->vswg_measured_ipl = items_per_line;
+            node->vswg_measured_max_lines = max_lines;
+            node->vswg_has_measured_grid = true;
+        }
     }
 
-    /* Compute total span budget to size the occupancy map safely with checked arithmetic. */
-    uint64_t sum_item_spans = 0u;
-    uint64_t sum_line_spans = 0u;
-    uint32_t max_item_span = 1u;
-    for (uint32_t i = 0; i < n; i++) {
-        im_node *ch = node->children[i];
-        if (ch->visibility == IM_VIS_COLLAPSED) continue;
-        uint32_t cs = (ch->vswg_col_span > 0) ? (uint32_t)ch->vswg_col_span : 1u;
-        uint32_t rs = (ch->vswg_row_span > 0) ? (uint32_t)ch->vswg_row_span : 1u;
-        uint32_t ispan = horiz ? cs : rs;
-        uint32_t lspan = horiz ? rs : cs;
-        if (items_per_line > 0u && ispan > items_per_line) ispan = items_per_line;
-        if (ispan > max_item_span) max_item_span = ispan;
-        sum_item_spans += ispan;
-        sum_line_spans += lspan;
+    uint64_t total_cells = (uint64_t)max_lines * (uint64_t)items_per_line;
+    if (max_lines > 0u && total_cells / (uint64_t)max_lines != (uint64_t)items_per_line) {
+        record_layout_error(tree, IM_LAYOUT_ERR_OOM, node->name ? node->name : "VariableSizedWrapGrid");
+        return false;
     }
-    if (items_per_line == 0u) {
-        items_per_line = (sum_item_spans > UINT32_MAX) ? UINT32_MAX : (uint32_t)sum_item_spans;
-        if (items_per_line == 0u) items_per_line = 1u;
-    }
-    uint64_t max_lines = sum_line_spans + 1u;
-    if (max_lines > 65536u || items_per_line > 65536u ||
-        (max_lines * (uint64_t)items_per_line) > (size_t)SIZE_MAX ||
-        (size_t)n > (SIZE_MAX / sizeof(vswg_place))) {
+    uint64_t map_bytes_u64 = (total_cells + 7u) >> 3;
+    if (map_bytes_u64 == 0u) map_bytes_u64 = 1u;
+    if (map_bytes_u64 > (uint64_t)SIZE_MAX) {
         record_layout_error(tree, IM_LAYOUT_ERR_OOM, node->name ? node->name : "VariableSizedWrapGrid");
         return false;
     }
 
-    size_t map_bytes = (size_t)(max_lines * (uint64_t)items_per_line);
-    size_t pl_bytes = (size_t)n * sizeof(vswg_place);
+    size_t map_bytes = (size_t)map_bytes_u64;
     uint8_t *occ = (uint8_t *)tree->alloc.alloc(tree->alloc.ctx, map_bytes);
-    vswg_place *places = (vswg_place *)tree->alloc.alloc(tree->alloc.ctx, pl_bytes);
-    if (!occ || !places) {
-        if (occ) tree->alloc.free(tree->alloc.ctx, occ, map_bytes);
-        if (places) tree->alloc.free(tree->alloc.ctx, places, pl_bytes);
+    if (!occ) {
+        if (do_measure) node->vswg_has_measured_grid = false;
         record_layout_error(tree, IM_LAYOUT_ERR_OOM, node->name ? node->name : "VariableSizedWrapGrid");
         return false;
     }
@@ -773,60 +838,121 @@ static bool run_vswg(im_tree *tree, im_node *node, im_size avail, im_fixed scale
 
     uint32_t cur_line = 0u, cur_item = 0u;
     uint32_t used_lines = 0u, used_items = 0u;
+    bool full = false;
 
-    for (uint32_t i = 0; i < n; i++) {
-        im_node *ch = node->children[i];
-        if (ch->visibility == IM_VIS_COLLAPSED) continue;
-        uint32_t cs = (ch->vswg_col_span > 0) ? (uint32_t)ch->vswg_col_span : 1u;
-        uint32_t rs = (ch->vswg_row_span > 0) ? (uint32_t)ch->vswg_row_span : 1u;
-        uint32_t ispan = horiz ? cs : rs;
-        uint32_t lspan = horiz ? rs : cs;
-        if (ispan > items_per_line) ispan = items_per_line;
+    /* Pass 1: place tiles in occupancy bitset to compute used_lines/used_items (needed for children alignment). */
+    for (uint32_t pass = 0u; pass < (do_arrange ? 2u : 1u); pass++) {
+        if (pass == 1u) {
+            for (size_t k = 0; k < map_bytes; k++) occ[k] = 0u;
+            cur_line = 0u; cur_item = 0u; full = false;
+        }
+        im_fixed align_ox = 0, align_oy = 0;
+        if (pass == 1u) {
+            uint32_t tcols = horiz ? used_items : used_lines;
+            uint32_t trows = horiz ? used_lines : used_items;
+            im_fixed used_w = clamp_i64_fx((int64_t)tcols * (int64_t)iw);
+            im_fixed used_h = clamp_i64_fx((int64_t)trows * (int64_t)ih);
+            if (node->h_children_align == IM_ALIGN_CENTER && inner.width != IM_FIXED_INF) {
+                align_ox = sub_nonneg_fx(inner.width, used_w) / 2;
+            } else if (node->h_children_align == IM_ALIGN_END && inner.width != IM_FIXED_INF) {
+                align_ox = sub_nonneg_fx(inner.width, used_w);
+            }
+            if (node->v_children_align == IM_ALIGN_CENTER && inner.height != IM_FIXED_INF) {
+                align_oy = sub_nonneg_fx(inner.height, used_h) / 2;
+            } else if (node->v_children_align == IM_ALIGN_END && inner.height != IM_FIXED_INF) {
+                align_oy = sub_nonneg_fx(inner.height, used_h);
+            }
+        }
+        for (uint32_t i = 0; i < n; i++) {
+            im_node *ch = node->children[i];
+            if (ch->visibility == IM_VIS_COLLAPSED) continue;
+            uint32_t raw_cs = (ch->vswg_col_span > 0) ? (uint32_t)ch->vswg_col_span : 1u;
+            uint32_t raw_rs = (ch->vswg_row_span > 0) ? (uint32_t)ch->vswg_row_span : 1u;
+            uint32_t raw_ispan = horiz ? raw_cs : raw_rs;
+            uint32_t raw_lspan = horiz ? raw_rs : raw_cs;
+            uint32_t ispan = (raw_ispan > items_per_line) ? items_per_line : raw_ispan;
+            uint32_t lspan = (raw_lspan > max_lines) ? max_lines : raw_lspan;
 
-        /* Find first free (cur_line, cur_item) block of size (lspan, ispan). */
-        while (cur_line + lspan <= (uint32_t)max_lines) {
-            if (cur_item + ispan > items_per_line) {
-                cur_line++;
-                cur_item = 0u;
+            bool placed = false;
+            if (!full) {
+                while (cur_line + lspan <= max_lines) {
+                    if (cur_item + ispan > items_per_line) {
+                        cur_line++;
+                        cur_item = 0u;
+                        continue;
+                    }
+                    bool free_ok = true;
+                    for (uint32_t dl = 0; dl < lspan && free_ok; dl++) {
+                        size_t row_off = (size_t)(cur_line + dl) * (size_t)items_per_line;
+                        for (uint32_t di = 0; di < ispan; di++) {
+                            if (occ_get(occ, row_off + cur_item + di)) { free_ok = false; break; }
+                        }
+                    }
+                    if (free_ok) { placed = true; break; }
+                    cur_item++;
+                }
+                if (!placed) full = true;
+            }
+
+            if (!placed) {
+                if (pass == 0u && do_measure) {
+                    ch->desired_size = (im_size){0, 0};
+                    ch->unclipped_desired = (im_size){0, 0};
+                    ch->layout_overflowed = true;
+                    ch->measure_dirty = false;
+                    ch->has_measured = false;
+                }
+                if (pass == 1u) {
+                    ch->layout_rect = (im_rect){0, 0, 0, 0};
+                    ch->absolute_rect = (im_rect){0, 0, 0, 0};
+                    ch->layout_overflowed = true;
+                    ch->has_arranged = false;
+                    ch->arrange_dirty = false;
+                }
                 continue;
             }
-            bool free_ok = true;
-            for (uint32_t dl = 0; dl < lspan && free_ok; dl++) {
+
+            for (uint32_t dl = 0; dl < lspan; dl++) {
                 size_t row_off = (size_t)(cur_line + dl) * (size_t)items_per_line;
                 for (uint32_t di = 0; di < ispan; di++) {
-                    if (occ[row_off + cur_item + di]) { free_ok = false; break; }
+                    occ_set(occ, row_off + cur_item + di);
                 }
             }
-            if (free_ok) break;
-            cur_item++;
-        }
-
-        for (uint32_t dl = 0; dl < lspan; dl++) {
-            size_t row_off = (size_t)(cur_line + dl) * (size_t)items_per_line;
-            for (uint32_t di = 0; di < ispan; di++) {
-                occ[row_off + cur_item + di] = 1u;
+            if (pass == 0u) {
+                if (cur_line + lspan > used_lines) used_lines = cur_line + lspan;
+                if (cur_item + ispan > used_items) used_items = cur_item + ispan;
             }
-        }
-        places[i] = (vswg_place){ cur_line, cur_item, lspan, ispan };
-        if (cur_line + lspan > used_lines) used_lines = cur_line + lspan;
-        if (cur_item + ispan > used_items) used_items = cur_item + ispan;
 
-        im_fixed cw = clamp_i64_fx((int64_t)(horiz ? ispan : lspan) * (int64_t)iw);
-        im_fixed ch_h = clamp_i64_fx((int64_t)(horiz ? lspan : ispan) * (int64_t)ih);
-        if (do_measure) {
-            (void)im_layout_measure(tree, ch, (im_size){cw, ch_h}, scale);
+            /* Pinned VariableSizedWrapGrid_Partial.cpp:375,393: restore an oversized leading tile up to final extent. */
+            uint32_t draw_ispan = ispan;
+            if (cur_item == 0u && raw_ispan > items_per_line) {
+                im_fixed main_lim = horiz ? inner.width : inner.height;
+                im_fixed main_cell = horiz ? iw : ih;
+                if (main_lim != IM_FIXED_INF && main_cell > 0) {
+                    int64_t max_draw = (int64_t)main_lim / (int64_t)main_cell;
+                    if (max_draw > (int64_t)draw_ispan) {
+                        uint32_t md = (uint32_t)max_draw;
+                        draw_ispan = (raw_ispan < md) ? raw_ispan : md;
+                    }
+                }
+            }
+            im_fixed cw = clamp_i64_fx((int64_t)(horiz ? draw_ispan : lspan) * (int64_t)iw);
+            im_fixed ch_h = clamp_i64_fx((int64_t)(horiz ? lspan : draw_ispan) * (int64_t)ih);
+            if (pass == 0u && do_measure) {
+                (void)im_layout_measure(tree, ch, (im_size){cw, ch_h}, scale);
+            }
+            if (pass == 1u && do_arrange) {
+                ch->layout_overflowed = false;
+                uint32_t col = horiz ? cur_item : cur_line;
+                uint32_t row = horiz ? cur_line : cur_item;
+                im_fixed x = add_fx(add_fx(ins.left, align_ox), clamp_i64_fx((int64_t)col * (int64_t)iw));
+                im_fixed y = add_fx(add_fx(ins.top, align_oy), clamp_i64_fx((int64_t)row * (int64_t)ih));
+                im_layout_arrange(tree, ch, (im_rect){x, y, add_fx(x, cw), add_fx(y, ch_h)}, scale);
+            }
+            cur_item += ispan;
         }
-        if (do_arrange) {
-            uint32_t col = horiz ? cur_item : cur_line;
-            uint32_t row = horiz ? cur_line : cur_item;
-            im_fixed x = add_fx(ins.left, clamp_i64_fx((int64_t)col * (int64_t)iw));
-            im_fixed y = add_fx(ins.top, clamp_i64_fx((int64_t)row * (int64_t)ih));
-            im_layout_arrange(tree, ch, (im_rect){x, y, add_fx(x, cw), add_fx(y, ch_h)}, scale);
-        }
-        cur_item += ispan;
     }
 
-    tree->alloc.free(tree->alloc.ctx, places, pl_bytes);
     tree->alloc.free(tree->alloc.ctx, occ, map_bytes);
 
     if (out_size) {
@@ -956,16 +1082,20 @@ static im_size run_items_stack_panel(im_tree *tree, im_node *node, im_size avail
                 in_group = false;
             }
             if (vis_in_panel > 0u) cursor = add_fx(cursor, sp);
-            im_size cav = horiz ? (im_size){IM_FIXED_INF, inner_h} : (im_size){inner_w, IM_FIXED_INF};
+            /* Pinned StackingLayoutStrategyImpl.cpp:933 places group headers at cross-axis GroupPadding too. */
+            im_fixed g_cross_pad = horiz ? add_fx(gp.top, gp.bottom) : add_fx(gp.left, gp.right);
+            im_fixed g_cross_off = horiz ? add_fx(ins.top, gp.top) : add_fx(ins.left, gp.left);
+            im_fixed avail_cross = sub_nonneg_fx(horiz ? inner_h : inner_w, g_cross_pad);
+            im_size cav = horiz ? (im_size){IM_FIXED_INF, avail_cross} : (im_size){avail_cross, IM_FIXED_INF};
             im_size d = do_measure ? im_layout_measure(tree, ch, cav, scale) : ch->desired_size;
             im_fixed c_main = horiz ? d.width : d.height;
-            im_fixed c_cross = horiz ? d.height : d.width;
+            im_fixed c_cross = add_fx(horiz ? d.height : d.width, g_cross_pad);
             if (c_cross > max_cross) max_cross = c_cross;
             if (do_arrange) {
-                im_fixed cross_span = max_fx(horiz ? inner_h : inner_w, c_cross);
+                im_fixed cross_span = max_fx(avail_cross, horiz ? d.height : d.width);
                 im_rect ar = horiz
-                    ? (im_rect){ cursor, ins.top, add_fx(cursor, c_main), add_fx(ins.top, cross_span) }
-                    : (im_rect){ ins.left, cursor, add_fx(ins.left, cross_span), add_fx(cursor, c_main) };
+                    ? (im_rect){ cursor, g_cross_off, add_fx(cursor, c_main), add_fx(g_cross_off, cross_span) }
+                    : (im_rect){ g_cross_off, cursor, add_fx(g_cross_off, cross_span), add_fx(cursor, c_main) };
                 im_layout_arrange(tree, ch, ar, scale);
             }
             cursor = add_fx(cursor, c_main);
