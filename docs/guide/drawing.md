@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,ui/tree.h,ui/layout.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/states.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
+<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,ui/tree.h,ui/layout.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/states.h,ui/host.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
 # Drawing
 
 How do you draw Windows 11's shapes and colours? Describe your canvas as a surface, then fill shapes with the brushes of the theme.
@@ -45,6 +45,10 @@ Attach an `im_layer_ctx` to an `im_surface` with `im_layer_init`, passing a call
 ## How do visual states and animations run?
 
 Initialize an `im_state_machine` with `im_states_init` for any compiled WinUI control template (`IM_TEMPLATE_BUTTON`, `IM_TEMPLATE_TOGGLE_SWITCH`, `IM_TEMPLATE_TEXT_BOX`, `IM_TEMPLATE_LIST_VIEW_ITEM_EXPANDED`, and others) and transition groups with `im_states_go_to(sm, state_name, now_ms)` using a caller-supplied millisecond clock. Cubic Bezier key splines (`im_spline_eval_ratio`), keyframe tracks (`im_anim_eval_fixed`, `im_anim_eval_color`, `im_anim_eval_object`), theme animations (`Reposition`, `FadeIn`, `FadeOut`, `DragOver`, `DragItem`, `DropTarget`), generated return transitions, and straight-ARGB `BrushTransition` fades (`im_brush_transition`) run entirely in portable integer fixed-point math. Call `im_states_set_reduced_motion(sm, true, now_ms)` to snap both active and future transitions immediately to their end state, `im_states_apply_to_tree` to project layout-affecting visual-state values onto an `im_tree` without losing underlying local values, and `im_states_draw_button` to render a Button directly from its active state machine.
+
+## How does the portable engine talk to the host?
+
+Every system-owned service (memory, monotonic clock, clipboard, pointer cursor, caret blink timing, input method, opening URLs, sound, file pickers, and screen-reader announcements) goes through a single versioned and sized `im_host` callback table (`ui/host.h`, `ui/host.c`). Hosts built for an older smaller table version are accepted by `im_host_accept`, missing callbacks are refused by exact name through `im_host_require`, and every `im_host_*` wrapper returns a defined safe result when a callback is absent. On Windows, call `im_win_host_init` (`include/impossible/win_host.h`, `src/host.c`) to fill the Tier 0/1 memory, monotonic time, and cursor callbacks bound to your `im_window`.
 
 | Call | What it does |
 | --- | --- |

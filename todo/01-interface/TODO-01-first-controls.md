@@ -254,12 +254,12 @@ The portable engine asks its host for everything the system owns: memory, time, 
 1. Write `ui/host.h`, `ui/host.c`, `include/impossible/host.h`, and `src/host.c`, register `ui/host.c` in `parts.json` and `src/host.c` in `cmake/ImpossibleSDK.cmake`, wire `samples/window/main.c` through `im_win_host_init`, and update `docs/guide/drawing.md`. Done when: `python3 tools/check_parts.py`, `python3 tools/site/build.py --check`, and `cmake --build build/linux --target hello-window` pass.
 2. Add `tests/fixtures/test_host.c` (recording host, version/size compatibility, empty-table safety, Windows host callbacks) in `CMakeLists.txt`, and wire `test-host.exe` + the planted-import negative check in `tests/test_ui.py`. Done when: `python3 tools/build.py`, `python3 tools/check_parts.py`, and `python3 tools/site/build.py --check` exit 0.
 
-- [ ] Define the table, its version and its size field in `ui/host.h`. Done when: a host built for an older version (smaller `size`) is accepted by `im_host_accept` and its missing callbacks are refused by exact name via `im_host_require` without out-of-bounds reads. Cheaper substitute: a global per service.
-- [ ] Give every callback a defined answer when it is absent in `ui/host.c`. Done when: `test-host.exe` runs every callback wrapper and `im_tree`/`im_layer_ctx`/`im_state_machine` with an empty or NULL table without crashing. Cheaper substitute: requiring all callbacks.
-- [ ] Fill the memory, time and cursor callbacks in `src/host.c` (`include/impossible/host.h`). Done when: `samples/window/main.c` runs through `im_win_host_init` and `test-host.exe` proves Tier 0/1 memory, monotonic time, and cursor callbacks. Cheaper substitute: direct calls from `ui/`.
-- [ ] Write a recording host in `tests/fixtures/test_host.c`. Done when: `test-host.exe` invokes all 10 callback domains and reads back every call and argument in exact order. Cheaper substitute: a mock per test.
-- [ ] Refuse a system call from `ui/` in `tests/test_ui.py`. Done when: a planted OS import in a temporary copy of `ui/` fails the portable freestanding build test. Cheaper substitute: review.
-- [ ] Commit: `ui: the host callback table`
+- [x] Define the table, its version and its size field in `ui/host.h`. Done when: a host built for an older version (smaller `size`) is accepted by `im_host_accept` and its missing callbacks are refused by exact name via `im_host_require` without out-of-bounds reads. Cheaper substitute: a global per service.
+- [x] Give every callback a defined answer when it is absent in `ui/host.c`. Done when: `test-host.exe` runs every callback wrapper and `im_tree`/`im_layer_ctx`/`im_state_machine` with an empty or NULL table without crashing. Cheaper substitute: requiring all callbacks.
+- [x] Fill the memory, time and cursor callbacks in `src/host.c` (`include/impossible/host.h`). Done when: `samples/window/main.c` runs through `im_win_host_init` and `test-host.exe` proves Tier 0/1 memory, monotonic time, and cursor callbacks. Cheaper substitute: direct calls from `ui/`.
+- [x] Write a recording host in `tests/fixtures/test_host.c`. Done when: `test-host.exe` invokes all 10 callback domains and reads back every call and argument in exact order. Cheaper substitute: a mock per test.
+- [x] Refuse a system call from `ui/` in `tests/test_ui.py`. Done when: a planted OS import in a temporary copy of `ui/` fails the portable freestanding build test. Cheaper substitute: review.
+- [x] Commit: `ui: the host callback table`
 
 **Test checkpoint:** `python3 tools/build.py`, `python3 tools/check_parts.py`, and `python3 tools/site/build.py --check` exit 0, and the new tests fail when their production change is reverted.
 

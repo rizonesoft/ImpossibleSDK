@@ -27,6 +27,7 @@ typedef struct im_window {
     void (*paint)(struct im_window *window, im_canvas *canvas);
     bool (*event)(struct im_window *window, const im_event *event); /* true repaints; may be NULL */
     void *native;
+    void *cursor; /* active client HCURSOR set by im_host_set_cursor; NULL means arrow */
     uint32_t *buffer;
     size_t capacity;
     bool painted; /* a frame has reached the screen */

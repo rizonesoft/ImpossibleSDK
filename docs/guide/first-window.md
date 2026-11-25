@@ -1,4 +1,4 @@
-<!-- page: group="Start here" order=2 sources=include/impossible/window.h,samples/window/main.c reviewed=2026-11-24 -->
+<!-- page: group="Start here" order=2 sources=include/impossible/window.h,include/impossible/win_host.h,samples/window/main.c reviewed=2026-11-25 -->
 # Your first window
 
 How do you open a window and paint it? Fill in one structure, give it a function that writes pixels, and run it.
@@ -32,7 +32,10 @@ Add an `event` function. Return `true` and the window is painted again. This is 
 ```c from=samples/window/main.c
 static bool event(im_window *window, const im_event *event) {
     if (event->kind != IM_POINTER_MOVE) return false;
-    *(state *)window->user = (state){event->x, event->y};
+    state *at = window->user;
+    at->x = event->x;
+    at->y = event->y;
+    im_host_set_cursor(&at->host, IM_CURSOR_HAND);
     return true;
 }
 ```

@@ -58,6 +58,13 @@ static LRESULT CALLBACK procedure(HWND handle, UINT message, WPARAM wide, LPARAM
     case WM_PAINT: paint(window, handle); return 0;
     case WM_ERASEBKGND: return 1; /* every pixel is painted in WM_PAINT */
     case WM_SIZE: InvalidateRect(handle, NULL, FALSE); return 0;
+    case WM_SETCURSOR:
+        if (LOWORD(longer) == HTCLIENT) {
+            HCURSOR active = window->cursor ? (HCURSOR)window->cursor : LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
+            SetCursor(active);
+            return TRUE;
+        }
+        return DefWindowProcW(handle, message, wide, longer);
     case WM_MOUSEMOVE: event.kind = IM_POINTER_MOVE; send(window, handle, event); return 0;
     case WM_LBUTTONDOWN: SetCapture(handle); event.kind = IM_POINTER_DOWN; send(window, handle, event); return 0;
     case WM_LBUTTONUP: ReleaseCapture(); event.kind = IM_POINTER_UP; send(window, handle, event); return 0;

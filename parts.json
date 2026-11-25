@@ -9,6 +9,7 @@
         "ui/button.c",
         "ui/clip.c",
         "ui/draw.c",
+        "ui/host.c",
         "ui/layer.c",
         "ui/layout.c",
         "ui/states.c",

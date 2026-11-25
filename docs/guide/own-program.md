@@ -1,4 +1,4 @@
-<!-- page: group="Start here" order=3 sources=tools/new_app.py,tools/app_build.py,cmake/ImpossibleSDK.cmake reviewed=2026-11-24 -->
+<!-- page: group="Start here" order=3 sources=tools/new_app.py,tools/app_build.py,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
 # A program of your own
 
 Where does your program live? In its own folder and repository, pinned to one commit of the SDK.

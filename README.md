@@ -42,7 +42,7 @@ Impossible SDK is the C kit that the programs of [Impossible OS](https://github.
 
 <!-- site:small -->
 
-- **Small.** The console sample is 3 KB and the window sample 7 KB, with nothing beside them to install.
+- **Small.** The console sample is 3 KB and the window sample 16 KB, with nothing beside them to install.
 
 <!-- /site:small -->
 - **A list, not a promise.** Every function a program may call is in [`abi/tiers.json`](abi/tiers.json). The build reads the finished program's imports and fails on anything else.

@@ -27,15 +27,16 @@ WINUI = Path(os.environ.get("IMPOSSIBLE_WINUI", Path.home() / ".cache/impossible
 
 @unittest.skipUnless((LLVM / f"clang{EXE}").is_file(), "the pinned compiler is not installed here: the build in WSL runs this")
 class Portable(unittest.TestCase):
-    def test_it_builds_as_the_os_builds_and_calls_nothing(self):
+    @staticmethod
+    def _portable_unresolved_symbols(ui_dir: Path) -> set[str]:
         allowed = {"memcpy", "memmove", "memset", "memcmp"}
         with tempfile.TemporaryDirectory() as temp:
             objects = []
-            for source in sorted((ROOT / "ui").glob("*.c")):
+            for source in sorted(ui_dir.glob("*.c")):
                 objects.append(Path(temp, source.stem + ".o"))
                 subprocess.run([str(LLVM / f"clang{EXE}"), "--target=x86_64-elf", "-std=gnu23", "-ffreestanding", "-O2",
                                 "-Wall", "-Wextra", "-Werror", "-mno-red-zone", "-mno-mmx", "-mno-sse", "-mno-sse2", "-mno-80387",
-                                "-c", str(source), "-o", str(objects[-1])], check=True, timeout=120)
+                                f"-I{ui_dir}", "-c", str(source), "-o", str(objects[-1])], check=True, timeout=120)
             defined, wanted = set(), set()
             for line in subprocess.run([str(LLVM / f"llvm-nm{EXE}"), *map(str, objects)], capture_output=True, text=True,
                                        check=True, timeout=60).stdout.splitlines():
@@ -44,7 +45,38 @@ class Portable(unittest.TestCase):
                     wanted.add(words[1])
                 elif len(words) == 3 and words[1].isupper():  # a small letter is local to its own object
                     defined.add(words[2])
-            self.assertEqual(wanted - defined - allowed, set())
+            return wanted - defined - allowed
+
+    def test_it_builds_as_the_os_builds_and_calls_nothing(self):
+        self.assertEqual(self._portable_unresolved_symbols(ROOT / "ui"), set())
+
+    def test_planted_system_call_in_ui_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ui_copy = Path(temp) / "ui"
+            shutil.copytree(ROOT / "ui", ui_copy)
+            # Clean copy compiles and has zero unresolved external symbols.
+            self.assertEqual(self._portable_unresolved_symbols(ui_copy), set())
+            # Plant a Windows/OS system call into ui/ and verify it compiles cleanly but fails symbol refusal.
+            (ui_copy / "host.c").write_text(
+                (ui_copy / "host.c").read_text(encoding="utf-8")
+                + "\nextern void ExitProcess(unsigned code);\nvoid im_planted_os_call(void) { ExitProcess(0u); }\n",
+                encoding="utf-8",
+            )
+            unresolved = self._portable_unresolved_symbols(ui_copy)
+            self.assertIn("ExitProcess", unresolved)
+
+    def test_win_host_header_compiles_with_sdk_include_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            src = Path(temp) / "consumer.c"
+            obj = Path(temp) / "consumer.o"
+            src.write_text(
+                "#include <impossible/win_host.h>\n"
+                "void check_decl(struct im_host *h, im_window *w) { im_win_host_init(h, w); }\n",
+                encoding="utf-8",
+            )
+            subprocess.run([str(LLVM / f"clang{EXE}"), "--target=x86_64-w64-mingw32", "-std=gnu23", "-ffreestanding",
+                            "-Wall", "-Wextra", "-Werror", f"-I{ROOT / 'include'}", "-c", str(src), "-o", str(obj)],
+                           check=True, timeout=60)
 
 
 @unittest.skipUnless((WINUI / "LICENSE").is_file(), f"no WinUI checkout at {WINUI}")
@@ -2881,6 +2913,9 @@ class ReferenceHarness(unittest.TestCase):
 class Drawing(unittest.TestCase):
     def test_drawing(self):
         self.assertEqual(subprocess.run([str(BUILD / "ui-tests.exe")], stdin=subprocess.DEVNULL, capture_output=True, timeout=60).returncode, 0)
+
+    def test_host_callback_table(self):
+        self.assertEqual(subprocess.run([str(BUILD / "test-host.exe")], stdin=subprocess.DEVNULL, capture_output=True, timeout=60).returncode, 0)
 
     def test_five_scale_panel_layout_matches_winui_oracle(self):
         sys.path.insert(0, str(ROOT / "tests"))
