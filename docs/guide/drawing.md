@@ -77,4 +77,4 @@ Build fixed-point vector paths with `ui/path.h` (`im_path_move_to`, `im_path_lin
 
 ## Can Impossible OS take it?
 
-Yes. Everything in `ui/` and `parts/` (including `parts/image/` and `parts/unicode/`) calls no system function and no C library. The tests compile each part alone as a kernel would and refuse any symbol beyond the four memory routines.
+Yes. Everything in `ui/` and `parts/` (including `parts/checksum/`, `parts/image/`, `parts/inflate/`, and `parts/unicode/`) calls no system function and no C library. The tests compile each part alone as a kernel would and refuse any symbol beyond the four memory routines.
