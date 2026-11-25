@@ -178,7 +178,7 @@ static void collect_node_recursive(im_dirty_list *list, im_node *node, im_fixed 
                                    bool ancestor_collapsed, bool ancestor_transformed) {
     if (!node) return;
     bool visible = !ancestor_collapsed && node->visibility != IM_VIS_COLLAPSED && !node->layout_overflowed;
-    bool transformed = ancestor_transformed || node->has_render_transform || node->has_viewbox_transform;
+    bool transformed = ancestor_transformed || node->has_render_transform || node->has_viewbox_transform || node->has_transition_transform;
     bool has_outset = node->paint_outset.left > 0 || node->paint_outset.top > 0 ||
                       node->paint_outset.right > 0 || node->paint_outset.bottom > 0;
     if (transformed || has_outset) {

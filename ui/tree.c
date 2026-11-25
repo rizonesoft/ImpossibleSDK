@@ -109,6 +109,7 @@ im_node *im_tree_create_node(im_tree *tree, im_element_kind kind, const char *na
     node->visibility = IM_VIS_VISIBLE;
     node->opacity = IM_ONE;
     node->base_opacity = IM_ONE;
+    node->transition_opacity = IM_ONE;
     node->flow_direction = IM_FLOW_LTR;
     node->use_layout_rounding = true;
     node->orientation = (kind == IM_ELEM_WRAP_PANEL) ? IM_ORIENT_HORIZONTAL : IM_ORIENT_VERTICAL;
@@ -938,6 +939,54 @@ void im_node_bind_theme_values(im_node *node, bool has_padding, enum im_value_id
 void im_node_bind_state_machine(im_node *node, void *sm) {
     if (!node) return;
     node->bound_sm = sm;
+}
+
+void im_node_set_transition_presentation(im_node *node, bool has_transform, const im_transform *transform,
+                                         im_fixed origin_x, im_fixed origin_y, im_fixed transition_opacity) {
+    if (!node) return;
+    if (transition_opacity < 0) transition_opacity = 0;
+    if (transition_opacity > IM_ONE) transition_opacity = IM_ONE;
+    node->has_transition_transform = has_transform && transform != NULL;
+    if (node->has_transition_transform) {
+        node->transition_transform = *transform;
+        node->transition_origin_x = origin_x;
+        node->transition_origin_y = origin_y;
+    } else {
+        node->transition_transform = im_transform_identity();
+        node->transition_origin_x = 0;
+        node->transition_origin_y = 0;
+    }
+    node->transition_opacity = transition_opacity;
+    im_tree_invalidate_paint(node);
+}
+
+void im_node_clear_transition_presentation(im_node *node) {
+    if (!node) return;
+    if (!node->has_transition_transform && node->transition_opacity == IM_ONE) return;
+    node->has_transition_transform = false;
+    node->transition_transform = im_transform_identity();
+    node->transition_origin_x = 0;
+    node->transition_origin_y = 0;
+    node->transition_opacity = IM_ONE;
+    im_tree_invalidate_paint(node);
+}
+
+im_fixed im_node_effective_opacity(const im_node *node) {
+    if (!node) return 0;
+    im_fixed a = node->opacity;
+    im_fixed b = node->transition_opacity;
+    if (a < 0) a = 0;
+    if (a > IM_ONE) a = IM_ONE;
+    if (b < 0) b = 0;
+    if (b > IM_ONE) b = IM_ONE;
+    return (im_fixed)(((int64_t)a * (int64_t)b + (IM_ONE / 2)) >> 16);
+}
+
+bool im_node_add_transition_decl(im_node *node, const im_transition_decl *decl) {
+    if (!node || !decl) return false;
+    if (node->transition_decl_count >= IM_NODE_MAX_TRANSITIONS) return false;
+    node->transition_decls[node->transition_decl_count++] = *decl;
+    return true;
 }
 
 im_thickness im_node_effective_padding(const im_node *node) {

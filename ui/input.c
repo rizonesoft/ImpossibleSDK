@@ -1,21 +1,40 @@
 /* Impossible UI: shared node-to-device transform mapping and pointer hit-testing. Portable. */
 #include "input.h"
 
-static bool node_local_render_transform(const im_node *node, im_transform *out) {
-    if (!node || !out) return false;
-    if (!node->has_render_transform) {
-        *out = im_transform_identity();
-        return true;
-    }
+static bool apply_origin_transform(const im_node *node, const im_transform *tr,
+                                   im_fixed origin_x, im_fixed origin_y, im_transform *out) {
     int64_t w = (int64_t)node->absolute_rect.right - node->absolute_rect.left;
     int64_t h = (int64_t)node->absolute_rect.bottom - node->absolute_rect.top;
-    im_fixed ox = (im_fixed)(((int64_t)w * (int64_t)node->render_transform_origin_x + (IM_ONE / 2)) >> 16);
-    im_fixed oy = (im_fixed)(((int64_t)h * (int64_t)node->render_transform_origin_y + (IM_ONE / 2)) >> 16);
+    im_fixed ox = (im_fixed)(((int64_t)w * (int64_t)origin_x + (IM_ONE / 2)) >> 16);
+    im_fixed oy = (im_fixed)(((int64_t)h * (int64_t)origin_y + (IM_ONE / 2)) >> 16);
     im_transform to_orig = im_transform_translate(-ox, -oy);
     im_transform from_orig = im_transform_translate(ox, oy);
     im_transform tmp;
-    if (!im_transform_multiply(&to_orig, &node->render_transform, &tmp)) return false;
+    if (!im_transform_multiply(&to_orig, tr, &tmp)) return false;
     return im_transform_multiply(&tmp, &from_orig, out);
+}
+
+static bool node_local_render_transform(const im_node *node, im_transform *out) {
+    if (!node || !out) return false;
+    im_transform acc = im_transform_identity();
+    if (node->has_render_transform) {
+        if (!apply_origin_transform(node, &node->render_transform,
+                                    node->render_transform_origin_x, node->render_transform_origin_y, &acc)) {
+            return false;
+        }
+    }
+    if (node->has_transition_transform) {
+        im_transform ttr;
+        if (!apply_origin_transform(node, &node->transition_transform,
+                                    node->transition_origin_x, node->transition_origin_y, &ttr)) {
+            return false;
+        }
+        im_transform comb;
+        if (!im_transform_multiply(&acc, &ttr, &comb)) return false;
+        acc = comb;
+    }
+    *out = acc;
+    return true;
 }
 
 static bool node_logical_transform(const im_node *node, im_transform *out) {
@@ -45,18 +64,32 @@ static bool node_logical_transform(const im_node *node, im_transform *out) {
             if (!im_transform_multiply(&vm1, &anc->viewbox_transform, &vm2)) return false;
             if (!im_transform_multiply(&vm2, &vt2, &acc)) return false;
         }
-        if (!anc->has_render_transform) continue;
-        int64_t aw = (int64_t)anc->absolute_rect.right - anc->absolute_rect.left;
-        int64_t ah = (int64_t)anc->absolute_rect.bottom - anc->absolute_rect.top;
-        int64_t aox = (int64_t)anc->absolute_rect.left + (((int64_t)aw * (int64_t)anc->render_transform_origin_x + (IM_ONE / 2)) >> 16);
-        int64_t aoy = (int64_t)anc->absolute_rect.top + (((int64_t)ah * (int64_t)anc->render_transform_origin_y + (IM_ONE / 2)) >> 16);
-        if (aox < INT32_MIN || aox > INT32_MAX || aoy < INT32_MIN || aoy > INT32_MAX) return false;
-        im_transform t1 = im_transform_translate(-(im_fixed)aox, -(im_fixed)aoy);
-        im_transform t2 = im_transform_translate((im_fixed)aox, (im_fixed)aoy);
-        im_transform m1, m2;
-        if (!im_transform_multiply(&acc, &t1, &m1)) return false;
-        if (!im_transform_multiply(&m1, &anc->render_transform, &m2)) return false;
-        if (!im_transform_multiply(&m2, &t2, &acc)) return false;
+        if (anc->has_render_transform) {
+            int64_t aw = (int64_t)anc->absolute_rect.right - anc->absolute_rect.left;
+            int64_t ah = (int64_t)anc->absolute_rect.bottom - anc->absolute_rect.top;
+            int64_t aox = (int64_t)anc->absolute_rect.left + (((int64_t)aw * (int64_t)anc->render_transform_origin_x + (IM_ONE / 2)) >> 16);
+            int64_t aoy = (int64_t)anc->absolute_rect.top + (((int64_t)ah * (int64_t)anc->render_transform_origin_y + (IM_ONE / 2)) >> 16);
+            if (aox < INT32_MIN || aox > INT32_MAX || aoy < INT32_MIN || aoy > INT32_MAX) return false;
+            im_transform t1 = im_transform_translate(-(im_fixed)aox, -(im_fixed)aoy);
+            im_transform t2 = im_transform_translate((im_fixed)aox, (im_fixed)aoy);
+            im_transform m1, m2;
+            if (!im_transform_multiply(&acc, &t1, &m1)) return false;
+            if (!im_transform_multiply(&m1, &anc->render_transform, &m2)) return false;
+            if (!im_transform_multiply(&m2, &t2, &acc)) return false;
+        }
+        if (anc->has_transition_transform) {
+            int64_t aw = (int64_t)anc->absolute_rect.right - anc->absolute_rect.left;
+            int64_t ah = (int64_t)anc->absolute_rect.bottom - anc->absolute_rect.top;
+            int64_t aox = (int64_t)anc->absolute_rect.left + (((int64_t)aw * (int64_t)anc->transition_origin_x + (IM_ONE / 2)) >> 16);
+            int64_t aoy = (int64_t)anc->absolute_rect.top + (((int64_t)ah * (int64_t)anc->transition_origin_y + (IM_ONE / 2)) >> 16);
+            if (aox < INT32_MIN || aox > INT32_MAX || aoy < INT32_MIN || aoy > INT32_MAX) return false;
+            im_transform t1 = im_transform_translate(-(im_fixed)aox, -(im_fixed)aoy);
+            im_transform t2 = im_transform_translate((im_fixed)aox, (im_fixed)aoy);
+            im_transform m1, m2;
+            if (!im_transform_multiply(&acc, &t1, &m1)) return false;
+            if (!im_transform_multiply(&m1, &anc->transition_transform, &m2)) return false;
+            if (!im_transform_multiply(&m2, &t2, &acc)) return false;
+        }
     }
 
     *out = acc;

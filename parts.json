@@ -26,6 +26,7 @@
         "ui/theme.c",
         "ui/theme_data.c",
         "ui/transform.c",
+        "ui/transition.c",
         "ui/tree.c"
       ]
     },

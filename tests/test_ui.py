@@ -4221,6 +4221,96 @@ class Drawing(unittest.TestCase):
             )
             self.assertEqual(chk.returncode, 0, chk.stdout + chk.stderr)
 
+    def test_theme_transitions_pvl_interruptions_and_compiler(self):
+        exe = BUILD / "test-transition.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("test_transition: ALL PASSED", res.stdout)
+
+        # Independent double-precision PVL oracle for all 10 transition kinds x 10 instants (within 1 fixed unit).
+        pvl_x1, pvl_y1, pvl_x2, pvl_y2 = 6554 / 65536.0, 58982 / 65536.0, 13107 / 65536.0, 1.0
+        # (move_dur, op_dur, fx, fy, fs, ts, fo, to, ox, oy)
+        specs = [
+            (367, 167, 100.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0),          # 0: Entrance
+            (167, 83, 0.0, 50.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0),            # 1: PopupOpen
+            (83, 83, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0),              # 2: PopupClose
+            (167, 167, 0.0, 0.0, 55706 / 65536.0, 1.0, 0.0, 1.0, 0.5, 0.5),# 3: Add
+            (167, 167, 0.0, 0.0, 1.0, 55706 / 65536.0, 1.0, 0.0, 0.5, 0.5),# 4: Delete
+            (367, 0, 80.0, -40.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0),           # 5: Reposition
+            (200, 0, 80.0, -40.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0),           # 6: Reorder
+            (367, 167, 40.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0),           # 7: Content
+            (367, 167, 0.0, 0.0, 60293 / 65536.0, 1.0, 0.0, 1.0, 0.5, 0.5),# 8: DrillIn
+            (367, 167, 0.0, 0.0, 70779 / 65536.0, 1.0, 0.0, 1.0, 0.5, 0.5),# 9: DrillOut
+        ]
+        trans_rows = 0
+        for line in res.stdout.splitlines():
+            if line.startswith("TRANS "):
+                toks = [int(x) for x in line.split()[1:]]
+                ki, dt, gx, gy, gsc, gop, gox, goy = toks
+                md, od, fx, fy, fs, ts, fo, to, ox, oy = specs[ki]
+                if md == 0 or dt >= md:
+                    wx, wy, wsc = 0.0, 0.0, ts
+                else:
+                    p = self._exact_bezier(pvl_x1, pvl_y1, pvl_x2, pvl_y2, dt / float(md))
+                    wx = fx + (0.0 - fx) * p
+                    wy = fy + (0.0 - fy) * p
+                    wsc = fs + (ts - fs) * p
+                if od == 0 or dt >= od:
+                    wop = to
+                else:
+                    wop = fo + (to - fo) * (dt / float(od))
+                # 16.16 progress quantization error scales linearly with travel span (<= 1.0 DIP / <= 16 fixed LSB).
+                self.assertLessEqual(abs(gx / 65536.0 - wx), 0.02, f"TRANS ki={ki} dt={dt} x")
+                self.assertLessEqual(abs(gy / 65536.0 - wy), 0.02, f"TRANS ki={ki} dt={dt} y")
+                self.assertLessEqual(abs(gsc - round(wsc * 65536.0)), 2, f"TRANS ki={ki} dt={dt} scale")
+                self.assertLessEqual(abs(gop - round(wop * 65536.0)), 1, f"TRANS ki={ki} dt={dt} opacity")
+                self.assertEqual(gox, round(ox * 65536.0))
+                self.assertEqual(goy, round(oy * 65536.0))
+                trans_rows += 1
+        self.assertEqual(trans_rows, 100)
+
+        # Verify template compiler accepts all named ThemeTransitions and refuses unknown ones with file:line.
+        sys.path.insert(0, str(ROOT / "tools" / "winui"))
+        import templates as tpl_mod
+        good_xaml = (
+            '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+            ' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">\n'
+            '  <Style x:Key="TransStyle" TargetType="ListView">\n'
+            '    <Setter Property="Template">\n'
+            '      <Setter.Value>\n'
+            '        <ControlTemplate TargetType="ListView"><ItemsPresenter /></ControlTemplate>\n'
+            '      </Setter.Value>\n'
+            '    </Setter>\n'
+            '    <Setter Property="ItemContainerTransitions">\n'
+            '      <Setter.Value>\n'
+            '        <TransitionCollection>\n'
+            '          <EntranceThemeTransition FromHorizontalOffset="60" IsStaggeringEnabled="True" />\n'
+            '          <PopupThemeTransition FromVerticalOffset="32" />\n'
+            '          <AddDeleteThemeTransition />\n'
+            '          <RepositionThemeTransition IsStaggeringEnabled="False" />\n'
+            '          <ReorderThemeTransition />\n'
+            '          <ContentThemeTransition HorizontalOffset="24" VerticalOffset="0" />\n'
+            '          <NavigationThemeTransition />\n'
+            '        </TransitionCollection>\n'
+            '      </Setter.Value>\n'
+            '    </Setter>\n'
+            '  </Style>\n'
+            '</ResourceDictionary>\n'
+        )
+        doc = tpl_mod.parse_xaml(good_xaml, "good_trans.xaml")
+        comp = tpl_mod.Compiler()
+        comp.compile_style(doc.children[0], enum_id="IM_TPL_TRANS")
+        tpl_mod.verify_fully_consumed(doc.children[0])
+        self.assertGreaterEqual(len(comp.elements), 7)
+
+        bad_xaml = good_xaml.replace("<ReorderThemeTransition />", "<BogusThemeTransition />")
+        bad_doc = tpl_mod.parse_xaml(bad_xaml, "bad_trans.xaml")
+        bad_comp = tpl_mod.Compiler()
+        with self.assertRaises(tpl_mod.TemplateError) as ctx:
+            bad_comp.compile_style(bad_doc.children[0], enum_id="IM_TPL_BAD_TRANS")
+        self.assertIn("bad_trans.xaml:", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

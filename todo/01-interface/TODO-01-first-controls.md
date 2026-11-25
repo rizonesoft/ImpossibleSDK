@@ -428,6 +428,8 @@ Light, dark, contrast and accent change at any moment, on the whole window or on
 
 ## 15. Theme transitions
 
+> **Started:** 2026-11-25T10:40Z
+
 The entrance, pop-in, add, delete, reposition, reorder, content and drill transitions that WinUI templates and lists name.
 
 **Phase:** 1
@@ -436,8 +438,9 @@ The entrance, pop-in, add, delete, reposition, reorder, content and drill transi
 
 **Build order:**
 
-1. Write `tools/winui/templates.py` with its first item. Done when: the first item below passes.
-2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+1. Extend `tools/winui/templates.py` and `ui/template.h` to compile all named WinUI theme transitions (`EntranceThemeTransition`, `PopupThemeTransition`, `AddDeleteThemeTransition`, `RepositionThemeTransition`, `ReorderThemeTransition`, `ContentThemeTransition`, `NavigationThemeTransition` with `DefaultNavigationTransitionInfo` / `DrillInNavigationTransitionInfo`) across both explicit `<TransitionCollection>` and direct `ItemContainerTransitions` / `Transitions` syntaxes, preserving per-declaration properties (`FromHorizontalOffset`, `FromVerticalOffset`, `HorizontalOffset`, `VerticalOffset`, `IsStaggeringEnabled`), and refusing unknown or non-transition children, malformed booleans, and out-of-range offsets with `file:line`. Done when: `tools/winui/templates.py` compiles every transition in pinned WinUI templates, round-trips distinct per-declaration properties, and refuses malformed declarations with `file:line`.
+2. Add distinct `transition_transform` / `transition_opacity` (never overwriting authored `RenderTransform` or `Opacity`, composed in `im_node_device_transform` for rendering, hit-testing, and dirty damage) and compiled `im_transition_decl` collections on `im_node` in `ui/tree.{h,c}`, `ui/input.c`, and `ui/dirty.c`; implement portable fixed-point theme transition runner and exit-ghost manager in `ui/transition.{h,c}` (supporting Entrance, Popup, Add, Delete with detached exit-ghost ownership safe across immediate node destruction/reinsertion/cancellation, Reposition, Reorder, Content, and Navigation DrillIn/DrillOut around center origin, connected to tree/collection operations, smooth zero-jump mid-flight retargeting/reversal, and live `reduced_motion` toggling through settlement); register `ui/transition.c` in `parts.json` and `tools/winvm/live.py` `COVERED`; and update `docs/guide/drawing.md`. Done when: `ui/transition.c` compiles freestanding with zero floats/libc, matches exact double-precision PVL curves at 10 instants within 1 unit for non-unit travel distances, preserves authored transforms/opacity, handles immediate exit destruction cleanly, survives 500 random interruptions/reversals without jumping, and settles immediately under `reduced_motion`.
+3. Add `tests/fixtures/test_transition.c` (`test-transition` in `CMakeLists.txt`) and `tests/test_ui.py` checks covering all 8 transitions, compiled collections and refusals, outgoing visual destruction/reinsertion/cancellation, authored transform+opacity composition, live reduced-motion toggle and reversal through settlement, and 500-step interruption continuity. Done when: `tools/check_parts.py`, `tools/site/build.py --check`, `tools/build.py`, and `tools/winvm/live.py --check` exit 0 and checks fail on planted reversions.
 
 - [ ] Compile the named theme transitions of the pinned source in `tools/winui/templates.py`. Done when: each name used by a pinned template has a table and an unknown one is refused. Cheaper substitute: a fade.
 - [ ] Run them in `ui/transition.c`. Done when: positions and opacities at 10 instants agree with real WinUI within 1 unit. Cheaper substitute: linear steps.

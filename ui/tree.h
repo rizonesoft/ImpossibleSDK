@@ -91,6 +91,20 @@ typedef struct im_resource_override {
     im_fixed val[4];
 } im_resource_override;
 
+/* Maximum compiled theme transition declarations stored on a single node collection. */
+#define IM_NODE_MAX_TRANSITIONS 8
+
+/* One compiled theme transition declaration attached to a control or panel (preserving per-declaration values). */
+typedef struct im_transition_decl {
+    im_element_kind kind;
+    im_fixed from_h;
+    im_fixed from_v;
+    bool has_from_h;
+    bool has_from_v;
+    bool is_staggering;
+    im_element_kind nav_info; /* IM_ELEM_DRILL_IN_NAV_INFO / SLIDE / SUPPRESS for NavigationThemeTransition */
+} im_transition_decl;
+
 /* Sibling-relative constraint slots on RelativePanel children (name-resolved at layout time). */
 typedef enum im_rel_slot {
     IM_REL_LEFT_OF = 0,
@@ -261,6 +275,15 @@ typedef struct im_node {
     im_fixed render_transform_origin_y;
     const char *render_transform_name;
     im_element_kind render_transform_kind;
+
+    /* Distinct ThemeTransition presentation transform & opacity (composed with, never overwriting, authored values). */
+    bool has_transition_transform;
+    im_transform transition_transform;
+    im_fixed transition_origin_x;
+    im_fixed transition_origin_y;
+    im_fixed transition_opacity;
+    im_transition_decl transition_decls[IM_NODE_MAX_TRANSITIONS];
+    uint32_t transition_decl_count;
 
     /* Opacity (0..IM_ONE, default IM_ONE) and compiled Path element properties. */
     im_fixed opacity;
@@ -553,6 +576,19 @@ void im_node_bind_theme_values(im_node *node, bool has_padding, enum im_value_id
 
 /* Attach an optional im_state_machine to node so im_resources_restyle_tree refreshes it in place. */
 void im_node_bind_state_machine(im_node *node, void *sm);
+
+/* Apply distinct transition presentation transform and opacity without overwriting authored RenderTransform or Opacity. */
+void im_node_set_transition_presentation(im_node *node, bool has_transform, const im_transform *transform,
+                                         im_fixed origin_x, im_fixed origin_y, im_fixed transition_opacity);
+
+/* Clear transition presentation state, restoring pure authored RenderTransform and Opacity. */
+void im_node_clear_transition_presentation(im_node *node);
+
+/* Return effective node opacity (authored opacity * transition_opacity) in [0, IM_ONE]. */
+im_fixed im_node_effective_opacity(const im_node *node);
+
+/* Append one compiled theme transition declaration to node's transition collection. Returns false if full. */
+bool im_node_add_transition_decl(im_node *node, const im_transition_decl *decl);
 
 /* Apply or clear a visual-state presentation override for Width without losing the local value. */
 void im_node_set_state_width(im_node *node, bool active, im_fixed width);

@@ -42,6 +42,7 @@ COVERED = (
     "tests/fixtures/layout_dump.c",
     "tests/fixtures/test_panels.c",
     "tests/fixtures/test_resources.c",
+    "tests/fixtures/test_transition.c",
     "tests/fixtures/control_shots.c",
     "tests/test_ui.py",
     "tools/winui/check_package.py",
@@ -79,6 +80,8 @@ COVERED = (
     "ui/theme.h",
     "ui/theme_data.c",
     "ui/theme_data.h",
+    "ui/transition.c",
+    "ui/transition.h",
     "ui/tree.c",
     "ui/tree.h",
 )

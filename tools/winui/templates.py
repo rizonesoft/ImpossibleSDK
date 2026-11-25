@@ -59,6 +59,12 @@ ELEMENT_KINDS = {
     "ContentThemeTransition": "IM_ELEM_CONTENT_THEME_TRANSITION",
     "ReorderThemeTransition": "IM_ELEM_REORDER_THEME_TRANSITION",
     "EntranceThemeTransition": "IM_ELEM_ENTRANCE_THEME_TRANSITION",
+    "PopupThemeTransition": "IM_ELEM_POPUP_THEME_TRANSITION",
+    "RepositionThemeTransition": "IM_ELEM_REPOSITION_THEME_TRANSITION",
+    "NavigationThemeTransition": "IM_ELEM_NAVIGATION_THEME_TRANSITION",
+    "DrillInNavigationTransitionInfo": "IM_ELEM_DRILL_IN_NAV_INFO",
+    "SlideNavigationTransitionInfo": "IM_ELEM_SLIDE_NAV_INFO",
+    "SuppressNavigationTransitionInfo": "IM_ELEM_SUPPRESS_NAV_INFO",
     "StackPanel": "IM_ELEM_STACK_PANEL",
     "Path": "IM_ELEM_PATH",
     "Canvas": "IM_ELEM_CANVAS",
@@ -246,7 +252,9 @@ NON_UI_ELEMENTS = {
     "RowDefinition", "ColumnDefinition", "TranslateTransform", "ScaleTransform",
     "CompositeTransform", "RectangleGeometry", "BrushTransition",
     "AddDeleteThemeTransition", "ContentThemeTransition", "ReorderThemeTransition",
-    "EntranceThemeTransition",
+    "EntranceThemeTransition", "PopupThemeTransition", "RepositionThemeTransition",
+    "NavigationThemeTransition", "DrillInNavigationTransitionInfo",
+    "SlideNavigationTransitionInfo", "SuppressNavigationTransitionInfo",
 }
 
 ELEMENT_OWN_PROPS = {
@@ -364,9 +372,15 @@ ELEMENT_OWN_PROPS = {
     "RectangleGeometry": {"Rect", "Transform"},
     "BrushTransition": {"Duration"},
     "AddDeleteThemeTransition": set(),
-    "ContentThemeTransition": set(),
+    "ContentThemeTransition": {"HorizontalOffset", "VerticalOffset"},
     "ReorderThemeTransition": set(),
     "EntranceThemeTransition": {"FromHorizontalOffset", "FromVerticalOffset", "IsStaggeringEnabled"},
+    "PopupThemeTransition": {"FromHorizontalOffset", "FromVerticalOffset"},
+    "RepositionThemeTransition": {"IsStaggeringEnabled"},
+    "NavigationThemeTransition": {"DefaultNavigationTransitionInfo"},
+    "DrillInNavigationTransitionInfo": set(),
+    "SlideNavigationTransitionInfo": {"Effect"},
+    "SuppressNavigationTransitionInfo": set(),
 }
 
 # XAML inheritance chain for validating owner-qualified Storyboard.TargetProperty paths.
@@ -406,6 +420,12 @@ ELEMENT_TYPES = {
     "ContentThemeTransition": {"ContentThemeTransition", "Transition"},
     "ReorderThemeTransition": {"ReorderThemeTransition", "Transition"},
     "EntranceThemeTransition": {"EntranceThemeTransition", "Transition"},
+    "PopupThemeTransition": {"PopupThemeTransition", "Transition"},
+    "RepositionThemeTransition": {"RepositionThemeTransition", "Transition"},
+    "NavigationThemeTransition": {"NavigationThemeTransition", "Transition"},
+    "DrillInNavigationTransitionInfo": {"DrillInNavigationTransitionInfo", "NavigationTransitionInfo"},
+    "SlideNavigationTransitionInfo": {"SlideNavigationTransitionInfo", "NavigationTransitionInfo"},
+    "SuppressNavigationTransitionInfo": {"SuppressNavigationTransitionInfo", "NavigationTransitionInfo"},
 }
 
 # Elements that declare an ordinary RuntimeNameProperty 'Name' in WinUI (all others require x:Name).
@@ -796,6 +816,12 @@ OWNER_NAMESPACE = {
     "ContentThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
     "ReorderThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
     "EntranceThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+    "PopupThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+    "RepositionThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+    "NavigationThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+    "DrillInNavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
+    "SlideNavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
+    "SuppressNavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
     "AutomationProperties": "using:Microsoft.UI.Xaml.Automation",
 }
 
