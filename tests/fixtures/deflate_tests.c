@@ -167,7 +167,6 @@ static bool stream_compress(im_deflate *st, im_deflate_format fmt, im_deflate_ef
                             bool separate_eof, uint8_t *out, size_t out_cap, size_t *out_len) {
     if (im_deflate_init(st, fmt, effort) != IM_DEFLATE_OK) return false;
     size_t ip = 0, op = 0;
-    bool sent_eof = false;
     for (;;) {
         size_t avail = in_len - ip;
         size_t give = avail > in_chunk ? in_chunk : avail;
@@ -192,8 +191,6 @@ static bool stream_compress(im_deflate *st, im_deflate_format fmt, im_deflate_ef
         }
         if (rc == IM_DEFLATE_NEED_INPUT) {
             if (ui == 0u && uo == 0u && eof_now) return false;
-            if (eof_now && ip == in_len) sent_eof = true;
-            (void)sent_eof;
             continue;
         }
         if (rc == IM_DEFLATE_OUT_FULL) {
@@ -204,19 +201,25 @@ static bool stream_compress(im_deflate *st, im_deflate_format fmt, im_deflate_ef
     }
 }
 
-/* Minimal RFC 1951 wire-level inspector for verifying exact stored blocks and (offset, len, dist) matches. */
+/* Minimal bounds-checked RFC 1951 wire-level inspector for verifying stored blocks, BFINAL, and matches. */
 typedef struct bit_reader {
     const uint8_t *p;
     size_t len;
     size_t pos;
     uint64_t buf;
     uint32_t cnt;
+    bool err;
 } bit_reader;
 
 static uint32_t br_bits(bit_reader *br, uint32_t n) {
+    if (br->err) return 0u;
     while (br->cnt < n && br->pos < br->len) {
         br->buf |= ((uint64_t)br->p[br->pos++]) << br->cnt;
         br->cnt += 8u;
+    }
+    if (br->cnt < n) {
+        br->err = true;
+        return 0u;
     }
     uint32_t v = (uint32_t)(br->buf & ((1ULL << n) - 1ULL));
     br->buf >>= n;
@@ -237,24 +240,26 @@ static void build_dec_huff(const uint8_t *lens, uint32_t n, im_inflate_huff *h) 
     uint16_t sum = 0;
     for (uint32_t i = 1u; i < 16u; ++i) { offs[i] = sum; sum = (uint16_t)(sum + h->count[i]); }
     h->num_syms = sum;
-    for (uint32_t i = 0; i < n; ++i) if (lens[i] > 0u) h->symbol[offs[lens[i]]++] = (uint16_t)i;
+    for (uint32_t i = 0; i < n; ++i) if (lens[i] > 0u && lens[i] <= 15u) h->symbol[offs[lens[i]]++] = (uint16_t)i;
 }
 
 static uint32_t br_huff(bit_reader *br, const im_inflate_huff *h) {
     uint32_t code = 0, first = 0, index = 0;
     for (uint32_t len = 1u; len <= 15u; ++len) {
         code |= br_bits(br, 1u);
+        if (br->err) return 0xFFFFu;
         uint32_t cnt = h->count[len];
         if (code < first + cnt) return h->symbol[index + (code - first)];
         index += cnt;
         first = (first + cnt) << 1;
         code <<= 1;
     }
+    br->err = true;
     return 0xFFFFu;
 }
 
-static void inspect_raw_deflate(const uint8_t *comp, size_t comp_len,
-                                uint32_t *out_stored_blocks, size_t *out_stored_bytes,
+static bool inspect_raw_deflate(const uint8_t *comp, size_t comp_len,
+                                uint32_t *out_blocks, uint32_t *out_stored_blocks, size_t *out_stored_bytes,
                                 bool *saw_m1, bool *saw_m2, bool *saw_m3) {
     static const uint16_t lb[29] = {3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
     static const uint8_t le[29] = {0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
@@ -262,22 +267,29 @@ static void inspect_raw_deflate(const uint8_t *comp, size_t comp_len,
     static const uint8_t de[30] = {0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13};
     static const uint8_t co[19] = {16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15};
 
-    bit_reader br = { comp, comp_len, 0, 0, 0 };
+    bit_reader br = { comp, comp_len, 0, 0, 0, false };
     size_t out_off = 0;
+    *out_blocks = 0;
     *out_stored_blocks = 0;
     *out_stored_bytes = 0;
     *saw_m1 = *saw_m2 = *saw_m3 = false;
 
-    for (;;) {
+    for (uint32_t blk_guard = 0; blk_guard < 4096u; ++blk_guard) {
         uint32_t bfinal = br_bits(&br, 1u);
         uint32_t btype = br_bits(&br, 2u);
+        if (br.err || btype == 3u) return false;
+        (*out_blocks)++;
         if (btype == 0u) {
             br_align(&br);
             uint32_t len = br_bits(&br, 16u);
-            (void)br_bits(&br, 16u);
+            uint32_t nlen = br_bits(&br, 16u);
+            if (br.err || ((len ^ 0xFFFFu) != nlen)) return false;
             (*out_stored_blocks)++;
             *out_stored_bytes += len;
-            for (uint32_t i = 0; i < len; ++i) (void)br_bits(&br, 8u);
+            for (uint32_t i = 0; i < len; ++i) {
+                (void)br_bits(&br, 8u);
+                if (br.err) return false;
+            }
             out_off += len;
         } else {
             im_inflate_huff lh, dh;
@@ -294,30 +306,49 @@ static void inspect_raw_deflate(const uint8_t *comp, size_t comp_len,
                 uint32_t hlit = br_bits(&br, 5u) + 257u;
                 uint32_t hdist = br_bits(&br, 5u) + 1u;
                 uint32_t hclen = br_bits(&br, 4u) + 4u;
+                if (br.err || hlit > 286u || hdist > 30u) return false;
                 uint8_t cl[19] = {0};
                 for (uint32_t i = 0; i < hclen; ++i) cl[co[i]] = (uint8_t)br_bits(&br, 3u);
+                if (br.err) return false;
                 im_inflate_huff ch;
                 build_dec_huff(cl, 19u, &ch);
-                uint32_t idx = 0;
-                while (idx < hlit + hdist) {
+                uint32_t idx = 0, total = hlit + hdist;
+                while (idx < total) {
                     uint32_t s = br_huff(&br, &ch);
-                    if (s < 16u) lens[idx++] = (uint8_t)s;
-                    else if (s == 16u) { uint32_t r = 3u + br_bits(&br, 2u); uint8_t p = lens[idx - 1u]; while (r--) lens[idx++] = p; }
-                    else if (s == 17u) { uint32_t r = 3u + br_bits(&br, 3u); while (r--) lens[idx++] = 0; }
-                    else { uint32_t r = 11u + br_bits(&br, 7u); while (r--) lens[idx++] = 0; }
+                    if (br.err || s > 18u) return false;
+                    if (s < 16u) {
+                        lens[idx++] = (uint8_t)s;
+                    } else if (s == 16u) {
+                        uint32_t r = 3u + br_bits(&br, 2u);
+                        if (br.err || idx == 0u || idx + r > total) return false;
+                        uint8_t p = lens[idx - 1u];
+                        while (r--) lens[idx++] = p;
+                    } else if (s == 17u) {
+                        uint32_t r = 3u + br_bits(&br, 3u);
+                        if (br.err || idx + r > total) return false;
+                        while (r--) lens[idx++] = 0;
+                    } else {
+                        uint32_t r = 11u + br_bits(&br, 7u);
+                        if (br.err || idx + r > total) return false;
+                        while (r--) lens[idx++] = 0;
+                    }
                 }
                 build_dec_huff(lens, hlit, &lh);
                 build_dec_huff(lens + hlit, hdist, &dh);
             }
-            for (;;) {
+            for (uint32_t sym_guard = 0; sym_guard < 131072u; ++sym_guard) {
                 uint32_t sym = br_huff(&br, &lh);
+                if (br.err || sym > 285u) return false;
                 if (sym == 256u) break;
                 if (sym < 256u) {
                     ++out_off;
                 } else {
-                    uint32_t mlen = lb[sym - 257u] + br_bits(&br, le[sym - 257u]);
+                    uint32_t lidx = sym - 257u;
+                    uint32_t mlen = lb[lidx] + br_bits(&br, le[lidx]);
                     uint32_t dsym = br_huff(&br, &dh);
+                    if (br.err || dsym >= 30u) return false;
                     uint32_t mdist = db[dsym] + br_bits(&br, de[dsym]);
+                    if (br.err) return false;
                     if (out_off == 32768u && mlen == 258u && mdist == 32768u) *saw_m1 = true;
                     if (out_off == 65274u && mlen == 258u && mdist == 32174u) *saw_m2 = true;
                     if (out_off == 65536u && mlen == 258u && mdist == 32036u) *saw_m3 = true;
@@ -325,8 +356,9 @@ static void inspect_raw_deflate(const uint8_t *comp, size_t comp_len,
                 }
             }
         }
-        if (bfinal) break;
+        if (bfinal) return !br.err;
     }
+    return false;
 }
 
 static void test_window_slide_and_boundary_determinism(void) {
@@ -336,16 +368,38 @@ static void test_window_slide_and_boundary_determinism(void) {
         g_big_in[i] = (uint8_t)(xorshift32(&rng) & 0xFFu);
     }
 
+    /* Verify exact 32,000-byte incompressible boundary produces ONE single BFINAL=1 stored block
+       (not a non-final stored block + empty final block) under both one-shot and separate-EOF! */
+    {
+        size_t l_one = 0, l_sep = 0;
+        uint32_t blks = 0, sblks = 0;
+        size_t sbytes = 0;
+        bool m1 = false, m2 = false, m3 = false;
+        im_deflate_status rc_b = im_deflate_all(&g_def1, IM_DEFLATE_RAW, IM_DEFLATE_BALANCED,
+                                                g_big_in, 32000u, g_big_out1, sizeof(g_big_out1), &l_one);
+        bool ok_b = (rc_b == IM_DEFLATE_OK) &&
+                    inspect_raw_deflate(g_big_out1, l_one, &blks, &sblks, &sbytes, &m1, &m2, &m3);
+        check(ok_b && blks == 1u && sblks == 1u && sbytes == 32000u && l_one == 32005u,
+              "32000B incompressible boundary emits single BFINAL=1 stored block (32005 bytes)");
+        bool ok_s = stream_compress(&g_def2, IM_DEFLATE_RAW, IM_DEFLATE_BALANCED,
+                                    g_big_in, 32000u, 113u, 1u, true,
+                                    g_big_out2, sizeof(g_big_out2), &l_sep);
+        bool eq_b = ok_s && (l_one == l_sep);
+        for (size_t i = 0; eq_b && i < l_one; ++i) if (g_big_out1[i] != g_big_out2[i]) eq_b = false;
+        check(eq_b, "32000B incompressible separate-EOF matches single BFINAL=1 stored block");
+    }
+
     /* Verify pure incompressible 96 KiB stream emits multiple stored blocks (BTYPE==0) covering all 98,304 bytes
        including across the 65,274 window slide, and decodes back byte-for-byte! */
     size_t raw_rnd_len = 0, dec_rnd_len = 0;
     im_deflate_status rc0 = im_deflate_all(&g_def1, IM_DEFLATE_RAW, IM_DEFLATE_BALANCED,
                                            g_big_in, sizeof(g_big_in), g_big_out1, sizeof(g_big_out1), &raw_rnd_len);
-    uint32_t stored_blks = 0;
+    uint32_t total_blks = 0, stored_blks = 0;
     size_t stored_bytes = 0;
     bool sm1 = false, sm2 = false, sm3 = false;
-    inspect_raw_deflate(g_big_out1, raw_rnd_len, &stored_blks, &stored_bytes, &sm1, &sm2, &sm3);
-    check(rc0 == IM_DEFLATE_OK && stored_blks >= 3u && stored_bytes == sizeof(g_big_in),
+    bool ok_rnd = (rc0 == IM_DEFLATE_OK) &&
+                  inspect_raw_deflate(g_big_out1, raw_rnd_len, &total_blks, &stored_blks, &stored_bytes, &sm1, &sm2, &sm3);
+    check(ok_rnd && stored_blks >= 3u && stored_bytes == sizeof(g_big_in),
           "incompressible 96KiB stream uses stored blocks across slides covering all 98304 bytes");
     im_inflate_status irc0 = im_inflate_all(IM_INFLATE_RAW, g_big_out1, raw_rnd_len,
                                             g_big_dec, sizeof(g_big_dec), false, 0, &dec_rnd_len);
@@ -354,7 +408,7 @@ static void test_window_slide_and_boundary_determinism(void) {
     check(rnd_eq, "incompressible multi-block stored stream decodes byte-for-byte");
 
     /* Now build a compressible 96 KiB buffer (values in 0..63 so Huffman always beats stored) with
-       unique 258-byte high-bit markers planted at dist==32768 (32768 <- 0), slide boundary (65274 <- 33000),
+       unique 258-byte high-bit markers planted at dist==32768 (32768 <- 0), slide boundary (65274 <- 33100),
        and post-slide (65536 <- 33500), and verify wire-level RFC 1951 tokens emit exact len=258 at all 3! */
     for (size_t i = 0; i < sizeof(g_big_in); ++i) {
         g_big_in[i] = (uint8_t)(xorshift32(&rng) & 0x3Fu);
@@ -375,10 +429,11 @@ static void test_window_slide_and_boundary_determinism(void) {
     size_t raw_planted_len = 0;
     rc0 = im_deflate_all(&g_def1, IM_DEFLATE_RAW, IM_DEFLATE_BALANCED,
                          g_big_in, sizeof(g_big_in), g_big_out1, sizeof(g_big_out1), &raw_planted_len);
-    inspect_raw_deflate(g_big_out1, raw_planted_len, &stored_blks, &stored_bytes, &sm1, &sm2, &sm3);
-    check(rc0 == IM_DEFLATE_OK && sm1, "wire-level token emits exact len=258 at dist=32768 (offset 32768)");
-    check(rc0 == IM_DEFLATE_OK && sm2, "wire-level token emits exact len=258 at slide-boundary 65274");
-    check(rc0 == IM_DEFLATE_OK && sm3, "wire-level token emits exact len=258 at post-slide 65536");
+    bool ok_pl = (rc0 == IM_DEFLATE_OK) &&
+                 inspect_raw_deflate(g_big_out1, raw_planted_len, &total_blks, &stored_blks, &stored_bytes, &sm1, &sm2, &sm3);
+    check(ok_pl && sm1, "wire-level token emits exact len=258 at dist=32768 (offset 32768)");
+    check(ok_pl && sm2, "wire-level token emits exact len=258 at slide-boundary 65274");
+    check(ok_pl && sm3, "wire-level token emits exact len=258 at post-slide 65536");
 
     for (int e = 0; e < 3; ++e) {
         size_t len1 = 0, len2 = 0, dec_len = 0;

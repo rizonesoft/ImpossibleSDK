@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/accent.h,ui/resources.h,ui/shadow.h,ui/material.h,ui/button.h,ui/tree.h,ui/layout.h,ui/panels.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/transition.h,ui/states.h,ui/host.h,ui/dirty.h,ui/frame.h,ui/transform.h,ui/picture.h,ui/input.h,ui/path.h,ui/gradient.h,ui/font.h,ui/text.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
+<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/accent.h,ui/resources.h,ui/shadow.h,ui/material.h,ui/button.h,ui/tree.h,ui/layout.h,ui/panels.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/transition.h,ui/states.h,ui/host.h,ui/dirty.h,ui/frame.h,ui/transform.h,ui/picture.h,ui/input.h,ui/path.h,ui/gradient.h,ui/font.h,ui/text.h,parts/deflate/deflate.h,parts/deflate/deflate.c,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
 # Drawing
 
 How do you draw Windows 11's shapes and colours? Describe your canvas as a surface, then fill shapes with the brushes of the theme.

@@ -36,7 +36,6 @@ typedef struct im_deflate {
     im_deflate_effort effort;
     uint32_t state;
     bool eof_latched;
-    bool hdr_sent;
 
     /* Running wrapper checksum (Adler-32 for zlib, CRC-32 for gzip) and input byte count. */
     uint32_t check;

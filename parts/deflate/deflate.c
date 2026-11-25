@@ -159,7 +159,7 @@ static void heap_sift_down(im_deflate *st, uint32_t size, uint32_t k) {
     st->huff_heap[k] = v;
 }
 
-/* Build optimal length-limited canonical Huffman code lengths (<= max_bits) using st scratch. */
+/* Build valid length-limited canonical Huffman code lengths (<= max_bits) via Kraft repair using st scratch. */
 static void build_huff_lengths(im_deflate *st, const uint32_t *freq, uint32_t n_syms,
                                uint32_t max_bits, uint8_t *lens) {
     for (uint32_t i = 0; i < n_syms; ++i) lens[i] = 0;
@@ -637,7 +637,10 @@ static uint32_t find_best_match(const im_deflate *st, uint32_t pos, uint32_t cha
                 scan_end1 = cur[best_len - 1u];
             }
         }
-        cand_p1 = st->prev[cand & IM_DEF_WIN_MASK];
+        if (dist == IM_DEF_WIN_SIZE) break;
+        uint32_t next_p1 = st->prev[cand & IM_DEF_WIN_MASK];
+        if (next_p1 >= cand_p1) break;
+        cand_p1 = next_p1;
         --chain_limit;
     }
 
@@ -754,7 +757,6 @@ im_deflate_status im_deflate_init(im_deflate *st, im_deflate_format fmt, im_defl
     st->effort = effort;
     st->state = ST_HEADER;
     st->eof_latched = false;
-    st->hdr_sent = false;
     st->check = (fmt == IM_DEFLATE_ZLIB) ? im_adler32_init() : im_crc32_init();
     st->total_in = 0;
     st->bitbuf = 0;
@@ -803,7 +805,6 @@ im_deflate_status im_deflate_step(im_deflate *st,
                 if (out_used) *out_used = out_pos;
                 return IM_DEFLATE_OUT_FULL;
             }
-            st->hdr_sent = true;
             st->state = ST_PROCESS;
             continue;
         }
