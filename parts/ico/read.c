@@ -561,18 +561,26 @@ void im_ico_composite_onto(uint8_t *dst_pixels,
                 write_px(dp, dst_fmt, sr_c, sg_c, sb_c, 255u);
             } else if (sa_c > 0u) {
                 uint32_t sa = (uint32_t)sa_c;
-                uint32_t da = (uint32_t)da_c;
                 uint32_t ia = 255u - sa;
-                uint32_t out_a_255 = sa * 255u + da * ia;
-                if (out_a_255 == 0u) {
-                    write_px(dp, dst_fmt, 0u, 0u, 0u, 0u);
+                if (da_c == 255u) {
+                    /* Exact Windows GDI DrawIconEx / GdiAlphaBlend opaque-destination formula. */
+                    uint8_t or_c = (uint8_t)((sr_c * sa) / 255u + (dr_c * ia) / 255u);
+                    uint8_t og_c = (uint8_t)((sg_c * sa) / 255u + (dg_c * ia) / 255u);
+                    uint8_t ob_c = (uint8_t)((sb_c * sa) / 255u + (db_c * ia) / 255u);
+                    write_px(dp, dst_fmt, or_c, og_c, ob_c, 255u);
                 } else {
-                    uint32_t half = out_a_255 / 2u;
-                    uint8_t or_c = (uint8_t)((sr_c * sa * 255u + dr_c * da * ia + half) / out_a_255);
-                    uint8_t og_c = (uint8_t)((sg_c * sa * 255u + dg_c * da * ia + half) / out_a_255);
-                    uint8_t ob_c = (uint8_t)((sb_c * sa * 255u + db_c * da * ia + half) / out_a_255);
-                    uint8_t oa_c = (uint8_t)((out_a_255 + 127u) / 255u);
-                    write_px(dp, dst_fmt, or_c, og_c, ob_c, oa_c);
+                    uint32_t da = (uint32_t)da_c;
+                    uint32_t out_a_255 = sa * 255u + da * ia;
+                    if (out_a_255 == 0u) {
+                        write_px(dp, dst_fmt, 0u, 0u, 0u, 0u);
+                    } else {
+                        uint32_t half = out_a_255 / 2u;
+                        uint8_t or_c = (uint8_t)((sr_c * sa * 255u + dr_c * da * ia + half) / out_a_255);
+                        uint8_t og_c = (uint8_t)((sg_c * sa * 255u + dg_c * da * ia + half) / out_a_255);
+                        uint8_t ob_c = (uint8_t)((sb_c * sa * 255u + db_c * da * ia + half) / out_a_255);
+                        uint8_t oa_c = (uint8_t)((out_a_255 + 127u) / 255u);
+                        write_px(dp, dst_fmt, or_c, og_c, ob_c, oa_c);
+                    }
                 }
             }
         }
@@ -615,8 +623,8 @@ int32_t im_ico_choose_entry(const im_ico_entry_info *entries,
 
         uint32_t ebpp = entry_dir_bpp(&entries[i]);
         /* Prefer entries at or below display depth (Microsoft LookupIconIdFromDirectoryEx criteria):
-           exceeding want_bpp incurs a steeper penalty than falling below it. */
-        uint64_t cdiff = (ebpp > want_bpp) ? ((uint64_t)(ebpp - want_bpp) * 4ULL + 1ULL) : ((uint64_t)(want_bpp - ebpp) * 2ULL);
+           exceeding want_bpp incurs a steep penalty so any entry <= want_bpp wins on equal size. */
+        uint64_t cdiff = (ebpp > want_bpp) ? (1000ULL + (uint64_t)(ebpp - want_bpp) * 2ULL) : ((uint64_t)(want_bpp - ebpp) * 2ULL);
         uint64_t score = sdiff + cdiff;
 
         if (score < best_score || (score == best_score && cdiff < best_color_diff)) {

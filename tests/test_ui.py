@@ -5493,7 +5493,7 @@ elif cmd == "load_verify":
             self.assertEqual(cp.returncode, 0, f"Windows oracle failed:\n{cp.stderr}")
             return json.loads(cp.stdout)
 
-        def assert_rendered_close(sdk_bgra: bytes, win_bgra: bytes, label: str, max_diff: int = 1):
+        def assert_rendered_close(sdk_bgra: bytes, win_bgra: bytes, label: str, max_diff: int = 0):
             self.assertEqual(len(sdk_bgra), len(win_bgra), f"{label}: byte length mismatch")
             # Compare RGB channels (GDI DrawIconEx leaves dest alpha as 0 or 255 depending on 24/32-bpp path)
             worst = 0
@@ -5588,25 +5588,39 @@ elif cmd == "load_verify":
                 (False, [(32, 32, 0, 1, 1), (48, 48, 0, 1, 1), (64, 64, 0, 1, 1), (96, 96, 0, 1, 1), (128, 128, 0, 1, 1)]),
             ]
             scales = [100, 125, 150, 175, 200, 250, 300]
-            logical_sizes = [(12, 12), (16, 16), (20, 20), (24, 24), (28, 28), (32, 32), (40, 40), (48, 48), (64, 64), (32, 16), (16, 32), (96, 96), (128, 128), (192, 192), (256, 256)]
             lookup_cases = []
-            for ds_idx in range(100):
+            seen_targets = set()
+            # Generate 100 strictly distinct (tw, th) target sizes across all 4 directories and scales.
+            cand_pairs = []
+            for base in range(8, 220):
+                cand_pairs.append((base, base))
+            for rw, rh in [(16, 12), (24, 16), (32, 16), (16, 32), (48, 24), (24, 48), (64, 32), (32, 64), (96, 48), (48, 96)]:
+                cand_pairs.append((rw, rh))
+            for idx_p, (lw, lh) in enumerate(cand_pairs):
+                if len(lookup_cases) >= 100:
+                    break
+                ds_idx = len(lookup_cases)
                 is_icon, ents = dir_sets[ds_idx % len(dir_sets)]
-                lw, lh = logical_sizes[(ds_idx // len(dir_sets)) % len(logical_sizes)]
                 if not is_icon and lw != lh:
-                    lh = lw
+                    continue
                 sc = scales[ds_idx % len(scales)]
                 tw = max(1, (lw * sc + 50) // 100)
                 th = max(1, (lh * sc + 50) // 100)
+                if (tw, th) in seen_targets:
+                    continue
+                seen_targets.add((tw, th))
                 lookup_cases.append({"is_icon": is_icon, "entries": ents, "lw": lw, "lh": lh, "sc": sc, "tw": tw, "th": th})
+            self.assertEqual(len(lookup_cases), 100)
+            self.assertEqual(len(seen_targets), 100, "chooser oracle must exercise 100 strictly distinct target sizes")
             win_choices = call_win_oracle({"cmd": "lookup100", "cases": lookup_cases})
             self.assertEqual(len(win_choices), 100)
             for i_c, case in enumerate(lookup_cases):
                 sdk_c = sdk_choose_scaled(case["entries"], case["lw"], case["lh"], case["sc"], sbpp=32)
                 self.assertEqual(sdk_c, win_choices[i_c], f"chooser case {i_c} ({case['lw']}x{case['lh']}@{case['sc']}%): sdk={sdk_c} != win={win_choices[i_c]}")
-            # Also verify non-32 screen_bpp preference: exact 8-bpp match, and 16-bpp fallback prefers 8-bpp over 24-bpp.
+            # Also verify non-32 screen_bpp preference: exact 8-bpp, 16-bpp (8 over 24), and 24-bpp (4 over 32).
             self.assertEqual(sdk_choose_scaled([(32, 32, 0, 1, 32), (32, 32, 0, 1, 8)], 32, 32, 100, sbpp=8), 1)
             self.assertEqual(sdk_choose_scaled([(32, 32, 0, 1, 24), (32, 32, 0, 1, 8)], 32, 32, 100, sbpp=16), 1)
+            self.assertEqual(sdk_choose_scaled([(32, 32, 0, 1, 4), (32, 32, 0, 1, 32)], 32, 32, 100, sbpp=24), 0)
 
             # 6. Writer verification: multi-size ICO (distinct patterns per size, DIB + 256x256 opaque low-color PNG +
             #    256x256 translucent PNG with color-type-6 8-bit IHDR), multi-entry CUR with distinct hotspots,
@@ -5688,9 +5702,9 @@ elif cmd == "load_verify":
                     for i in range(0, len(src_rgba), 4):
                         sr, sg, sb, sa = src_rgba[i], src_rgba[i + 1], src_rgba[i + 2], src_rgba[i + 3]
                         ia = 255 - sa
-                        out[i + 0] = (sb * sa + bg[2] * ia + 127) // 255
-                        out[i + 1] = (sg * sa + bg[1] * ia + 127) // 255
-                        out[i + 2] = (sr * sa + bg[0] * ia + 127) // 255
+                        out[i + 0] = (sb * sa) // 255 + (bg[2] * ia) // 255
+                        out[i + 1] = (sg * sa) // 255 + (bg[1] * ia) // 255
+                        out[i + 2] = (sr * sa) // 255 + (bg[0] * ia) // 255
                         out[i + 3] = 255
                     return bytes(out)
 
