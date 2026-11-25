@@ -73,6 +73,16 @@
       ]
     },
     {
+      "name": "deflate",
+      "folder": "parts/deflate",
+      "depends": [
+        "checksum"
+      ],
+      "sources": [
+        "parts/deflate/deflate.c"
+      ]
+    },
+    {
       "name": "inflate",
       "folder": "parts/inflate",
       "depends": [

@@ -65,6 +65,7 @@ Impossible OS keeps its own element tree, layout, states, input and automation e
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 
 ## 2. Deflate
+> **Started:** 2026-11-25T15:18Z
 
 Deflate and the zlib and gzip wrappers. Zip, Paint, Stillframe, Icon Editor, the package builder and PNG writing need it.
 
@@ -77,11 +78,11 @@ Deflate and the zlib and gzip wrappers. Zip, Paint, Stillframe, Icon Editor, the
 1. Write `parts/deflate/deflate.c` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_parts.py`. Done when: the checks fail on a planted fault.
 
-- [ ] Deflate at three efforts in `parts/deflate/deflate.c`. Done when: 1,000 random inputs read equal in Python's zlib and zipfile. Cheaper substitute: stored.
-- [ ] Take input and give output in any pieces in `parts/deflate/deflate.c`. Done when: random cuts give the same bytes. Cheaper substitute: whole buffers.
-- [ ] Keep to a fixed memory limit in `parts/deflate/deflate.c`. Done when: 10 GB streams through under 1 MB. Cheaper substitute: growing.
-- [ ] Reach within 3 percent of zlib's size at its levels 1, 6 and 9 in `parts/deflate/deflate.c`. Done when: `tests/test_parts.py` measures a pinned corpus. Cheaper substitute: any size.
-- [ ] Commit: `parts: deflate`
+- [x] Deflate at three efforts in `parts/deflate/deflate.c`. Done when: 1,000 random inputs read equal in Python's zlib and zipfile. Cheaper substitute: stored.
+- [x] Take input and give output in any pieces in `parts/deflate/deflate.c`. Done when: random cuts give the same bytes. Cheaper substitute: whole buffers.
+- [x] Keep to a fixed memory limit in `parts/deflate/deflate.c`. Done when: 10 GB streams through under 1 MB. Cheaper substitute: growing.
+- [x] Reach within 3 percent of zlib's size at its levels 1, 6 and 9 in `parts/deflate/deflate.c`. Done when: `tests/test_parts.py` measures a pinned corpus. Cheaper substitute: any size.
+- [x] Commit: `parts: deflate`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 

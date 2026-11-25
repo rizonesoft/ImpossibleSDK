@@ -1,0 +1,46 @@
+{
+  "files": {
+    "prose.txt": {
+      "size": 31249,
+      "sha256": "1843225378e4a7e886486210f7f9a4feb92d72f6afba394e7f0948e1d9a93a24",
+      "zlib_l1": 13890,
+      "zlib_l6": 12415,
+      "zlib_l9": 12404
+    },
+    "c_source.c": {
+      "size": 52062,
+      "sha256": "97f91a4834243bf2e709f852791f50f43b83f81375360e266afe650f6f83da74",
+      "zlib_l1": 12625,
+      "zlib_l6": 9882,
+      "zlib_l9": 9725
+    },
+    "json_data.json": {
+      "size": 63179,
+      "sha256": "23d3f49bad26e0b1814a53e3ded28fa496f58b57a1245d14f78feede7f9a513a",
+      "zlib_l1": 18384,
+      "zlib_l6": 16695,
+      "zlib_l9": 16537
+    },
+    "markup.xml": {
+      "size": 65536,
+      "sha256": "bde9993518957e3fd40dcc5aafb48e5786af488fc3293d7fea472d85c3d3ff49",
+      "zlib_l1": 6236,
+      "zlib_l6": 4152,
+      "zlib_l9": 3621
+    },
+    "binary_table.bin": {
+      "size": 65536,
+      "sha256": "8e8069d2835d8c912f1c30dfae7bf3ae98cff6324ca2a50b062fab31dbbfcdb9",
+      "zlib_l1": 15582,
+      "zlib_l6": 13080,
+      "zlib_l9": 12481
+    },
+    "mixed_entropy.bin": {
+      "size": 47364,
+      "sha256": "f14526ccaee454e1809679c0ed13cd1d6c22d15c8dd9147f1f169a7d06a9d2eb",
+      "zlib_l1": 25080,
+      "zlib_l6": 24945,
+      "zlib_l9": 24930
+    }
+  }
+}

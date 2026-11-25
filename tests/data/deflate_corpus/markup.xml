@@ -1,0 +1,1559 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+  <Style x:Key="ButtonStyle000" TargetType="Button">
+    <Setter Property="MinWidth" Value="32" />
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle001" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="39" />
+    <Setter Property="MinHeight" Value="29" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="CheckBoxStyle002" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="46" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="RadioButtonStyle003" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="53" />
+    <Setter Property="MinHeight" Value="39" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="SliderStyle004" TargetType="Slider">
+    <Setter Property="MinWidth" Value="60" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ComboBoxStyle005" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="67" />
+    <Setter Property="MinHeight" Value="49" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="TextBoxStyle006" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="74" />
+    <Setter Property="MinHeight" Value="54" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle007" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="81" />
+    <Setter Property="MinHeight" Value="59" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ButtonStyle008" TargetType="Button">
+    <Setter Property="MinWidth" Value="88" />
+    <Setter Property="MinHeight" Value="64" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle009" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="95" />
+    <Setter Property="MinHeight" Value="69" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="CheckBoxStyle010" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="102" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="RadioButtonStyle011" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="109" />
+    <Setter Property="MinHeight" Value="31" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="SliderStyle012" TargetType="Slider">
+    <Setter Property="MinWidth" Value="116" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ComboBoxStyle013" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="123" />
+    <Setter Property="MinHeight" Value="41" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="TextBoxStyle014" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="130" />
+    <Setter Property="MinHeight" Value="46" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle015" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="137" />
+    <Setter Property="MinHeight" Value="51" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ButtonStyle016" TargetType="Button">
+    <Setter Property="MinWidth" Value="144" />
+    <Setter Property="MinHeight" Value="56" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle017" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="151" />
+    <Setter Property="MinHeight" Value="61" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="CheckBoxStyle018" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="158" />
+    <Setter Property="MinHeight" Value="66" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="RadioButtonStyle019" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="165" />
+    <Setter Property="MinHeight" Value="71" />
+    <Setter Property="Padding" Value="7,3,7,3" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="SliderStyle020" TargetType="Slider">
+    <Setter Property="MinWidth" Value="172" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Padding" Value="8,4,8,4" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ComboBoxStyle021" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="179" />
+    <Setter Property="MinHeight" Value="33" />
+    <Setter Property="Padding" Value="9,5,9,5" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="TextBoxStyle022" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="186" />
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="Padding" Value="10,6,10,6" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle023" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="33" />
+    <Setter Property="MinHeight" Value="43" />
+    <Setter Property="Padding" Value="11,7,11,7" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ButtonStyle024" TargetType="Button">
+    <Setter Property="MinWidth" Value="40" />
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle025" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="47" />
+    <Setter Property="MinHeight" Value="53" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="CheckBoxStyle026" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="54" />
+    <Setter Property="MinHeight" Value="58" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="RadioButtonStyle027" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="61" />
+    <Setter Property="MinHeight" Value="63" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="SliderStyle028" TargetType="Slider">
+    <Setter Property="MinWidth" Value="68" />
+    <Setter Property="MinHeight" Value="68" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ComboBoxStyle029" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="75" />
+    <Setter Property="MinHeight" Value="25" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="TextBoxStyle030" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="82" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle031" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="89" />
+    <Setter Property="MinHeight" Value="35" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ButtonStyle032" TargetType="Button">
+    <Setter Property="MinWidth" Value="96" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle033" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="103" />
+    <Setter Property="MinHeight" Value="45" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="CheckBoxStyle034" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="110" />
+    <Setter Property="MinHeight" Value="50" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="RadioButtonStyle035" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="117" />
+    <Setter Property="MinHeight" Value="55" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="SliderStyle036" TargetType="Slider">
+    <Setter Property="MinWidth" Value="124" />
+    <Setter Property="MinHeight" Value="60" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ComboBoxStyle037" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="131" />
+    <Setter Property="MinHeight" Value="65" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="TextBoxStyle038" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="138" />
+    <Setter Property="MinHeight" Value="70" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle039" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="145" />
+    <Setter Property="MinHeight" Value="27" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ButtonStyle040" TargetType="Button">
+    <Setter Property="MinWidth" Value="152" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle041" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="159" />
+    <Setter Property="MinHeight" Value="37" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="CheckBoxStyle042" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="166" />
+    <Setter Property="MinHeight" Value="42" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="RadioButtonStyle043" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="173" />
+    <Setter Property="MinHeight" Value="47" />
+    <Setter Property="Padding" Value="7,3,7,3" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="SliderStyle044" TargetType="Slider">
+    <Setter Property="MinWidth" Value="180" />
+    <Setter Property="MinHeight" Value="52" />
+    <Setter Property="Padding" Value="8,4,8,4" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ComboBoxStyle045" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="187" />
+    <Setter Property="MinHeight" Value="57" />
+    <Setter Property="Padding" Value="9,5,9,5" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="TextBoxStyle046" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="34" />
+    <Setter Property="MinHeight" Value="62" />
+    <Setter Property="Padding" Value="10,6,10,6" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle047" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="41" />
+    <Setter Property="MinHeight" Value="67" />
+    <Setter Property="Padding" Value="11,7,11,7" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ButtonStyle048" TargetType="Button">
+    <Setter Property="MinWidth" Value="48" />
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle049" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="55" />
+    <Setter Property="MinHeight" Value="29" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="CheckBoxStyle050" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="62" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="RadioButtonStyle051" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="69" />
+    <Setter Property="MinHeight" Value="39" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="SliderStyle052" TargetType="Slider">
+    <Setter Property="MinWidth" Value="76" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ComboBoxStyle053" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="83" />
+    <Setter Property="MinHeight" Value="49" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="TextBoxStyle054" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="90" />
+    <Setter Property="MinHeight" Value="54" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle055" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="97" />
+    <Setter Property="MinHeight" Value="59" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ButtonStyle056" TargetType="Button">
+    <Setter Property="MinWidth" Value="104" />
+    <Setter Property="MinHeight" Value="64" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle057" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="111" />
+    <Setter Property="MinHeight" Value="69" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="CheckBoxStyle058" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="118" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="RadioButtonStyle059" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="125" />
+    <Setter Property="MinHeight" Value="31" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="SliderStyle060" TargetType="Slider">
+    <Setter Property="MinWidth" Value="132" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ComboBoxStyle061" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="139" />
+    <Setter Property="MinHeight" Value="41" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="TextBoxStyle062" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="146" />
+    <Setter Property="MinHeight" Value="46" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle063" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="153" />
+    <Setter Property="MinHeight" Value="51" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ButtonStyle064" TargetType="Button">
+    <Setter Property="MinWidth" Value="160" />
+    <Setter Property="MinHeight" Value="56" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle065" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="167" />
+    <Setter Property="MinHeight" Value="61" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="CheckBoxStyle066" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="174" />
+    <Setter Property="MinHeight" Value="66" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="RadioButtonStyle067" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="181" />
+    <Setter Property="MinHeight" Value="71" />
+    <Setter Property="Padding" Value="7,3,7,3" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="SliderStyle068" TargetType="Slider">
+    <Setter Property="MinWidth" Value="188" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Padding" Value="8,4,8,4" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ComboBoxStyle069" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="35" />
+    <Setter Property="MinHeight" Value="33" />
+    <Setter Property="Padding" Value="9,5,9,5" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="TextBoxStyle070" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="42" />
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="Padding" Value="10,6,10,6" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle071" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="49" />
+    <Setter Property="MinHeight" Value="43" />
+    <Setter Property="Padding" Value="11,7,11,7" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ButtonStyle072" TargetType="Button">
+    <Setter Property="MinWidth" Value="56" />
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle073" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="63" />
+    <Setter Property="MinHeight" Value="53" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="CheckBoxStyle074" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="70" />
+    <Setter Property="MinHeight" Value="58" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="RadioButtonStyle075" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="77" />
+    <Setter Property="MinHeight" Value="63" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="SliderStyle076" TargetType="Slider">
+    <Setter Property="MinWidth" Value="84" />
+    <Setter Property="MinHeight" Value="68" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ComboBoxStyle077" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="91" />
+    <Setter Property="MinHeight" Value="25" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="TextBoxStyle078" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="98" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle079" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="105" />
+    <Setter Property="MinHeight" Value="35" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ButtonStyle080" TargetType="Button">
+    <Setter Property="MinWidth" Value="112" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle081" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="119" />
+    <Setter Property="MinHeight" Value="45" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="CheckBoxStyle082" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="126" />
+    <Setter Property="MinHeight" Value="50" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="RadioButtonStyle083" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="133" />
+    <Setter Property="MinHeight" Value="55" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="SliderStyle084" TargetType="Slider">
+    <Setter Property="MinWidth" Value="140" />
+    <Setter Property="MinHeight" Value="60" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ComboBoxStyle085" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="147" />
+    <Setter Property="MinHeight" Value="65" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="TextBoxStyle086" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="154" />
+    <Setter Property="MinHeight" Value="70" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle087" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="161" />
+    <Setter Property="MinHeight" Value="27" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ButtonStyle088" TargetType="Button">
+    <Setter Property="MinWidth" Value="168" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle089" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="175" />
+    <Setter Property="MinHeight" Value="37" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="CheckBoxStyle090" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="182" />
+    <Setter Property="MinHeight" Value="42" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="RadioButtonStyle091" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="189" />
+    <Setter Property="MinHeight" Value="47" />
+    <Setter Property="Padding" Value="7,3,7,3" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="SliderStyle092" TargetType="Slider">
+    <Setter Property="MinWidth" Value="36" />
+    <Setter Property="MinHeight" Value="52" />
+    <Setter Property="Padding" Value="8,4,8,4" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ComboBoxStyle093" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="43" />
+    <Setter Property="MinHeight" Value="57" />
+    <Setter Property="Padding" Value="9,5,9,5" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="TextBoxStyle094" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="50" />
+    <Setter Property="MinHeight" Value="62" />
+    <Setter Property="Padding" Value="10,6,10,6" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle095" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="57" />
+    <Setter Property="MinHeight" Value="67" />
+    <Setter Property="Padding" Value="11,7,11,7" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ButtonStyle096" TargetType="Button">
+    <Setter Property="MinWidth" Value="64" />
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle097" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="71" />
+    <Setter Property="MinHeight" Value="29" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="CheckBoxStyle098" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="78" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="RadioButtonStyle099" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="85" />
+    <Setter Property="MinHeight" Value="39" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="SliderStyle100" TargetType="Slider">
+    <Setter Property="MinWidth" Value="92" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ComboBoxStyle101" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="99" />
+    <Setter Property="MinHeight" Value="49" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="TextBoxStyle102" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="106" />
+    <Setter Property="MinHeight" Value="54" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle103" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="113" />
+    <Setter Property="MinHeight" Value="59" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ButtonStyle104" TargetType="Button">
+    <Setter Property="MinWidth" Value="120" />
+    <Setter Property="MinHeight" Value="64" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle105" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="127" />
+    <Setter Property="MinHeight" Value="69" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="CheckBoxStyle106" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="134" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="RadioButtonStyle107" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="141" />
+    <Setter Property="MinHeight" Value="31" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="SliderStyle108" TargetType="Slider">
+    <Setter Property="MinWidth" Value="148" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ComboBoxStyle109" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="155" />
+    <Setter Property="MinHeight" Value="41" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="TextBoxStyle110" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="162" />
+    <Setter Property="MinHeight" Value="46" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle111" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="169" />
+    <Setter Property="MinHeight" Value="51" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ButtonStyle112" TargetType="Button">
+    <Setter Property="MinWidth" Value="176" />
+    <Setter Property="MinHeight" Value="56" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle113" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="183" />
+    <Setter Property="MinHeight" Value="61" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="CheckBoxStyle114" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="190" />
+    <Setter Property="MinHeight" Value="66" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="RadioButtonStyle115" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="37" />
+    <Setter Property="MinHeight" Value="71" />
+    <Setter Property="Padding" Value="7,3,7,3" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="SliderStyle116" TargetType="Slider">
+    <Setter Property="MinWidth" Value="44" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Padding" Value="8,4,8,4" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ComboBoxStyle117" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="51" />
+    <Setter Property="MinHeight" Value="33" />
+    <Setter Property="Padding" Value="9,5,9,5" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="TextBoxStyle118" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="58" />
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="Padding" Value="10,6,10,6" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle119" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="65" />
+    <Setter Property="MinHeight" Value="43" />
+    <Setter Property="Padding" Value="11,7,11,7" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ButtonStyle120" TargetType="Button">
+    <Setter Property="MinWidth" Value="72" />
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle121" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="79" />
+    <Setter Property="MinHeight" Value="53" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="CheckBoxStyle122" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="86" />
+    <Setter Property="MinHeight" Value="58" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="RadioButtonStyle123" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="93" />
+    <Setter Property="MinHeight" Value="63" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="SliderStyle124" TargetType="Slider">
+    <Setter Property="MinWidth" Value="100" />
+    <Setter Property="MinHeight" Value="68" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ComboBoxStyle125" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="107" />
+    <Setter Property="MinHeight" Value="25" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="TextBoxStyle126" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="114" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle127" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="121" />
+    <Setter Property="MinHeight" Value="35" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ButtonStyle128" TargetType="Button">
+    <Setter Property="MinWidth" Value="128" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle129" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="135" />
+    <Setter Property="MinHeight" Value="45" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="CheckBoxStyle130" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="142" />
+    <Setter Property="MinHeight" Value="50" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="RadioButtonStyle131" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="149" />
+    <Setter Property="MinHeight" Value="55" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="SliderStyle132" TargetType="Slider">
+    <Setter Property="MinWidth" Value="156" />
+    <Setter Property="MinHeight" Value="60" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ComboBoxStyle133" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="163" />
+    <Setter Property="MinHeight" Value="65" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="TextBoxStyle134" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="170" />
+    <Setter Property="MinHeight" Value="70" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle135" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="177" />
+    <Setter Property="MinHeight" Value="27" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ButtonStyle136" TargetType="Button">
+    <Setter Property="MinWidth" Value="184" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle137" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="191" />
+    <Setter Property="MinHeight" Value="37" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="CheckBoxStyle138" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="38" />
+    <Setter Property="MinHeight" Value="42" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="RadioButtonStyle139" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="45" />
+    <Setter Property="MinHeight" Value="47" />
+    <Setter Property="Padding" Value="7,3,7,3" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="SliderStyle140" TargetType="Slider">
+    <Setter Property="MinWidth" Value="52" />
+    <Setter Property="MinHeight" Value="52" />
+    <Setter Property="Padding" Value="8,4,8,4" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ComboBoxStyle141" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="59" />
+    <Setter Property="MinHeight" Value="57" />
+    <Setter Property="Padding" Value="9,5,9,5" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="TextBoxStyle142" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="66" />
+    <Setter Property="MinHeight" Value="62" />
+    <Setter Property="Padding" Value="10,6,10,6" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle143" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="73" />
+    <Setter Property="MinHeight" Value="67" />
+    <Setter Property="Padding" Value="11,7,11,7" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ButtonStyle144" TargetType="Button">
+    <Setter Property="MinWidth" Value="80" />
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle145" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="87" />
+    <Setter Property="MinHeight" Value="29" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="CheckBoxStyle146" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="94" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="RadioButtonStyle147" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="101" />
+    <Setter Property="MinHeight" Value="39" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="SliderStyle148" TargetType="Slider">
+    <Setter Property="MinWidth" Value="108" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ComboBoxStyle149" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="115" />
+    <Setter Property="MinHeight" Value="49" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="TextBoxStyle150" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="122" />
+    <Setter Property="MinHeight" Value="54" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle151" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="129" />
+    <Setter Property="MinHeight" Value="59" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ButtonStyle152" TargetType="Button">
+    <Setter Property="MinWidth" Value="136" />
+    <Setter Property="MinHeight" Value="64" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle153" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="143" />
+    <Setter Property="MinHeight" Value="69" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="CheckBoxStyle154" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="150" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="RadioButtonStyle155" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="157" />
+    <Setter Property="MinHeight" Value="31" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="SliderStyle156" TargetType="Slider">
+    <Setter Property="MinWidth" Value="164" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ComboBoxStyle157" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="171" />
+    <Setter Property="MinHeight" Value="41" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="TextBoxStyle158" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="178" />
+    <Setter Property="MinHeight" Value="46" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle159" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="185" />
+    <Setter Property="MinHeight" Value="51" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ButtonStyle160" TargetType="Button">
+    <Setter Property="MinWidth" Value="32" />
+    <Setter Property="MinHeight" Value="56" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle161" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="39" />
+    <Setter Property="MinHeight" Value="61" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="CheckBoxStyle162" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="46" />
+    <Setter Property="MinHeight" Value="66" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="RadioButtonStyle163" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="53" />
+    <Setter Property="MinHeight" Value="71" />
+    <Setter Property="Padding" Value="7,3,7,3" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="SliderStyle164" TargetType="Slider">
+    <Setter Property="MinWidth" Value="60" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Padding" Value="8,4,8,4" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ComboBoxStyle165" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="67" />
+    <Setter Property="MinHeight" Value="33" />
+    <Setter Property="Padding" Value="9,5,9,5" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="TextBoxStyle166" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="74" />
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="Padding" Value="10,6,10,6" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle167" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="81" />
+    <Setter Property="MinHeight" Value="43" />
+    <Setter Property="Padding" Value="11,7,11,7" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ButtonStyle168" TargetType="Button">
+    <Setter Property="MinWidth" Value="88" />
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle169" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="95" />
+    <Setter Property="MinHeight" Value="53" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="CheckBoxStyle170" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="102" />
+    <Setter Property="MinHeight" Value="58" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="RadioButtonStyle171" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="109" />
+    <Setter Property="MinHeight" Value="63" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="SliderStyle172" TargetType="Slider">
+    <Setter Property="MinWidth" Value="116" />
+    <Setter Property="MinHeight" Value="68" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ComboBoxStyle173" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="123" />
+    <Setter Property="MinHeight" Value="25" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="TextBoxStyle174" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="130" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle175" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="137" />
+    <Setter Property="MinHeight" Value="35" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ButtonStyle176" TargetType="Button">
+    <Setter Property="MinWidth" Value="144" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle177" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="151" />
+    <Setter Property="MinHeight" Value="45" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="CheckBoxStyle178" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="158" />
+    <Setter Property="MinHeight" Value="50" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="RadioButtonStyle179" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="165" />
+    <Setter Property="MinHeight" Value="55" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="SliderStyle180" TargetType="Slider">
+    <Setter Property="MinWidth" Value="172" />
+    <Setter Property="MinHeight" Value="60" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ComboBoxStyle181" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="179" />
+    <Setter Property="MinHeight" Value="65" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="TextBoxStyle182" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="186" />
+    <Setter Property="MinHeight" Value="70" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle183" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="33" />
+    <Setter Property="MinHeight" Value="27" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ButtonStyle184" TargetType="Button">
+    <Setter Property="MinWidth" Value="40" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle185" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="47" />
+    <Setter Property="MinHeight" Value="37" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="CheckBoxStyle186" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="54" />
+    <Setter Property="MinHeight" Value="42" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="RadioButtonStyle187" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="61" />
+    <Setter Property="MinHeight" Value="47" />
+    <Setter Property="Padding" Value="7,3,7,3" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="SliderStyle188" TargetType="Slider">
+    <Setter Property="MinWidth" Value="68" />
+    <Setter Property="MinHeight" Value="52" />
+    <Setter Property="Padding" Value="8,4,8,4" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ComboBoxStyle189" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="75" />
+    <Setter Property="MinHeight" Value="57" />
+    <Setter Property="Padding" Value="9,5,9,5" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="TextBoxStyle190" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="82" />
+    <Setter Property="MinHeight" Value="62" />
+    <Setter Property="Padding" Value="10,6,10,6" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle191" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="89" />
+    <Setter Property="MinHeight" Value="67" />
+    <Setter Property="Padding" Value="11,7,11,7" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ButtonStyle192" TargetType="Button">
+    <Setter Property="MinWidth" Value="96" />
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle193" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="103" />
+    <Setter Property="MinHeight" Value="29" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="CheckBoxStyle194" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="110" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="RadioButtonStyle195" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="117" />
+    <Setter Property="MinHeight" Value="39" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="SliderStyle196" TargetType="Slider">
+    <Setter Property="MinWidth" Value="124" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ComboBoxStyle197" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="131" />
+    <Setter Property="MinHeight" Value="49" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="TextBoxStyle198" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="138" />
+    <Setter Property="MinHeight" Value="54" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle199" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="145" />
+    <Setter Property="MinHeight" Value="59" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ButtonStyle200" TargetType="Button">
+    <Setter Property="MinWidth" Value="152" />
+    <Setter Property="MinHeight" Value="64" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle201" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="159" />
+    <Setter Property="MinHeight" Value="69" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="CheckBoxStyle202" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="166" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="RadioButtonStyle203" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="173" />
+    <Setter Property="MinHeight" Value="31" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="SliderStyle204" TargetType="Slider">
+    <Setter Property="MinWidth" Value="180" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ComboBoxStyle205" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="187" />
+    <Setter Property="MinHeight" Value="41" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="TextBoxStyle206" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="34" />
+    <Setter Property="MinHeight" Value="46" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle207" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="41" />
+    <Setter Property="MinHeight" Value="51" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ButtonStyle208" TargetType="Button">
+    <Setter Property="MinWidth" Value="48" />
+    <Setter Property="MinHeight" Value="56" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle209" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="55" />
+    <Setter Property="MinHeight" Value="61" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="CheckBoxStyle210" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="62" />
+    <Setter Property="MinHeight" Value="66" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="RadioButtonStyle211" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="69" />
+    <Setter Property="MinHeight" Value="71" />
+    <Setter Property="Padding" Value="7,3,7,3" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="SliderStyle212" TargetType="Slider">
+    <Setter Property="MinWidth" Value="76" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Padding" Value="8,4,8,4" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ComboBoxStyle213" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="83" />
+    <Setter Property="MinHeight" Value="33" />
+    <Setter Property="Padding" Value="9,5,9,5" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="TextBoxStyle214" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="90" />
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="Padding" Value="10,6,10,6" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle215" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="97" />
+    <Setter Property="MinHeight" Value="43" />
+    <Setter Property="Padding" Value="11,7,11,7" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ButtonStyle216" TargetType="Button">
+    <Setter Property="MinWidth" Value="104" />
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle217" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="111" />
+    <Setter Property="MinHeight" Value="53" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="CheckBoxStyle218" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="118" />
+    <Setter Property="MinHeight" Value="58" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="RadioButtonStyle219" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="125" />
+    <Setter Property="MinHeight" Value="63" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="SliderStyle220" TargetType="Slider">
+    <Setter Property="MinWidth" Value="132" />
+    <Setter Property="MinHeight" Value="68" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ComboBoxStyle221" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="139" />
+    <Setter Property="MinHeight" Value="25" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="TextBoxStyle222" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="146" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle223" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="153" />
+    <Setter Property="MinHeight" Value="35" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ButtonStyle224" TargetType="Button">
+    <Setter Property="MinWidth" Value="160" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle225" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="167" />
+    <Setter Property="MinHeight" Value="45" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="CheckBoxStyle226" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="174" />
+    <Setter Property="MinHeight" Value="50" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="RadioButtonStyle227" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="181" />
+    <Setter Property="MinHeight" Value="55" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="SliderStyle228" TargetType="Slider">
+    <Setter Property="MinWidth" Value="188" />
+    <Setter Property="MinHeight" Value="60" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ComboBoxStyle229" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="35" />
+    <Setter Property="MinHeight" Value="65" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="TextBoxStyle230" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="42" />
+    <Setter Property="MinHeight" Value="70" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle231" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="49" />
+    <Setter Property="MinHeight" Value="27" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ButtonStyle232" TargetType="Button">
+    <Setter Property="MinWidth" Value="56" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle233" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="63" />
+    <Setter Property="MinHeight" Value="37" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="CheckBoxStyle234" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="70" />
+    <Setter Property="MinHeight" Value="42" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="RadioButtonStyle235" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="77" />
+    <Setter Property="MinHeight" Value="47" />
+    <Setter Property="Padding" Value="7,3,7,3" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="SliderStyle236" TargetType="Slider">
+    <Setter Property="MinWidth" Value="84" />
+    <Setter Property="MinHeight" Value="52" />
+    <Setter Property="Padding" Value="8,4,8,4" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="ComboBoxStyle237" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="91" />
+    <Setter Property="MinHeight" Value="57" />
+    <Setter Property="Padding" Value="9,5,9,5" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="TextBoxStyle238" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="98" />
+    <Setter Property="MinHeight" Value="62" />
+    <Setter Property="Padding" Value="10,6,10,6" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle239" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="105" />
+    <Setter Property="MinHeight" Value="67" />
+    <Setter Property="Padding" Value="11,7,11,7" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ButtonStyle240" TargetType="Button">
+    <Setter Property="MinWidth" Value="112" />
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="Padding" Value="4,2,4,2" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle241" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="119" />
+    <Setter Property="MinHeight" Value="29" />
+    <Setter Property="Padding" Value="5,3,5,3" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="CheckBoxStyle242" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="126" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="RadioButtonStyle243" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="133" />
+    <Setter Property="MinHeight" Value="39" />
+    <Setter Property="Padding" Value="7,5,7,5" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="SliderStyle244" TargetType="Slider">
+    <Setter Property="MinWidth" Value="140" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="ComboBoxStyle245" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="147" />
+    <Setter Property="MinHeight" Value="49" />
+    <Setter Property="Padding" Value="9,7,9,7" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="TextBoxStyle246" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="154" />
+    <Setter Property="MinHeight" Value="54" />
+    <Setter Property="Padding" Value="10,2,10,2" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle247" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="161" />
+    <Setter Property="MinHeight" Value="59" />
+    <Setter Property="Padding" Value="11,3,11,3" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ButtonStyle248" TargetType="Button">
+    <Setter Property="MinWidth" Value="168" />
+    <Setter Property="MinHeight" Value="64" />
+    <Setter Property="Padding" Value="4,4,4,4" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle249" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="175" />
+    <Setter Property="MinHeight" Value="69" />
+    <Setter Property="Padding" Value="5,5,5,5" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="CheckBoxStyle250" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="182" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Padding" Value="6,6,6,6" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="RadioButtonStyle251" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="189" />
+    <Setter Property="MinHeight" Value="31" />
+    <Setter Property="Padding" Value="7,7,7,7" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="SliderStyle252" TargetType="Slider">
+    <Setter Property="MinWidth" Value="36" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="8,2,8,2" />
+    <VisualState x:Name="Normal" />
+  </Style>
+  <Style x:Key="ComboBoxStyle253" TargetType="ComboBox">
+    <Setter Property="MinWidth" Value="43" />
+    <Setter Property="MinHeight" Value="41" />
+    <Setter Property="Padding" Value="9,3,9,3" />
+    <VisualState x:Name="Disabled" />
+  </Style>
+  <Style x:Key="TextBoxStyle254" TargetType="TextBox">
+    <Setter Property="MinWidth" Value="50" />
+    <Setter Property="MinHeight" Value="46" />
+    <Setter Property="Padding" Value="10,4,10,4" />
+    <VisualState x:Name="Indeterminate" />
+  </Style>
+  <Style x:Key="ScrollViewerStyle255" TargetType="ScrollViewer">
+    <Setter Property="MinWidth" Value="57" />
+    <Setter Property="MinHeight" Value="51" />
+    <Setter Property="Padding" Value="11,5,11,5" />
+    <VisualState x:Name="Pressed" />
+  </Style>
+  <Style x:Key="ButtonStyle256" TargetType="Button">
+    <Setter Property="MinWidth" Value="64" />
+    <Setter Property="MinHeight" Value="56" />
+    <Setter Property="Padding" Value="4,6,4,6" />
+    <VisualState x:Name="Checked" />
+  </Style>
+  <Style x:Key="ToggleButtonStyle257" TargetType="ToggleButton">
+    <Setter Property="MinWidth" Value="71" />
+    <Setter Property="MinHeight" Value="61" />
+    <Setter Property="Padding" Value="5,7,5,7" />
+    <VisualState x:Name="PointerOver" />
+  </Style>
+  <Style x:Key="CheckBoxStyle258" TargetType="CheckBox">
+    <Setter Property="MinWidth" Value="78" />
+    <Setter Property="MinHeight" Value="66" />
+    <Setter Property="Padding" Value="6,2,6,2" />
+    <VisualState x:Name="Focused" />
+  </Style>
+  <Style x:Key="RadioButtonStyle259" TargetType="RadioButton">
+    <Setter Property="MinWidth" Value="85" />
+    <Setter Property="MinHeight" Value="71" />
+    <Setter Property="Padding" 

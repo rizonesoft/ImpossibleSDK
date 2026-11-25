@@ -20,6 +20,7 @@ impossible_add_program(anim-dump CONSOLE TIER 0 SOURCES tests/fixtures/anim_dump
 impossible_add_program(layout-dump CONSOLE TIER 0 SOURCES tests/fixtures/layout_dump.c)
 impossible_add_program(image-tests CONSOLE TIER 0 SOURCES tests/fixtures/image_tests.c)
 impossible_add_program(bmp-tests CONSOLE TIER 0 SOURCES tests/fixtures/bmp_tests.c)
+impossible_add_program(deflate-tests CONSOLE TIER 0 SOURCES tests/fixtures/deflate_tests.c)
 impossible_add_program(gif-tests CONSOLE TIER 0 SOURCES tests/fixtures/gif_tests.c)
 impossible_add_program(inflate-tests CONSOLE TIER 0 SOURCES tests/fixtures/inflate_tests.c)
 impossible_add_program(png-tests CONSOLE TIER 0 SOURCES tests/fixtures/png_tests.c)

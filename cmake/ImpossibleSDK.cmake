@@ -35,6 +35,7 @@ if(NOT TARGET ImpossibleParts)
     add_library(ImpossibleParts STATIC
         "${IMPOSSIBLE_SDK_DIR}/parts/bmp/bmp.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/checksum/checksum.c"
+        "${IMPOSSIBLE_SDK_DIR}/parts/deflate/deflate.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/gif/gif.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/image/image.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/inflate/inflate.c"
@@ -44,6 +45,7 @@ if(NOT TARGET ImpossibleParts)
     target_include_directories(ImpossibleParts PUBLIC
         "${IMPOSSIBLE_SDK_DIR}/parts/bmp"
         "${IMPOSSIBLE_SDK_DIR}/parts/checksum"
+        "${IMPOSSIBLE_SDK_DIR}/parts/deflate"
         "${IMPOSSIBLE_SDK_DIR}/parts/gif"
         "${IMPOSSIBLE_SDK_DIR}/parts/image"
         "${IMPOSSIBLE_SDK_DIR}/parts/inflate"

@@ -1,0 +1,434 @@
+<!-- page: group="Guide" order=6 sources=tools/contribute.py reviewed=2026-11-24 -->
+# Adding to the SDK from a program
+
+What if your program needs something a second program could use? Build it in the SDK, then move your program's pin.
+
+## How do you make the change?
+
+`contribute.py` gives you a folder of your own with the newest SDK, so that you never work in a checkout another session may be using. Run it from your program's folder.
+
+```sh
+python3 ../ImpossibleSDK/tools/contribute.py start
+python3 ../ImpossibleSDK/tools/contribute.py finish <folder>
+```
+
+Make and commit the change in the folder that `start` prints. `finish` brings it onto the newest main, builds and tests that very commit, pushes it and pins your program to it.
+
+## What does a change need?
+
+A test that fails before it and passes after it. The rest is in [Contributing](site:contributing.html).
+
+
+<!-- page: group="Impossible UI" order=1 sources=ui/button.h,ui/draw.c,tests/test_ui.py,reference/App.xaml.cs,tests/reference/cases.json,tests/fixtures/control_shots.c,tools/winui/resources.py reviewed=2026-11-25 -->
+# How a control is compared
+
+How do we know it looks like Windows 11? A small program draws the same control with real WinUI 3, and the tests compare the two pixel by pixel.
+
+## What is compared today?
+
+The standard and the accent button, at rest, hovered, pressed and disabled, dark and light (sixteen cases at 100 percent, without text), plus ten white-on-black corner radius probes (radii 4, 8 and 16 at scales 1, 1.5 and 2, and an asymmetric 40 by 20 probe with a single radius-16 corner) are compared pixel by pixel against `control-shots.exe`. Additional multi-scale (150, 200 and 300 percent), RTL, SDK-owned icon, disabled-property, and scripted input captures live in the same verified store (`tests/reference/cases.json`), alongside the five-scale (100, 125, 150, 200 and 300 percent) panel layout oracle (`tests/fixtures/layout_reference.json`) for `Grid`, `StackPanel`, `Border`, `ContentPresenter`, and instantiated `Button` templates.
+
+Run `python3 tools/winvm/live.py` to hold fresh WinUI captures against the stored ones in the test machine, and `IMPOSSIBLE_DISPLAY=desktop python3 reference/run.py --update-store` to atomically refresh `tests/reference/`.
+
+| Part | May differ by |
+| --- | --- |
+| Straight edges and fills | 1 of 255, which is rounding |
+| Corners of the standard button (dark) | 3 of 255 |
+| Corners of the standard button (light) | 6 of 255 |
+| Corners of the accent button | 14 of 255 |
+| White-on-black radius probes | 40 of 255 |
+
+The limits are in the test itself:
+
+```c from=tests/fixtures/control_shots.c
+                im_draw_button(&surface, (im_rect){20 * pad, 16 * pad, 140 * pad, 48 * pad}, (im_button_style)style, (im_button_state)state);
+```
+
+## How are corners smoothed?
+
+Corner clamping follows WinUI's `CGeometryBuilder::CalculateRoundedCornersRectangle`, which partitions adjacent corner radii proportionally along each shared edge. Each quarter-circle arc is represented as a cubic Bezier (`kappa = 4*(sqrt(2)-1)/3`) and flattened in 16.16 fixed point into `N = 2^k` chords by Wang's formula at Direct2D's `0.25` px flattening tolerance (`N = 2` up to 2.9 px, `N = 4` up to 11.6 px, `N = 8` up to 46.4 px, `N = 16` up to 185.6 px, scaling up to `N = 256` for signed 16.16 radii under 32,768 px). The remaining difference on probe corners comes from Direct2D's GPU per-primitive triangle antialiasing, which varies by 8 to 24 of 255 across the four corners of a symmetric probe (4-way reflection floor of 4 to 12). On accent buttons, the measured corner limit of 14 of 255 stands on horizontal and vertical reflection symmetry (not diagonal symmetry).
+
+## Where do the values come from?
+
+From WinUI's MIT source at a pinned commit, generated into [theme values](site:values.html). Where a copy of that source is at hand, the tests fail when the generated file is not what it gives. No Microsoft font, icon, picture, sound or wording is used.
+
+
+<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/accent.h,ui/resources.h,ui/shadow.h,ui/material.h,ui/button.h,ui/tree.h,ui/layout.h,ui/panels.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/transition.h,ui/states.h,ui/host.h,ui/dirty.h,ui/frame.h,ui/transform.h,ui/picture.h,ui/input.h,ui/path.h,ui/gradient.h,ui/font.h,ui/text.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
+# Drawing
+
+How do you draw Windows 11's shapes and colours? Describe your canvas as a surface, then fill shapes with the brushes of the theme.
+
+## What does a button take?
+
+```c program=drawn_button window tier=1
+#include <impossible/window.h>
+#include "button.h"
+
+static void paint(im_window *window, im_canvas *canvas) {
+    (void)window;
+    im_surface surface = {
+        .pixels = canvas->pixels, .width = canvas->width, .height = canvas->height, .stride = canvas->width,
+        .palette = {.theme = IM_DARK, .slot = {[IM_SLOT_ACCENT_COLOR_LIGHT_2] = 0xFF60CDFF}},
+        .scale = (im_fixed)(canvas->scale * IM_ONE),
+    };
+    for (int i = 0; i < canvas->width * canvas->height; i++)
+        canvas->pixels[i] = 0x00202020;
+    im_fixed unit = surface.scale;
+    im_draw_button(&surface, (im_rect){20 * unit, 20 * unit, 140 * unit, 52 * unit}, IM_BUTTON_ACCENT, IM_REST);
+}
+
+int im_main(void) {
+    im_window window = {.title = L"A button", .width = 320, .height = 120, .paint = paint};
+    return im_window_run(&window, false) ? 0 : 1;
+}
+```
+
+The button draws its ground and border, without text yet. [Controls](site:controls.html) says what is planned.
+
+## What are the numbers?
+
+Positions are `im_fixed`: 16 bits before the point and 16 after, so `IM_ONE` is one pixel. Multiply sizes given at 100 percent by the surface's scale. There is no floating point in Impossible UI, because an operating system's kernel is built without it.
+
+## Where do the colours come from?
+
+From WinUI's own theme, as [brushes](site:api-theme.html) for dark, light and contrast. The user chooses the accent and the contrast colours, so the program puts them in the palette's slots (either verbatim from Windows via `im_accent_set_os_shades` or derived perceptually in fixed-point D65 CIELAB via `im_accent_derive` / `im_accent_fill_palette` in `ui/accent.h`, and with all four Windows 11 contrast presets `Aquatic`, `Desert`, `Dusk`, and `Night Sky` via `im_palette_init_contrast` in `ui/resources.h`). Set per-subtree `RequestedTheme` with `im_node_set_requested_theme` (rejecting system-wide `IM_REQ_THEME_CONTRAST` on nodes) and per-subtree accent overrides with `im_node_set_subtree_accent`, override individual WinUI brush or numeric value keys per subtree with `im_resources_set_brush_override_by_name` / `im_resources_set_value_override_by_name`, attach resource context to state machines via `im_states_set_resource_context`, and restyle a live tree in place on `IM_THEME_CHANGED` with `im_resources_restyle_tree` without losing focus, selection, scroll position, text, or explicit local padding/border overrides (clear local overrides with `im_node_clear_local_padding` / `im_node_clear_local_border_thickness`).
+
+## How do clips and opacity layers work?
+
+Attach an `im_layer_ctx` to an `im_surface` with `im_layer_init`, passing a caller-supplied `im_allocator` and a live buffer `memory_limit`. Push rectangular or rounded clips with `im_layer_push_clip_rect` and `im_layer_push_clip_rounded` (calling `im_layer_pop_clip` only when push returned `true`; fractional clip rectangles are intersected exactly in 64-bit fixed point via `im_clip_pixel_coverage_range`, including wide surfaces of 32,768 pixels or more), and push bounded group-opacity layers with `im_layer_push`. Every `im_fill`, `im_fill_argb`, `im_stroke`, `im_draw_button`, `im_shadow_draw` (`ui/shadow.h`: pinned `DropShadowRecipe.h` hollow directional+ambient elevation shadows cached in an LRU `im_shadow_cache` with `im_shadow_outset` for dirty bounds), and `im_material_draw` (`ui/material.h`: Mica, Mica Alt, and Acrylic region recording into `im_material_list` plus theme/contrast/transparency-off fallback painting, paired with `im_window_set_backdrop` in `include/impossible/window.h`) honours the active clip and layer automatically. When `im_layer_push` returns `IM_LAYER_OK` or `IM_LAYER_FALLBACK` (when `memory_limit` or the allocator refuses the offscreen buffer and direct-draw fallback runs instead), pair it with `im_layer_pop`; if it returns `IM_LAYER_ERR`, nothing was pushed.
+
+## How do visual states and animations run?
+
+Initialize an `im_state_machine` with `im_states_init` for any compiled WinUI control template (`IM_TEMPLATE_BUTTON`, `IM_TEMPLATE_TOGGLE_SWITCH`, `IM_TEMPLATE_TEXT_BOX`, `IM_TEMPLATE_LIST_VIEW_ITEM_EXPANDED`, and others) and transition groups with `im_states_go_to(sm, state_name, now_ms)` using a caller-supplied millisecond clock. Cubic Bezier key splines (`im_spline_eval_ratio`), keyframe tracks (`im_anim_eval_fixed`, `im_anim_eval_color`, `im_anim_eval_object`), theme animations (`Reposition`, `FadeIn`, `FadeOut`, `DragOver`, `DragItem`, `DropTarget`), generated return transitions, straight-ARGB `BrushTransition` fades (`im_brush_transition`), and named WinUI theme transitions in `ui/transition.h` (`Entrance`, `Popup`, `AddDelete` with detached exit-ghost ownership via `im_transition_ghosts`, `Reposition`, `Reorder`, `Content`, and `NavigationThemeTransition` `DrillIn`/`DrillOut` with zero-jump `im_transition_retarget`/`im_transition_reverse` and distinct `transition_transform`/`transition_opacity` that preserve authored `RenderTransform` and `Opacity`) run entirely in portable integer fixed-point math. Call `im_states_set_reduced_motion(sm, true, now_ms)` or `im_transition_set_reduced_motion(tr, true, now_ms)` to snap active and future transitions immediately to their end state, `im_states_apply_to_tree` to project layout-affecting visual-state values onto an `im_tree` without losing underlying local values, and `im_states_draw_button` to render a Button directly from its active state machine.
+
+## How does the portable engine talk to the host?
+
+Every system-owned service (memory, monotonic clock, clipboard, pointer cursor, caret blink timing, input method, opening URLs, sound, file pickers, and screen-reader announcements) goes through a single versioned and sized `im_host` callback table (`ui/host.h`, `ui/host.c`). Hosts built for an older smaller table version are accepted by `im_host_accept` (with v1 tables capped at `IM_HOST_V1_SIZE` regardless of backing size), missing callbacks are refused by exact name through `im_host_require`, and every `im_host_*` wrapper returns a defined safe result and clears output buffers on error or cancellation. On Windows, call `im_win_host_init` (`include/impossible/win_host.h`, `src/host.c`) to fill the Tier 0/1 memory, monotonic time, and cursor callbacks bound to your `im_window`.
+
+## How do dirty rectangles and frame timing work?
+
+Collect damaged device-pixel regions from an `im_tree` with `im_dirty_collect_tree` (`ui/dirty.h`, `ui/dirty.c`), which drains detached or destroyed subtree bounds from `tree->pending_damage`, scales logical bounds by the display scale with outward pixel rounding before clipping, marks the full viewport dirty on scale changes, and merges rectangles down to at most `IM_DIRTY_MAX_RECTS` (16) using exact minimum added waste area. Drive repaint scheduling with `im_frame_scheduler` (`ui/frame.h`, `ui/frame.c`): `im_frame_step` requests a one-shot frame (`im_frame_request_fn`, returning `true` when accepted by the host) only while damage, an active animation, or a settled final frame is owed, acknowledges only the painted generation via `im_frame_begin_paint` and `im_frame_on_painted` so damage or settlement queued during paint is never lost, and makes zero calls while the window is idle.
+
+## How do transforms, pictures, and pointer hit-testing work?
+
+Construct 2D affine transforms in Q30 signed 64-bit fixed point with `ui/transform.h` (`im_transform_translate`, `im_transform_scale`, `im_transform_rotate`, `im_transform_skew`, `im_transform_composite`, `im_transform_multiply`, `im_transform_invert`, `im_transform_viewport_bounds_q30`). Set `surface->transform` to rasterize filled shapes, gradient strokes, zero-padded bilinear alpha-mask glyphs (`im_draw_alpha_mask`), and premultiplied pictures (`im_picture_draw`, `im_picture_draw_nine_slice` in `ui/picture.h`) through any invertible transform while honouring `surface->layers` clips and group opacity via `im_layer_blend_premul_pixel`. Attach a `RenderTransform` to an `im_node` with `im_node_set_render_transform` (or let `im_states_apply_to_tree` project compiled `RenderTransformOrigin` and named transform animations automatically) and declare any visual paint overhang (such as `im_draw_alpha_mask_outset` for magnified A8 masks) with `im_node_set_paint_outset` so painting (`im_node_device_transform`), dirty-rectangle collection (`im_dirty_collect_tree`, tracking transformed or outset node damage directly in viewport-clipped device pixels with wide integer-pixel clips via `im_clip_push_irect` and `im_layer_push_clip_irect`), and device-pixel pointer hit-testing (`im_input_hit_test`, `im_input_to_local` in `ui/input.h`) share the exact same transform chain.
+
+## How do paths, arcs, gradients, and extended panels work?
+
+Extend `ui/layout.h` with `ui/panels.h` (`im_panels_measure_override`, `im_panels_arrange_override`) for `Canvas` (with stable `Canvas.ZIndex` paint order via `im_node_paint_order` and matching reverse hit-testing), `Viewbox` (with single-child enforcement, shared `im_stretch` from `ui/template.h`, and an independent `viewbox_transform` that preserves a child's `RenderTransform` and RTL placement), `UniformGrid`, `WrapPanel` (matching pinned `WrapPanel.cpp`), `RelativePanel` (node-owned name-based sibling resolution with cycle and missing-target diagnostics via `im_layout_last_error`), `VariableSizedWrapGrid` (compact bitset occupancy-map span placement, measured grid reuse, and `HorizontalChildrenAlignment`/`VerticalChildrenAlignment`), `ItemsWrapGrid`, and `ItemsStackPanel` (variable containers, group headers, and `GroupPadding`), all mirrored right-to-left under `IM_FLOW_RTL`.
+
+Build fixed-point vector paths with `ui/path.h` (`im_path_move_to`, `im_path_line_to`, `im_path_quad_to`, `im_path_cubic_to`, `im_path_arc_to`, `im_path_arc_angles`, `im_path_close`, `im_node_set_path_intrinsic_bounds`) or zero-copy static `im_path_data` tables (sharing `im_path_seg` with `ui/template.h`, including SDK-owned `im_path_sdk_checkmark`, `im_path_sdk_window_maximize`, and `im_path_sdk_window_restore`), with compiled `IM_ELEM_PATH` painting via `im_states_draw_path_node`. Fill paths with `im_path_fill_argb` or `im_path_fill_shaded` using 16-subscanline analytic horizontal coverage (`IM_FILL_EVEN_ODD` or `IM_FILL_NON_ZERO`), and stroke paths in local space before `surface->transform` with `im_path_stroke_argb` or `im_path_stroke_shaded` (supporting Flat, Square, Round, and Triangle caps, Miter with `miter_limit`, Bevel, and Round joins, and `dash_array`/`dash_offset`). Evaluate and paint WinUI 3 `LinearGradientBrush` and `RadialGradientBrush` (`Center`, `RadiusX`, `RadiusY`, `GradientOrigin`, `IM_MAPPING_RELATIVE`/`IM_MAPPING_ABSOLUTE`, `IM_SPREAD_PAD`/`IM_SPREAD_REFLECT`/`IM_SPREAD_REPEAT`) over rounded rectangles (using `im_shape_contains` under transforms) and paths with `ui/gradient.h` (`im_gradient_fill_rect_linear`, `im_gradient_fill_rect_radial`, `im_gradient_fill_path_linear`, `im_gradient_fill_path_radial`, `im_gradient_stroke_path_linear`, `im_gradient_stroke_path_radial`).
+
+| Call | What it does |
+| --- | --- |
+| [`im_fill`](site:api-draw.html#im_fill) | Fills a rounded shape with a brush, fitting adjacent radii proportionally along each edge |
+| [`im_stroke`](site:api-draw.html#im_stroke) | Draws the line between a shape and the same shape moved in (`im_stroke_argb` takes a straight ARGB colour) |
+| [`im_inset`](site:api-draw.html#im_inset) | Moves a shape's edges in |
+| [`im_value`](site:api-theme.html#im_value) | A number of the theme, such as a corner radius |
+
+## Fixed-point text
+
+`ui/font.h` parses TrueType (`glyf`/`loca`, simple and composite glyphs), TrueType Collections (`ttcf`), and non-CID OpenType CFF v1 (`OTTO`, Type 2 charstrings with local/global subroutines and hint masks; CFF2, CID-keyed CFF, and deprecated `seac` are refused) directly from caller-owned memory with bounds checks and per-glyph complexity limits, scaling outlines in 64-bit integer fixed point (using `__int128` intermediates for CFF 16.16 conversion) and rasterising them through `im_path_fill_argb`. `ui/text.h` decodes UTF-8, shapes left-to-right runs with nominal advances and GPOS `latn`/`DFLT` or legacy `kern` adjustments, breaks lines with UAX #14 (`im_unicode_line_breaks`) and UAX #29 grapheme-cluster emergency fallback, aligns lines Left/Center/Right, and draws into any `im_surface`.
+
+## Can Impossible OS take it?
+
+Yes. Everything in `ui/` and `parts/` (including `parts/bmp/`, `parts/checksum/`, `parts/deflate/`, `parts/gif/`, `parts/image/`, `parts/inflate/`, `parts/png/`, and `parts/unicode/`) calls no system function and no C library. Streaming compression (`parts/deflate/deflate.h`) and decompression (`parts/inflate/inflate.h`) support raw DEFLATE, zlib, and gzip in fixed caller-owned memory. Image decoders (`parts/bmp/bmp.h`, `parts/gif/gif.h`, and `parts/png/png.h` into `parts/image/image.h`) output gamma-free straight 8-bit encoded samples (`IM_PIXEL_BGRA8` or `IM_PIXEL_RGBA8`) without colour-profile conversion. The tests compile each part alone as a kernel would and refuse any symbol beyond the four memory routines.
+
+
+<!-- page: group="Start here" order=2 sources=include/impossible/window.h,include/impossible/win_host.h,samples/window/main.c reviewed=2026-11-25 -->
+# Your first window
+
+How do you open a window and paint it? Fill in one structure, give it a function that writes pixels, and run it.
+
+## What does the smallest window look like?
+
+This is a whole program. Windows asks for the picture, and `paint` writes it. Each pixel is `0x00RRGGBB`, top row first.
+
+```c program=first_window window tier=1
+#include <impossible/window.h>
+
+static void paint(im_window *window, im_canvas *canvas) {
+    (void)window;
+    for (int i = 0; i < canvas->width * canvas->height; i++)
+        canvas->pixels[i] = 0x00102040;
+}
+
+int im_main(void) {
+    im_window window = {.title = L"First window", .width = 640, .height = 400, .paint = paint};
+    return im_window_run(&window, false) ? 0 : 1;
+}
+```
+
+> [!NOTE]
+> A window needs `WINDOW TIER 1` in `CMakeLists.txt`. At tier 0 the build stops and names the functions that are too many.
+
+## How does it answer the pointer?
+
+Add an `event` function. Return `true` and the window is painted again. This is the one of the window sample, which keeps the pointer's place in its own structure:
+
+```c from=samples/window/main.c
+static bool event(im_window *window, const im_event *event) {
+    if (event->kind == IM_THEME_CHANGED) return true;
+    if (event->kind != IM_POINTER_MOVE) return false;
+    state *at = window->user;
+    at->x = event->x;
+    at->y = event->y;
+    im_host_set_cursor(&at->host, IM_CURSOR_HAND);
+    return true;
+}
+```
+
+The kinds of event are pointer move, down and up, and a key going down. [window.h](site:api-window.html) lists them, provides `im_window_invalidate`, `im_window_invalidate_rects`, `im_window_request_frame`, and `im_window_cancel_frame` for disjoint partial repaints and one-shot animation ticks (`canvas->dirty`, `canvas->dirty_rects`, `canvas->dirty_count`, and `canvas->full_redraw`), and [win_host.h](site:api-win_host.html) initializes the Windows host callback table for clock (`now_ms`) and cursor updates.
+
+## What happens on a screen at 150 percent?
+
+The width and height you give are for 100 percent. The canvas you get is already in real pixels, and `canvas->scale` is 1.5, so multiply your own sizes by it. Moving the window to a screen with another scale paints it again at that scale.
+
+## How do you draw more than a colour?
+
+Impossible UI draws rounded shapes and buttons into the same pixels. [Drawing](drawing.md) shows how.
+
+
+<!-- page: group="Guide" order=5 sources=docs/specs/2026-11-23-interface-and-apps-design.md,abi/tiers.json reviewed=2026-11-24 -->
+# With Impossible OS
+
+How do the two projects fit together? The SDK keeps the list of functions, the controls and the shared parts; [Impossible OS](https://impossibleos.co/) builds every function on that list and imports programs at a pinned commit.
+
+## Does your program need Impossible OS?
+
+No. A program is finished when it works on Windows. No state of the operating system can fail its build, tests or release.
+
+## Does your program run on it today?
+
+Not yet. Impossible OS is building the functions programs call; [what programs need](https://github.com/rizonesoft/impossible-os/blob/main/todo/10-platform-services/TODO-13-program-needs.md) is its list.
+
+## Who owns what?
+
+| Impossible OS | Impossible SDK |
+| --- | --- |
+| Kernel, drivers and engines | The controls, in portable C |
+| Every Windows function on the list | The list itself, in [tiers](site:tiers.html) |
+| File types, the desktop, settings | Parts two programs need |
+| Importing programs and controls | Tools that build and prove them |
+
+## How does a program say what it needs?
+
+Functions need no declaration: they are measured from the finished program. What imports cannot show goes into `needs` in the program's `app.json`, and becomes a section of the operating system's roadmap. The program never waits for it.
+
+## How does a new function get on the list?
+
+On purpose, as a change to `abi/tiers.json` in the SDK, because someone then has to build it in the operating system. The design is in [the specification](../specs/2026-11-23-interface-and-apps-design.md).
+
+
+<!-- page: group="Start here" order=1 sources=tools/bootstrap.py,tools/build.py,toolchain.json reviewed=2026-11-24 -->
+# Install
+
+What do you need? Windows or WSL on 64-bit x86, Python 3.12 or newer, and Git. Nothing else is installed system-wide.
+
+## How do you get it?
+
+In WSL the command is `python3`.
+
+```sh
+git clone https://github.com/rizonesoft/ImpossibleSDK.git
+cd ImpossibleSDK
+python tools/bootstrap.py    # installs the pinned toolchain, once per machine
+python tools/build.py        # builds into build/<host> and runs the tests
+```
+
+`bootstrap.py` downloads the compiler, CMake and Ninja named in the [toolchain](site:toolchain.html), checks each archive's SHA-256, and keeps one copy for every program on the machine: in `%LOCALAPPDATA%\ImpossibleSDK` on Windows, in `~/.cache/impossible-sdk` in WSL and on Linux. Set `IMPOSSIBLE_TOOLS` to keep it somewhere else.
+
+## How do you know it worked?
+
+The last line of the tests is `OK`, and these two programs run:
+
+| Program | What it does |
+| --- | --- |
+| `hello-console.exe` | Prints one line, with an accent and an emoji |
+| `hello-window.exe` | Opens a window with light under the pointer |
+
+They are in `build/windows`, or in `build/linux` when you built in WSL. Both folders hold Windows programs.
+
+## Does it work on plain Linux?
+
+The programs build. The tests that start them are skipped, because plain Linux cannot run a Windows program.
+
+## Why does WSL sometimes not start a Windows program?
+
+`UtilAcceptVsock ... accept4 failed` means the Linux kernel found no unbroken 512 KB of memory for the connection. `dmesg` then shows `page allocation failure: order:7`. Set `vm.min_free_kbytes = 262144` and `vm.compaction_proactiveness = 60` in `/etc/sysctl.d/`. The tests report it and do not hide it.
+
+
+<!-- page: group="Start here" order=3 sources=tools/new_app.py,tools/app_build.py,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
+# A program of your own
+
+Where does your program live? In its own folder and repository, pinned to one commit of the SDK.
+
+## What is in it?
+
+Two files are enough. `im_main` is where the program starts, and its result is the exit code.
+
+```c project=Hello
+#include <impossible/base.h>
+
+int im_main(void) {
+    return im_print("Hello from Impossible SDK\n") ? 0 : 1;
+}
+```
+
+```cmake project=Hello
+cmake_minimum_required(VERSION 4.0)
+project(Hello LANGUAGES C)
+include("${IMPOSSIBLE_SDK_DIR}/cmake/ImpossibleSDK.cmake")
+impossible_add_program(Hello CONSOLE TIER 0 SOURCES src/main.c)
+```
+
+`impossible_add_program` takes `CONSOLE` or `WINDOW`, the highest [tier](site:tiers.html) the program needs, and its source files.
+
+## How do you start one?
+
+`new_app.py` makes the repository: the two files, an engine with its own tests, `sdk.json` with the commit of the SDK, and `app.json`.
+
+```sh
+python tools/new_app.py ../Hello --label Hello --tier 1 --window --license gpl-3.0.txt
+python tools/app_build.py ../Hello
+```
+
+`--license` is the GPL-3.0 text to copy: programs of the Impossible OS project are GPL-3.0-only, and `new_app.py` writes that into the new repository. For a program of your own under another license, change the license and the README afterwards. Leave out `--window` for a console program. [Commands](site:commands.html) has every option.
+
+## What is sdk.json?
+
+The commit the program is built with. `app_build.py` uses exactly that one: when your SDK checkout has moved on or has local changes, it copies the pinned commit out of the history and builds with the copy. Change the commit in `sdk.json` to move to a newer SDK. `--any-sdk` builds with the checkout as it is, for working on both at once.
+
+## What is app.json?
+
+What the program says about itself: its name, label and version, its tier, the file types it opens, and what it needs from Impossible OS that imports cannot show.
+
+```json
+{
+  "name": "Photos",
+  "label": "Photos",
+  "version": "0.0.0",
+  "tier": 2,
+  "opens": [],
+  "needs": []
+}
+```
+
+## What is different from an ordinary C program?
+
+There is no C runtime: no `printf`, no `malloc`, no `main`. Use [base.h](site:api-base.html), [text.h](site:api-text.html) and [file.h](site:api-file.html). The compiler may still call `memcpy`, `memmove`, `memset` and `memcmp`; the kit has them, and builds every translation unit with function and data sections so `--gc-sections` drops unused SDK helpers.
+
+
+<!-- page: group="Guide" order=4 sources=tools/prove.py,tools/build.py,tools/check_imports.py,tests/test_seed.py,tests/test_ui.py,tools/winvm/live.py reviewed=2026-11-25 -->
+# Testing on Windows
+
+How do you prove a program works? Build it in WSL or on Windows, and let Windows itself run the tests against the same files.
+
+## What does the build check?
+
+| Check | When |
+| --- | --- |
+| The program's imports fit its tier | Every program, after linking |
+| Warnings are errors | Every file |
+| `ui/` builds without floating point or system calls | With the SDK's tests |
+| Generated WinUI theme and control template tables match the pinned commit | With the SDK's tests |
+| Buttons match real WinUI within [stated limits](button.md), pixel by pixel | With the SDK's tests |
+| Reference store (`tests/reference/`) digests, layout/automation dumps, scripts, and `reference/package.json` match | With the SDK's tests |
+
+## How do you run the tests?
+
+```sh
+python tools/build.py                  # the SDK
+python tools/app_build.py ../Hello     # a program in its own repository
+python3 tools/winvm/live.py            # live WinUI tests, in the test machine (WSL)
+```
+
+Live tests move the mouse and press keys, so they run in a Hyper-V machine that takes its turn and turns itself off. `--check` says whether a pass is owed, and exit 75 means not now: the machine is busy or memory is short. `[winvm]` in `.conclave/local.toml` names the machine, and `tools/winvm/vm.ps1 -Build` makes it.
+
+Captures that refresh `tests/reference/` use the desktop of the person who asks for them:
+
+```sh
+IMPOSSIBLE_DISPLAY=desktop python3 reference/run.py               # fresh WinUI captures in build/reference/out
+IMPOSSIBLE_DISPLAY=desktop python3 reference/run.py --update-store # refresh tests/reference/ atomically
+```
+
+Today the 16 100-percent button cases and 10 corner-radius probes have a matching SDK pixel test (`control-shots.exe`), and the element-tree layout engine (`ui/tree.c`, `ui/layout.c`) is verified offline against `tests/fixtures/layout_reference.json` at five scales (100, 125, 150, 200, and 300 percent) while `tests/live-pass.json` proves that the Hyper-V guest verified both the stored frames and the five-scale panel layout oracle directly against real WinUI 3.
+
+## What is a proof?
+
+In WSL, `prove.py` builds the committed work, then Windows' own Python runs the tests against those programs on WSL's disk. It refuses uncommitted changes, because a proof is of a commit.
+
+```sh
+python3 tools/prove.py .
+```
+
+## How do you check one program's imports?
+
+```sh
+python tools/check_imports.py --tier 1 build/windows/hello-window.exe
+```
+
+It reads the finished file as Windows' loader does. Besides functions outside the tier, it refuses imports by ordinal, delay-loaded DLLs, bound imports, thread-local storage, and a DLL that is loaded for nothing.
+
+
+<!-- page: group="Guide" order=3 sources=include/impossible/text.h,include/impossible/file.h,src/file.c,src/text.c reviewed=2026-11-24 -->
+# Text and files
+
+How do you read, build and save text? Paths and text are UTF-8 everywhere, a file is read whole, and a file you write is there complete or not at all.
+
+## What does it look like together?
+
+This program reads a file, says how long it is, and keeps a copy.
+
+```c program=copy_file tier=0
+#include <impossible/file.h>
+#include <impossible/text.h>
+
+int im_main(void) {
+    int count;
+    char **args = im_args(&count);
+    if (!args || count != 3) {
+        im_print("copy_file <from> <to>\n");
+        return 2;
+    }
+    char *data;
+    size_t length;
+    if (im_read(args[1], 64 << 20, &data, &length) != IM_OK) return 1;
+
+    im_text said = {0};
+    im_add_number(&said, length, 1);
+    im_add(&said, " bytes\n");
+    bool told = !said.failed && im_print(said.data);
+    im_text_free(&said);
+
+    im_result kept = im_write(args[2], data, length, true, "copy");
+    im_free(data);
+    im_args_free(args);
+    return told && kept == IM_OK ? 0 : 1;
+}
+```
+
+## Why does im_read ask for a limit?
+
+So that a huge or endless file cannot take all the memory. It returns `IM_TOO_LARGE` and reads nothing more.
+
+## How is a write safe?
+
+`im_write` writes a temporary file beside the real one and renames it over. A program that is stopped in the middle leaves the old file whole. The last argument is part of the temporary name, so two writers at once need different ones.
+
+> [!TIP]
+> With `replace` false, only one of several writers makes the file; the others get `IM_EXISTS`. That is a simple lock between programs.
+
+## What does each result mean?
+
+| Result | Meaning |
+| --- | --- |
+| `IM_OK` | Done |
+| `IM_EXISTS` | There is one already |
+| `IM_MISSING` | The file or its folder is not there |
+| `IM_TOO_LARGE` | More than the limit you gave |
+| `IM_FAILED` | Windows refused, or there was no memory |
+
+## How do texts grow?
+
+Start an `im_text` as `{0}` and add to it. When memory runs out it stays as it was and `failed` is set, so you can add many times and look once at the end. [text.h](site:api-text.html) has the rest.

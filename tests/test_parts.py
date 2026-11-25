@@ -686,6 +686,7 @@ class UnicodePart(unittest.TestCase):
         self.assertEqual(checked_total, 1114112)
 
 
+@unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
 class InflateAndChecksum(unittest.TestCase):
     def test_inflate_and_checksums_10000_random_streaming_and_1gb_bomb(self):
         import gzip
@@ -933,6 +934,7 @@ class InflateAndChecksum(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, err_text)
 
 
+@unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
 class PngDecoder(unittest.TestCase):
     def _ensure_pngsuite(self, manifest: dict) -> Path:
         import hashlib
@@ -1229,6 +1231,7 @@ class PngDecoder(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, err_text)
 
 
+@unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
 class BmpDecoder(unittest.TestCase):
     def _ensure_bmpsuite(self, manifest: dict) -> Path:
         import hashlib
@@ -1563,6 +1566,7 @@ class BmpDecoder(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, err_text)
 
 
+@unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
 class GifDecoder(unittest.TestCase):
     def test_gif_decoder_corpus_animation_limits_and_all_prefixes(self):
         import hashlib
@@ -1780,6 +1784,271 @@ class GifDecoder(unittest.TestCase):
             self.assertEqual((e_b4, fc4, l_b4), (0, 4, 0))
             e_b5, _, _, _, _, _, l_b5, _ = decode_anim(gif_big5, max_bytes=0xFFFFFFFF, label="anim:16mib_over")
             self.assertEqual((e_b5, l_b5), (5, 0))
+        except Exception:
+            killed = True
+            reap_proc()
+            raise
+        finally:
+            watchdog.cancel()
+            if proc.stdin:
+                proc.stdin.close()
+            if proc.stdout:
+                proc.stdout.close()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                killed = True
+                reap_proc()
+                proc.wait(timeout=5)
+                raise
+            err_text = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+            if proc.stderr:
+                proc.stderr.close()
+            if not killed:
+                self.assertEqual(proc.returncode, 0, err_text)
+
+
+@unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
+class DeflatePart(unittest.TestCase):
+    @staticmethod
+    def _build_zip_from_raw_deflate(entries: list[tuple[str, bytes, bytes]]) -> bytes:
+        import struct
+        import zlib
+
+        local_parts = []
+        central_parts = []
+        offset = 0
+        for name, raw, raw_deflate in entries:
+            name_b = name.encode("utf-8")
+            crc = zlib.crc32(raw) & 0xFFFFFFFF
+            lfh = struct.pack(
+                "<IHHHHHIIIHH",
+                0x04034B50, 20, 0, 8, 0, 0, crc, len(raw_deflate), len(raw), len(name_b), 0,
+            )
+            local_parts.append(lfh + name_b + raw_deflate)
+            cdh = struct.pack(
+                "<IHHHHHHIIIHHHHHII",
+                0x02014B50, 20, 20, 0, 8, 0, 0, crc, len(raw_deflate), len(raw),
+                len(name_b), 0, 0, 0, 0, 0, offset,
+            )
+            central_parts.append(cdh + name_b)
+            offset += len(lfh) + len(name_b) + len(raw_deflate)
+        cd = b"".join(central_parts)
+        eocd = struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, len(entries), len(entries), len(cd), offset, 0)
+        return b"".join(local_parts) + cd + eocd
+
+    def test_deflate_efforts_streaming_corpus_and_10gb(self):
+        import hashlib
+        import io
+        import json
+        import os
+        import random
+        import signal
+        import struct
+        import threading
+        import zipfile
+        import zlib
+
+        exe = BUILD / "deflate-tests.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+
+        # 1. Self-contained C unit tests (API contracts, window slides, stored fallback, EOF boundaries).
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("deflate_tests: ALL PASSED", res.stdout)
+
+        # 2. 10 GiB streaming proof under 1 MB fixed memory.
+        res10 = subprocess.run([str(exe), "--stream10g"], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=300)
+        self.assertEqual(res10.returncode, 0, res10.stdout + res10.stderr)
+        self.assertIn("deflate_tests 10GB: ALL PASSED", res10.stdout)
+
+        # 3. Batch tests: 1,000 random inputs (zlib + gzip + raw/zipfile), streaming cut parity, and pinned corpus <= 3%.
+        proc = subprocess.Popen(
+            [str(exe), "--batch"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=(os.name != "nt"),
+        )
+        killed = False
+        timed_out = False
+        active_op = ["startup"]
+
+        def reap_proc():
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                )
+            else:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    proc.kill()
+
+        def on_deadline():
+            nonlocal timed_out, killed
+            timed_out = True
+            killed = True
+            reap_proc()
+
+        watchdog = threading.Timer(120.0, on_deadline)
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            def read_exact(n: int) -> bytes:
+                buf = bytearray()
+                while len(buf) < n:
+                    chunk = proc.stdout.read(n - len(buf))
+                    if not chunk:
+                        if timed_out:
+                            raise TimeoutError(f"deflate-tests timed out during {active_op[0]}")
+                        raise RuntimeError(f"EOF from deflate-tests during {active_op[0]}")
+                    buf.extend(chunk)
+                return bytes(buf)
+
+            def compress_req(op: int, fmt: int, eff: int, data: bytes, in_chunk: int = 0, out_chunk: int = 0, sep_eof: bool = False, label: str = ""):
+                active_op[0] = label
+                flags = 1 if sep_eof else 0
+                proc.stdin.write(struct.pack("<BBBBIII", op, fmt, eff, flags, in_chunk, out_chunk, len(data)) + data)
+                proc.stdin.flush()
+                rc, out_len = struct.unpack("<II", read_exact(8))
+                out = read_exact(out_len) if out_len > 0 else b""
+                return rc, out
+
+            def verify_strict(fmt: int, eff: int, raw: bytes, comp: bytes, label: str):
+                wbits = (-15, 15, 31)[fmt]
+                if fmt == 1:
+                    self.assertGreaterEqual(len(comp), 6, f"{label}: zlib too short")
+                    self.assertEqual(comp[0], 0x78, f"{label}: zlib CMF")
+                    self.assertEqual((comp[0] * 256 + comp[1]) % 31, 0, f"{label}: zlib FCHECK")
+                    self.assertEqual(comp[1] & 0x20, 0, f"{label}: zlib FDICT must be 0")
+                    want_fl = (0, 2, 3)[eff]
+                    self.assertEqual(comp[1] >> 6, want_fl, f"{label}: zlib FLEVEL")
+                elif fmt == 2:
+                    want_xfl = (4, 0, 2)[eff]
+                    want_hdr = bytes([0x1F, 0x8B, 0x08, 0x00, 0, 0, 0, 0, want_xfl, 0xFF])
+                    self.assertEqual(comp[:10], want_hdr, f"{label}: gzip deterministic header")
+                dec = zlib.decompressobj(wbits)
+                got = dec.decompress(comp) + dec.flush()
+                self.assertEqual(got, raw, f"{label}: payload mismatch")
+                self.assertTrue(dec.eof, f"{label}: decompressobj did not reach EOF")
+                self.assertEqual(dec.unused_data, b"", f"{label}: surplus trailing bytes")
+                self.assertEqual(dec.unconsumed_tail, b"", f"{label}: unconsumed tail")
+
+            # 3a. 1,000 random inputs across all 3 efforts and 3 formats, verified in zlib and zipfile.
+            rng = random.Random(20261125)
+            zip_entries = []
+            for idx in range(1000):
+                kind = idx % 5
+                if idx == 0:
+                    raw = b""
+                elif idx == 1:
+                    raw = b"A"
+                elif idx == 2:
+                    raw = b"AB"
+                elif kind == 0:
+                    ln = rng.randint(3, 4096)
+                    raw = rng.randbytes(ln)
+                elif kind == 1:
+                    # Repetitive text-like pattern
+                    alphabet = b"etaoinshrdlucmfwypvbgkqjxz \n"
+                    ln = rng.randint(16, 8192)
+                    pat = bytes(rng.choice(alphabet) for _ in range(rng.randint(8, 64)))
+                    raw = (pat * ((ln // len(pat)) + 2))[:ln]
+                elif kind == 2:
+                    # Mixed runs and random bytes
+                    parts = []
+                    for _ in range(rng.randint(2, 12)):
+                        if rng.random() < 0.5:
+                            parts.append(bytes([rng.randrange(256)]) * rng.randint(4, 300))
+                        else:
+                            parts.append(rng.randbytes(rng.randint(1, 200)))
+                    raw = b"".join(parts)
+                elif kind == 3:
+                    # Small alphabet structured data
+                    ln = rng.randint(32, 4096)
+                    raw = bytes(rng.randrange(8) for _ in range(ln))
+                else:
+                    # Back-reference friendly chunks with mutations
+                    base = rng.randbytes(rng.randint(16, 256))
+                    out_b = bytearray()
+                    for _ in range(rng.randint(3, 25)):
+                        chunk = bytearray(base)
+                        if chunk:
+                            chunk[rng.randrange(len(chunk))] ^= 0x55
+                        out_b.extend(chunk)
+                    raw = bytes(out_b)
+
+                eff = idx % 3
+                fmt = (idx // 3) % 3
+                rc, comp = compress_req(0, fmt, eff, raw, label=f"rand:{idx}:f{fmt}:e{eff}")
+                self.assertEqual(rc, 0, f"rand:{idx} failed with rc={rc}")
+                verify_strict(fmt, eff, raw, comp, f"rand:{idx}")
+                if fmt == 0:
+                    zip_entries.append((f"e{idx:04d}.bin", raw, comp))
+
+            # Verify all raw-deflated random inputs inside Python's zipfile.ZipFile!
+            self.assertGreaterEqual(len(zip_entries), 330)
+            zbytes = self._build_zip_from_raw_deflate(zip_entries)
+            with zipfile.ZipFile(io.BytesIO(zbytes), "r") as zf:
+                self.assertIsNone(zf.testzip())
+                for name, raw, _ in zip_entries:
+                    self.assertEqual(zf.read(name), raw, f"zipfile mismatch for {name}")
+
+            # 3b. Arbitrary input/output streaming cuts give exact byte-identical output.
+            for idx in range(60):
+                eff = idx % 3
+                fmt = (idx // 3) % 3
+                ln = rng.choice([0, 1, 2, 17, 261, 262, 263, 4096, 32000, 32768, 40000])
+                if idx % 2 == 0:
+                    pat = b"streaming-cut-determinism-0123456789-" + bytes([idx & 0xFF])
+                    raw = (pat * ((ln // len(pat)) + 2))[:ln]
+                else:
+                    raw = rng.randbytes(ln)
+                rc0, one_shot = compress_req(0, fmt, eff, raw, label=f"cut_ref:{idx}")
+                self.assertEqual(rc0, 0)
+                in_c = rng.choice([1, 2, 3, 7, 64, 257, 1024, 4099])
+                out_c = rng.choice([1, 2, 5, 19, 256, 4096])
+                sep_eof = (idx % 2 == 1)
+                rc1, streamed = compress_req(1, fmt, eff, raw, in_chunk=in_c, out_chunk=out_c, sep_eof=sep_eof, label=f"cut_st:{idx}")
+                self.assertEqual(rc1, 0, f"stream cut {idx} failed")
+                self.assertEqual(streamed, one_shot, f"stream cut {idx} (in={in_c}, out={out_c}, sep={sep_eof}) differed from one-shot")
+
+            # 3c. Pinned corpus size benchmark: within 3% of zlib levels 1, 6, and 9 independently.
+            corpus_dir = ROOT / "tests" / "data" / "deflate_corpus"
+            manifest = json.loads((ROOT / "tests" / "data" / "deflate_ref.json").read_text(encoding="utf-8"))
+            disk_files = {p.name for p in corpus_dir.iterdir() if p.is_file()}
+            self.assertEqual(set(manifest["files"].keys()), disk_files, "deflate corpus drifted from manifest")
+
+            corpus_bytes = {}
+            for name, meta in sorted(manifest["files"].items()):
+                raw = (corpus_dir / name).read_bytes()
+                self.assertEqual(len(raw), meta["size"], f"{name}: size mismatch")
+                self.assertEqual(hashlib.sha256(raw).hexdigest(), meta["sha256"], f"{name}: sha256 mismatch")
+                corpus_bytes[name] = raw
+
+            total_raw = sum(len(b) for b in corpus_bytes.values())
+            for eff, zlvl in ((0, 1), (1, 6), (2, 9)):
+                sdk_sum = 0
+                ref_sum = 0
+                for name, raw in sorted(corpus_bytes.items()):
+                    rc, comp = compress_req(0, 1, eff, raw, label=f"corpus:{name}:e{eff}")
+                    self.assertEqual(rc, 0, f"corpus {name} eff={eff} failed")
+                    verify_strict(1, eff, raw, comp, f"corpus:{name}:e{eff}")
+                    ref = zlib.compress(raw, zlvl)
+                    sdk_sum += len(comp)
+                    ref_sum += len(ref)
+                self.assertLess(sdk_sum * 100, total_raw * 40, f"effort {eff} did not genuinely compress corpus")
+                self.assertLessEqual(
+                    sdk_sum * 100,
+                    ref_sum * 103,
+                    f"effort {eff} (zlib L{zlvl}): sdk={sdk_sum} > 1.03 * ref={ref_sum} ({sdk_sum / ref_sum:.4f}x)",
+                )
         except Exception:
             killed = True
             reap_proc()
