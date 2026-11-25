@@ -893,6 +893,16 @@ static void test_shared_transform_and_input(void) {
         int r0 = (int)((lp_pix[0] >> 16) & 0xFFu);
         CHECK(r0 >= 126 && r0 <= 129,
               "fractional parent clip x=0.5 + offscreen layer + child irect clip yields 50% (~128), not 25% (~64)");
+
+        /* Subrange query [1, 2) must ignore parent clip [0, 1) excluding pixel (1, 0). */
+        CHECK(im_layer_push_clip_rect(&lp_ctx, (im_rect){0, 0, FX(1), FX(1)}), "push parent [0,1)");
+        CHECK(im_layer_push_clip_rect(&lp_ctx, (im_rect){0, 0, FX(2), FX(1)}), "push child [0,2)");
+        CHECK(im_clip_pixel_coverage_range(&lp_ctx.clips, 1u, 2u, 1, 0) == IM_ONE,
+              "im_clip_pixel_coverage_range [1,2) returns IM_ONE at (1,0) despite parent [0,1)");
+        CHECK(im_clip_pixel_coverage(&lp_ctx.clips, 1, 0) == 0u,
+              "full-stack im_clip_pixel_coverage still returns 0 at (1,0)");
+        im_layer_pop_clip(&lp_ctx);
+        im_layer_pop_clip(&lp_ctx);
         im_layer_destroy(&lp_ctx);
     }
 

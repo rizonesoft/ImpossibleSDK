@@ -154,8 +154,10 @@ void im_clip_bounds(const im_clip_stack *stack, int *left, int *top, int *right,
 
 uint32_t im_clip_pixel_coverage_range(const im_clip_stack *stack, uint32_t from_idx, uint32_t to_idx, int x, int y) {
     if (!stack || from_idx >= to_idx || to_idx > stack->count) return IM_ONE;
-    const im_clip_entry *top = &stack->entries[to_idx - 1u];
-    if (x < top->int_left || x >= top->int_right || y < top->int_top || y >= top->int_bottom) return 0;
+    if (from_idx == 0u) {
+        const im_clip_entry *top = &stack->entries[to_idx - 1u];
+        if (x < top->int_left || x >= top->int_right || y < top->int_top || y >= top->int_bottom) return 0;
+    }
 
     /* Intersect all axis-aligned bounds in [from_idx, to_idx) with pixel (x, y) first
        so touching or disjoint fractional clips yield exact zero coverage. */
