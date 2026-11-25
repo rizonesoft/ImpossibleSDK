@@ -108,6 +108,18 @@
       ]
     },
     {
+      "name": "ico",
+      "folder": "parts/ico",
+      "depends": [
+        "image",
+        "png"
+      ],
+      "sources": [
+        "parts/ico/read.c",
+        "parts/ico/write.c"
+      ]
+    },
+    {
       "name": "unicode",
       "folder": "parts/unicode",
       "depends": [],

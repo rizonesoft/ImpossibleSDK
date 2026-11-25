@@ -286,6 +286,8 @@ Baseline and progressive JPEG from a picture, in integers, for Paint and Photos.
 
 ## 11. ICO and CUR, both ways
 
+> **Started:** 2026-11-25T18:18Z
+
 Icons and cursors with every size and depth, for Icon Editor and programs.
 
 **Phase:** 4
@@ -297,12 +299,12 @@ Icons and cursors with every size and depth, for Icon Editor and programs.
 1. Write `parts/ico/read.c` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
-- [ ] Read every entry, PNG or bitmap with mask, in `parts/ico/read.c`. Done when: the icons of 50 Windows programs are equal to Windows' own drawing. Cheaper substitute: the largest entry.
-- [ ] Choose the entry for a size and scale in `parts/ico/read.c`. Done when: the choice equals Windows' for 100 sizes. Cheaper substitute: the nearest.
-- [ ] Write all entries with hot spots in `parts/ico/write.c`. Done when: Windows shows each size and cursor right. Cheaper substitute: PNG only.
-- [ ] Refuse entries that overlap or leave the file in `parts/ico/read.c`. Done when: a table of 40 planted files is refused. Cheaper substitute: trusting offsets.
-- [ ] Fuzz `parts/ico/read.c`. Done when: a native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
-- [ ] Commit: `formats: ICO and CUR`
+- [x] Read every entry, PNG or bitmap with mask, in `parts/ico/read.c`. Done when: the icons of 50 Windows programs are equal to Windows' own drawing. Cheaper substitute: the largest entry.
+- [x] Choose the entry for a size and scale in `parts/ico/read.c`. Done when: the choice equals Windows' for 100 sizes. Cheaper substitute: the nearest.
+- [x] Write all entries with hot spots in `parts/ico/write.c`. Done when: Windows shows each size and cursor right. Cheaper substitute: PNG only.
+- [x] Refuse entries that overlap or leave the file in `parts/ico/read.c`. Done when: a table of 40 planted files is refused. Cheaper substitute: trusting offsets.
+- [x] Fuzz `parts/ico/read.c`. Done when: a native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
+- [x] Commit: `formats: ICO and CUR`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 

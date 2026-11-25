@@ -5050,5 +5050,683 @@ class PngAndBmpWriters(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, err_text)
 
 
+@unittest.skipUnless(
+    os.name == "nt" or "microsoft" in platform.release().lower(),
+    "needs Windows, directly or through WSL",
+)
+class IcoAndCur(unittest.TestCase):
+    """D02 T01 §11: ICO and CUR decoder, chooser, and writer verified against live Windows Win32 APIs."""
+
+    @staticmethod
+    def _build_synthetic_dib(w: int, h: int, bpp: int, zero_alpha_32: bool = False) -> tuple[bytes, bytes]:
+        """Build an asymmetric DIB (BITMAPINFOHEADER + palette + XOR + 1-bpp AND) and expected straight BGRA8."""
+        import struct
+        xor_row = ((w * bpp + 31) // 32) * 4
+        and_row = ((w + 31) // 32) * 4
+        pal_entries = (1 << bpp) if bpp <= 8 else 0
+        pal = bytearray()
+        if pal_entries:
+            for i in range(pal_entries):
+                # Distinct asymmetric BGR palette entries
+                r = (i * 53 + 17) & 255
+                g = (i * 97 + 41) & 255
+                b = (i * 131 + 73) & 255
+                if i == 0:
+                    r, g, b = 0, 0, 0
+                pal.extend(bytes((b, g, r, 0)))
+
+        xor_buf = bytearray(xor_row * h)
+        and_buf = bytearray(and_row * h)
+        expected = bytearray(w * h * 4)
+
+        for y in range(h):
+            dst_y = h - 1 - y
+            for x in range(w):
+                # Asymmetric pattern: top-left corner transparent, diagonal opaque
+                transparent = ((x + y * 2) % 7 == 0)
+                eo = (y * w + x) * 4
+                if bpp <= 8:
+                    idx = 0 if transparent else (1 + ((x * 3 + y * 5) % (pal_entries - 1)))
+                    if bpp == 1:
+                        if idx:
+                            xor_buf[dst_y * xor_row + (x >> 3)] |= 1 << (7 - (x & 7))
+                    elif bpp == 4:
+                        if x & 1:
+                            xor_buf[dst_y * xor_row + (x >> 1)] |= idx & 0x0F
+                        else:
+                            xor_buf[dst_y * xor_row + (x >> 1)] |= (idx & 0x0F) << 4
+                    else:
+                        xor_buf[dst_y * xor_row + x] = idx
+                    b_c, g_c, r_c = pal[idx * 4], pal[idx * 4 + 1], pal[idx * 4 + 2]
+                    a_c = 0 if transparent else 255
+                elif bpp == 16:
+                    r5 = 0 if transparent else ((x * 3 + 5) & 31)
+                    g5 = 0 if transparent else ((y * 5 + 3) & 31)
+                    b5 = 0 if transparent else (((x + y) * 2 + 1) & 31)
+                    val = (r5 << 10) | (g5 << 5) | b5
+                    struct.pack_into("<H", xor_buf, dst_y * xor_row + x * 2, val)
+                    r_c = (r5 << 3) | (r5 >> 2)
+                    g_c = (g5 << 3) | (g5 >> 2)
+                    b_c = (b5 << 3) | (b5 >> 2)
+                    a_c = 0 if transparent else 255
+                elif bpp == 24:
+                    r_c = 0 if transparent else ((x * 19 + 11) & 255)
+                    g_c = 0 if transparent else ((y * 23 + 7) & 255)
+                    b_c = 0 if transparent else (((x * 7 + y * 13) + 29) & 255)
+                    xor_buf[dst_y * xor_row + x * 3 + 0] = b_c
+                    xor_buf[dst_y * xor_row + x * 3 + 1] = g_c
+                    xor_buf[dst_y * xor_row + x * 3 + 2] = r_c
+                    a_c = 0 if transparent else 255
+                else:
+                    if zero_alpha_32:
+                        r_c = 0 if transparent else ((x * 17 + 9) & 255)
+                        g_c = 0 if transparent else ((y * 29 + 5) & 255)
+                        b_c = 0 if transparent else (((x + y * 3) * 11) & 255)
+                        a_raw = 0
+                        a_c = 0 if transparent else 255
+                    else:
+                        r_c = (x * 21 + 13) & 255
+                        g_c = (y * 19 + 31) & 255
+                        b_c = ((x * 5 + y * 17) + 7) & 255
+                        a_raw = 0 if transparent else (128 if ((x + y) & 1) else 255)
+                        a_c = a_raw
+                    xor_buf[dst_y * xor_row + x * 4 + 0] = b_c
+                    xor_buf[dst_y * xor_row + x * 4 + 1] = g_c
+                    xor_buf[dst_y * xor_row + x * 4 + 2] = r_c
+                    xor_buf[dst_y * xor_row + x * 4 + 3] = a_raw
+
+                if transparent:
+                    and_buf[dst_y * and_row + (x >> 3)] |= 1 << (7 - (x & 7))
+                expected[eo : eo + 4] = bytes((b_c, g_c, r_c, a_c))
+
+        hdr = struct.pack(
+            "<IiiHHIIiiII",
+            40, w, h * 2, 1, bpp, 0, len(xor_buf) + len(and_buf), 0, 0, pal_entries, 0
+        )
+        payload = hdr + bytes(pal) + bytes(xor_buf) + bytes(and_buf)
+        ico = struct.pack("<HHH", 0, 1, 1) + struct.pack(
+            "<BBBBHHII", w & 255, h & 255, pal_entries & 255 if pal_entries < 256 else 0, 0, 1, bpp, len(payload), 22
+        ) + payload
+        return ico, bytes(expected)
+
+    def test_ico_and_cur_read_choose_write_50_windows_programs_and_100_sizes(self):
+        import base64
+        import json
+        import signal
+        import struct
+        import threading
+
+        exe = BUILD / "ico-tests.exe"
+        self.assertTrue(exe.exists(), f"{exe} missing")
+
+        # 1. C self-test (40 malformed files, im_ico_list short-buffer + guard, 256/257 cap, CUR hotspot bounds, OOM sweeps).
+        res = subprocess.run(
+            [str(exe)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(res.returncode, 0, f"ico-tests self-test failed:\n{res.stdout}\n{res.stderr}")
+        self.assertIn("ico_tests: ALL PASSED", res.stdout)
+
+        # Start persistent batch worker with watchdog.
+        popen_kw = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+        if os.name == "nt":
+            popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+        else:
+            popen_kw["start_new_session"] = True
+        proc = subprocess.Popen([str(exe), "--batch"], **popen_kw)
+        killed = False
+        timed_out = False
+
+        def reap_proc():
+            if proc.poll() is not None:
+                return
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], stdin=subprocess.DEVNULL, capture_output=True)
+            else:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except OSError:
+                    proc.kill()
+
+        def on_deadline():
+            nonlocal timed_out, killed
+            timed_out = True
+            killed = True
+            reap_proc()
+
+        watchdog = threading.Timer(180.0, on_deadline)
+        watchdog.daemon = True
+        watchdog.start()
+
+        def read_exact(n: int) -> bytes:
+            out = bytearray()
+            while len(out) < n:
+                chunk = proc.stdout.read(n - len(out))
+                if not chunk:
+                    raise TimeoutError("ico-tests timed out") if timed_out else RuntimeError("ico-tests EOF")
+                out.extend(chunk)
+            return bytes(out)
+
+        def sdk_list(data: bytes):
+            proc.stdin.write(struct.pack("<BI", 0, len(data)) + data)
+            proc.stdin.flush()
+            err, typ, cnt = struct.unpack("<IHH", read_exact(8))
+            entries = []
+            for _ in range(cnt):
+                entries.append(struct.unpack("<IIHHHIIHHH", read_exact(28)))
+            return err, typ, entries
+
+        def sdk_decode(data: bytes, idx: int, fmt: int = 0):
+            proc.stdin.write(struct.pack("<BHBI", 1, idx, fmt, len(data)) + data)
+            proc.stdin.flush()
+            err, w, h, hx, hy, has_inv, px_len, inv_len, mis = struct.unpack("<IIIHHIIII", read_exact(32))
+            px = read_exact(px_len) if px_len else b""
+            inv = read_exact(inv_len) if inv_len else b""
+            return err, w, h, hx, hy, has_inv, px, inv, mis
+
+        def sdk_composite(data: bytes, idx: int, bg: tuple[int, int, int]):
+            proc.stdin.write(struct.pack("<BHBBBI", 2, idx, bg[0], bg[1], bg[2], len(data)) + data)
+            proc.stdin.flush()
+            err, w, h, n = struct.unpack("<IIII", read_exact(16))
+            px = read_exact(n) if n else b""
+            return err, w, h, px
+
+        def sdk_choose_scaled(entries, lw: int, lh: int, scale: int, sbpp: int = 32) -> int:
+            buf = bytearray(struct.pack("<BHIIII", 3, len(entries), lw, lh, scale, sbpp))
+            for dw, dh, cc, pl, bpp in entries:
+                buf.extend(struct.pack("<IIHHH", dw, dh, cc, pl, bpp))
+            proc.stdin.write(buf)
+            proc.stdin.flush()
+            return struct.unpack("<i", read_exact(4))[0]
+
+        def sdk_encode(typ: int, items) -> tuple[int, int, bytes]:
+            buf = bytearray(struct.pack("<BBH", 4, typ, len(items)))
+            for w, h, hx, hy, enc, fmt, px, inv in items:
+                inv_b = inv or b""
+                buf.extend(struct.pack("<IIHHBBI", w, h, hx, hy, enc, fmt, len(inv_b)))
+                buf.extend(px)
+                buf.extend(inv_b)
+            proc.stdin.write(buf)
+            proc.stdin.flush()
+            err, leak, n = struct.unpack("<III", read_exact(12))
+            out = read_exact(n) if n else b""
+            return err, leak, out
+
+        # Windows Win32 oracle script executed via Windows python.exe (or in-process on native Windows).
+        win_oracle_code = r'''
+import base64, ctypes, json, os, struct, sys
+from ctypes import wintypes
+
+k32 = ctypes.windll.kernel32
+u32 = ctypes.windll.user32
+g32 = ctypes.windll.gdi32
+
+LOAD_LIBRARY_AS_DATAFILE = 0x00000002
+RT_ICON = 3
+RT_GROUP_ICON = 14
+
+k32.LoadLibraryExW.argtypes = [wintypes.LPCWSTR, wintypes.HANDLE, wintypes.DWORD]
+k32.LoadLibraryExW.restype = wintypes.HMODULE
+k32.FreeLibrary.argtypes = [wintypes.HMODULE]
+k32.FindResourceW.argtypes = [wintypes.HMODULE, ctypes.c_void_p, ctypes.c_void_p]
+k32.FindResourceW.restype = wintypes.HRSRC
+k32.LoadResource.argtypes = [wintypes.HMODULE, wintypes.HRSRC]
+k32.LoadResource.restype = wintypes.HGLOBAL
+k32.SizeofResource.argtypes = [wintypes.HMODULE, wintypes.HRSRC]
+k32.SizeofResource.restype = wintypes.DWORD
+k32.LockResource.argtypes = [wintypes.HGLOBAL]
+k32.LockResource.restype = ctypes.c_void_p
+
+ENUMRESNAMEPROCW = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMODULE, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+k32.EnumResourceNamesW.argtypes = [wintypes.HMODULE, ctypes.c_void_p, ENUMRESNAMEPROCW, ctypes.c_void_p]
+k32.EnumResourceNamesW.restype = wintypes.BOOL
+
+u32.CreateIconFromResourceEx.argtypes = [ctypes.c_void_p, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+u32.CreateIconFromResourceEx.restype = wintypes.HICON
+u32.DestroyIcon.argtypes = [wintypes.HICON]
+u32.DrawIconEx.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int, wintypes.HICON, ctypes.c_int, ctypes.c_int, wintypes.UINT, wintypes.HBRUSH, wintypes.UINT]
+u32.DrawIconEx.restype = wintypes.BOOL
+u32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+u32.LoadImageW.restype = wintypes.HANDLE
+u32.LookupIconIdFromDirectoryEx.argtypes = [ctypes.c_void_p, wintypes.BOOL, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+u32.LookupIconIdFromDirectoryEx.restype = ctypes.c_int
+
+class ICONINFO(ctypes.Structure):
+    _fields_ = [("fIcon", wintypes.BOOL), ("xHotspot", wintypes.DWORD), ("yHotspot", wintypes.DWORD), ("hbmMask", wintypes.HBITMAP), ("hbmColor", wintypes.HBITMAP)]
+u32.GetIconInfo.argtypes = [wintypes.HICON, ctypes.POINTER(ICONINFO)]
+u32.GetIconInfo.restype = wintypes.BOOL
+
+class BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG), ("biHeight", wintypes.LONG),
+        ("biPlanes", wintypes.WORD), ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
+        ("biSizeImage", wintypes.DWORD), ("biXPelsPerMeter", wintypes.LONG), ("biYPelsPerMeter", wintypes.LONG),
+        ("biClrUsed", wintypes.DWORD), ("biClrImportant", wintypes.DWORD),
+    ]
+
+g32.CreateCompatibleDC.argtypes = [wintypes.HDC]
+g32.CreateCompatibleDC.restype = wintypes.HDC
+g32.DeleteDC.argtypes = [wintypes.HDC]
+g32.SelectObject.argtypes = [wintypes.HDC, wintypes.HGDIOBJ]
+g32.SelectObject.restype = wintypes.HGDIOBJ
+g32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
+g32.CreateDIBSection.argtypes = [wintypes.HDC, ctypes.c_void_p, wintypes.UINT, ctypes.POINTER(ctypes.c_void_p), wintypes.HANDLE, wintypes.DWORD]
+g32.CreateDIBSection.restype = wintypes.HBITMAP
+
+def render_hicon(hicon, w, h, bg):
+    hdc = g32.CreateCompatibleDC(None)
+    bmi = BITMAPINFOHEADER()
+    bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    bmi.biWidth = w
+    bmi.biHeight = -h
+    bmi.biPlanes = 1
+    bmi.biBitCount = 32
+    bmi.biCompression = 0
+    bits = ctypes.c_void_p()
+    hbmp = g32.CreateDIBSection(hdc, ctypes.byref(bmi), 0, ctypes.byref(bits), None, 0)
+    old = g32.SelectObject(hdc, hbmp)
+    px = bytes((bg[2], bg[1], bg[0], 255)) * (w * h)
+    ctypes.memmove(bits.value, px, len(px))
+    u32.DrawIconEx(hdc, 0, 0, hicon, w, h, 0, None, 3)
+    out = ctypes.string_at(bits.value, w * h * 4)
+    g32.SelectObject(hdc, old)
+    g32.DeleteObject(hbmp)
+    g32.DeleteDC(hdc)
+    return out
+
+def render_entry_payload(payload, is_icon, w, h, bg):
+    buf = (ctypes.c_ubyte * len(payload)).from_buffer_copy(payload)
+    hicon = u32.CreateIconFromResourceEx(buf, len(payload), is_icon, 0x00030000, w, h, 0)
+    if not hicon:
+        return None
+    try:
+        return render_hicon(hicon, w, h, bg)
+    finally:
+        u32.DestroyIcon(hicon)
+
+def extract_first_ico(pe_path):
+    hmod = k32.LoadLibraryExW(pe_path, None, LOAD_LIBRARY_AS_DATAFILE)
+    if not hmod:
+        return None
+    try:
+        found = []
+        @ENUMRESNAMEPROCW
+        def cb(hm, rt, name, lp):
+            if name < 0x10000:
+                found.append(int(name))
+            else:
+                found.append(ctypes.wstring_at(name))
+            return False
+        k32.EnumResourceNamesW(hmod, ctypes.c_void_p(RT_GROUP_ICON), cb, None)
+        if not found:
+            return None
+        gname = found[0]
+        g_arg = ctypes.c_void_p(gname) if isinstance(gname, int) else ctypes.c_wchar_p(gname)
+        hr = k32.FindResourceW(hmod, g_arg, ctypes.c_void_p(RT_GROUP_ICON))
+        if not hr:
+            return None
+        hg = k32.LoadResource(hmod, hr)
+        sz = k32.SizeofResource(hmod, hr)
+        ptr = k32.LockResource(hg)
+        if not ptr or sz < 6:
+            return None
+        gdata = ctypes.string_at(ptr, sz)
+        resv, typ, cnt = struct.unpack_from("<HHH", gdata, 0)
+        if resv != 0 or typ != 1 or cnt == 0 or sz < 6 + cnt * 14:
+            return None
+        entries = []
+        for i in range(cnt):
+            w, h, cc, r, pl, bpp, bsz, rid = struct.unpack_from("<BBBBHHIH", gdata, 6 + i * 14)
+            ihr = k32.FindResourceW(hmod, ctypes.c_void_p(rid), ctypes.c_void_p(RT_ICON))
+            if not ihr:
+                return None
+            ihg = k32.LoadResource(hmod, ihr)
+            isz = k32.SizeofResource(hmod, ihr)
+            iptr = k32.LockResource(ihg)
+            if not iptr or isz == 0:
+                return None
+            entries.append((w, h, cc, r, pl, bpp, ctypes.string_at(iptr, isz)))
+        ico = bytearray(struct.pack("<HHH", 0, 1, len(entries)))
+        off = 6 + len(entries) * 16
+        for w, h, cc, r, pl, bpp, payload in entries:
+            ico.extend(struct.pack("<BBBBHHII", w, h, cc, r, pl, bpp, len(payload), off))
+            off += len(payload)
+        for _, _, _, _, _, _, payload in entries:
+            ico.extend(payload)
+        return bytes(ico), [(w or 256, h or 256, payload) for w, h, _, _, _, _, payload in entries]
+    finally:
+        k32.FreeLibrary(hmod)
+
+req = json.loads(sys.stdin.read())
+cmd = req["cmd"]
+if cmd == "extract50":
+    sys32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+    names = sorted(f for f in os.listdir(sys32) if f.lower().endswith((".exe", ".dll")))
+    out = []
+    for name in names:
+        if len(out) >= 50:
+            break
+        res = extract_first_ico(os.path.join(sys32, name))
+        if not res:
+            continue
+        ico_bytes, entries = res
+        renders = []
+        ok = True
+        for w, h, payload in entries:
+            # Resolve true payload size for PNG/DIB so DrawIconEx draws at exact native size
+            pw, ph = w, h
+            if payload[:8] == b"\x89PNG\r\n\x1a\n" and len(payload) >= 24:
+                pw, ph = struct.unpack(">II", payload[16:24])
+            elif len(payload) >= 12:
+                bi_sz, bw, bh = struct.unpack("<Iii", payload[:12])
+                if bi_sz in (40, 108, 124) and bw > 0 and bh >= 2 and (bh & 1) == 0:
+                    pw, ph = bw, bh // 2
+            r0 = render_entry_payload(payload, True, pw, ph, (0, 0, 0))
+            r1 = render_entry_payload(payload, True, pw, ph, (255, 255, 255))
+            if r0 is None or r1 is None:
+                ok = False
+                break
+            renders.append({
+                "w": pw, "h": ph,
+                "black": base64.b64encode(r0).decode("ascii"),
+                "white": base64.b64encode(r1).decode("ascii"),
+            })
+        if ok and renders:
+            out.append({"name": name, "ico": base64.b64encode(ico_bytes).decode("ascii"), "entries": renders})
+    print(json.dumps(out))
+elif cmd == "lookup100":
+    ans = []
+    for case in req["cases"]:
+        is_icon = case["is_icon"]
+        entries = case["entries"]
+        buf = bytearray(struct.pack("<HHH", 0, 1 if is_icon else 2, len(entries)))
+        for idx, (dw, dh, cc, pl, bpp) in enumerate(entries, 1):
+            if is_icon:
+                buf.extend(struct.pack("<BBBBHHIH", dw & 255, dh & 255, cc & 255, 0, pl, bpp, 100, idx))
+            else:
+                buf.extend(struct.pack("<HHHHIH", dw, dh * 2, pl, bpp, 100, idx))
+        raw = (ctypes.c_ubyte * len(buf)).from_buffer_copy(buf)
+        rid = u32.LookupIconIdFromDirectoryEx(raw, is_icon, case["tw"], case["th"], 0)
+        ans.append(rid - 1)
+    print(json.dumps(ans))
+elif cmd == "load_verify":
+    results = []
+    for item in req["items"]:
+        img_type = 1 if item["is_icon"] else 2
+        h = u32.LoadImageW(None, item["path"], img_type, item["w"], item["h"], 0x00000010)
+        if not h:
+            results.append({"ok": False})
+            continue
+        try:
+            ii = ICONINFO()
+            got_ii = bool(u32.GetIconInfo(h, ctypes.byref(ii)))
+            if got_ii:
+                if ii.hbmMask: g32.DeleteObject(ii.hbmMask)
+                if ii.hbmColor: g32.DeleteObject(ii.hbmColor)
+            r0 = render_hicon(h, item["w"], item["h"], (0, 0, 0))
+            r1 = render_hicon(h, item["w"], item["h"], (255, 255, 255))
+            results.append({
+                "ok": got_ii,
+                "fIcon": int(ii.fIcon),
+                "hx": int(ii.xHotspot),
+                "hy": int(ii.yHotspot),
+                "black": base64.b64encode(r0).decode("ascii"),
+                "white": base64.b64encode(r1).decode("ascii"),
+            })
+        finally:
+            u32.DestroyIcon(h)
+    print(json.dumps(results))
+'''
+
+        def call_win_oracle(payload_obj):
+            py_cmd = [sys.executable, "-c", win_oracle_code] if os.name == "nt" else ["python.exe", "-c", win_oracle_code]
+            cp = subprocess.run(
+                py_cmd,
+                input=json.dumps(payload_obj),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            self.assertEqual(cp.returncode, 0, f"Windows oracle failed:\n{cp.stderr}")
+            return json.loads(cp.stdout)
+
+        def assert_rendered_close(sdk_bgra: bytes, win_bgra: bytes, label: str, max_diff: int = 1):
+            self.assertEqual(len(sdk_bgra), len(win_bgra), f"{label}: byte length mismatch")
+            # Compare RGB channels (GDI DrawIconEx leaves dest alpha as 0 or 255 depending on 24/32-bpp path)
+            worst = 0
+            for i in range(0, len(sdk_bgra), 4):
+                for c in range(3):
+                    d = abs(sdk_bgra[i + c] - win_bgra[i + c])
+                    if d > worst:
+                        worst = d
+            self.assertLessEqual(worst, max_diff, f"{label}: max RGB diff {worst} > {max_diff}")
+
+        def win_path(p: Path) -> str:
+            if os.name == "nt":
+                return str(p)
+            return subprocess.run(["wslpath", "-w", str(p)], capture_output=True, text=True, check=True).stdout.strip()
+
+        try:
+            # 2. 50 distinct Windows programs: every enumerated entry matches Windows DrawIconEx on black & white.
+            prog50 = call_win_oracle({"cmd": "extract50"})
+            self.assertEqual(len(prog50), 50, f"expected 50 Windows programs, got {len(prog50)}")
+            self.assertEqual(len({p["name"].lower() for p in prog50}), 50)
+            total_entries_checked = 0
+            for prog in prog50:
+                ico_bytes = base64.b64decode(prog["ico"])
+                err, typ, listed = sdk_list(ico_bytes)
+                self.assertEqual((err, typ, len(listed)), (0, 1, len(prog["entries"])), f"{prog['name']} list mismatch")
+                for e_idx, w_ent in enumerate(prog["entries"]):
+                    e0, w0, h0, s_blk = sdk_composite(ico_bytes, e_idx, (0, 0, 0))
+                    e1, w1, h1, s_wht = sdk_composite(ico_bytes, e_idx, (255, 255, 255))
+                    self.assertEqual((e0, e1), (0, 0), f"{prog['name']}[{e_idx}] decode failed")
+                    self.assertEqual((w0, h0, w1, h1), (w_ent["w"], w_ent["h"], w_ent["w"], w_ent["h"]))
+                    assert_rendered_close(s_blk, base64.b64decode(w_ent["black"]), f"{prog['name']}[{e_idx}] black")
+                    assert_rendered_close(s_wht, base64.b64decode(w_ent["white"]), f"{prog['name']}[{e_idx}] white")
+                    total_entries_checked += 1
+            self.assertGreaterEqual(total_entries_checked, 50)
+
+            # 3. Synthetic asymmetric fixtures for all 6 DIB depths (1, 4, 8, 16, 24, 32-mixed, 32-zero-alpha),
+            #    odd width 13x11, both BGRA8 and RGBA8 output formats.
+            for bpp, zero32 in [(1, False), (4, False), (8, False), (16, False), (24, False), (32, False), (32, True)]:
+                ico_b, exp_bgra = self._build_synthetic_dib(13, 11, bpp, zero_alpha_32=zero32)
+                err, w, h, _, _, _, px_bgra, inv, mis = sdk_decode(ico_b, 0, fmt=0)
+                self.assertEqual((err, w, h, mis), (0, 13, 11, 0), f"depth {bpp} (zero32={zero32}) BGRA failed")
+                self.assertEqual(px_bgra, exp_bgra, f"depth {bpp} (zero32={zero32}) BGRA pixels mismatch")
+                err_r, wr, hr, _, _, _, px_rgba, _, mis_r = sdk_decode(ico_b, 0, fmt=1)
+                self.assertEqual((err_r, wr, hr, mis_r), (0, 13, 11, 0))
+                exp_rgba = bytearray(len(exp_bgra))
+                exp_rgba[0::4] = exp_bgra[2::4]
+                exp_rgba[1::4] = exp_bgra[1::4]
+                exp_rgba[2::4] = exp_bgra[0::4]
+                exp_rgba[3::4] = exp_bgra[3::4]
+                self.assertEqual(px_rgba, bytes(exp_rgba), f"depth {bpp} RGBA mismatch")
+
+            # 4. Installed inverted cursor aero_link_i.cur: decode, composite on black & white, re-encode with invert_mask,
+            #    and verify Windows LoadImageW + GetIconInfo + DrawIconEx matches on both backgrounds.
+            cur_path = Path(r"C:\Windows\Cursors\aero_link_i.cur") if os.name == "nt" else Path("/mnt/c/Windows/Cursors/aero_link_i.cur")
+            if cur_path.exists():
+                cur_bytes = cur_path.read_bytes()
+                err, typ, listed = sdk_list(cur_bytes)
+                self.assertEqual((err, typ), (0, 2))
+                err, cw, ch, chx, chy, has_inv, cpx, cinv, mis = sdk_decode(cur_bytes, 0, fmt=0)
+                self.assertEqual((err, mis), (0, 0))
+                self.assertEqual(has_inv, 1, "aero_link_i.cur must report has_invert_mask=true")
+                self.assertGreater(len(cinv), 0)
+                # Composite onto black & white and compare with Windows LoadImageW + DrawIconEx
+                _, _, _, s_blk = sdk_composite(cur_bytes, 0, (0, 0, 0))
+                _, _, _, s_wht = sdk_composite(cur_bytes, 0, (255, 255, 255))
+                # Re-encode with invert_mask into a temp .cur and verify both original and re-encoded in Windows
+                enc_err, enc_leak, re_cur = sdk_encode(2, [(cw, ch, chx, chy, 1, 0, cpx, cinv)])
+                self.assertEqual((enc_err, enc_leak), (0, 0))
+                with tempfile.TemporaryDirectory() as td:
+                    re_path = Path(td) / "re_aero_link_i.cur"
+                    re_path.write_bytes(re_cur)
+                    wres = call_win_oracle({
+                        "cmd": "load_verify",
+                        "items": [
+                            {"path": win_path(cur_path), "is_icon": False, "w": cw, "h": ch},
+                            {"path": win_path(re_path), "is_icon": False, "w": cw, "h": ch},
+                        ],
+                    })
+                    for idx_r, wr in enumerate(wres):
+                        self.assertTrue(wr["ok"])
+                        self.assertEqual((wr["fIcon"], wr["hx"], wr["hy"]), (0, chx, chy))
+                        assert_rendered_close(s_blk, base64.b64decode(wr["black"]), f"aero_link_i[{idx_r}] black", max_diff=0)
+                        assert_rendered_close(s_wht, base64.b64decode(wr["white"]), f"aero_link_i[{idx_r}] white", max_diff=0)
+
+            # 5. 100-size chooser oracle against live Windows user32!LookupIconIdFromDirectoryEx.
+            #    Tests ICO and CUR directories, competing sizes vs depths, repeated sizes, between sizes, rectangular targets, scales.
+            dir_sets = [
+                (True, [(16, 16, 16, 1, 4), (16, 16, 0, 1, 8), (16, 16, 0, 1, 32), (24, 24, 0, 1, 32),
+                        (32, 32, 16, 1, 4), (32, 32, 0, 1, 32), (48, 48, 0, 1, 32), (64, 64, 0, 1, 32), (256, 256, 0, 1, 32)]),
+                (True, [(16, 16, 0, 1, 32), (32, 32, 16, 1, 4), (48, 48, 0, 1, 8), (48, 48, 0, 1, 24), (48, 48, 0, 1, 32)]),
+                (True, [(32, 16, 0, 1, 32), (16, 32, 0, 1, 32), (32, 32, 0, 1, 8), (32, 32, 0, 1, 32)]),
+                (False, [(32, 32, 0, 1, 1), (48, 48, 0, 1, 1), (64, 64, 0, 1, 1), (96, 96, 0, 1, 1), (128, 128, 0, 1, 1)]),
+            ]
+            scales = [100, 125, 150, 175, 200, 250, 300]
+            logical_sizes = [(12, 12), (16, 16), (20, 20), (24, 24), (28, 28), (32, 32), (40, 40), (48, 48), (64, 64), (32, 16), (16, 32), (96, 96), (128, 128), (192, 192), (256, 256)]
+            lookup_cases = []
+            for ds_idx in range(100):
+                is_icon, ents = dir_sets[ds_idx % len(dir_sets)]
+                lw, lh = logical_sizes[(ds_idx // len(dir_sets)) % len(logical_sizes)]
+                if not is_icon and lw != lh:
+                    lh = lw
+                sc = scales[ds_idx % len(scales)]
+                tw = max(1, (lw * sc + 50) // 100)
+                th = max(1, (lh * sc + 50) // 100)
+                lookup_cases.append({"is_icon": is_icon, "entries": ents, "lw": lw, "lh": lh, "sc": sc, "tw": tw, "th": th})
+            win_choices = call_win_oracle({"cmd": "lookup100", "cases": lookup_cases})
+            self.assertEqual(len(win_choices), 100)
+            for i_c, case in enumerate(lookup_cases):
+                sdk_c = sdk_choose_scaled(case["entries"], case["lw"], case["lh"], case["sc"], sbpp=32)
+                self.assertEqual(sdk_c, win_choices[i_c], f"chooser case {i_c} ({case['lw']}x{case['lh']}@{case['sc']}%): sdk={sdk_c} != win={win_choices[i_c]}")
+            # Also verify non-32 screen_bpp preference (8-bpp prefers 8-bpp over 32-bpp on same size).
+            self.assertEqual(sdk_choose_scaled([(32, 32, 0, 1, 32), (32, 32, 0, 1, 8)], 32, 32, 100, sbpp=8), 1)
+
+            # 6. Writer verification: multi-size ICO (distinct patterns per size, DIB + 256x256 opaque low-color PNG +
+            #    256x256 translucent PNG with color-type-6 8-bit IHDR), multi-entry CUR with distinct hotspots,
+            #    and all-transparent colored source (zero hidden-RGB leak in Windows DrawIconEx).
+            def make_pattern_rgba(w: int, h: int, seed: int, opaque: bool = False) -> bytes:
+                b = bytearray(w * h * 4)
+                for y in range(h):
+                    for x in range(w):
+                        o = (y * w + x) * 4
+                        if opaque:
+                            c = (220, 40, 60, 255) if ((x // 8 + y // 8 + seed) & 1) else (30, 140, 210, 255)
+                        else:
+                            a = 0 if (x < 2 or y < 2) else (160 if ((x + y) & 1) else 255)
+                            c = ((x * 9 + seed * 37) & 255, (y * 11 + seed * 53) & 255, ((x ^ y) * 7 + seed * 19) & 255, a)
+                        b[o : o + 4] = bytes(c)
+                return bytes(b)
+
+            ico_items = [
+                (16, 16, 0, 0, 0, 1, make_pattern_rgba(16, 16, 1), None),
+                (32, 32, 0, 0, 0, 1, make_pattern_rgba(32, 32, 2), None),
+                (48, 48, 0, 0, 0, 1, make_pattern_rgba(48, 48, 3), None),
+                (256, 256, 0, 0, 0, 1, make_pattern_rgba(256, 256, 4, opaque=True), None),
+                (256, 256, 0, 0, 2, 1, make_pattern_rgba(256, 256, 5, opaque=False), None),
+            ]
+            e_ico, l_ico, multi_ico = sdk_encode(1, ico_items)
+            self.assertEqual((e_ico, l_ico), (0, 0))
+            # Verify both 256x256 PNG payloads have 8-bit color-type-6 RGBA IHDR
+            for ent_i in (3, 4):
+                off = struct.unpack_from("<I", multi_ico, 6 + ent_i * 16 + 12)[0]
+                self.assertEqual(multi_ico[off : off + 8], b"\x89PNG\r\n\x1a\n")
+                self.assertEqual((multi_ico[off + 24], multi_ico[off + 25]), (8, 6), "PNG icon entry must be 8-bit RGBA (ct=6)")
+
+            cur_items = [
+                (16, 16, 3, 5, 1, 1, make_pattern_rgba(16, 16, 11), None),
+                (32, 32, 15, 27, 1, 1, make_pattern_rgba(32, 32, 12), None),
+            ]
+            e_cur, l_cur, multi_cur = sdk_encode(2, cur_items)
+            self.assertEqual((e_cur, l_cur), (0, 0))
+            # Verify listed & decoded hotspots for every CUR entry
+            le, lt, l_cur_ents = sdk_list(multi_cur)
+            self.assertEqual((le, lt, len(l_cur_ents)), (0, 2, 2))
+            self.assertEqual((l_cur_ents[0][8], l_cur_ents[0][9]), (3, 5))
+            self.assertEqual((l_cur_ents[1][8], l_cur_ents[1][9]), (15, 27))
+
+            # All-transparent colored source (RGBA 255, 0, 128, 0)
+            trans_px = bytes((255, 0, 128, 0)) * (16 * 16)
+            e_tr, l_tr, trans_ico = sdk_encode(1, [(16, 16, 0, 0, 1, 1, trans_px, None)])
+            self.assertEqual((e_tr, l_tr), (0, 0))
+
+            with tempfile.TemporaryDirectory() as td:
+                p_ico = Path(td) / "multi.ico"
+                p_ico_png_op = Path(td) / "png256_opaque.ico"
+                p_ico_png_tr = Path(td) / "png256_trans.ico"
+                p_cur = Path(td) / "multi.cur"
+                p_tr = Path(td) / "trans_colored.ico"
+                p_ico.write_bytes(multi_ico)
+                _, _, png_op_single = sdk_encode(1, [ico_items[3]])
+                _, _, png_tr_single = sdk_encode(1, [ico_items[4]])
+                p_ico_png_op.write_bytes(png_op_single)
+                p_ico_png_tr.write_bytes(png_tr_single)
+                p_cur.write_bytes(multi_cur)
+                p_tr.write_bytes(trans_ico)
+
+                w_verify = call_win_oracle({
+                    "cmd": "load_verify",
+                    "items": [
+                        {"path": win_path(p_ico), "is_icon": True, "w": 16, "h": 16},
+                        {"path": win_path(p_ico), "is_icon": True, "w": 32, "h": 32},
+                        {"path": win_path(p_ico), "is_icon": True, "w": 48, "h": 48},
+                        {"path": win_path(p_ico_png_op), "is_icon": True, "w": 256, "h": 256},
+                        {"path": win_path(p_ico_png_tr), "is_icon": True, "w": 256, "h": 256},
+                        {"path": win_path(p_cur), "is_icon": False, "w": 16, "h": 16},
+                        {"path": win_path(p_cur), "is_icon": False, "w": 32, "h": 32},
+                        {"path": win_path(p_tr), "is_icon": True, "w": 16, "h": 16},
+                    ],
+                })
+                # Check multi.ico 16, 32, 48, 256 opaque PNG, 256 trans PNG
+                for i_sz, (src_data, ent_i) in enumerate([(multi_ico, 0), (multi_ico, 1), (multi_ico, 2), (png_op_single, 0), (png_tr_single, 0)]):
+                    self.assertTrue(w_verify[i_sz]["ok"])
+                    self.assertEqual(w_verify[i_sz]["fIcon"], 1)
+                    _, _, _, s_blk = sdk_composite(src_data, ent_i, (0, 0, 0))
+                    _, _, _, s_wht = sdk_composite(src_data, ent_i, (255, 255, 255))
+                    assert_rendered_close(s_blk, base64.b64decode(w_verify[i_sz]["black"]), f"written_ico[{i_sz}] black")
+                    assert_rendered_close(s_wht, base64.b64decode(w_verify[i_sz]["white"]), f"written_ico[{i_sz}] white")
+                # Check multi.cur 16x16 (3,5) and 32x32 (15,27)
+                for idx_c, (exp_hx, exp_hy) in enumerate([(3, 5), (15, 27)]):
+                    vr = w_verify[5 + idx_c]
+                    self.assertTrue(vr["ok"])
+                    self.assertEqual((vr["fIcon"], vr["hx"], vr["hy"]), (0, exp_hx, exp_hy))
+                    _, _, _, s_blk = sdk_composite(multi_cur, idx_c, (0, 0, 0))
+                    _, _, _, s_wht = sdk_composite(multi_cur, idx_c, (255, 255, 255))
+                    assert_rendered_close(s_blk, base64.b64decode(vr["black"]), f"written_cur[{idx_c}] black")
+                    assert_rendered_close(s_wht, base64.b64decode(vr["white"]), f"written_cur[{idx_c}] white")
+                # Check all-transparent colored ICO leaves white background 100% untouched (no XOR leak!)
+                tr_vr = w_verify[7]
+                self.assertTrue(tr_vr["ok"])
+                white_expected = bytes((255, 255, 255, 255)) * (16 * 16)
+                assert_rendered_close(white_expected, base64.b64decode(tr_vr["white"]), "all-transparent colored ICO white bg", max_diff=0)
+        except Exception:
+            killed = True
+            reap_proc()
+            raise
+        finally:
+            watchdog.cancel()
+            if proc.stdin:
+                proc.stdin.close()
+            if proc.stdout:
+                proc.stdout.close()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                killed = True
+                reap_proc()
+                proc.wait(timeout=5)
+                raise
+            err_text = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+            if proc.stderr:
+                proc.stderr.close()
+            if not killed:
+                self.assertEqual(proc.returncode, 0, err_text)
+
+
 if __name__ == "__main__":
     unittest.main()
