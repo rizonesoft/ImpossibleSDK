@@ -35,7 +35,7 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | 1 | §1 | Exact corner smoothing | -- | [x] |
 | 2 | §2 | Template compiler | -- | [x] |
 | 3 | §3 | Element tree and layout | §2, §17 | [x] |
-| 4 | §4 | Visual states and animation | §3 | [ ] |
+| 4 | §4 | Visual states and animation | §3 | [x] |
 | 5 | §5 | Text in fixed point | §1, §17 | [ ] |
 | 6 | §6 | Input, focus and the Windows layer | §4, §5 | [ ] |
 | 7 | §7 | Button, toggle switch, text box and list view | §6, §8, §9, §14, §17, T02 §2, T02 §5, T02 §6, D07 T01 §2 | [ ] |
@@ -161,6 +161,9 @@ States, transitions and storyboards run from a caller-supplied clock, so a frame
 - [x] Commit: `ui: visual states and animation`
 
 **Test checkpoint:** `python3 tools/build.py`, `python3 tools/check_parts.py`, and `python3 tools/site/build.py --check` exit 0, and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-25 | §4 | 2e0fa09c93330d9c301539ba1b543a871f0860f9
+> **Review:** `docs/reviews/d01-t01-s4.json`
 
 ## 5. Text in fixed point
 
