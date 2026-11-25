@@ -1266,3 +1266,56 @@ class LiveReference(unittest.TestCase):
                     )
                     all_diffs.extend(diffs)
             self.assertEqual(all_diffs, [], "WinUI vs ui/layout.c mismatches:\n" + "\n".join(all_diffs[:60]))
+
+    def test_live_clip_and_opacity_matches_sdk(self):
+        sys.path.insert(0, str(ROOT / "reference"))
+        import run as ref_run
+
+        # Real WinUI rounded clip + 0.5 group opacity over two overlapping opaque children at 100%, 150%, 200%, 300%.
+        cases = []
+        for sc, tag in ((1.0, "s100"), (1.5, "s150"), (2.0, "s200"), (3.0, "s300")):
+            cases.append({
+                "id": f"clip-opacity-{tag}",
+                "case_group": "clip",
+                "control": "Border",
+                "theme": "Dark",
+                "scale": sc,
+                "layout_at_scale": True,
+                "frame": {"width": 64, "height": 64, "background": "#FF202020"},
+                "properties": {
+                    "Width": 40,
+                    "Height": 40,
+                    "CornerRadius": 8,
+                    "Background": "#FF183048",
+                    "HorizontalAlignment": "Center",
+                    "VerticalAlignment": "Center",
+                },
+                "children": [
+                    {
+                        "id": "op-child",
+                        "control": "Border",
+                        "properties": {
+                            "Width": 24, "Height": 24,
+                            "Opacity": 0.5,
+                            "HorizontalAlignment": "Center", "VerticalAlignment": "Center",
+                            "Background": "#FF0000FF",
+                        },
+                    },
+                ],
+            })
+        with tempfile.TemporaryDirectory(dir=ref_run.host_temp_root(), prefix="impossible-live-clip-") as build_tmp:
+            exe = ref_run.build_reference(build_tmp)
+            cf = Path(build_tmp) / "clip_cases.json"
+            cf.write_text(json.dumps({"cases": cases}), encoding="utf-8")
+            out_dir = Path(build_tmp) / "out"
+            ref_run.run_reference(exe, out_dir, cases_path=cf, work_dir=build_tmp)
+            for sc, tag in ((1.0, "s100"), (1.5, "s150"), (2.0, "s200"), (3.0, "s300")):
+                dim = int(round(64 * sc))
+                buf = (out_dir / f"clip-opacity-{tag}.bgra").read_bytes()
+                # Outside clip (2,2) remains #202020; overlap center (32*sc, 32*sc) matches SDK group-opacity RGB (12, 24, 164) within 2.
+                self.assertEqual(buf[0:3], bytes([0x20, 0x20, 0x20]), tag)
+                cx, cy = int(round(32 * sc)), int(round(32 * sc))
+                b, g, r = buf[(cy * dim + cx) * 4:(cy * dim + cx) * 4 + 3]
+                self.assertLessEqual(abs(r - 12), 2, f"{tag} R={r}")
+                self.assertLessEqual(abs(g - 24), 2, f"{tag} G={g}")
+                self.assertLessEqual(abs(b - 164), 2, f"{tag} B={b}")

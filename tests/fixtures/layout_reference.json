@@ -423,8 +423,8 @@
           "Height": 120
         },
         "DesiredSize": {
-          "Width": 81.6,
-          "Height": 84.8
+          "Width": 80.8,
+          "Height": 85.6
         }
       },
       "CellPix": {
@@ -445,7 +445,7 @@
         "Rect": {
           "X": 36,
           "Y": 7.2,
-          "Width": 113.6,
+          "Width": 114.4,
           "Height": 20.8
         },
         "DesiredSize": {
@@ -457,7 +457,7 @@
         "Visibility": "Visible",
         "Rect": {
           "X": 4,
-          "Y": 32.8,
+          "Y": 33.6,
           "Width": 24.8,
           "Height": 39.2
         },
@@ -470,7 +470,7 @@
         "Visibility": "Visible",
         "Rect": {
           "X": 36,
-          "Y": 32.8,
+          "Y": 33.6,
           "Width": 28,
           "Height": 19.2
         },
@@ -482,9 +482,9 @@
       "CellStar": {
         "Visibility": "Visible",
         "Rect": {
-          "X": 71.2,
+          "X": 70.4,
           "Y": 77.6,
-          "Width": 78.4,
+          "Width": 79.2,
           "Height": 29.6
         },
         "DesiredSize": {
@@ -698,7 +698,7 @@
         "Visibility": "Visible",
         "Rect": {
           "X": 16.8,
-          "Y": 20,
+          "Y": 20.8,
           "Width": 11.2,
           "Height": 11.2
         },
@@ -804,7 +804,7 @@
           "Height": 36
         },
         "DesiredSize": {
-          "Width": 50.4,
+          "Width": 51.2,
           "Height": 24.8
         }
       },
@@ -871,7 +871,7 @@
           "X": 4.667,
           "Y": 33.333,
           "Width": 25.333,
-          "Height": 39.333
+          "Height": 38.667
         },
         "DesiredSize": {
           "Width": 0,
@@ -894,10 +894,10 @@
       "CellStar": {
         "Visibility": "Visible",
         "Rect": {
-          "X": 71.333,
+          "X": 72,
           "Y": 77.333,
           "Width": 78,
-          "Height": 29.333
+          "Height": 30
         },
         "DesiredSize": {
           "Width": 0,
@@ -919,7 +919,7 @@
         },
         "DesiredSize": {
           "Width": 70,
-          "Height": 43.333
+          "Height": 44
         }
       },
       "InnerGrid": {
@@ -928,11 +928,11 @@
           "X": 0,
           "Y": 0,
           "Width": 160,
-          "Height": 43.333
+          "Height": 44
         },
         "DesiredSize": {
           "Width": 70,
-          "Height": 43.333
+          "Height": 44
         }
       },
       "RowA": {
@@ -952,7 +952,7 @@
         "Visibility": "Visible",
         "Rect": {
           "X": 0,
-          "Y": 20,
+          "Y": 21.333,
           "Width": 70,
           "Height": 23.333
         },
@@ -976,7 +976,7 @@
         },
         "DesiredSize": {
           "Width": 12,
-          "Height": 57.333
+          "Height": 58
         }
       },
       "VFirst": {
@@ -1009,7 +1009,7 @@
         "Visibility": "Visible",
         "Rect": {
           "X": 4,
-          "Y": 28,
+          "Y": 28.667,
           "Width": 128,
           "Height": 19.333
         },
@@ -1052,7 +1052,7 @@
       "HCenter": {
         "Visibility": "Visible",
         "Rect": {
-          "X": 26,
+          "X": 26.667,
           "Y": 30.667,
           "Width": 25.333,
           "Height": 19.333
@@ -1110,7 +1110,7 @@
         "Visibility": "Visible",
         "Rect": {
           "X": 16.667,
-          "Y": 20,
+          "Y": 20.667,
           "Width": 11.333,
           "Height": 11.333
         },
@@ -1180,7 +1180,7 @@
         "Visibility": "Visible",
         "Rect": {
           "X": 126.667,
-          "Y": 29.333,
+          "Y": 30,
           "Width": 23.333,
           "Height": 13.333
         },
@@ -1216,15 +1216,15 @@
           "Height": 36
         },
         "DesiredSize": {
-          "Width": 52.667,
-          "Height": 26.667
+          "Width": 52,
+          "Height": 26
         }
       },
       "BtnChild": {
         "Visibility": "Visible",
         "Rect": {
           "X": 32,
-          "Y": 28,
+          "Y": 28.667,
           "Width": 31.333,
           "Height": 13.333
         },

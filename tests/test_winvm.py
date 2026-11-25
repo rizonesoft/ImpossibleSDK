@@ -112,6 +112,9 @@ class LivePass(unittest.TestCase):
             "tests/fixtures/layout_reference.json",
             "tools/winui/check_package.py",
             "tools/winvm/needs.json",
+            "ui/clip.c",
+            "ui/draw.c",
+            "ui/layer.c",
             "ui/template_data.c",
         ):
             self.attempt(0, {"outcome": "ran", "exit": 0})

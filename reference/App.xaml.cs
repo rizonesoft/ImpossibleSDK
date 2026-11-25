@@ -1539,7 +1539,14 @@ public partial class App : Application
             var pendingStates = new List<(CaseSpec Spec, FrameworkElement Element)>();
             if (isProbe || spec.LayoutAtScale)
             {
-                scaleMode = nativeScaleMatch ? (Math.Abs(scale - 1.0) < 1e-6 ? "native-1x" : "native-dpi") : (isProbe ? "probe-dip" : "scaled-inputs");
+                if (isProbe)
+                {
+                    scaleMode = nativeScaleMatch ? "native-dpi" : "probe-dip";
+                }
+                else
+                {
+                    scaleMode = nativeScaleMatch ? (Math.Abs(scale - 1.0) < 1e-6 ? "native-1x" : "native-dpi") : "scaled-inputs";
+                }
                 double propScale = nativeScaleMatch ? 1.0 : scale;
                 element = CreateElement(spec, propScale, pendingStates);
                 innerFrame = new Grid

@@ -44,9 +44,10 @@ im_fixed im_layout_round(im_fixed value, im_fixed scale) {
         int64_t px = floor_div_pow2((int64_t)value + 32768, 16);
         return clamp_i64_fixed(px * (int64_t)IM_ONE);
     }
-    /* Match WinUI CUIElement::LayoutRoundHelper: XcpFloor(value * scale + 0.5) / scale. */
+    /* Match WinUI CUIElement::LayoutRoundHelper: XcpFloor(value * scale + 0.5) / scale.
+       Add 2*scale in 32.32 (<= 0.00003 px) to compensate for <=0.5 LSB truncation per term when 1/1.25 or 1/1.5 repeats in binary. */
     int64_t scaled = (int64_t)value * (int64_t)scale;
-    int64_t px = floor_div_pow2(scaled + ((int64_t)1 << 31), 32);
+    int64_t px = floor_div_pow2(scaled + ((int64_t)1 << 31) + ((int64_t)scale << 1), 32);
     int64_t num = px * ((int64_t)IM_ONE * (int64_t)IM_ONE);
     int64_t half = (int64_t)scale / 2;
     int64_t res = num >= 0 ? (num + half) / (int64_t)scale : -((-num + half) / (int64_t)scale);
@@ -72,16 +73,17 @@ static im_fixed round_half_if(im_fixed diff, im_fixed scale, bool enabled) {
     }
     /* Compute floor((diff * scale) / 2 + 0.5) / scale without truncating diff / 2 first. */
     int64_t scaled = (int64_t)diff * (int64_t)scale;
-    int64_t px = floor_div_pow2(scaled + ((int64_t)1 << 32), 33);
+    int64_t px = floor_div_pow2(scaled + ((int64_t)1 << 32) + ((int64_t)scale << 1), 33);
     int64_t num = px * ((int64_t)IM_ONE * (int64_t)IM_ONE);
     int64_t half = (int64_t)scale / 2;
     int64_t res = num >= 0 ? (num + half) / (int64_t)scale : -((-num + half) / (int64_t)scale);
     return clamp_i64_fixed(res);
 }
 
+/* WinUI Border.cpp:404 rounds BorderThickness edges; Padding stays unrounded until innerRect is arranged. */
 static im_thickness combined_inset(const im_node *node, im_fixed scale, bool rounding) {
     im_thickness b = round_thickness_if(im_node_effective_border_thickness(node), scale, rounding);
-    im_thickness p = round_thickness_if(im_node_effective_padding(node), scale, rounding);
+    im_thickness p = im_node_effective_padding(node);
     return (im_thickness){
         add_fixed(b.left, p.left),
         add_fixed(b.top, p.top),
@@ -170,14 +172,12 @@ static void init_grid_tracks(grid_track *tracks, const im_grid_def *defs, uint32
         tracks[i].offset = 0;
         tracks[i].locked = false;
         if (defs[i].unit == IM_GRID_PIXEL) {
-            im_fixed px = max_fixed(0, defs[i].value);
+            im_fixed px = round_if(max_fixed(0, defs[i].value), scale, rounding);
             tracks[i].size = max_fixed(mn, min_fixed(px, mx));
         } else {
             tracks[i].size = mn;
         }
     }
-    (void)scale;
-    (void)rounding;
 }
 
 static im_fixed span_sum(const grid_track *tracks, uint32_t start, uint32_t span, im_fixed spacing) {
@@ -244,11 +244,13 @@ static void distribute_star_tracks(grid_track *tracks, uint32_t count, im_fixed 
                 tracks[i].locked = true;
                 rem = sub_nonneg(rem, tracks[i].size);
                 clamped = true;
+                break;
             } else if (share > tracks[i].max_s) {
                 tracks[i].size = tracks[i].max_s;
                 tracks[i].locked = true;
                 rem = sub_nonneg(rem, tracks[i].size);
                 clamped = true;
+                break;
             }
         }
         if (!clamped) {
@@ -260,6 +262,17 @@ static void distribute_star_tracks(grid_track *tracks, uint32_t count, im_fixed 
                 im_fixed share = (rem_weight == w) ? rem_space : clamp_i64_fixed(((int64_t)rem_space * w) / rem_weight);
                 share = round_if(share, scale, rounding);
                 share = max_fixed(tracks[i].min_s, min_fixed(share, tracks[i].max_s));
+                if (rem_weight == w && share > rem_space && i > 0) {
+                    /* Match WinUI Grid.cpp:1411: trim exact unrounded rounding excess from previous Star track. */
+                    im_fixed excess = share - rem_space;
+                    for (uint32_t p = i; p > 0; p--) {
+                        if (!tracks[p - 1u].locked && tracks[p - 1u].size > tracks[p - 1u].min_s) {
+                            im_fixed take = min_fixed(excess, tracks[p - 1u].size - tracks[p - 1u].min_s);
+                            tracks[p - 1u].size = sub_nonneg(tracks[p - 1u].size, take);
+                            break;
+                        }
+                    }
+                }
                 tracks[i].size = share;
                 rem_space = sub_nonneg(rem_space, share);
                 rem_weight -= w;
@@ -522,8 +535,18 @@ static void arrange_grid(im_tree *tree, im_node *node, im_size final_size, im_fi
         }
     }
 
-    if (!node->measured_inf_w) distribute_star_tracks(cols, ccount, inner_w, col_sp, scale, rounding);
-    if (!node->measured_inf_h) distribute_star_tracks(rows, rcount, inner_h, row_sp, scale, rounding);
+    if (node->measured_inf_w) {
+        for (uint32_t c = 0; c < ccount; c++) {
+            if (cols[c].unit == IM_GRID_STAR && cols[c].size > cols[c].min_s) cols[c].min_s = cols[c].size;
+        }
+    }
+    if (node->measured_inf_h) {
+        for (uint32_t r = 0; r < rcount; r++) {
+            if (rows[r].unit == IM_GRID_STAR && rows[r].size > rows[r].min_s) rows[r].min_s = rows[r].size;
+        }
+    }
+    distribute_star_tracks(cols, ccount, inner_w, col_sp, scale, rounding);
+    distribute_star_tracks(rows, rcount, inner_h, row_sp, scale, rounding);
     compute_track_offsets(cols, ccount, col_sp);
     compute_track_offsets(rows, rcount, row_sp);
 

@@ -1,12 +1,13 @@
 /* Exits 0, or with the number of the first check that failed. */
 #include <impossible/base.h>
 #include "button.h"
+#include "layer.h"
 #include "layout.h"
 #include "template.h"
 
 enum { W = 64, H = 64 };
 static uint32_t pixels[W * H];
-static im_surface surface = {pixels, W, H, W, {IM_DARK, {0}}, IM_ONE};
+static im_surface surface = {pixels, W, H, W, {IM_DARK, {0}}, IM_ONE, NULL};
 
 static void clear(void) {
     for (int i = 0; i < W * H; i++) pixels[i] = 0;
@@ -440,6 +441,339 @@ static int test_tree_and_layout(void) {
     return 0;
 }
 
+/* Independent plain reference renderer for depth-40 nested clip+layer tree verification. */
+static uint32_t ref_blend_premul(uint32_t dst, uint32_t sa, uint32_t sr, uint32_t sg, uint32_t sb, bool dst_opaque) {
+    if (sa == 0) return dst;
+    uint32_t inv = 255u - sa;
+    uint32_t da = dst_opaque ? 255u : ((dst >> 24) & 255u);
+    uint32_t dr = (dst >> 16) & 255u;
+    uint32_t dg = (dst >> 8) & 255u;
+    uint32_t db = dst & 255u;
+    uint32_t oa = dst_opaque ? 0u : (sa + (da * inv + 127u) / 255u);
+    uint32_t or_ = sr + (dr * inv + 127u) / 255u;
+    uint32_t og = sg + (dg * inv + 127u) / 255u;
+    uint32_t ob = sb + (db * inv + 127u) / 255u;
+    if (oa > 255u) oa = 255u;
+    if (or_ > 255u) or_ = 255u;
+    if (og > 255u) og = 255u;
+    if (ob > 255u) ob = 255u;
+    return (oa << 24) | (or_ << 16) | (og << 8) | ob;
+}
+
+typedef struct ref_op {
+    uint8_t kind; /* 0 = clip+rect, 1 = layer+rect */
+    im_rect rect;
+    im_radii radii;
+    uint32_t color;
+    uint8_t opacity;
+} ref_op;
+
+static uint32_t prng_next(uint32_t *state) {
+    uint32_t x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+    return x;
+}
+
+static uint32_t ref_buf[42][16 * 16];
+
+static void render_ref_recursive(const ref_op *ops, int depth, int max_depth, uint32_t *dst, bool dst_opaque, const im_rect *clips, const im_radii *clip_radii, int clip_count) {
+    if (depth >= max_depth) return;
+    const ref_op *op = &ops[depth];
+    if (op->kind == 0) {
+        /* Push clip, draw rect, recurse, pop clip. */
+        im_rect next_clips[42];
+        im_radii next_radii[42];
+        for (int i = 0; i < clip_count; i++) { next_clips[i] = clips[i]; next_radii[i] = clip_radii[i]; }
+        next_clips[clip_count] = op->rect;
+        next_radii[clip_count] = op->radii;
+        int nc = clip_count + 1;
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                uint32_t cov = im_shape_coverage(op->rect, (im_radii){0, 0, 0, 0}, x, y);
+                for (int c = 0; c < nc && cov > 0; c++) {
+                    uint32_t cc = im_shape_coverage(next_clips[c], next_radii[c], x, y);
+                    cov = (uint32_t)(((uint64_t)cov * cc + IM_ONE / 2) >> 16);
+                }
+                if (cov > 0) {
+                    uint32_t sa = (uint32_t)(((uint64_t)(op->color >> 24) * cov + IM_ONE / 2) >> 16);
+                    uint32_t sr = (((op->color >> 16) & 255u) * sa + 127u) / 255u;
+                    uint32_t sg = (((op->color >> 8) & 255u) * sa + 127u) / 255u;
+                    uint32_t sb = ((op->color & 255u) * sa + 127u) / 255u;
+                    dst[y * 16 + x] = ref_blend_premul(dst[y * 16 + x], sa, sr, sg, sb, dst_opaque);
+                }
+            }
+        }
+        render_ref_recursive(ops, depth + 1, max_depth, dst, dst_opaque, next_clips, next_radii, nc);
+    } else {
+        /* Push layer with opacity and optional rounded clip, draw rect, recurse, composite onto dst. */
+        uint32_t *lb = ref_buf[depth];
+        for (int i = 0; i < 16 * 16; i++) lb[i] = 0;
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                uint32_t cov = im_shape_coverage(op->rect, (im_radii){0, 0, 0, 0}, x, y);
+                if (cov > 0) {
+                    uint32_t sa = (uint32_t)(((uint64_t)(op->color >> 24) * cov + IM_ONE / 2) >> 16);
+                    uint32_t sr = (((op->color >> 16) & 255u) * sa + 127u) / 255u;
+                    uint32_t sg = (((op->color >> 8) & 255u) * sa + 127u) / 255u;
+                    uint32_t sb = ((op->color & 255u) * sa + 127u) / 255u;
+                    lb[y * 16 + x] = ref_blend_premul(lb[y * 16 + x], sa, sr, sg, sb, false);
+                }
+            }
+        }
+        render_ref_recursive(ops, depth + 1, max_depth, lb, false, NULL, NULL, 0);
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                uint32_t sp = lb[y * 16 + x];
+                if (sp == 0) continue;
+                uint32_t cov = im_shape_coverage(op->rect, op->radii, x, y);
+                for (int c = 0; c < clip_count && cov > 0; c++) {
+                    uint32_t cc = im_shape_coverage(clips[c], clip_radii[c], x, y);
+                    cov = (uint32_t)(((uint64_t)cov * cc + IM_ONE / 2) >> 16);
+                }
+                if (cov == 0) continue;
+                uint32_t w = (uint32_t)(((uint64_t)op->opacity * cov + IM_ONE / 2) >> 16);
+                if (w == 0) continue;
+                uint32_t sa = (((sp >> 24) & 255u) * w + 127u) / 255u;
+                uint32_t sr = (((sp >> 16) & 255u) * w + 127u) / 255u;
+                uint32_t sg = (((sp >> 8) & 255u) * w + 127u) / 255u;
+                uint32_t sb = ((sp & 255u) * w + 127u) / 255u;
+                dst[y * 16 + x] = ref_blend_premul(dst[y * 16 + x], sa, sr, sg, sb, dst_opaque);
+            }
+        }
+    }
+}
+
+static uint8_t layer_pool_mem[512 * 1024];
+
+typedef struct layer_alloc_rec {
+    size_t used;
+    uint32_t alloc_calls;
+    uint32_t realloc_calls;
+    uint32_t fail_alloc_at;
+    uint32_t fail_realloc_at;
+    uint32_t live_allocs;
+    size_t live_bytes;
+} layer_alloc_rec;
+
+static void *la_alloc(void *ctx, size_t size) {
+    layer_alloc_rec *a = (layer_alloc_rec *)ctx;
+    a->alloc_calls++;
+    if (a->fail_alloc_at != 0 && a->alloc_calls == a->fail_alloc_at) return NULL;
+    size_t aligned = (size + 7u) & ~(size_t)7u;
+    if (a->used + aligned > sizeof(layer_pool_mem)) return NULL;
+    void *p = &layer_pool_mem[a->used];
+    a->used += aligned;
+    a->live_allocs++;
+    a->live_bytes += size;
+    return p;
+}
+
+static void *la_realloc(void *ctx, void *ptr, size_t old_size, size_t new_size) {
+    layer_alloc_rec *a = (layer_alloc_rec *)ctx;
+    a->realloc_calls++;
+    if (a->fail_realloc_at != 0 && a->realloc_calls == a->fail_realloc_at) return NULL;
+    size_t aligned = (new_size + 7u) & ~(size_t)7u;
+    if (a->used + aligned > sizeof(layer_pool_mem)) return NULL;
+    void *n = &layer_pool_mem[a->used];
+    a->used += aligned;
+    if (ptr && old_size > 0) {
+        size_t copy = old_size < new_size ? old_size : new_size;
+        uint8_t *d = (uint8_t *)n;
+        const uint8_t *s = (const uint8_t *)ptr;
+        for (size_t i = 0; i < copy; i++) d[i] = s[i];
+    }
+    if (!ptr) a->live_allocs++;
+    else a->live_bytes -= old_size;
+    a->live_bytes += new_size;
+    return n;
+}
+
+static void la_free(void *ctx, void *ptr, size_t size) {
+    layer_alloc_rec *a = (layer_alloc_rec *)ctx;
+    if (!ptr) return;
+    if (a->live_allocs > 0) a->live_allocs--;
+    a->live_bytes -= size;
+}
+
+static int test_clips_and_layers(void) {
+    layer_alloc_rec rec = {0};
+    im_allocator alloc = {la_alloc, la_realloc, la_free, &rec};
+    im_radii sq = {0, 0, 0, 0};
+
+    /* 1. Rectangular & rounded clips on oversized child, empty intersection, and post-pop sibling. */
+    clear();
+    for (int i = 0; i < W * H; i++) pixels[i] = 0x00102030;
+    im_layer_ctx ctx;
+    if (!im_layer_init(&ctx, &surface, alloc, 256 * 1024)) return 130;
+    if (!im_layer_push_clip_rounded(&ctx, box(10, 10, 50, 50), (im_radii){12 * IM_ONE, 12 * IM_ONE, 12 * IM_ONE, 12 * IM_ONE})) return 131;
+    im_fill_argb(&surface, box(0, 0, 64, 64), sq, 0xFFFF0000);
+    /* Outside clip must remain exact background 0x00102030; corner (10,10) must remain background (proves rounded, not rect). */
+    if (at(5, 5) != 0x00102030 || at(10, 10) != 0x00102030) return 132;
+    /* Interior (30,30) must be solid red 0x00FF0000. */
+    if (at(30, 30) != 0x00FF0000) return 133;
+    /* Empty intersection clip: push disjoint rect, fill green -> zero pixels change. */
+    if (!im_layer_push_clip_rect(&ctx, box(52, 52, 60, 60))) return 134;
+    im_fill_argb(&surface, box(0, 0, 64, 64), sq, 0xFF00FF00);
+    if (at(55, 55) != 0x00102030 || at(30, 30) != 0x00FF0000) return 135;
+    im_layer_pop_clip(&ctx);
+    im_layer_pop_clip(&ctx);
+    /* Post-pop sibling draws outside former clip. */
+    im_fill_argb(&surface, box(2, 2, 6, 6), sq, 0xFF0000FF);
+    if (at(3, 3) != 0x000000FF) return 136;
+    im_layer_destroy(&ctx);
+    if (rec.live_allocs != 0 || rec.live_bytes != 0) return 137;
+
+    /* 2. Group opacity at 0, 128, and 255 over colored background: untouched, overlapping opaque (no bleed-through), and translucent child. */
+    uint8_t ops_to_test[3] = {0u, 128u, 255u};
+    for (int oi = 0; oi < 3; oi++) {
+        uint8_t grp_op = ops_to_test[oi];
+        rec.used = 0;
+        for (int i = 0; i < W * H; i++) pixels[i] = 0x00102030;
+        if (!im_layer_init(&ctx, &surface, alloc, 256 * 1024)) return 138;
+        if (im_layer_push(&ctx, box(8, 8, 56, 56), grp_op, false, sq) != IM_LAYER_OK) return 139;
+        /* Bottom opaque red child, top overlapping opaque blue child, separate translucent green child. */
+        im_fill_argb(&surface, box(10, 10, 40, 40), sq, 0xFFFF0000);
+        im_fill_argb(&surface, box(20, 20, 50, 50), sq, 0xFF0000FF);
+        im_fill_argb(&surface, box(42, 10, 52, 18), sq, 0x8000FF00);
+        im_layer_pop(&ctx);
+        /* Untouched pixel (2,2) must stay 0x00102030. */
+        if (at(2, 2) != 0x00102030) return 140;
+        /* Overlap pixel (25,25): pure blue at grp_op over 0x102030 (zero red from bottom child!). */
+        uint32_t want_overlap = ref_blend_premul(0x00102030, grp_op, 0u, 0u, grp_op, true);
+        if (at(25, 25) != want_overlap) return 141;
+        /* Translucent green pixel (45,14): alpha = 128 premultiplied -> (128, 0, 128, 0) scaled by grp_op over 0x102030. */
+        uint32_t ta = (128u * grp_op + 127u) / 255u;
+        uint32_t want_trans = ref_blend_premul(0x00102030, ta, 0u, ta, 0u, true);
+        if (at(45, 14) != want_trans) return 142;
+        im_layer_destroy(&ctx);
+        if (rec.live_allocs != 0 || rec.live_bytes != 0) return 143;
+    }
+
+    /* 3. im_draw_button through an offset layer (opacity 180) with a rounded clip crossing fill and stroke. */
+    rec.used = 0;
+    for (int i = 0; i < W * H; i++) pixels[i] = 0x00202020;
+    surface.palette.theme = IM_DARK;
+    if (!im_layer_init(&ctx, &surface, alloc, 256 * 1024)) return 144;
+    if (im_layer_push(&ctx, box(12, 16, 52, 48), 180u, true, (im_radii){8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE}) != IM_LAYER_OK) return 145;
+    im_draw_button(&surface, box(6, 12, 58, 52), IM_BUTTON, IM_REST);
+    im_layer_pop(&ctx);
+    /* Pixels outside clip (8,20) and at rounded clip corner (12,16) must remain 0x00202020; interior (32,32) must change. */
+    if (at(8, 20) != 0x00202020 || at(12, 16) != 0x00202020 || at(32, 32) == 0x00202020) return 146;
+    im_layer_destroy(&ctx);
+    if (rec.live_allocs != 0 || rec.live_bytes != 0) return 147;
+
+    /* 4. Cumulative memory_limit across nested layers with recording allocator + parent pop reuse. */
+    rec.used = 0;
+    for (int i = 0; i < W * H; i++) pixels[i] = 0x00102030;
+    /* Budget = 10x10x4 = 400 bytes exact-fit for one 10x10 layer, NOT two nested 8x8 (256B) layers (400 + 256 > 400). */
+    if (!im_layer_init(&ctx, &surface, alloc, 400u)) return 148;
+    uint32_t calls_before = rec.alloc_calls;
+    /* Single 12x12 (576B > 400B): must refuse BEFORE calling alloc.alloc! */
+    if (im_layer_push(&ctx, box(0, 0, 12, 12), 128u, false, sq) != IM_LAYER_FALLBACK) return 149;
+    if (rec.alloc_calls != calls_before) return 150;
+    im_fill_argb(&surface, box(2, 2, 8, 8), sq, 0xFFFF0000);
+    im_layer_pop(&ctx);
+    /* Fallback still drew the element at group opacity 128! */
+    if (at(4, 4) != ref_blend_premul(0x00102030, 128u, 128u, 0u, 0u, true)) return 151;
+    /* Exact-fit 10x10 (400B): succeeds; nested 8x8 (256B): cumulative 656B > 400B refuses without calling alloc! */
+    if (im_layer_push(&ctx, box(20, 20, 30, 30), 255u, false, sq) != IM_LAYER_OK) return 152;
+    if (ctx.bytes_used != 400u) return 153;
+    calls_before = rec.alloc_calls;
+    if (im_layer_push(&ctx, box(21, 21, 29, 29), 128u, false, sq) != IM_LAYER_FALLBACK) return 154;
+    if (rec.alloc_calls != calls_before) return 155;
+    im_fill_argb(&surface, box(22, 22, 28, 28), sq, 0xFF00FF00);
+    im_layer_pop(&ctx);
+    im_layer_pop(&ctx);
+    if (ctx.bytes_used != 0u) return 156;
+    /* After popping parent, budget is released and a fresh 10x10 layer succeeds! */
+    if (im_layer_push(&ctx, box(30, 30, 40, 40), 255u, false, sq) != IM_LAYER_OK) return 157;
+    im_layer_pop(&ctx);
+    im_layer_destroy(&ctx);
+    if (rec.live_allocs != 0 || rec.live_bytes != 0) return 158;
+
+    /* 5. Injected allocation failure on clip-stack growth and layer buffer alloc + sibling + retry. */
+    rec.used = 0;
+    for (int i = 0; i < W * H; i++) pixels[i] = 0x00102030;
+    if (!im_layer_init(&ctx, &surface, alloc, 256 * 1024)) return 159;
+    if (!im_layer_push_clip_rect(&ctx, box(10, 10, 50, 50))) return 160;
+    /* Inject failure on buffer alloc: falls back, honors outer clip (10..50), draws element, leaves sibling clean. */
+    rec.fail_alloc_at = rec.alloc_calls + 1u;
+    if (im_layer_push(&ctx, box(0, 0, 64, 64), 128u, false, sq) != IM_LAYER_FALLBACK) return 161;
+    rec.fail_alloc_at = 0;
+    im_fill_argb(&surface, box(0, 0, 64, 64), sq, 0xFFFF0000);
+    im_layer_pop(&ctx);
+    /* Outer clip still protected (5,5); inside (20,20) drew fallback red at 128. */
+    if (at(5, 5) != 0x00102030 || at(20, 20) != ref_blend_premul(0x00102030, 128u, 128u, 0u, 0u, true)) return 162;
+    /* Inject failure on clip-stack growth (push 7 more to fill cap=8, fail on 9th): returns false, stack unchanged. */
+    for (int k = 0; k < 7; k++) {
+        if (!im_layer_push_clip_rect(&ctx, box(10, 10, 50, 50))) return 163;
+    }
+    rec.fail_realloc_at = rec.realloc_calls + 1u;
+    if (im_layer_push_clip_rect(&ctx, box(12, 12, 48, 48))) return 164;
+    rec.fail_realloc_at = 0;
+    if (ctx.clips.count != 8u) return 165;
+    /* Retry clip push succeeds. */
+    if (!im_layer_push_clip_rect(&ctx, box(12, 12, 48, 48))) return 166;
+    im_fill_argb(&surface, box(14, 14, 18, 18), sq, 0xFF0000FF);
+    if (at(15, 15) != 0x000000FF) return 167;
+    im_layer_destroy(&ctx);
+    if (rec.live_allocs != 0 || rec.live_bytes != 0) return 168;
+
+    /* 6. Depth-40 (> 32) interleaved clip-inside-layer and layer-inside-clip random tree vs plain reference renderer. */
+    static uint32_t actual_16[16 * 16];
+    static uint32_t expected_16[16 * 16];
+    for (int i = 0; i < 16 * 16; i++) actual_16[i] = expected_16[i] = 0x00182430;
+    im_surface s16 = {actual_16, 16, 16, 16, {IM_DARK, {0}}, IM_ONE, NULL};
+    ref_op ops[40];
+    uint32_t seed = 0xCAFEBABEu;
+    for (int d = 0; d < 40; d++) {
+        ops[d].kind = (uint8_t)(d & 1);
+        int x0 = (int)(prng_next(&seed) % 6u);
+        int y0 = (int)(prng_next(&seed) % 6u);
+        int x1 = 10 + (int)(prng_next(&seed) % 6u);
+        int y1 = 10 + (int)(prng_next(&seed) % 6u);
+        int rad = (int)(prng_next(&seed) % 4u);
+        ops[d].rect = box(x0, y0, x1, y1);
+        ops[d].radii = (im_radii){rad * IM_ONE, rad * IM_ONE, rad * IM_ONE, rad * IM_ONE};
+        uint32_t a = 96u + (prng_next(&seed) % 160u);
+        uint32_t r = prng_next(&seed) & 255u;
+        uint32_t g = prng_next(&seed) & 255u;
+        uint32_t b = prng_next(&seed) & 255u;
+        ops[d].color = (a << 24) | (r << 16) | (g << 8) | b;
+        ops[d].opacity = (uint8_t)(128u + (prng_next(&seed) % 128u));
+    }
+    render_ref_recursive(ops, 0, 40, expected_16, true, NULL, NULL, 0);
+
+    rec.used = 0;
+    if (!im_layer_init(&ctx, &s16, alloc, 512 * 1024)) return 169;
+    for (int d = 0; d < 40; d++) {
+        if (ops[d].kind == 0) {
+            if (!im_layer_push_clip_rounded(&ctx, ops[d].rect, ops[d].radii)) return 170;
+            im_fill_argb(&s16, ops[d].rect, sq, ops[d].color);
+        } else {
+            if (im_layer_push(&ctx, ops[d].rect, ops[d].opacity, true, ops[d].radii) != IM_LAYER_OK) return 171;
+            im_fill_argb(&s16, ops[d].rect, sq, ops[d].color);
+        }
+    }
+    for (int d = 39; d >= 0; d--) {
+        if (ops[d].kind == 0) im_layer_pop_clip(&ctx);
+        else im_layer_pop(&ctx);
+    }
+    for (int i = 0; i < 16 * 16; i++) {
+        if (actual_16[i] != expected_16[i]) return 172;
+    }
+    /* After full unwinding, drawing a sibling at (0,0) must work unclipped. */
+    im_fill_argb(&s16, box(0, 0, 2, 2), sq, 0xFF123456);
+    if (actual_16[0] != 0x00123456) return 173;
+    im_layer_destroy(&ctx);
+    if (rec.live_allocs != 0 || rec.live_bytes != 0) return 174;
+
+    return 0;
+}
+
 int im_main(void) {
     const im_radii square = {0}, round = {4 * IM_ONE, 4 * IM_ONE, 4 * IM_ONE, 4 * IM_ONE};
     const enum im_brush_id white = IM_BRUSH_TextFillColorPrimaryBrush; /* #FFFFFF in the dark theme */
@@ -569,5 +903,7 @@ int im_main(void) {
     if ((at(8, 12) & 255) != 37 || (at(8, 13) & 255) != 126) return 35;
     int r = test_templates();
     if (r != 0) return r;
-    return test_tree_and_layout();
+    r = test_tree_and_layout();
+    if (r != 0) return r;
+    return test_clips_and_layers();
 }

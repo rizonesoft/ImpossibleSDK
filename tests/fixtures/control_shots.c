@@ -5,6 +5,7 @@
 #include <impossible/base.h>
 #include <windows.h>
 #include "button.h"
+#include "layer.h"
 #include "accents.h"
 
 enum { MAX_W = 160, MAX_H = 128 };
@@ -63,8 +64,89 @@ static bool write_all(HANDLE out, const void *data, size_t size) {
     return true;
 }
 
+static uint8_t shot_arena[512 * 1024];
+static size_t shot_arena_used = 0;
+
+static void *sa_alloc(void *ctx, size_t size) {
+    (void)ctx;
+    size = (size + 7u) & ~(size_t)7u;
+    if (shot_arena_used + size > sizeof(shot_arena)) return NULL;
+    void *p = &shot_arena[shot_arena_used];
+    shot_arena_used += size;
+    return p;
+}
+
+static void *sa_realloc(void *ctx, void *ptr, size_t old_size, size_t new_size) {
+    void *n = sa_alloc(ctx, new_size);
+    if (!n) return NULL;
+    if (ptr && old_size > 0) {
+        size_t c = old_size < new_size ? old_size : new_size;
+        uint8_t *d = (uint8_t *)n;
+        const uint8_t *s = (const uint8_t *)ptr;
+        for (size_t i = 0; i < c; i++) d[i] = s[i];
+    }
+    return n;
+}
+
+static void sa_free(void *ctx, void *ptr, size_t size) {
+    (void)ctx; (void)ptr; (void)size;
+}
+
+static int emit_clip_shots(HANDLE out) {
+    static uint32_t big[192 * 192];
+    static const struct { int num, den; } scales[4] = {{1, 1}, {3, 2}, {2, 1}, {3, 1}};
+    im_allocator alloc = {sa_alloc, sa_realloc, sa_free, NULL};
+    im_radii sq = {0, 0, 0, 0};
+
+    /* 1. Oversized white fill clipped to rounded 48x48 r=8 centered in 64x64 at 100%, 150%, 200%, 300%. */
+    for (int i = 0; i < 4; i++) {
+        int w = 64 * scales[i].num / scales[i].den;
+        int h = 64 * scales[i].num / scales[i].den;
+        int bw = 48 * scales[i].num / scales[i].den;
+        int bh = 48 * scales[i].num / scales[i].den;
+        int left = (w - bw) / 2, top = (h - bh) / 2;
+        im_fixed sc = (im_fixed)((int64_t)IM_ONE * scales[i].num / scales[i].den);
+        im_fixed rad = (im_fixed)(8LL * sc);
+        im_surface s = {big, w, h, w, {IM_DARK, {0}}, sc, NULL};
+        for (int p = 0; p < w * h; p++) big[p] = 0;
+        shot_arena_used = 0;
+        im_layer_ctx ctx;
+        if (!im_layer_init(&ctx, &s, alloc, sizeof(shot_arena))) return 1;
+        if (!im_layer_push_clip_rounded(&ctx, (im_rect){left * IM_ONE, top * IM_ONE, (left + bw) * IM_ONE, (top + bh) * IM_ONE}, (im_radii){rad, rad, rad, rad})) return 1;
+        im_fill_argb(&s, (im_rect){0, 0, w * IM_ONE, h * IM_ONE}, sq, 0xFFFFFFFF);
+        im_layer_pop_clip(&ctx);
+        im_layer_destroy(&ctx);
+        if (!write_all(out, big, (size_t)w * (size_t)h * 4)) return 1;
+    }
+
+    /* 2. Clip + group-opacity scene at 100%, 150%, 200%, 300% (64x64 logical). */
+    for (int i = 0; i < 4; i++) {
+        int w = 64 * scales[i].num / scales[i].den;
+        int h = 64 * scales[i].num / scales[i].den;
+        im_fixed sc = (im_fixed)((int64_t)IM_ONE * scales[i].num / scales[i].den);
+        im_fixed rad = (im_fixed)(8LL * sc);
+        im_surface s = {big, w, h, w, {IM_DARK, {0}}, sc, NULL};
+        for (int p = 0; p < w * h; p++) big[p] = 0x00202020;
+        shot_arena_used = 0;
+        im_layer_ctx ctx;
+        if (!im_layer_init(&ctx, &s, alloc, sizeof(shot_arena))) return 1;
+        im_rect clip_r = {(im_fixed)(12LL * sc), (im_fixed)(12LL * sc), (im_fixed)(52LL * sc), (im_fixed)(52LL * sc)};
+        if (!im_layer_push_clip_rounded(&ctx, clip_r, (im_radii){rad, rad, rad, rad})) return 1;
+        im_fill_argb(&s, (im_rect){0, 0, w * IM_ONE, h * IM_ONE}, sq, 0xFF183048);
+        if (im_layer_push(&ctx, clip_r, 128u, false, sq) != IM_LAYER_OK) return 1;
+        im_fill_argb(&s, (im_rect){(im_fixed)(16LL * sc), (im_fixed)(16LL * sc), (im_fixed)(40LL * sc), (im_fixed)(40LL * sc)}, sq, 0xFFFF0000);
+        im_fill_argb(&s, (im_rect){(im_fixed)(24LL * sc), (im_fixed)(24LL * sc), (im_fixed)(48LL * sc), (im_fixed)(48LL * sc)}, sq, 0xFF0000FF);
+        im_layer_pop(&ctx);
+        im_layer_pop_clip(&ctx);
+        im_layer_destroy(&ctx);
+        if (!write_all(out, big, (size_t)w * (size_t)h * 4)) return 1;
+    }
+    return 0;
+}
+
 int im_main(void) {
     HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (im_has_argument(L"--clip-shots")) return emit_clip_shots(out);
     uint32_t accents[7] = ACCENTS;
     if (parse_accents(accents) < 0) return 2;
     static const im_fixed pad = IM_ONE;
@@ -72,7 +154,7 @@ int im_main(void) {
         for (int style = 0; style < 2; style++)
             for (int state = 0; state < 4; state++) {
                 enum { W = 160, H = 64 };
-                im_surface surface = {pixels, W, H, W, {theme ? IM_LIGHT : IM_DARK, {0}}, IM_ONE};
+                im_surface surface = {pixels, W, H, W, {theme ? IM_LIGHT : IM_DARK, {0}}, IM_ONE, NULL};
                 for (int k = 0; k < 7; k++) surface.palette.slot[k] = accents[k];
                 for (int i = 0; i < W * H; i++) pixels[i] = theme ? 0xF3F3F3 : 0x202020;
                 im_draw_button(&surface, (im_rect){20 * pad, 16 * pad, 140 * pad, 48 * pad}, (im_button_style)style, (im_button_state)state);
@@ -104,7 +186,7 @@ int im_main(void) {
         int left = (w - bw) / 2;
         int top = (h - bh) / 2;
         im_fixed scale = (im_fixed)((int64_t)IM_ONE * probes[idx].scale_num / probes[idx].scale_den);
-        im_surface surface = {pixels, w, h, w, {IM_DARK, {0}}, scale};
+        im_surface surface = {pixels, w, h, w, {IM_DARK, {0}}, scale, NULL};
         for (int i = 0; i < w * h; i++) pixels[i] = 0;
         im_radii radii = {
             (im_fixed)((int64_t)probes[idx].radii[0] * scale),

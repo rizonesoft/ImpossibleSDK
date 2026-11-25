@@ -1,4 +1,5 @@
 #include "draw.h"
+#include "layer.h"
 
 /* Corner geometry comes from the pinned WinUI source
    (dxaml/xcp/core/core/elements/geometry.cpp, CGeometryBuilder::ClampCornerRadii
@@ -191,12 +192,23 @@ static int pixel(int64_t value, int limit) {
     return (int)larger64(0, smaller64(limit, value >> 16));
 }
 
-static void shade(im_surface *surface, im_rect outer, im_radii outer_radii, const im_rect *hole, im_radii hole_radii, enum im_brush_id brush) {
+static void shade_color(im_surface *surface, im_rect outer, im_radii outer_radii, const im_rect *hole, im_radii hole_radii, enum im_brush_id brush, bool use_argb, uint32_t solid_argb) {
     if (outer.left >= outer.right || outer.top >= outer.bottom) return;
     fitted_radii outer_fit = fit(outer, outer_radii);
     fitted_radii hole_fit = hole ? fit(*hole, hole_radii) : outer_fit;
+    int bound_l = 0, bound_t = 0, bound_r = surface->width, bound_b = surface->height;
+    if (surface->layers) {
+        im_layer_draw_bounds(surface->layers, &bound_l, &bound_t, &bound_r, &bound_b);
+        if (bound_l >= bound_r || bound_t >= bound_b) return;
+    }
     int top = pixel(outer.top, surface->height), bottom = pixel((int64_t)outer.bottom + IM_ONE - 1, surface->height);
     int from = pixel(outer.left, surface->width), to = pixel((int64_t)outer.right + IM_ONE - 1, surface->width);
+    if (top < bound_t) top = bound_t;
+    if (bottom > bound_b) bottom = bound_b;
+    if (from < bound_l) from = bound_l;
+    if (to > bound_r) to = bound_r;
+    if (top >= bottom || from >= to) return;
+
     int64_t height = (int64_t)outer.bottom - outer.top;
     for (int y = top; y < bottom; y++) {
         int64_t left[ROWS], right[ROWS], hole_left[ROWS], hole_right[ROWS];
@@ -205,16 +217,40 @@ static void shade(im_surface *surface, im_rect outer, im_radii outer_radii, cons
             if (!extent(outer, &outer_fit, at, &left[row], &right[row])) left[row] = right[row] = 0;
             if (!hole || !extent(*hole, &hole_fit, at, &hole_left[row], &hole_right[row])) hole_left[row] = hole_right[row] = 0;
         }
-        uint32_t color = im_brush_over(&surface->palette, brush, (int64_t)y * IM_ONE + IM_ONE / 2 - outer.top, height, surface->scale);
+        uint32_t color = use_argb ? solid_argb : im_brush_over(&surface->palette, brush, (int64_t)y * IM_ONE + IM_ONE / 2 - outer.top, height, surface->scale);
         if (!(color >> 24)) continue;
-        uint32_t *line = surface->pixels + (size_t)y * (size_t)surface->stride;
-        for (int x = from; x < to; x++) {
-            int64_t covered = 0;
-            for (int row = 0; row < ROWS; row++)
-                covered += overlap(x, left[row], right[row]) - overlap(x, larger64(left[row], hole_left[row]), smaller64(right[row], hole_right[row]));
-            if (covered > 0) line[x] = blend(line[x], color, (uint32_t)(covered / ROWS));
+        if (surface->layers) {
+            for (int x = from; x < to; x++) {
+                int64_t covered = 0;
+                for (int row = 0; row < ROWS; row++)
+                    covered += overlap(x, left[row], right[row]) - overlap(x, larger64(left[row], hole_left[row]), smaller64(right[row], hole_right[row]));
+                if (covered > 0) im_layer_blend_pixel(surface->layers, x, y, color, (uint32_t)(covered / ROWS));
+            }
+        } else {
+            uint32_t *line = surface->pixels + (size_t)y * (size_t)surface->stride;
+            for (int x = from; x < to; x++) {
+                int64_t covered = 0;
+                for (int row = 0; row < ROWS; row++)
+                    covered += overlap(x, left[row], right[row]) - overlap(x, larger64(left[row], hole_left[row]), smaller64(right[row], hole_right[row]));
+                if (covered > 0) line[x] = blend(line[x], color, (uint32_t)(covered / ROWS));
+            }
         }
     }
+}
+
+uint32_t im_shape_coverage(im_rect shape, im_radii radii, int x, int y) {
+    if (shape.left >= shape.right || shape.top >= shape.bottom) return 0;
+    int64_t px0 = (int64_t)x * IM_ONE, px1 = px0 + IM_ONE;
+    int64_t py0 = (int64_t)y * IM_ONE, py1 = py0 + IM_ONE;
+    if (px1 <= shape.left || px0 >= shape.right || py1 <= shape.top || py0 >= shape.bottom) return 0;
+    fitted_radii f = fit(shape, radii);
+    int64_t covered = 0;
+    for (int row = 0; row < ROWS; row++) {
+        int64_t at = py0 + row * (IM_ONE / ROWS) + IM_ONE / ROWS / 2;
+        int64_t l = 0, r = 0;
+        if (extent(shape, &f, at, &l, &r)) covered += overlap(x, l, r);
+    }
+    return (uint32_t)(covered / ROWS);
 }
 
 static im_fixed grown(im_fixed radius, im_fixed by) {
@@ -230,11 +266,15 @@ im_radii im_grow(im_radii radii, im_fixed by) {
 }
 
 void im_fill(im_surface *surface, im_rect shape, im_radii radii, enum im_brush_id brush) {
-    shade(surface, shape, radii, NULL, radii, brush);
+    shade_color(surface, shape, radii, NULL, radii, brush, false, 0);
+}
+
+void im_fill_argb(im_surface *surface, im_rect shape, im_radii radii, uint32_t argb) {
+    shade_color(surface, shape, radii, NULL, radii, (enum im_brush_id)0, true, argb);
 }
 
 void im_stroke(im_surface *surface, im_rect shape, im_radii radii, im_fixed thickness, enum im_brush_id brush) {
     if (thickness <= 0) return;
     im_rect hole = im_inset(shape, thickness);
-    shade(surface, shape, im_grow(radii, thickness / 2), &hole, im_grow(radii, -thickness / 2), brush);
+    shade_color(surface, shape, im_grow(radii, thickness / 2), &hole, im_grow(radii, -thickness / 2), brush, false, 0);
 }

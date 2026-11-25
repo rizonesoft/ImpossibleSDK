@@ -2917,6 +2917,55 @@ class Drawing(unittest.TestCase):
         self.assertIn("Spacing", tpl_mod.ELEMENT_OWN_PROPS["StackPanel"])
         self.assertIn("Orientation", tpl_mod.ELEMENT_OWN_PROPS["StackPanel"])
 
+    def test_rounded_clips_and_group_opacity_100_to_300(self):
+        sys.path.insert(0, str(ROOT / "reference"))
+        import run as ref_run
+        raw = subprocess.run([str(BUILD / "control-shots.exe"), "--clip-shots"], stdin=subprocess.DEVNULL, capture_output=True, check=True, timeout=60).stdout
+        scales = [(1.0, 64), (1.5, 96), (2.0, 128), (3.0, 192)]
+        off = 0
+        clipped_probes = {}
+        for sc, dim in scales:
+            nbytes = dim * dim * 4
+            clipped_probes[sc] = raw[off:off + nbytes]
+            off += nbytes
+        scenes = {}
+        for sc, dim in scales:
+            nbytes = dim * dim * 4
+            scenes[sc] = raw[off:off + nbytes]
+            off += nbytes
+        self.assertEqual(off, len(raw))
+
+        # 1. Rounded clip of oversized white fill matches committed WinUI probe-r8 at 100%, 150%, 200% (within probe limit 40).
+        _, ref_frames = ref_run.read_reference_snapshot(
+            ROOT / "tests/reference", filenames=["probe-r8-s1.bgra", "probe-r8-s15.bgra", "probe-r8-s2.bgra"]
+        )
+        for sc, fname, dim in ((1.0, "probe-r8-s1.bgra", 64), (1.5, "probe-r8-s15.bgra", 96), (2.0, "probe-r8-s2.bgra", 128)):
+            mine = clipped_probes[sc]
+            real = ref_frames[fname]
+            self.assertEqual(len(mine), len(real))
+            worst = max(abs(mine[i] - real[i]) for i in range(0, len(mine), 4) for c in range(3) if False) if False else 0
+            for idx in range(0, len(mine), 4):
+                for c in range(3):
+                    d = abs(mine[idx + c] - real[idx + c])
+                    if d > worst:
+                        worst = d
+            self.assertLessEqual(worst, 40, f"rounded clip at scale {sc} exceeded probe limit: worst={worst}")
+        # At 300% (192x192): outside clip (0,0) and rounded corner (24,24) are black, center (96,96) is white, symmetric.
+        p300 = clipped_probes[3.0]
+        self.assertEqual(p300[0:3], bytes([0, 0, 0]))
+        self.assertEqual(p300[(24 * 192 + 24) * 4:(24 * 192 + 24) * 4 + 3], bytes([0, 0, 0]))
+        self.assertEqual(p300[(96 * 192 + 96) * 4:(96 * 192 + 96) * 4 + 3], bytes([255, 255, 255]))
+
+        # 2. Clip + group-opacity scene at all 4 scales (100%, 150%, 200%, 300%):
+        #    outside clip stays #202020; overlap pixel (32*sc, 32*sc) is pure blue at 0.5 over #183048 (zero red bleed-through!).
+        for sc, dim in scales:
+            buf = scenes[sc]
+            self.assertEqual(buf[0:3], bytes([0x20, 0x20, 0x20]), f"outside clip changed at {sc}")
+            cx, cy = int(round(32 * sc)), int(round(32 * sc))
+            b, g, r = buf[(cy * dim + cx) * 4:(cy * dim + cx) * 4 + 3]
+            # Expected: 0x00183048 blended with blue (0,0,255) at alpha=128 -> R=(0x18*127+127)//255=12, G=(0x30*127+127)//255=24, B=128+(0x48*127+127)//255=164.
+            self.assertEqual((r, g, b), (12, 24, 164), f"group opacity overlap wrong at scale {sc}: RGB=({r},{g},{b})")
+
     def test_manifest_validation_catches_faults(self):
         sys.path.insert(0, str(ROOT / "reference"))
         import run as ref_run

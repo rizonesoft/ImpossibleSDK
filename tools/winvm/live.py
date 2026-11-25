@@ -40,6 +40,12 @@ COVERED = (
     "tools/winui/check_package.py",
     "tools/winui/pin.json",
     "tools/winvm/needs.json",
+    "ui/clip.c",
+    "ui/clip.h",
+    "ui/draw.c",
+    "ui/draw.h",
+    "ui/layer.c",
+    "ui/layer.h",
     "ui/template_data.c",
 )
 TRY = "build/live-try.json"

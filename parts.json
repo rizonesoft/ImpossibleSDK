@@ -6,7 +6,9 @@
       "depends": [],
       "sources": [
         "ui/button.c",
+        "ui/clip.c",
         "ui/draw.c",
+        "ui/layer.c",
         "ui/layout.c",
         "ui/template_data.c",
         "ui/theme.c",
