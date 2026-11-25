@@ -41,7 +41,7 @@ title: "TODO-01 -- Shared Parts"
 | 7 | §7 | Lossless sound | §3 | [ ] |
 | 8 | §8 | Lossy sound | D02 T01 §1 | [ ] |
 | 9 | §9 | SSH transport | D02 T01 §1, D03 T01 §3 | [ ] |
-| 10 | §10 | PNG and BMP writers | §2, D02 T01 §3, D02 T01 §5 | [ ] |
+| 10 | §10 | PNG and BMP writers | §2, D02 T01 §3, D02 T01 §5 | [x] |
 | 11 | §11 | Picture scaler | D02 T01 §1 | [ ] |
 
 ## 1. A host's own engine
@@ -267,6 +267,9 @@ Pictures saved without loss and without hidden facts.
 - [x] Commit: `parts: PNG and BMP writers`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-25 | §10 | a1bb5c2282b7a2bb0e548bbc5493e6fdace7e624
+> **Review:** `docs/reviews/d06-t01-s10.json`
 
 ## 11. Picture scaler
 
