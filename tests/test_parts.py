@@ -741,28 +741,28 @@ class InflateAndChecksum(unittest.TestCase):
             for _ in range(88):
                 check_cksum(rng.randbytes(rng.randint(0, 4096)))
 
-            # 10,000 random inputs across ALL levels 0..9 and ALL 3 formats (raw=0, zlib=1, gzip=2)!
+            # 10,000 random inputs compressed at EVERY level 0..9 (100,000 round-trips) across raw/zlib/gzip!
             wbits_for = {0: -15, 1: 15, 2: 31}
             for i in range(10000):
-                level = i % 10
                 fmt = i % 3
                 kind = i % 4
                 if kind == 0:
-                    raw = rng.randbytes(rng.randint(0, 64))
+                    raw = rng.randbytes(rng.randint(0, 32))
                 elif kind == 1:
-                    raw = bytes([rng.randint(0, 255)]) * rng.randint(1, 200)
+                    raw = bytes([rng.randint(0, 255)]) * rng.randint(1, 120)
                 elif kind == 2:
-                    pat = rng.randbytes(rng.randint(1, 12))
-                    raw = (pat * rng.randint(2, 30))[: rng.randint(1, 300)]
+                    pat = rng.randbytes(rng.randint(1, 10))
+                    raw = (pat * rng.randint(2, 20))[: rng.randint(1, 180)]
                 else:
                     # Larger repetitive+mixed inputs trigger dynamic Huffman blocks (BTYPE=2) across levels!
-                    raw = (rng.randbytes(rng.randint(8, 32)) * rng.randint(12, 40)) + rng.randbytes(rng.randint(128, 512))
-                cobj = zlib.compressobj(level=level, wbits=wbits_for[fmt])
-                comp = cobj.compress(raw) + cobj.flush()
-                st, iu, out = run_inflate(fmt, comp, max(len(raw) + 16, 64), has_limit=True, limit=len(raw))
-                self.assertEqual(st, 0, f"case {i} fmt={fmt} level={level} len={len(raw)} st={st}")
-                self.assertEqual(out, raw, f"case {i} mismatch")
-                self.assertEqual(iu, len(comp), f"case {i} in_used")
+                    raw = (rng.randbytes(rng.randint(8, 24)) * rng.randint(8, 20)) + rng.randbytes(rng.randint(64, 192))
+                for level in range(10):
+                    cobj = zlib.compressobj(level=level, wbits=wbits_for[fmt])
+                    comp = cobj.compress(raw) + cobj.flush()
+                    st, iu, out = run_inflate(fmt, comp, max(len(raw) + 16, 64), has_limit=True, limit=len(raw))
+                    self.assertEqual(st, 0, f"case {i} fmt={fmt} level={level} len={len(raw)} st={st}")
+                    self.assertEqual(out, raw, f"case {i} level={level} mismatch")
+                    self.assertEqual(iu, len(comp), f"case {i} level={level} in_used")
 
             # Byte-at-a-time streaming (1-byte input AND 1-byte output) across raw, stored, fixed, dynamic,
             # overlapping matches (dist=1, dist=3), 32 KiB window wrap, and multi-member gzip!
@@ -826,6 +826,34 @@ class InflateAndChecksum(unittest.TestCase):
             st_d, _, out_d = run_inflate(0, dyn_hdist32_empty, 16)
             self.assertEqual(st_d, 0, f"dynamic HDIST=32 + empty dist tree should return OK, got {st_d}")
             self.assertEqual(out_d, b"A")
+
+            # (b) Dynamic block with empty distance tree attempting a match (len symbol 257) -> IM_INFLATE_BAD_DATA (6)
+            # HLIT=258 (1), HDIST=1 (0), HCLEN=19 (15); litlen: 'A'=65 (len 2), EOB=256 (len 2), match=257 (len 1); dist: 0 (len 0)
+            clens2 = {18: 1, 1: 2, 2: 2}
+            bits2 = [(1, 1), (2, 2), (1, 5), (0, 5), (15, 4)]
+            for sym in clen_order:
+                bits2.append((clens2.get(sym, 0), 3))
+            # clen canonical: 18->0 (1b), 1->10 (2b, LSB-first: 0b01), 2->11 (2b, LSB-first: 0b11)
+            # 65 zeros (18: 54), 'A'=len 2 (0b11), 190 zeros (138+52), EOB 256=len 2 (0b11), match 257=len 1 (0b01), 1 dist zero -> need sym 0!
+            # Simpler: clens2 = {18:1, 0:2, 1:3, 2:3}: 18=0(1b), 0=10(0b01), 1=110(0b011), 2=111(0b111)
+            clens2 = {18: 1, 0: 2, 1: 3, 2: 3}
+            bits2 = [(1, 1), (2, 2), (1, 5), (0, 5), (15, 4)]
+            for sym in clen_order:
+                bits2.append((clens2.get(sym, 0), 3))
+            bits2.extend([
+                (0, 1), (65 - 11, 7),
+                (0b111, 3),            # 'A' (65) len 2
+                (0, 1), (138 - 11, 7),
+                (0, 1), (52 - 11, 7),
+                (0b111, 3),            # EOB (256) len 2
+                (0b011, 3),            # match (257) len 1
+                (0b01, 2),             # dist 0 len 0 (empty distance tree!)
+                # Litlen canonical: 257->0 (1b), 'A'->10 (0b01), EOB->11 (0b11)
+                (0b01, 2),             # emit 'A'
+                (0, 1),                # emit match 257 -> attempts dist decode on empty dist tree!
+            ])
+            st_m, _, _ = run_inflate(0, pack_bits(bits2), 16)
+            self.assertEqual(st_m, 6, f"match with empty distance tree must return BAD_DATA (6), got {st_m}")
 
             # Zlib small advertised window (CINFO=0 -> 256 bytes) rejecting a 300-byte back-reference -> BAD_DATA (6)
             big_z = bytearray(zlib.compress(b"X" * 400 + b"Y" * 100 + b"X" * 400, 9))
