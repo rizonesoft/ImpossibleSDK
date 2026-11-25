@@ -49,6 +49,7 @@ typedef struct im_font {
     uint32_t cmap_off;
     uint32_t cmap_len;
     uint32_t cmap_subtable_off;
+    uint32_t cmap_subtable_end;
     uint16_t cmap_format;
     uint32_t hmtx_off;
     uint32_t hmtx_len;

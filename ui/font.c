@@ -343,7 +343,17 @@ static bool parse_cmap(im_font *font) {
         if (sub_rel >= len || len - sub_rel < 4u) continue;
         uint16_t fmt = 0;
         if (!rd_u16(d, sz, base + sub_rel, &fmt)) continue;
-        if (fmt != 4u && fmt != 12u) continue;
+        uint32_t sub_len = 0;
+        if (fmt == 4u) {
+            uint16_t l16 = 0;
+            if (!rd_u16(d, sz, base + sub_rel + 2u, &l16) || l16 < 16u) continue;
+            sub_len = l16;
+        } else if (fmt == 12u) {
+            if (len - sub_rel < 16u || !rd_u32(d, sz, base + sub_rel + 4u, &sub_len) || sub_len < 16u) continue;
+        } else {
+            continue;
+        }
+        if ((size_t)sub_len > len - sub_rel) continue;
 
         int rank = -1;
         if (plat == 3u && enc == 10u && fmt == 12u) rank = 5;
@@ -355,6 +365,7 @@ static bool parse_cmap(im_font *font) {
         if (rank > best_rank) {
             best_rank = rank;
             best_off = font->cmap_off + sub_rel;
+            font->cmap_subtable_end = font->cmap_off + sub_rel + sub_len;
             best_fmt = fmt;
         }
     }
@@ -432,28 +443,6 @@ static void discover_gpos_kern(im_font *font) {
         gpos_find_script_kern(d, sz, base, len, script_list_rel, feat_list_rel, mk_tag('D', 'F', 'L', 'T'), &feat_off)) {
         font->gpos_kern_feature_off = feat_off;
         font->has_gpos_kern = true;
-        return;
-    }
-
-    size_t fl = base + feat_list_rel;
-    uint16_t feat_count = 0;
-    if (!rd_u16(d, sz, fl, &feat_count)) return;
-    if (2u + (size_t)feat_count * 6u > len - feat_list_rel) return;
-
-    uint32_t kern_tag = mk_tag('k', 'e', 'r', 'n');
-    for (uint16_t i = 0; i < feat_count; ++i) {
-        uint32_t tag = 0;
-        uint16_t feat_rel = 0;
-        if (!rd_u32(d, sz, fl + 2u + (size_t)i * 6u, &tag)) return;
-        if (!rd_u16(d, sz, fl + 6u + (size_t)i * 6u, &feat_rel)) return;
-        if (tag == kern_tag) {
-            size_t fo = (size_t)feat_list_rel + (size_t)feat_rel;
-            if (fo + 4u <= len) {
-                font->gpos_kern_feature_off = (uint32_t)fo;
-                font->has_gpos_kern = true;
-                return;
-            }
-        }
     }
 }
 
@@ -628,8 +617,10 @@ im_font_metrics im_font_get_metrics(const im_font *font) {
 uint16_t im_font_glyph_index(const im_font *font, uint32_t cp) {
     if (!font || !font->data || cp > 0x10FFFFu) return 0;
     const uint8_t *d = font->data;
-    size_t sz = font->size;
+    size_t sz = font->cmap_subtable_end;
+    if (sz > font->size) sz = font->size;
     size_t sub = font->cmap_subtable_off;
+    if (sub >= sz) return 0;
 
     if (font->cmap_format == 12u) {
         uint32_t num_groups = 0;
@@ -719,6 +710,9 @@ static bool tt_glyph_range(const im_font *font, uint16_t gid, size_t *out_off, s
     return true;
 }
 
+/* Forward declaration for exact CFF glyph bounds & empty-glyph inspection. */
+static bool cff_measure_glyph(const im_font *font, uint16_t gid, im_glyph_metrics *out);
+
 /* ---- Glyph metrics ---- */
 
 bool im_font_glyph_metrics(const im_font *font, uint16_t glyph_id, im_glyph_metrics *out) {
@@ -768,28 +762,9 @@ bool im_font_glyph_metrics(const im_font *font, uint16_t glyph_id, im_glyph_metr
         }
         out->is_empty = false;
     } else {
-        /* For CFF, inspect whether the charstring contains only width+endchar (empty glyph such as space). */
-        size_t cbase = font->cff_off;
-        size_t cend = cbase + font->cff_len;
-        cff_index cs_idx;
-        size_t cs_start = 0, cs_len = 0;
-        bool empty = true;
-        if (cff_parse_index(d, sz, cbase, cend, cbase + font->cff_charstrings_off, &cs_idx) &&
-            cff_index_get(d, sz, &cs_idx, glyph_id, &cs_start, &cs_len)) {
-            for (size_t k = 0; k < cs_len; ++k) {
-                uint8_t b = d[cs_start + k];
-                if (b == 4u || b == 21u || b == 22u || b == 10u || b == 29u) {
-                    empty = false;
-                    break;
-                }
-            }
-        }
-        out->is_empty = empty;
-        if (!empty) {
-            out->x_min = font->metrics.x_min;
-            out->y_min = font->metrics.y_min;
-            out->x_max = font->metrics.x_max;
-            out->y_max = font->metrics.y_max;
+        if (!cff_measure_glyph(font, glyph_id, out)) {
+            zero_bytes(out, sizeof(*out));
+            return false;
         }
     }
     return true;
@@ -881,6 +856,20 @@ static int32_t gpos_read_x_advance(const uint8_t *d, size_t sz, size_t pos, size
     return rd_i16(d, sz, pos + off, &v) ? (int32_t)v : 0;
 }
 
+static int32_t gpos_read_x_placement(const uint8_t *d, size_t sz, size_t pos, size_t table_end, uint16_t vf) {
+    if ((vf & 0x0001u) == 0 || pos + 2u > table_end) return 0;
+    int16_t v = 0;
+    return rd_i16(d, sz, pos, &v) ? (int32_t)v : 0;
+}
+
+static int32_t gpos_read_pair_horiz(const uint8_t *d, size_t sz, size_t pos1, size_t sz1,
+                                    size_t table_end, uint16_t vf1, uint16_t vf2) {
+    int32_t a1 = gpos_read_x_advance(d, sz, pos1, table_end, vf1);
+    int32_t p2 = gpos_read_x_placement(d, sz, pos1 + sz1, table_end, vf2);
+    int32_t a2 = gpos_read_x_advance(d, sz, pos1 + sz1, table_end, vf2);
+    return a1 + p2 + a2;
+}
+
 static bool gpos_pair_pos_subtable(const uint8_t *d, size_t sz, size_t st_off, size_t table_end,
                                    uint16_t left, uint16_t right, int32_t *out_adj) {
     if (st_off + 10u > table_end) return false;
@@ -914,7 +903,7 @@ static bool gpos_pair_pos_subtable(const uint8_t *d, size_t sz, size_t st_off, s
             if (right < g2) hi = mid;
             else if (right > g2) lo = (uint16_t)(mid + 1u);
             else {
-                *out_adj = gpos_read_x_advance(d, sz, rec + 2u, table_end, vf1);
+                *out_adj = gpos_read_pair_horiz(d, sz, rec + 2u, sz1, table_end, vf1, vf2);
                 return true;
             }
         }
@@ -933,7 +922,7 @@ static bool gpos_pair_pos_subtable(const uint8_t *d, size_t sz, size_t st_off, s
         size_t idx = (size_t)c1 * (size_t)c2_cnt + (size_t)c2;
         size_t rec = st_off + 16u + idx * rec_sz;
         if (rec + rec_sz > table_end) return false;
-        *out_adj = gpos_read_x_advance(d, sz, rec, table_end, vf1);
+        *out_adj = gpos_read_pair_horiz(d, sz, rec, sz1, table_end, vf1, vf2);
         return true;
     }
     return false;
@@ -1006,14 +995,16 @@ static int32_t legacy_kern_lookup(const im_font *font, uint16_t left, uint16_t r
 
     size_t pos = base + 4u;
     uint32_t key = ((uint32_t)left << 16) | (uint32_t)right;
+    int32_t total = 0;
     for (uint16_t t = 0; t < ntables; ++t) {
         if (pos + 6u > end) break;
         uint16_t slen = 0, cov = 0;
         if (!rd_u16(d, sz, pos + 2u, &slen) || !rd_u16(d, sz, pos + 4u, &cov)) break;
         if (slen < 6u || pos + slen > end) break;
         uint8_t fmt = (uint8_t)(cov >> 8);
-        bool horizontal = (cov & 1u) != 0;
-        if (fmt == 0 && horizontal && slen >= 14u) {
+        /* Require horizontal (bit 0), not minimum (bit 1), not cross-stream (bit 2). */
+        if (fmt == 0 && (cov & 0x0007u) == 0x0001u && slen >= 14u) {
+            bool is_override = (cov & 0x0008u) != 0;
             uint16_t npairs = 0;
             if (rd_u16(d, sz, pos + 6u, &npairs) && pos + 14u + (size_t)npairs * 6u <= pos + slen) {
                 uint16_t lo = 0, hi = npairs;
@@ -1026,14 +1017,17 @@ static int32_t legacy_kern_lookup(const im_font *font, uint16_t left, uint16_t r
                     else if (key > k) lo = (uint16_t)(mid + 1u);
                     else {
                         int16_t v = 0;
-                        return rd_i16(d, sz, rec + 4u, &v) ? (int32_t)v : 0;
+                        if (rd_i16(d, sz, rec + 4u, &v)) {
+                            total = is_override ? (int32_t)v : (total + (int32_t)v);
+                        }
+                        break;
                     }
                 }
             }
         }
         pos += slen;
     }
-    return 0;
+    return total;
 }
 
 int32_t im_font_kerning(const im_font *font, uint16_t left_glyph, uint16_t right_glyph) {
@@ -1048,8 +1042,8 @@ int32_t im_font_kerning(const im_font *font, uint16_t left_glyph, uint16_t right
 /* ---- TrueType outline extraction (simple + composite with point attachment) ---- */
 
 typedef struct tt_point {
-    int32_t x;
-    int32_t y;
+    int64_t x; /* 14-bit fractional font units (16384 == 1 font unit) */
+    int64_t y;
     uint8_t on_curve;
 } tt_point;
 
@@ -1171,38 +1165,38 @@ static bool tt_decode_glyph(const im_font *font, uint16_t gid, tt_buf *out, uint
             }
         }
 
-        /* X coordinates */
-        int32_t cx = 0;
+        /* X coordinates (stored in 14-bit fractional font units) */
+        int64_t cx = 0;
         for (uint32_t i = 0; i < npts; ++i) {
             uint8_t fl = out->pts[base_pt + i].on_curve;
             if (fl & 0x02u) {
                 if (pos >= gend) return false;
-                int32_t dx = (int32_t)d[pos++];
+                int64_t dx = (int64_t)d[pos++];
                 cx += (fl & 0x10u) ? dx : -dx;
             } else if (!(fl & 0x10u)) {
                 int16_t dx = 0;
                 if (pos + 2u > gend || !rd_i16(d, sz, pos, &dx)) return false;
                 pos += 2u;
-                cx += (int32_t)dx;
+                cx += (int64_t)dx;
             }
-            out->pts[base_pt + i].x = cx;
+            out->pts[base_pt + i].x = cx * 16384;
         }
 
-        /* Y coordinates */
-        int32_t cy = 0;
+        /* Y coordinates (stored in 14-bit fractional font units) */
+        int64_t cy = 0;
         for (uint32_t i = 0; i < npts; ++i) {
             uint8_t fl = out->pts[base_pt + i].on_curve;
             if (fl & 0x04u) {
                 if (pos >= gend) return false;
-                int32_t dy = (int32_t)d[pos++];
+                int64_t dy = (int64_t)d[pos++];
                 cy += (fl & 0x20u) ? dy : -dy;
             } else if (!(fl & 0x20u)) {
                 int16_t dy = 0;
                 if (pos + 2u > gend || !rd_i16(d, sz, pos, &dy)) return false;
                 pos += 2u;
-                cy += (int32_t)dy;
+                cy += (int64_t)dy;
             }
-            out->pts[base_pt + i].y = cy;
+            out->pts[base_pt + i].y = cy * 16384;
             out->pts[base_pt + i].on_curve = (uint8_t)(fl & 0x01u);
         }
 
@@ -1268,34 +1262,36 @@ static bool tt_decode_glyph(const im_font *font, uint16_t gid, tt_buf *out, uint
         if (!tt_decode_glyph(font, comp_gid, out, depth + 1u)) return false;
         uint32_t comp_end_pt = out->pt_count;
 
-        /* Apply linear 2x2 transform first */
+        /* Apply linear 2x2 transform keeping 14-bit fractional font-unit precision */
         for (uint32_t i = comp_start_pt; i < comp_end_pt; ++i) {
-            int64_t px = out->pts[i].x;
-            int64_t py = out->pts[i].y;
-            int64_t tx = div_round_i64(px * xf.a + py * xf.c, 16384);
-            int64_t ty = div_round_i64(px * xf.b + py * xf.d, 16384);
-            out->pts[i].x = (int32_t)tx;
-            out->pts[i].y = (int32_t)ty;
+            __int128 px = out->pts[i].x;
+            __int128 py = out->pts[i].y;
+            __int128 tx_num = px * xf.a + py * xf.c;
+            __int128 ty_num = px * xf.b + py * xf.d;
+            __int128 tx = (tx_num >= 0) ? ((tx_num + 8192) >> 14) : -(((-tx_num) + 8192) >> 14);
+            __int128 ty = (ty_num >= 0) ? ((ty_num + 8192) >> 14) : -(((-ty_num) + 8192) >> 14);
+            if (tx > (int64_t)1 << 46 || tx < -((int64_t)1 << 46) ||
+                ty > (int64_t)1 << 46 || ty < -((int64_t)1 << 46)) return false;
+            out->pts[i].x = (int64_t)tx;
+            out->pts[i].y = (int64_t)ty;
         }
 
-        /* Apply translation: either XY offset or point-matching attachment */
-        int32_t dx = 0, dy = 0;
+        /* Apply translation: either XY offset or point-matching attachment (refusing invalid indices) */
+        int64_t dx = 0, dy = 0;
         if (flags & 0x0002u) {
             if (flags & 0x0800u) { /* SCALED_COMPONENT_OFFSET */
-                dx = (int32_t)div_round_i64((int64_t)arg1 * xf.a + (int64_t)arg2 * xf.c, 16384);
-                dy = (int32_t)div_round_i64((int64_t)arg1 * xf.b + (int64_t)arg2 * xf.d, 16384);
+                dx = (int64_t)arg1 * xf.a + (int64_t)arg2 * xf.c;
+                dy = (int64_t)arg1 * xf.b + (int64_t)arg2 * xf.d;
             } else {
-                dx = arg1;
-                dy = arg2;
+                dx = (int64_t)arg1 * 16384;
+                dy = (int64_t)arg2 * 16384;
             }
         } else {
-            /* Point attachment: align comp point arg2 onto parent point arg1 */
             uint32_t p_idx = parent_start_pt + (uint32_t)arg1;
             uint32_t c_idx = comp_start_pt + (uint32_t)arg2;
-            if (p_idx < comp_start_pt && c_idx < comp_end_pt) {
-                dx = out->pts[p_idx].x - out->pts[c_idx].x;
-                dy = out->pts[p_idx].y - out->pts[c_idx].y;
-            }
+            if (p_idx >= comp_start_pt || c_idx >= comp_end_pt) return false;
+            dx = out->pts[p_idx].x - out->pts[c_idx].x;
+            dy = out->pts[p_idx].y - out->pts[c_idx].y;
         }
         if (dx != 0 || dy != 0) {
             for (uint32_t i = comp_start_pt; i < comp_end_pt; ++i) {
@@ -1309,6 +1305,16 @@ static bool tt_decode_glyph(const im_font *font, uint16_t gid, tt_buf *out, uint
     return true;
 }
 
+static im_fixed tt_scale_q14(const im_font *font, int64_t q14_val, im_fixed size_px) {
+    int64_t upem = (int64_t)font->metrics.units_per_em;
+    if (upem <= 0 || size_px == 0) return 0;
+    __int128 prod = (__int128)q14_val * (__int128)size_px;
+    __int128 shifted = (prod >= 0) ? ((prod + 8192) >> 14) : -(((-prod) + 8192) >> 14);
+    if (shifted > INT64_MAX / 2) shifted = INT64_MAX / 2;
+    if (shifted < INT64_MIN / 2) shifted = INT64_MIN / 2;
+    return sat_fx(div_round_i64((int64_t)shifted, upem));
+}
+
 static bool tt_emit_path(const im_font *font, const tt_buf *b, im_fixed size_px, im_path *path) {
     uint32_t start = 0;
     for (uint32_t c = 0; c < b->contour_count; ++c) {
@@ -1317,8 +1323,7 @@ static bool tt_emit_path(const im_font *font, const tt_buf *b, im_fixed size_px,
         uint32_t n = end - start + 1u;
         if (n < 2u) { start = end + 1u; continue; }
 
-        /* Find starting on-curve point (or implied midpoint between last and first when both off-curve). */
-        int32_t sx = 0, sy = 0;
+        int64_t sx = 0, sy = 0;
         uint32_t first_idx = 0;
         const tt_point *p0 = &b->pts[start];
         const tt_point *plast = &b->pts[end];
@@ -1329,60 +1334,41 @@ static bool tt_emit_path(const im_font *font, const tt_buf *b, im_fixed size_px,
             sx = plast->x; sy = plast->y;
             first_idx = 0u;
         } else {
-            /* Implied midpoint (scaled with 2*upem to preserve half-unit precision!) */
-            sx = p0->x + plast->x;
-            sy = p0->y + plast->y;
-            im_fixed fx = sat_fx(div_round_i64((int64_t)sx * size_px, (int64_t)font->metrics.units_per_em * 2));
-            im_fixed fy = sat_fx(div_round_i64(-(int64_t)sy * size_px, (int64_t)font->metrics.units_per_em * 2));
-            if (!im_path_move_to(path, fx, fy)) return false;
+            sx = (p0->x + plast->x) / 2;
+            sy = (p0->y + plast->y) / 2;
             first_idx = 0u;
-            goto walk_points;
         }
 
-        {
-            im_fixed fx = im_font_scale_units(font, sx, size_px);
-            im_fixed fy = im_font_scale_units(font, -sy, size_px);
-            if (!im_path_move_to(path, fx, fy)) return false;
-        }
+        if (!im_path_move_to(path, tt_scale_q14(font, sx, size_px), tt_scale_q14(font, -sy, size_px))) return false;
 
-    walk_points:;
         uint32_t count = (p0->on_curve) ? (n - 1u) : n;
         for (uint32_t step = 0; step < count; ++step) {
             uint32_t idx = start + ((first_idx + step) % n);
             const tt_point *pt = &b->pts[idx];
             if (pt->on_curve) {
-                im_fixed fx = im_font_scale_units(font, pt->x, size_px);
-                im_fixed fy = im_font_scale_units(font, -pt->y, size_px);
-                if (!im_path_line_to(path, fx, fy)) return false;
+                if (!im_path_line_to(path, tt_scale_q14(font, pt->x, size_px), tt_scale_q14(font, -pt->y, size_px))) return false;
             } else {
-                im_fixed cx = im_font_scale_units(font, pt->x, size_px);
-                im_fixed cy = im_font_scale_units(font, -pt->y, size_px);
+                im_fixed cx = tt_scale_q14(font, pt->x, size_px);
+                im_fixed cy = tt_scale_q14(font, -pt->y, size_px);
                 if (step + 1u < count) {
                     uint32_t nidx = start + ((first_idx + step + 1u) % n);
                     const tt_point *npt = &b->pts[nidx];
                     if (npt->on_curve) {
-                        im_fixed ex = im_font_scale_units(font, npt->x, size_px);
-                        im_fixed ey = im_font_scale_units(font, -npt->y, size_px);
-                        if (!im_path_quad_to(path, cx, cy, ex, ey)) return false;
+                        if (!im_path_quad_to(path, cx, cy,
+                                             tt_scale_q14(font, npt->x, size_px),
+                                             tt_scale_q14(font, -npt->y, size_px))) return false;
                         ++step;
                     } else {
-                        im_fixed mx = sat_fx(div_round_i64((int64_t)(pt->x + npt->x) * size_px,
-                                                           (int64_t)font->metrics.units_per_em * 2));
-                        im_fixed my = sat_fx(div_round_i64(-(int64_t)(pt->y + npt->y) * size_px,
-                                                           (int64_t)font->metrics.units_per_em * 2));
-                        if (!im_path_quad_to(path, cx, cy, mx, my)) return false;
+                        int64_t mx = (pt->x + npt->x) / 2;
+                        int64_t my = (pt->y + npt->y) / 2;
+                        if (!im_path_quad_to(path, cx, cy,
+                                             tt_scale_q14(font, mx, size_px),
+                                             tt_scale_q14(font, -my, size_px))) return false;
                     }
                 } else {
-                    /* Final off-curve point closes back to contour start */
-                    im_fixed ex, ey;
-                    if (p0->on_curve || plast->on_curve) {
-                        ex = im_font_scale_units(font, sx, size_px);
-                        ey = im_font_scale_units(font, -sy, size_px);
-                    } else {
-                        ex = sat_fx(div_round_i64((int64_t)sx * size_px, (int64_t)font->metrics.units_per_em * 2));
-                        ey = sat_fx(div_round_i64(-(int64_t)sy * size_px, (int64_t)font->metrics.units_per_em * 2));
-                    }
-                    if (!im_path_quad_to(path, cx, cy, ex, ey)) return false;
+                    if (!im_path_quad_to(path, cx, cy,
+                                         tt_scale_q14(font, sx, size_px),
+                                         tt_scale_q14(font, -sy, size_px))) return false;
                 }
             }
         }
@@ -1397,7 +1383,7 @@ static bool tt_emit_path(const im_font *font, const tt_buf *b, im_fixed size_px,
 typedef struct cff_vm {
     const im_font *font;
     im_fixed size_px;
-    im_path *path;
+    im_path *path; /* NULL when measuring bounds only */
     cff_index gsubrs;
     cff_index lsubrs;
     bool has_lsubrs;
@@ -1406,10 +1392,26 @@ typedef struct cff_vm {
     int64_t x, y;      /* current point in 16.16 font units */
     bool open;
     bool have_width;
+    bool ended;
+    bool has_ink;
+    int64_t min_x, min_y, max_x, max_y; /* 16.16 font units */
     uint32_t num_stems;
     uint32_t ops;
     uint32_t depth;
 } cff_vm;
+
+static void cff_track_pt(cff_vm *vm, int64_t px, int64_t py) {
+    if (!vm->has_ink) {
+        vm->has_ink = true;
+        vm->min_x = vm->max_x = px;
+        vm->min_y = vm->max_y = py;
+    } else {
+        if (px < vm->min_x) vm->min_x = px;
+        if (px > vm->max_x) vm->max_x = px;
+        if (py < vm->min_y) vm->min_y = py;
+        if (py > vm->max_y) vm->max_y = py;
+    }
+}
 
 static im_fixed cff_to_px_x(const cff_vm *vm, int64_t x_16) {
     /* x_16 is 16.16 font units; result is 16.16 pixels = round((x_16 * size_px / 65536) / upem).
@@ -1434,20 +1436,22 @@ static int32_t cff_subr_bias(uint32_t count) {
 }
 
 static bool cff_move(cff_vm *vm, int64_t dx, int64_t dy) {
-    if (vm->open) {
+    if (vm->open && vm->path) {
         if (!im_path_close(vm->path)) return false;
     }
     vm->x += dx;
     vm->y += dy;
     vm->open = true;
-    return im_path_move_to(vm->path, cff_to_px_x(vm, vm->x), cff_to_px_y(vm, vm->y));
+    cff_track_pt(vm, vm->x, vm->y);
+    return vm->path ? im_path_move_to(vm->path, cff_to_px_x(vm, vm->x), cff_to_px_y(vm, vm->y)) : true;
 }
 
 static bool cff_line(cff_vm *vm, int64_t dx, int64_t dy) {
     if (!vm->open) return false;
     vm->x += dx;
     vm->y += dy;
-    return im_path_line_to(vm->path, cff_to_px_x(vm, vm->x), cff_to_px_y(vm, vm->y));
+    cff_track_pt(vm, vm->x, vm->y);
+    return vm->path ? im_path_line_to(vm->path, cff_to_px_x(vm, vm->x), cff_to_px_y(vm, vm->y)) : true;
 }
 
 static bool cff_cubic(cff_vm *vm, int64_t dx1, int64_t dy1, int64_t dx2, int64_t dy2, int64_t dx3, int64_t dy3) {
@@ -1456,10 +1460,13 @@ static bool cff_cubic(cff_vm *vm, int64_t dx1, int64_t dy1, int64_t dx2, int64_t
     int64_t x2 = x1 + dx2, y2 = y1 + dy2;
     int64_t x3 = x2 + dx3, y3 = y2 + dy3;
     vm->x = x3; vm->y = y3;
-    return im_path_cubic_to(vm->path,
-                            cff_to_px_x(vm, x1), cff_to_px_y(vm, y1),
-                            cff_to_px_x(vm, x2), cff_to_px_y(vm, y2),
-                            cff_to_px_x(vm, x3), cff_to_px_y(vm, y3));
+    cff_track_pt(vm, x1, y1);
+    cff_track_pt(vm, x2, y2);
+    cff_track_pt(vm, x3, y3);
+    return vm->path ? im_path_cubic_to(vm->path,
+                                       cff_to_px_x(vm, x1), cff_to_px_y(vm, y1),
+                                       cff_to_px_x(vm, x2), cff_to_px_y(vm, y2),
+                                       cff_to_px_x(vm, x3), cff_to_px_y(vm, y3)) : true;
 }
 
 static bool cff_exec(cff_vm *vm, size_t start, size_t len) {
@@ -1567,12 +1574,14 @@ static bool cff_exec(cff_vm *vm, size_t start, size_t len) {
                 break;
             }
             case 5u: /* rlineto */
-                for (uint32_t i = 0; i + 1u < vm->sp; i += 2u) {
+                if (vm->sp < 2u || (vm->sp & 1u) != 0) return false;
+                for (uint32_t i = 0; i < vm->sp; i += 2u) {
                     if (!cff_line(vm, vm->stack[i], vm->stack[i + 1u])) return false;
                 }
                 vm->sp = 0;
                 break;
             case 6u: /* hlineto */
+                if (vm->sp < 1u) return false;
                 for (uint32_t i = 0; i < vm->sp; ++i) {
                     if ((i & 1u) == 0) { if (!cff_line(vm, vm->stack[i], 0)) return false; }
                     else { if (!cff_line(vm, 0, vm->stack[i])) return false; }
@@ -1580,6 +1589,7 @@ static bool cff_exec(cff_vm *vm, size_t start, size_t len) {
                 vm->sp = 0;
                 break;
             case 7u: /* vlineto */
+                if (vm->sp < 1u) return false;
                 for (uint32_t i = 0; i < vm->sp; ++i) {
                     if ((i & 1u) == 0) { if (!cff_line(vm, 0, vm->stack[i])) return false; }
                     else { if (!cff_line(vm, vm->stack[i], 0)) return false; }
@@ -1587,7 +1597,8 @@ static bool cff_exec(cff_vm *vm, size_t start, size_t len) {
                 vm->sp = 0;
                 break;
             case 8u: /* rrcurveto */
-                for (uint32_t i = 0; i + 5u < vm->sp; i += 6u) {
+                if (vm->sp < 6u || (vm->sp % 6u) != 0) return false;
+                for (uint32_t i = 0; i < vm->sp; i += 6u) {
                     if (!cff_cubic(vm, vm->stack[i], vm->stack[i + 1u], vm->stack[i + 2u],
                                    vm->stack[i + 3u], vm->stack[i + 4u], vm->stack[i + 5u])) return false;
                 }
@@ -1654,33 +1665,36 @@ static bool cff_exec(cff_vm *vm, size_t start, size_t len) {
             }
             case 0x0C22u: /* hflex */
                 if (vm->sp < 7u) return false;
-                if (!cff_cubic(vm, vm->stack[0], 0, vm->stack[1], vm->stack[2], vm->stack[3], 0)) return false;
-                if (!cff_cubic(vm, vm->stack[4], 0, vm->stack[5], -vm->stack[2], vm->stack[6], 0)) return false;
+                if (!cff_cubic(vm, (int64_t)vm->stack[0], 0, (int64_t)vm->stack[1], (int64_t)vm->stack[2], (int64_t)vm->stack[3], 0)) return false;
+                if (!cff_cubic(vm, (int64_t)vm->stack[4], 0, (int64_t)vm->stack[5], -(int64_t)vm->stack[2], (int64_t)vm->stack[6], 0)) return false;
                 vm->sp = 0;
                 break;
             case 0x0C23u: /* flex */
                 if (vm->sp < 13u) return false;
-                if (!cff_cubic(vm, vm->stack[0], vm->stack[1], vm->stack[2], vm->stack[3], vm->stack[4], vm->stack[5])) return false;
-                if (!cff_cubic(vm, vm->stack[6], vm->stack[7], vm->stack[8], vm->stack[9], vm->stack[10], vm->stack[11])) return false;
+                if (!cff_cubic(vm, (int64_t)vm->stack[0], (int64_t)vm->stack[1], (int64_t)vm->stack[2], (int64_t)vm->stack[3], (int64_t)vm->stack[4], (int64_t)vm->stack[5])) return false;
+                if (!cff_cubic(vm, (int64_t)vm->stack[6], (int64_t)vm->stack[7], (int64_t)vm->stack[8], (int64_t)vm->stack[9], (int64_t)vm->stack[10], (int64_t)vm->stack[11])) return false;
                 vm->sp = 0;
                 break;
             case 0x0C24u: /* hflex1 */
                 if (vm->sp < 9u) return false;
-                if (!cff_cubic(vm, vm->stack[0], vm->stack[1], vm->stack[2], vm->stack[3], vm->stack[4], 0)) return false;
-                if (!cff_cubic(vm, vm->stack[5], 0, vm->stack[6], vm->stack[7], vm->stack[8], -(vm->stack[1] + vm->stack[3] + vm->stack[7]))) return false;
+                {
+                    int64_t dy6 = -((int64_t)vm->stack[1] + (int64_t)vm->stack[3] + (int64_t)vm->stack[7]);
+                    if (!cff_cubic(vm, (int64_t)vm->stack[0], (int64_t)vm->stack[1], (int64_t)vm->stack[2], (int64_t)vm->stack[3], (int64_t)vm->stack[4], 0)) return false;
+                    if (!cff_cubic(vm, (int64_t)vm->stack[5], 0, (int64_t)vm->stack[6], (int64_t)vm->stack[7], (int64_t)vm->stack[8], dy6)) return false;
+                }
                 vm->sp = 0;
                 break;
             case 0x0C25u: /* flex1 */
                 if (vm->sp < 11u) return false;
                 {
-                    int64_t dx = vm->stack[0] + vm->stack[2] + vm->stack[4] + vm->stack[6] + vm->stack[8];
-                    int64_t dy = vm->stack[1] + vm->stack[3] + vm->stack[5] + vm->stack[7] + vm->stack[9];
+                    int64_t dx = (int64_t)vm->stack[0] + (int64_t)vm->stack[2] + (int64_t)vm->stack[4] + (int64_t)vm->stack[6] + (int64_t)vm->stack[8];
+                    int64_t dy = (int64_t)vm->stack[1] + (int64_t)vm->stack[3] + (int64_t)vm->stack[5] + (int64_t)vm->stack[7] + (int64_t)vm->stack[9];
                     int64_t adx = dx < 0 ? -dx : dx;
                     int64_t ady = dy < 0 ? -dy : dy;
-                    int64_t dx6 = (adx > ady) ? vm->stack[10] : -dx;
-                    int64_t dy6 = (adx > ady) ? -dy : vm->stack[10];
-                    if (!cff_cubic(vm, vm->stack[0], vm->stack[1], vm->stack[2], vm->stack[3], vm->stack[4], vm->stack[5])) return false;
-                    if (!cff_cubic(vm, vm->stack[6], vm->stack[7], vm->stack[8], vm->stack[9], dx6, dy6)) return false;
+                    int64_t dx6 = (adx > ady) ? (int64_t)vm->stack[10] : -dx;
+                    int64_t dy6 = (adx > ady) ? -dy : (int64_t)vm->stack[10];
+                    if (!cff_cubic(vm, (int64_t)vm->stack[0], (int64_t)vm->stack[1], (int64_t)vm->stack[2], (int64_t)vm->stack[3], (int64_t)vm->stack[4], (int64_t)vm->stack[5])) return false;
+                    if (!cff_cubic(vm, (int64_t)vm->stack[6], (int64_t)vm->stack[7], (int64_t)vm->stack[8], (int64_t)vm->stack[9], dx6, dy6)) return false;
                 }
                 vm->sp = 0;
                 break;
@@ -1699,16 +1713,19 @@ static bool cff_exec(cff_vm *vm, size_t start, size_t len) {
                 bool ok = cff_exec(vm, s_start, s_len);
                 vm->depth -= 1u;
                 if (!ok) return false;
+                if (vm->ended) return true;
                 break;
             }
             case 11u: /* return */
+                if (vm->depth == 0) return false; /* top-level return without endchar is invalid */
                 return true;
             case 14u: /* endchar */
                 if (vm->sp >= 4u) return false; /* deprecated seac arguments explicitly refused */
-                if (vm->open) {
+                if (vm->open && vm->path) {
                     if (!im_path_close(vm->path)) return false;
-                    vm->open = false;
                 }
+                vm->open = false;
+                vm->ended = true;
                 vm->sp = 0;
                 return true;
 
@@ -1741,9 +1758,48 @@ static bool cff_decode_glyph(const im_font *font, uint16_t gid, im_fixed size_px
         vm.has_lsubrs = true;
     }
 
-    if (!cff_exec(&vm, cs_start, cs_len)) return false;
-    if (vm.open) {
-        if (!im_path_close(out_path)) return false;
+    if (!cff_exec(&vm, cs_start, cs_len) || !vm.ended) return false;
+    return true;
+}
+
+static bool cff_measure_glyph(const im_font *font, uint16_t gid, im_glyph_metrics *out) {
+    size_t base = font->cff_off;
+    size_t end = base + font->cff_len;
+    cff_index cs_idx;
+    if (!cff_parse_index(font->data, font->size, base, end, base + font->cff_charstrings_off, &cs_idx)) return false;
+    if (gid >= cs_idx.count) return false;
+    size_t cs_start = 0, cs_len = 0;
+    if (!cff_index_get(font->data, font->size, &cs_idx, gid, &cs_start, &cs_len)) return false;
+
+    cff_vm vm;
+    zero_bytes(&vm, sizeof(vm));
+    vm.font = font;
+    vm.size_px = IM_ONE;
+    vm.path = NULL;
+    if (!cff_parse_index(font->data, font->size, base, end, base + font->cff_gsubrs_off, &vm.gsubrs)) return false;
+    if (font->cff_lsubrs_off > 0) {
+        if (!cff_parse_index(font->data, font->size, base, end, base + font->cff_lsubrs_off, &vm.lsubrs)) return false;
+        vm.has_lsubrs = true;
+    }
+    if (!cff_exec(&vm, cs_start, cs_len) || !vm.ended) return false;
+    out->is_empty = !vm.has_ink;
+    if (vm.has_ink) {
+        int64_t x0 = vm.min_x >> 16;
+        int64_t y0 = vm.min_y >> 16;
+        int64_t x1 = (vm.max_x + 65535) >> 16;
+        int64_t y1 = (vm.max_y + 65535) >> 16;
+        if (x0 < INT16_MIN) x0 = INT16_MIN;
+        if (x0 > INT16_MAX) x0 = INT16_MAX;
+        if (y0 < INT16_MIN) y0 = INT16_MIN;
+        if (y0 > INT16_MAX) y0 = INT16_MAX;
+        if (x1 < INT16_MIN) x1 = INT16_MIN;
+        if (x1 > INT16_MAX) x1 = INT16_MAX;
+        if (y1 < INT16_MIN) y1 = INT16_MIN;
+        if (y1 > INT16_MAX) y1 = INT16_MAX;
+        out->x_min = (int16_t)x0;
+        out->y_min = (int16_t)y0;
+        out->x_max = (int16_t)x1;
+        out->y_max = (int16_t)y1;
     }
     return true;
 }

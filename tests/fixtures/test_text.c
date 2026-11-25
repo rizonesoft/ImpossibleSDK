@@ -10,37 +10,67 @@
 
 /* ---- Allocator with optional OOM injection ---- */
 
+typedef struct alloc_slot {
+    void *ptr;
+    size_t sz;
+} alloc_slot;
+
 typedef struct test_alloc_ctx {
     size_t live;
     int fail_after; /* < 0: never fail; >= 0: fail when alloc_calls >= fail_after */
     int alloc_calls;
+    int size_mismatches;
+    alloc_slot slots[128];
 } test_alloc_ctx;
+
+static void track_add(test_alloc_ctx *c, void *p, size_t n) {
+    if (!c || !p) return;
+    for (int i = 0; i < 128; ++i) {
+        if (!c->slots[i].ptr) { c->slots[i].ptr = p; c->slots[i].sz = n; return; }
+    }
+}
+
+static void track_rem(test_alloc_ctx *c, void *p, size_t old_n) {
+    if (!c || !p) return;
+    for (int i = 0; i < 128; ++i) {
+        if (c->slots[i].ptr == p) {
+            if (c->slots[i].sz != old_n) c->size_mismatches++;
+            c->slots[i].ptr = NULL;
+            c->slots[i].sz = 0;
+            return;
+        }
+    }
+}
 
 static void *t_alloc(void *ctx, size_t n) {
     test_alloc_ctx *c = (test_alloc_ctx *)ctx;
     if (c && c->fail_after >= 0 && c->alloc_calls >= c->fail_after) return NULL;
-    if (c) { c->alloc_calls++; c->live++; }
-    return im_alloc(n ? n : 1u);
+    void *p = im_alloc(n ? n : 1u);
+    if (!p) return NULL;
+    if (c) { c->alloc_calls++; c->live++; track_add(c, p, n); }
+    return p;
 }
 
 static void *t_realloc(void *ctx, void *p, size_t old_n, size_t n) {
     test_alloc_ctx *c = (test_alloc_ctx *)ctx;
     if (c && c->fail_after >= 0 && c->alloc_calls >= c->fail_after) return NULL;
-    if (c) { c->alloc_calls++; if (!p) c->live++; }
-    if (!p) return im_alloc(n ? n : 1u);
+    if (!p) return t_alloc(ctx, n);
     void *np = im_alloc(n ? n : 1u);
     if (!np) return NULL;
     size_t cp = old_n < n ? old_n : n;
     for (size_t i = 0; i < cp; ++i) ((uint8_t *)np)[i] = ((const uint8_t *)p)[i];
+    if (c) { c->alloc_calls++; track_rem(c, p, old_n); track_add(c, np, n); }
     im_free(p);
     return np;
 }
 
 static void t_free(void *ctx, void *p, size_t old_n) {
-    (void)old_n;
     if (!p) return;
     test_alloc_ctx *c = (test_alloc_ctx *)ctx;
-    if (c && c->live > 0) c->live--;
+    if (c) {
+        track_rem(c, p, old_n);
+        if (c->live > 0) c->live--;
+    }
     im_free(p);
 }
 
@@ -188,7 +218,7 @@ static void make_common_tables(uint8_t head[54], uint8_t maxp[6], uint8_t hhea[3
 /* ---- Test 1: OpenType CFF v1 (Global Subr + Local Subr + hstem + hintmask + cubic) + CFF2 refusal ---- */
 
 static void test_synthetic_cff_and_ttc_and_composite(void) {
-    test_alloc_ctx actx = { 0, -1, 0 };
+    test_alloc_ctx actx = { .fail_after = -1 };
     im_allocator alloc = make_alloc(&actx);
 
     uint8_t head[54], maxp[6], hhea[36], hmtx[12], cmap[64];
@@ -282,6 +312,11 @@ static void test_synthetic_cff_and_ttc_and_composite(void) {
     check(im_font_init(&cff_font, otf_buf, otf_sz), "CFF v1 font initializes");
     check(cff_font.metrics.is_cff, "CFF v1 font reports is_cff=true");
     check(im_font_glyph_index(&cff_font, 'A') == 1u, "CFF cmap maps 'A' -> 1");
+    im_glyph_metrics cgm0, cgm1;
+    check(im_font_glyph_metrics(&cff_font, 0u, &cgm0) && cgm0.is_empty, "CFF empty glyph 0 reports is_empty=true");
+    check(im_font_glyph_metrics(&cff_font, 1u, &cgm1) && !cgm1.is_empty &&
+          cgm1.x_min == 100 && cgm1.y_min == 100 && cgm1.x_max == 500 && cgm1.y_max == 600,
+          "CFF glyph 1 reports exact decoded bounding box (100,100)-(500,600), not head box");
 
     uint32_t pixels[48 * 48];
     for (int i = 0; i < 48 * 48; ++i) pixels[i] = 0x00000000u;
@@ -391,16 +426,39 @@ static void test_synthetic_cff_and_ttc_and_composite(void) {
     im_path_destroy(&p1);
     im_path_destroy(&p2);
 
-    /* OOM injection + retry on im_text_layout_build */
-    im_text_style st = { &f0, 16 * IM_ONE, 0, 100 * IM_ONE, IM_TEXT_ALIGN_LEFT, IM_TEXT_WRAP, 0xFFFFFFFFu, true };
+    /* OOM injection at partial steps 0..4 + retry + im_text_layout_measure + im_text_layout_draw */
+    im_text_style st = { &f0, 16 * IM_ONE, 0, 100 * IM_ONE, IM_TEXT_ALIGN_LEFT, IM_TEXT_WRAP, 0xFF20E040u, true };
     im_text_layout lay;
-    actx.fail_after = 0;
-    actx.alloc_calls = 0;
-    check(!im_text_layout_build(&lay, alloc, "AB", 2, &st), "Injected OOM fails cleanly");
-    check(lay.lines == NULL && lay.glyphs == NULL && lay.line_count == 0, "Failed layout is zeroed");
+    for (int fstep = 0; fstep < 5; ++fstep) {
+        actx.fail_after = fstep;
+        actx.alloc_calls = 0;
+        check(!im_text_layout_build(&lay, alloc, "AB", 2, &st), "Partial OOM fails cleanly");
+        check(lay.lines == NULL && lay.glyphs == NULL && lay.line_count == 0, "Failed layout is zeroed");
+    }
     actx.fail_after = -1;
     check(im_text_layout_build(&lay, alloc, "AB", 2, &st) && lay.glyph_count == 2u, "Retry after OOM succeeds");
+    im_fixed mw = 0, mh = 0;
+    check(im_text_layout_measure(alloc, "AB", 2, &st, &mw, &mh) && mw == lay.width && mh == lay.height,
+          "im_text_layout_measure matches im_text_layout_build");
+    for (int i = 0; i < 48 * 48; ++i) pixels[i] = 0;
+    check(im_text_layout_draw(&surf, alloc, &lay, &st, 4 * IM_ONE, 4 * IM_ONE), "im_text_layout_draw succeeds");
+    int green_lit = 0;
+    for (int i = 0; i < 48 * 48; ++i) if (((pixels[i] >> 8) & 0xFFu) > 0) ++green_lit;
+    check(green_lit > 10, "im_text_layout_draw paints requested color at nonzero origin");
     im_text_layout_destroy(&lay);
+
+    /* Empty string honours horizontal alignment */
+    im_text_style st_c = st;
+    st_c.align = IM_TEXT_ALIGN_CENTER;
+    check(im_text_layout_build(&lay, alloc, "", 0, &st_c) && lay.line_count == 1u && lay.lines[0].x == 50 * IM_ONE,
+          "Empty centered text aligns to max_width/2");
+    im_text_layout_destroy(&lay);
+
+    /* Soft hyphen U+00AD is invisible and zero-width on an unbroken line */
+    const char soft_h[] = { 'A', (char)0xC2, (char)0xAD, 'B' };
+    im_fixed sw = 0, sh = 0;
+    check(im_text_layout_measure(alloc, soft_h, sizeof(soft_h), &st, &sw, &sh) && sw == mw,
+          "Soft hyphen U+00AD adds zero width on unbroken line");
 
     /* ---- UTF-8 maximal subpart + hard breaks + emergency grapheme break ---- */
     uint32_t cp = 0;
@@ -442,6 +500,7 @@ static void test_synthetic_cff_and_ttc_and_composite(void) {
     check(!im_font_init(&bad, zeros, sizeof(zeros)), "Zero-filled font refused");
 
     check(actx.live == 0, "Zero leaked allocations across synthetic font & text tests");
+    check(actx.size_mismatches == 0, "Zero sized-free mismatches across synthetic font & text tests");
 }
 
 /* ---- CLI helpers (Tier 0 wide command line parsing) ---- */
@@ -507,7 +566,7 @@ static int run_all_glyphs(const char *font_path) {
         im_free(data);
         return 3;
     }
-    test_alloc_ctx actx = { 0, -1, 0 };
+    test_alloc_ctx actx = { .fail_after = -1 };
     im_allocator alloc = make_alloc(&actx);
 
     uint32_t pixels[48 * 48];
@@ -635,7 +694,7 @@ static int run_layout(const char *font_path, im_fixed size_px, im_fixed max_w, i
     im_font font;
     if (!im_font_init(&font, (const uint8_t *)fdata, flen)) { im_free(fdata); im_free(tdata); return 4; }
 
-    test_alloc_ctx actx = { 0, -1, 0 };
+    test_alloc_ctx actx = { .fail_after = -1 };
     im_allocator alloc = make_alloc(&actx);
     im_text_style st = {
         &font, size_px, 0, max_w, (im_text_align)align, (im_text_wrap)wrap, 0xFFFFFFFFu, true

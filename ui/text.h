@@ -75,6 +75,7 @@ typedef struct im_text_layout {
 size_t im_utf8_decode(const char *src, size_t len, uint32_t *out_cp);
 
 /* Shape, break (UAX #14 with UAX #29 grapheme emergency fallback), and align UTF-8 text into *layout.
+   Caller must pass an uninitialized or previously destroyed *layout (call im_text_layout_destroy before rebuilding).
    Zeroes *layout and releases any temporary buffers on error or allocation failure. */
 bool im_text_layout_build(im_text_layout *layout, im_allocator alloc,
                           const char *utf8, size_t utf8_len, const im_text_style *style);

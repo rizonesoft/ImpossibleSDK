@@ -73,7 +73,7 @@ Build fixed-point vector paths with `ui/path.h` (`im_path_move_to`, `im_path_lin
 
 ## Fixed-point text
 
-`ui/font.h` parses TrueType (`glyf`/`loca`, simple and composite glyphs), TrueType Collections (`ttcf`), and OpenType CFF v1 (`OTTO`, Type 2 charstrings with local/global subroutines and hint masks) directly from caller-owned memory with bounds checks and per-glyph complexity limits, scaling outlines in 64-bit integer fixed point and rasterising them through `im_path_fill_argb`. `ui/text.h` decodes UTF-8, shapes left-to-right runs with nominal advances and GPOS/legacy `kern` adjustments, breaks lines with UAX #14 (`im_unicode_line_breaks`) and UAX #29 grapheme-cluster emergency fallback, aligns lines Left/Center/Right, and draws into any `im_surface`.
+`ui/font.h` parses TrueType (`glyf`/`loca`, simple and composite glyphs), TrueType Collections (`ttcf`), and non-CID OpenType CFF v1 (`OTTO`, Type 2 charstrings with local/global subroutines and hint masks; CFF2, CID-keyed CFF, and deprecated `seac` are refused) directly from caller-owned memory with bounds checks and per-glyph complexity limits, scaling outlines in 64-bit integer fixed point (using `__int128` intermediates for CFF 16.16 conversion) and rasterising them through `im_path_fill_argb`. `ui/text.h` decodes UTF-8, shapes left-to-right runs with nominal advances and GPOS `latn`/`DFLT` or legacy `kern` adjustments, breaks lines with UAX #14 (`im_unicode_line_breaks`) and UAX #29 grapheme-cluster emergency fallback, aligns lines Left/Center/Right, and draws into any `im_surface`.
 
 ## Can Impossible OS take it?
 

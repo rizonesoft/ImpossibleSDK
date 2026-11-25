@@ -204,8 +204,9 @@ static bool emit_line(line_vec *lvec, glyph_vec *gvec,
     uint32_t gstart = gvec->count;
     im_fixed pen = 0;
     for (uint32_t i = start; i < end; ++i) {
+        if (items[i].cp == 0x00ADu) continue; /* Non-breaking soft hyphen emits no glyph */
         im_fixed adv = items[i].nominal_adv;
-        if (style->kerning && i + 1u < end) {
+        if (style->kerning && i + 1u < end && items[i + 1u].cp != 0x00ADu) {
             int32_t kern = im_font_kerning(style->font, items[i].glyph_id, items[i + 1u].glyph_id);
             if (kern != 0) adv = sat_add_fx(adv, im_font_scale_units(style->font, kern, style->font_size));
         }
@@ -225,7 +226,7 @@ static bool emit_line(line_vec *lvec, glyph_vec *gvec,
     ln.byte_start = byte_start;
     ln.byte_end = byte_end;
     ln.glyph_start = gstart;
-    ln.glyph_count = end - start;
+    ln.glyph_count = gvec->count - gstart;
     ln.x = 0;
     ln.y = y;
     ln.width = vis_w;
@@ -254,9 +255,14 @@ bool im_text_layout_build(im_text_layout *layout, im_allocator alloc,
     line_vec lvec = { alloc, NULL, 0, 0 };
     glyph_vec gvec = { alloc, NULL, 0, 0 };
 
-    /* Empty string produces one empty line of natural height (matching WinUI TextBlock). */
+    /* Empty string produces one empty line of natural height (matching WinUI TextBlock),
+       honouring horizontal alignment consistently with trailing empty lines after hard breaks. */
     if (utf8_len == 0) {
-        im_text_line empty = { 0, 0, 0, 0, 0, 0, 0, 0, line_h, baseline };
+        im_fixed align_w = (style->max_width > 0) ? style->max_width : 0;
+        im_fixed lx = 0;
+        if (style->align == IM_TEXT_ALIGN_CENTER) lx = align_w / 2;
+        else if (style->align == IM_TEXT_ALIGN_RIGHT) lx = align_w;
+        im_text_line empty = { 0, 0, 0, 0, lx, 0, 0, 0, line_h, baseline };
         if (!line_vec_push(&lvec, empty)) return false;
         layout->alloc = alloc;
         layout->lines = lvec.data;
@@ -305,12 +311,17 @@ bool im_text_layout_build(im_text_layout *layout, im_allocator alloc,
         items[i].byte_len = (uint32_t)n;
         uint16_t gid = im_font_glyph_index(style->font, cp);
         items[i].glyph_id = gid;
-        im_glyph_metrics gm;
-        if (!im_font_glyph_metrics(style->font, gid, &gm)) {
-            ok = false;
-            break;
+        if (cp == 0x00ADu) {
+            /* UAX #14 Soft Hyphen: invisible and zero-width unless selected as a line-break point. */
+            items[i].nominal_adv = 0;
+        } else {
+            im_glyph_metrics gm;
+            if (!im_font_glyph_metrics(style->font, gid, &gm)) {
+                ok = false;
+                break;
+            }
+            items[i].nominal_adv = im_font_scale_units(style->font, (int32_t)gm.advance_width, style->font_size);
         }
-        items[i].nominal_adv = im_font_scale_units(style->font, (int32_t)gm.advance_width, style->font_size);
         off += n;
     }
 
@@ -395,7 +406,12 @@ bool im_text_layout_build(im_text_layout *layout, im_allocator alloc,
                     if (is_gr) best_gr = cand;
                 } else {
                     fits_all = false;
-                    if (first_uax != 0 && first_gr != 0) break;
+                    if (style->wrap == IM_TEXT_WRAP_WHOLE_WORDS) {
+                        if (first_uax != 0) break;
+                    } else {
+                        /* Emergency grapheme break is already known: stop immediately (strict O(N)!). */
+                        if (first_gr != 0) break;
+                    }
                 }
             }
 
