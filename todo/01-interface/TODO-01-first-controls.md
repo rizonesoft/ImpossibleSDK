@@ -270,23 +270,25 @@ The portable engine asks its host for everything the system owns: memory, time, 
 
 A frame redraws only what changed, and nothing runs when nothing changes.
 
+**Corrected 2026-11-25:** Implement portable freestanding (no floats, no OS calls, no libc) dirty-rectangle collection and bounded merging in `ui/dirty.h`/`ui/dirty.c` and demand-driven frame scheduling in `ui/frame.h`/`ui/frame.c`, registering both in `parts.json` under `"ui"` and adding `ui/dirty.h,ui/frame.h` to `docs/guide/drawing.md` `sources=` (`reviewed=2026-11-25`). `ui/dirty.{h,c}` provides `im_irect`, `im_dirty_list` (capacity `IM_DIRTY_MAX_RECTS = 16`, clipped to viewport `[0, width) x [0, height)`), `im_dirty_add` / `im_dirty_add_fixed` (outward pixel rounding `floor(left/top)`, `ceil(right/bottom)` so antialiased/fractional edges are never clipped), deterministic min-waste-area merging keeping `count <= 16` while covering 100% of every added rectangle, and `im_dirty_collect_tree` tracking `paint_dirty`, `had_prev_rect`, and `prev_absolute_rect` on `im_node` (`ui/tree.h`/`ui/tree.c`) so moved, resized, collapsed, recolored, or removed nodes dirty both their old vacated rectangle and their new rectangle. `ui/frame.{h,c}` provides `im_frame_scheduler` (`im_frame_init`, `im_frame_mark_dirty`, `im_frame_needs_tick`, `im_frame_step`, `im_frame_on_painted`) that invokes the host's frame-request callback only while dirty rectangles or animations are pending and makes zero calls when idle. Extend `im_canvas` in `include/impossible/window.h` with `im_dirty_rect dirty` (the exact `PAINTSTRUCT.rcPaint` update box) and `bool full_redraw`, add `im_window_invalidate` and `im_window_invalidate_rects` in `include/impossible/window.h`/`src/window.c` (using only existing Tier 1 `InvalidateRect`/`BeginPaint`/`SetDIBitsToDevice` from `abi/tiers.json`), and update `src/window.c` `paint()` to preserve `window->buffer` across partial repaints, blit the dirty horizontal band cleanly, and restore the full frame on move/cover/resize (`WM_SIZE` / exposed `rcPaint`). Update `docs/guide/first-window.md` (`reviewed=2026-11-25`). Add `tests/fixtures/test_dirty.c` (built as `test-dirty` CONSOLE TIER 1 in `CMakeLists.txt`, run in `tests/test_ui.py` `Drawing`) proving: (1) 10,000 random tree mutations redrawn partially through `im_dirty_collect_tree` + clip equal a full redraw byte-for-byte; (2) 1,000 random dirty rectangles merge to `<= 16` rectangles covering 100% of all 1,000 inputs; (3) `im_frame_scheduler` makes 0 frame requests over 10,000 ms (625 ticks at 16 ms) when idle, requests frames during an active animation, and returns to 0 once settled; (4) `im_window_invalidate` on one button sub-rect delivers that exact `canvas.dirty` update region in `WM_PAINT` without repainting outside it; (5) moving, uncovering, and resizing a real `im_window` restores pixels identical to a fresh draw.
+
 **Phase:** 1
 **Needs:** windows-host
 **Surface:** no
 
 **Build order:**
 
-1. Write `ui/dirty.c` with its first item. Done when: the first item below passes.
-2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+1. Add `paint_dirty`/`prev_absolute_rect` tracking in `ui/tree.h`/`ui/tree.c`, write `ui/dirty.h`, `ui/dirty.c`, `ui/frame.h`, and `ui/frame.c`, register both in `parts.json`, extend `include/impossible/window.h` and `src/window.c` with partial invalidation and `rcPaint` blitting, and update `docs/guide/drawing.md` and `docs/guide/first-window.md`. Done when: `python3 tools/check_parts.py` and `python3 tools/site/build.py --check` pass.
+2. Add `tests/fixtures/test_dirty.c` in `CMakeLists.txt` and wire `test-dirty.exe` in `tests/test_ui.py`. Done when: `python3 tools/build.py`, `python3 tools/check_parts.py`, and `python3 tools/site/build.py --check` exit 0.
 
-- [ ] Collect changed rectangles from the tree in `ui/dirty.c`. Done when: random changes drawn partially equal a full redraw, byte for byte, 10,000 times. Cheaper substitute: redrawing the window.
+- [ ] Collect changed rectangles from the tree in `ui/dirty.h`/`ui/dirty.c` and `ui/tree.h`/`ui/tree.c`. Done when: random changes drawn partially equal a full redraw, byte for byte, 10,000 times. Cheaper substitute: redrawing the window.
 - [ ] Merge rectangles under a fixed limit in `ui/dirty.c`. Done when: 1,000 changes give at most 16 rectangles that cover them all. Cheaper substitute: one bounding box.
-- [ ] Ask the host for the next frame only while an animation or change is pending, in `ui/frame.c`. Done when: an idle window makes no call for 10 seconds. Cheaper substitute: a steady timer.
-- [ ] Pass the rectangles to Windows in `src/window.c`. Done when: a hover over one button paints only its area, read from the update region. Cheaper substitute: painting everything.
+- [ ] Ask the host for the next frame only while an animation or change is pending, in `ui/frame.h`/`ui/frame.c`. Done when: an idle window makes no call for 10 seconds. Cheaper substitute: a steady timer.
+- [ ] Pass the rectangles to Windows in `include/impossible/window.h` and `src/window.c`. Done when: a hover over one button paints only its area, read from the update region. Cheaper substitute: painting everything.
 - [ ] Bring back a frame after the window is moved, covered or resized, in `src/window.c`. Done when: the pixels equal a fresh draw. Cheaper substitute: waiting for the next change.
 - [ ] Commit: `ui: dirty rectangles and frame timing`
 
-**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+**Test checkpoint:** `python3 tools/build.py`, `python3 tools/check_parts.py`, and `python3 tools/site/build.py --check` exit 0, and the new tests fail when their production change is reverted.
 
 ## 10. Clips, opacity and layers
 
