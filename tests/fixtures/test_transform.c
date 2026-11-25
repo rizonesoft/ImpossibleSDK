@@ -304,6 +304,16 @@ static void test_transformed_drawing(void) {
     CHECK(mag_edge >= 73 && mag_edge <= 77,
           "magnified 1x1 A8 glyph preserves half-texel outer-edge coverage at x=6 (~75/255)");
 
+    /* Wide magnified 1x1 A8 mask into [0,3000)x[0,1) with 8x horizontal scale (padded right = 36000 > 32767):
+       must clip wide Q30 bounds to viewport without disappearing, giving pixel (0,0) ~half coverage (~128). */
+    memset(sing_buf, 0, (size_t)(S * S) * sizeof(uint32_t));
+    im_transform mag8x = im_transform_scale(FX(8), IM_ONE);
+    im_surface s_wide = {sing_buf, S, S, S, pal, IM_ONE, NULL, &mag8x};
+    im_draw_alpha_mask(&s_wide, (im_rect){0, 0, FX(3000), IM_ONE}, one_px, 1, 1, 1, 0xFFFFFFFFu);
+    int wide_px = (int)(sing_buf[0] & 255u);
+    CHECK(wide_px >= 125 && wide_px <= 131,
+          "wide magnified A8 mask (padded right=36000 > 32767) clips in Q30 and renders pixel (0,0) ~128/255");
+
     /* 30-degree rotated gradient STROKE: compare two stroke points at the SAME device Y (y=32)
        so a device-space gradient (same device Y => identical color) cannot pass! */
     const int GS = 64;

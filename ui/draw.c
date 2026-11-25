@@ -382,41 +382,50 @@ void im_draw_alpha_mask(im_surface *surface, im_rect dst_rect, const uint8_t *al
     }
 
     /* Zero-padded bilinear filter has non-zero support for u in (-1, width), which maps to
-       local dst_rect expanded by half a source texel (dw / (2 * width), dh / (2 * height)) on each side. */
-    int64_t dw_fx = (int64_t)dst_rect.right - dst_rect.left;
-    int64_t dh_fx = (int64_t)dst_rect.bottom - dst_rect.top;
-    int64_t pad_x = (dw_fx + 2LL * width - 1) / (2LL * width);
-    int64_t pad_y = (dh_fx + 2LL * height - 1) / (2LL * height);
-    im_rect padded_local = {
-        held((int64_t)dst_rect.left - pad_x),
-        held((int64_t)dst_rect.top - pad_y),
-        held((int64_t)dst_rect.right + pad_x),
-        held((int64_t)dst_rect.bottom + pad_y)
-    };
-
-    im_transform inv;
-    bool has_tr = (surface->transform != NULL);
-    im_rect dev_bounds = padded_local;
-    if (has_tr) {
-        if (!im_transform_invert(surface->transform, &inv)) return;
-        if (!im_transform_rect_bounds(surface->transform, padded_local, &dev_bounds)) return;
-    }
-
-    int from = pixel(dev_bounds.left, surface->width);
-    int to = pixel((int64_t)dev_bounds.right + IM_ONE - 1, surface->width);
-    int top = pixel(dev_bounds.top, surface->height);
-    int bottom = pixel((int64_t)dev_bounds.bottom + IM_ONE - 1, surface->height);
-    if (from < bound_l) from = bound_l;
-    if (to > bound_r) to = bound_r;
-    if (top < bound_t) top = bound_t;
-    if (bottom > bound_b) bottom = bound_b;
-    if (from >= to || top >= bottom) return;
-
+       local dst_rect expanded by half a source texel in Q30 before transforming and clipping
+       directly against the integer viewport bounds (avoiding 16.16 narrowing overflow on wide masks). */
     int64_t dl_q30 = im_fixed_to_q30(dst_rect.left);
     int64_t dt_q30 = im_fixed_to_q30(dst_rect.top);
     int64_t dw_q30 = im_fixed_to_q30(dst_rect.right) - dl_q30;
     int64_t dh_q30 = im_fixed_to_q30(dst_rect.bottom) - dt_q30;
     if (dw_q30 <= 0 || dh_q30 <= 0) return;
+
+    int64_t pad_x_q30 = (dw_q30 + 2LL * width - 1) / (2LL * width);
+    int64_t pad_y_q30 = (dh_q30 + 2LL * height - 1) / (2LL * height);
+    int64_t pl_q30 = dl_q30 - pad_x_q30;
+    int64_t pt_q30 = dt_q30 - pad_y_q30;
+    int64_t pr_q30 = dl_q30 + dw_q30 + pad_x_q30;
+    int64_t pb_q30 = dt_q30 + dh_q30 + pad_y_q30;
+
+    im_transform inv;
+    bool has_tr = (surface->transform != NULL);
+    int64_t min_x_q30 = pl_q30, max_x_q30 = pr_q30;
+    int64_t min_y_q30 = pt_q30, max_y_q30 = pb_q30;
+    if (has_tr) {
+        if (!im_transform_invert(surface->transform, &inv)) return;
+        int64_t cx[4] = {pl_q30, pr_q30, pr_q30, pl_q30};
+        int64_t cy[4] = {pt_q30, pt_q30, pb_q30, pb_q30};
+        min_x_q30 = INT64_MAX; max_x_q30 = INT64_MIN;
+        min_y_q30 = INT64_MAX; max_y_q30 = INT64_MIN;
+        for (int i = 0; i < 4; i++) {
+            int64_t rx = 0, ry = 0;
+            if (!im_transform_point_q30(surface->transform, cx[i], cy[i], &rx, &ry)) return;
+            if (rx < min_x_q30) min_x_q30 = rx;
+            if (rx > max_x_q30) max_x_q30 = rx;
+            if (ry < min_y_q30) min_y_q30 = ry;
+            if (ry > max_y_q30) max_y_q30 = ry;
+        }
+    }
+
+    int64_t f_l = (min_x_q30 >= 0) ? (min_x_q30 >> IM_TR_SHIFT) : -(((-min_x_q30) + IM_TR_ONE - 1) >> IM_TR_SHIFT);
+    int64_t f_t = (min_y_q30 >= 0) ? (min_y_q30 >> IM_TR_SHIFT) : -(((-min_y_q30) + IM_TR_ONE - 1) >> IM_TR_SHIFT);
+    int64_t f_r = (max_x_q30 >= 0) ? ((max_x_q30 + IM_TR_ONE - 1) >> IM_TR_SHIFT) : -((-max_x_q30) >> IM_TR_SHIFT);
+    int64_t f_b = (max_y_q30 >= 0) ? ((max_y_q30 + IM_TR_ONE - 1) >> IM_TR_SHIFT) : -((-max_y_q30) >> IM_TR_SHIFT);
+    int from = (int)larger64(bound_l, smaller64(bound_r, f_l));
+    int to = (int)larger64(bound_l, smaller64(bound_r, f_r));
+    int top = (int)larger64(bound_t, smaller64(bound_b, f_t));
+    int bottom = (int)larger64(bound_t, smaller64(bound_b, f_b));
+    if (from >= to || top >= bottom) return;
 
     /* Precompute linear UV stepping per pixel in Q16 (eliminating per-pixel 128-bit division). */
     int64_t m11 = has_tr ? inv.m11 : IM_TR_ONE;
