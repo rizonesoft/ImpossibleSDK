@@ -189,7 +189,6 @@ typedef struct png_decode_ctx {
     uint32_t row_y;
     size_t row_have;
     size_t total_filtered;
-    size_t expected_filtered;
 } png_decode_ctx;
 
 static void advance_pass(png_decode_ctx *ctx) {
@@ -424,7 +423,6 @@ im_image_error im_png_decode(const uint8_t *data, size_t len,
     if (ctx.bpp == 0u) ctx.bpp = 1u;
     ctx.curr_row = row_buf;
     ctx.prev_row = row_buf + (max_row + 1u);
-    ctx.expected_filtered = expected_filtered;
 
     bool seen_idat = false;
     bool idat_closed = false;
@@ -501,15 +499,17 @@ im_image_error im_png_decode(const uint8_t *data, size_t len,
                     result = IM_IMAGE_INVALID;
                     goto fail;
                 }
-                ctx.trns_gray = rd_be16(cdata);
+                uint16_t mask = (info.bit_depth == 16u) ? 0xFFFFu : (uint16_t)((1u << info.bit_depth) - 1u);
+                ctx.trns_gray = (uint16_t)(rd_be16(cdata) & mask);
             } else if (info.color_type == 2u) {
                 if (clen != 6u) {
                     result = IM_IMAGE_INVALID;
                     goto fail;
                 }
-                ctx.trns_r = rd_be16(cdata);
-                ctx.trns_g = rd_be16(cdata + 2u);
-                ctx.trns_b = rd_be16(cdata + 4u);
+                uint16_t mask = (info.bit_depth == 16u) ? 0xFFFFu : (uint16_t)((1u << info.bit_depth) - 1u);
+                ctx.trns_r = (uint16_t)(rd_be16(cdata) & mask);
+                ctx.trns_g = (uint16_t)(rd_be16(cdata + 2u) & mask);
+                ctx.trns_b = (uint16_t)(rd_be16(cdata + 4u) & mask);
             } else if (info.color_type == 3u) {
                 if (!ctx.seen_plte || clen < 1u || clen > ctx.plte_count) {
                     result = IM_IMAGE_INVALID;

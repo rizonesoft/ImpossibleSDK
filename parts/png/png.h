@@ -43,7 +43,10 @@ im_image_error im_png_probe(const uint8_t *data, size_t len,
    must have already freed any previous pixel buffer). On any non-OK return, all allocations made
    during decoding are freed and *out_image is zero-initialized so no partial picture is exposed.
    On IM_IMAGE_OK, only out_image->pixels remains live and the caller frees it via
-   alloc->free(alloc->ctx, out_image->pixels, out_image->byte_size). */
+   alloc->free(alloc->ctx, out_image->pixels, out_image->byte_size).
+   Strict IDAT policy: unused trailing compressed bytes after zlib completion (in the completing
+   IDAT or any subsequent non-empty IDAT) are rejected with IM_IMAGE_INVALID; empty IDAT chunks
+   are accepted. */
 im_image_error im_png_decode(const uint8_t *data, size_t len,
                              im_pixel_format format,
                              const im_image_limits *limits,

@@ -22,10 +22,13 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     (void)im_png_probe(data, size, &lim, &info);
 
     im_image img;
-    im_pixel_format fmt = (size > 0u && (data[size - 1u] & 1u)) ? IM_PIXEL_BGRA8 : IM_PIXEL_RGBA8;
-    im_image_error err = im_png_decode(data, size, fmt, &lim, &alloc, &img);
+    im_image_error err = im_png_decode(data, size, IM_PIXEL_RGBA8, &lim, &alloc, &img);
     if (err == IM_IMAGE_OK) {
         if (img.pixels) alloc.free(alloc.ctx, img.pixels, img.byte_size);
+        im_image img_bgra;
+        im_image_error err2 = im_png_decode(data, size, IM_PIXEL_BGRA8, &lim, &alloc, &img_bgra);
+        if (err2 != IM_IMAGE_OK) abort();
+        if (img_bgra.pixels) alloc.free(alloc.ctx, img_bgra.pixels, img_bgra.byte_size);
     } else {
         if (img.pixels != NULL || img.width != 0u || img.height != 0u || img.byte_size != 0u) {
             abort();

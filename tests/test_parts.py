@@ -967,7 +967,9 @@ class PngDecoder(unittest.TestCase):
     def test_png_decoder_pngsuite_synthetic_boundaries_and_all_prefixes(self):
         import hashlib
         import json
+        import os
         import struct
+        import threading
         import zlib
 
         exe = BUILD / "png-tests.exe"
@@ -999,17 +1001,43 @@ class PngDecoder(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
         killed = False
+        timed_out = False
+        active_op = ["startup"]
+
+        def reap_proc():
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                )
+            else:
+                proc.kill()
+
+        def on_deadline():
+            nonlocal timed_out, killed
+            timed_out = True
+            killed = True
+            reap_proc()
+
+        watchdog = threading.Timer(120.0, on_deadline)
+        watchdog.daemon = True
+        watchdog.start()
         try:
             def read_exact(n: int) -> bytes:
                 buf = bytearray()
                 while len(buf) < n:
                     chunk = proc.stdout.read(n - len(buf))
                     if not chunk:
-                        raise RuntimeError(f"EOF from png-tests: {proc.stderr.read().decode('utf-8', 'replace')}")
+                        if timed_out:
+                            raise TimeoutError(f"png-tests timed out during {active_op[0]}")
+                        raise RuntimeError(f"EOF from png-tests during {active_op[0]}")
                     buf.extend(chunk)
                 return bytes(buf)
 
-            def decode_buf(data: bytes, bgra: bool = False):
+            def decode_buf(data: bytes, bgra: bool = False, label: str = "decode"):
+                active_op[0] = label
                 op = 2 if bgra else 1
                 proc.stdin.write(struct.pack("<II", op, len(data)) + data)
                 proc.stdin.flush()
@@ -1017,7 +1045,8 @@ class PngDecoder(unittest.TestCase):
                 px = read_exact(bsz) if (err == 0 and bsz > 0) else b""
                 return err, w, h, bsz, leak, px
 
-            def check_all_prefixes(data: bytes):
+            def check_all_prefixes(data: bytes, label: str = "prefixes"):
+                active_op[0] = label
                 proc.stdin.write(struct.pack("<II", 3, len(data)) + data)
                 proc.stdin.flush()
                 return struct.unpack("<II", read_exact(8))
@@ -1027,7 +1056,7 @@ class PngDecoder(unittest.TestCase):
             invalid_count = 0
             for name, meta in sorted(manifest["files"].items()):
                 raw = (cache_dir / name).read_bytes()
-                err, w, h, bsz, leak, px = decode_buf(raw, bgra=False)
+                err, w, h, bsz, leak, px = decode_buf(raw, bgra=False, label=f"decode:{name}")
                 self.assertEqual(leak, 0, f"{name}: allocator/zero-image invariant failed")
                 if meta["valid"]:
                     valid_count += 1
@@ -1043,7 +1072,7 @@ class PngDecoder(unittest.TestCase):
                     self.assertEqual(err, want_err, f"{name}: expected {meta['expected_error']} ({want_err}), got {err}")
 
                 # Exhaustive proper-prefix test: EVERY prefix 0..len(raw)-1 must fail with zeroed image and 0 leaks.
-                bad_cnt, first_bad = check_all_prefixes(raw)
+                bad_cnt, first_bad = check_all_prefixes(raw, label=f"prefixes:{name}")
                 self.assertEqual(bad_cnt, 0, f"{name}: {bad_cnt} proper prefixes succeeded or leaked (first={first_bad})")
 
             self.assertEqual(valid_count, 162)
@@ -1143,24 +1172,50 @@ class PngDecoder(unittest.TestCase):
                 + mk_chunk(b"tEXt", b"k\x00v") + mk_chunk(b"IDAT", z_ok[-2:]) + iend
             )
             self.assertEqual(decode_buf(non_contig)[0], 2)
+
+            # Sub-16-bit tRNS key masking (PNG spec 11.3.2.1): unused upper bits must be masked to bit_depth.
+            # (a) 8-bit grayscale sample 0x34 with tRNS key 0x0134 -> alpha 0
+            ihdr_g8 = mk_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 0, 0, 0, 0))
+            png_g8_trns = sig + ihdr_g8 + mk_chunk(b"tRNS", struct.pack(">H", 0x0134)) + mk_chunk(b"IDAT", zlib.compress(b"\x00\x34")) + iend
+            e, w, h, _, leak, px = decode_buf(png_g8_trns, label="trns:g8_upper_bits")
+            self.assertEqual((e, w, h, leak, px), (0, 1, 1, 0, b"\x34\x34\x34\x00"))
+
+            # (b) 8-bit RGB sample (0x12, 0x34, 0x56) with tRNS key (0x0112, 0x0234, 0x0356) -> alpha 0
+            png_rgb8_trns = (
+                sig + ihdr_1x1_rgb + mk_chunk(b"tRNS", struct.pack(">HHH", 0x0112, 0x0234, 0x0356))
+                + mk_chunk(b"IDAT", zlib.compress(b"\x00\x12\x34\x56")) + iend
+            )
+            e, w, h, _, leak, px = decode_buf(png_rgb8_trns, label="trns:rgb8_upper_bits")
+            self.assertEqual((e, w, h, leak, px), (0, 1, 1, 0, b"\x12\x34\x56\x00"))
+
+            # (c) 16-bit grayscale 2x1: pixel 0 = 0x1200 (opaque), pixel 1 = 0x1201 (matches tRNS 0x1201 -> alpha 0)
+            ihdr_g16 = mk_chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 1, 16, 0, 0, 0, 0))
+            png_g16_trns = (
+                sig + ihdr_g16 + mk_chunk(b"tRNS", struct.pack(">H", 0x1201))
+                + mk_chunk(b"IDAT", zlib.compress(b"\x00\x12\x00\x12\x01")) + iend
+            )
+            e, w, h, _, leak, px = decode_buf(png_g16_trns, label="trns:g16_low_byte")
+            self.assertEqual((e, w, h, leak, px), (0, 2, 1, 0, b"\x12\x12\x12\xFF\x12\x12\x12\x00"))
         except Exception:
             killed = True
-            proc.kill()
+            reap_proc()
             raise
         finally:
+            watchdog.cancel()
             if proc.stdin:
                 proc.stdin.close()
             if proc.stdout:
                 proc.stdout.close()
-            err_text = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
-            if proc.stderr:
-                proc.stderr.close()
             try:
                 proc.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                killed = True
+                reap_proc()
                 proc.wait(timeout=5)
                 raise
+            err_text = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+            if proc.stderr:
+                proc.stderr.close()
             if not killed:
                 self.assertEqual(proc.returncode, 0, err_text)
 
