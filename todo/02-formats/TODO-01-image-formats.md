@@ -145,6 +145,8 @@ Baseline and progressive, every subsampling, restart markers, grayscale and the 
 
 ## 5. BMP decoder
 
+> **Started:** 2026-11-25T13:49Z
+
 All header versions, 1 to 32 bits, RLE4, RLE8 and bit fields. The decoder takes bytes and gives 32-bit pixels or a named error, uses no floating point, and never reads outside its input.
 
 **Phase:** 4
@@ -153,7 +155,7 @@ All header versions, 1 to 32 bits, RLE4, RLE8 and bit fields. The decoder takes 
 
 **Build order:**
 
-1. Write `parts/bmp/bmp.c` with `bmp.h`. Done when: every file of the corpus decodes to the same pixels as the reference library.
+1. Write `parts/bmp/bmp.c` with `bmp.h`. Done when: every accepted file of the corpus decodes to the same pixels as the pinned reference and every refused file returns its named error.
 2. Add `tests/fixtures/bmp_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
 - [ ] Parse the header of BMP in `parts/bmp/bmp.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.

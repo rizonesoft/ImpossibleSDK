@@ -1222,5 +1222,287 @@ class PngDecoder(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, err_text)
 
 
+class BmpDecoder(unittest.TestCase):
+    def _ensure_bmpsuite(self, manifest: dict) -> Path:
+        import hashlib
+        import urllib.request
+        import zipfile
+
+        cache_root = Path.home() / ".cache" / "impossible-sdk" / "bmpsuite"
+        suite_dir = cache_root / "bmpsuite-2.7"
+        groups = [
+            ("g", manifest["good"]),
+            ("q", manifest["questionable"]),
+            ("b", manifest["bad"]),
+            ("q", manifest["unsupported"]),
+        ]
+
+        def cache_valid() -> bool:
+            if not suite_dir.is_dir():
+                return False
+            for sub, entries in groups:
+                for name, meta in entries.items():
+                    p = suite_dir / sub / name
+                    if not p.is_file():
+                        return False
+                    if hashlib.sha256(p.read_bytes()).hexdigest() != meta["file_sha256"]:
+                        return False
+            return True
+
+        if not cache_valid():
+            cache_root.mkdir(parents=True, exist_ok=True)
+            zip_path = cache_root / "bmpsuite-2.7.zip"
+            urllib.request.urlretrieve(manifest["archive_url"], zip_path)
+            got_sha = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+            self.assertEqual(got_sha, manifest["archive_sha256"], "bmpsuite archive SHA-256 mismatch")
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(cache_root)
+            self.assertTrue(cache_valid(), "bmpsuite extracted file SHA-256 verification failed")
+        return suite_dir
+
+    def test_bmp_decoder_bmpsuite_synthetic_boundaries_and_all_prefixes(self):
+        import hashlib
+        import json
+        import os
+        import struct
+        import threading
+
+        exe = BUILD / "bmp-tests.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+
+        # 1. Self-contained unit tests (max header 0 allocs, independent limits, 54B probe, NULL limits, OOM, BAD_ARG).
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("bmp_tests: ALL PASSED", res.stdout)
+
+        # 2. Load pinned cross-host bmpsuite manifest and verify every file SHA-256 even on warm cache.
+        manifest = json.loads((ROOT / "tests" / "data" / "bmpsuite_ref.json").read_text(encoding="utf-8"))
+        suite_dir = self._ensure_bmpsuite(manifest)
+
+        err_enum = {
+            "IM_IMAGE_OK": 0,
+            "IM_IMAGE_BAD_ARG": 1,
+            "IM_IMAGE_INVALID": 2,
+            "IM_IMAGE_TRUNCATED": 3,
+            "IM_IMAGE_UNSUPPORTED": 4,
+            "IM_IMAGE_TOO_LARGE": 5,
+            "IM_IMAGE_NO_MEMORY": 6,
+        }
+
+        proc = subprocess.Popen(
+            [str(exe), "--batch"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        killed = False
+        timed_out = False
+        active_op = ["startup"]
+
+        def reap_proc():
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                )
+            else:
+                proc.kill()
+
+        def on_deadline():
+            nonlocal timed_out, killed
+            timed_out = True
+            killed = True
+            reap_proc()
+
+        watchdog = threading.Timer(120.0, on_deadline)
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            def read_exact(n: int) -> bytes:
+                buf = bytearray()
+                while len(buf) < n:
+                    chunk = proc.stdout.read(n - len(buf))
+                    if not chunk:
+                        if timed_out:
+                            raise TimeoutError(f"bmp-tests timed out during {active_op[0]}")
+                        raise RuntimeError(f"EOF from bmp-tests during {active_op[0]}")
+                    buf.extend(chunk)
+                return bytes(buf)
+
+            def decode_buf(data: bytes, bgra: bool = False, label: str = "decode"):
+                active_op[0] = label
+                op = 2 if bgra else 1
+                proc.stdin.write(struct.pack("<II", op, len(data)) + data)
+                proc.stdin.flush()
+                err, w, h, bsz, leak = struct.unpack("<IIIII", read_exact(20))
+                px = read_exact(bsz) if (err == 0 and bsz > 0) else b""
+                return err, w, h, bsz, leak, px
+
+            def probe_buf(data: bytes, label: str = "probe"):
+                active_op[0] = label
+                proc.stdin.write(struct.pack("<II", 3, len(data)) + data)
+                proc.stdin.flush()
+                return struct.unpack("<IIII", read_exact(16))
+
+            def check_all_prefixes(data: bytes, label: str = "prefixes"):
+                active_op[0] = label
+                proc.stdin.write(struct.pack("<II", 4, len(data)) + data)
+                proc.stdin.flush()
+                return struct.unpack("<III", read_exact(12))
+
+            def verify_accepted(sub: str, name: str, meta: dict):
+                raw = (suite_dir / sub / name).read_bytes()
+                err, w, h, bsz, leak, px = decode_buf(raw, bgra=False, label=f"decode:{sub}/{name}")
+                self.assertEqual(leak, 0, f"{sub}/{name}: leak/zero invariant failed")
+                self.assertEqual(err, 0, f"{sub}/{name}: expected IM_IMAGE_OK, got {err}")
+                self.assertEqual((w, h, bsz), (meta["width"], meta["height"], meta["width"] * meta["height"] * 4))
+                self.assertEqual(hashlib.sha256(px).hexdigest(), meta["rgba8_sha256"], f"{sub}/{name}: RGBA8 mismatch")
+
+                # Verify BGRA8 swaps R and B while preserving G and A identically.
+                eb, wb, hb, bb, lb, px_b = decode_buf(raw, bgra=True, label=f"decode_bgra:{sub}/{name}")
+                self.assertEqual((eb, wb, hb, bb, lb), (0, w, h, bsz, 0))
+                exp_bgra = bytearray(len(px))
+                exp_bgra[0::4] = px[2::4]
+                exp_bgra[1::4] = px[1::4]
+                exp_bgra[2::4] = px[0::4]
+                exp_bgra[3::4] = px[3::4]
+                self.assertEqual(px_b, bytes(exp_bgra), f"{sub}/{name}: BGRA8 channel mismatch")
+
+                bad_cnt, first_bad, _ = check_all_prefixes(raw, label=f"prefixes:{sub}/{name}")
+                self.assertEqual(bad_cnt, 0, f"{sub}/{name}: {bad_cnt} bad prefixes (first={first_bad})")
+
+            # 2a. All 27 g/ good files + all 15 q/ positive dialect/bitfield/RLE files.
+            for name, meta in sorted(manifest["good"].items()):
+                verify_accepted("g", name, meta)
+            for name, meta in sorted(manifest["questionable"].items()):
+                verify_accepted("q", name, meta)
+
+            # 2b. All 20 b/ files (2 accepted density files + 18 exact-error refusals) + exhaustive prefixes.
+            for name, meta in sorted(manifest["bad"].items()):
+                if meta["expected_error"] == "IM_IMAGE_OK":
+                    verify_accepted("b", name, meta)
+                else:
+                    raw = (suite_dir / "b" / name).read_bytes()
+                    err, w, h, bsz, leak, _ = decode_buf(raw, bgra=False, label=f"decode:b/{name}")
+                    self.assertEqual(leak, 0, f"b/{name}: leak/zero invariant failed")
+                    want = err_enum[meta["expected_error"]]
+                    self.assertEqual(err, want, f"b/{name}: expected {meta['expected_error']} ({want}), got {err}")
+                    bad_cnt, first_bad, ok_pre = check_all_prefixes(raw, label=f"prefixes:b/{name}")
+                    self.assertEqual((bad_cnt, ok_pre), (0, 0), f"b/{name}: bad={bad_cnt} ok_pre={ok_pre} first={first_bad}")
+
+            # 2c. Unsupported JPEG/PNG BMPs: both probe and decode return IM_IMAGE_UNSUPPORTED (4).
+            for name, meta in sorted(manifest["unsupported"].items()):
+                raw = (suite_dir / "q" / name).read_bytes()
+                pe, _, _, _ = probe_buf(raw, label=f"probe:q/{name}")
+                de, _, _, _, leak, _ = decode_buf(raw, bgra=False, label=f"decode:q/{name}")
+                self.assertEqual((pe, de, leak), (4, 4, 0), f"q/{name}: expected UNSUPPORTED on probe & decode")
+                bad_cnt, first_bad, ok_pre = check_all_prefixes(raw, label=f"prefixes:q/{name}")
+                self.assertEqual((bad_cnt, ok_pre), (0, 0), f"q/{name}: bad={bad_cnt} ok_pre={ok_pre} first={first_bad}")
+
+            # 2d. Exact 54-byte prefix of g/pal8.bmp: probe -> OK (127x64), decode -> TRUNCATED (3).
+            pal8_54 = (suite_dir / "g" / "pal8.bmp").read_bytes()[:54]
+            pe, pw, ph, pbsz = probe_buf(pal8_54, label="probe:pal8_54")
+            self.assertEqual((pe, pw, ph, pbsz), (0, 127, 64, 127 * 64 * 4))
+            de, _, _, _, leak, _ = decode_buf(pal8_54, label="decode:pal8_54")
+            self.assertEqual((de, leak), (3, 0))
+
+            # 2e. Synthetic edge cases: bfSize=0 inner truncation, trailing bytes beyond bfSize,
+            #     RLE4 odd-byte padding (count 3 & 5), RLE8 draw bounds & final EOL+EOB,
+            #     bitfield refusals + non-contiguous mask, and V5 embedded profile boundaries.
+            def mk_v3(w, h, bpp, comp, payload, pal=b"", masks=b"", bf_size=None, img_size=0):
+                bf_off = 54 + len(masks) + len(pal)
+                total = bf_off + len(payload)
+                bfs = total if bf_size is None else bf_size
+                hdr = struct.pack(
+                    "<2sIHHI IiiHHIIiiII",
+                    b"BM", bfs, 0, 0, bf_off,
+                    40, w, h, 1, bpp, comp, img_size, 0, 0, len(pal) // 4 if bpp <= 8 else 0, 0,
+                )
+                return hdr + masks + pal + payload
+
+            pal2 = b"\x00\x00\xFF\x00" + b"\x00\xFF\x00\x00" + b"\xFF\x00\x00\x00"  # idx 0=R, 1=G, 2=B
+
+            # Inner-parser truncation with bfSize=0: truncated masks, truncated palette, truncated scanline, missing EOB.
+            bf_hdr = mk_v3(1, 1, 16, 3, b"\x00\x00\x00\x00", masks=struct.pack("<III", 0xF800, 0x07E0, 0x001F), bf_size=0)
+            self.assertEqual(decode_buf(bf_hdr[:60], label="trunc:masks")[0], 3)
+            self.assertEqual(decode_buf(mk_v3(1, 1, 8, 0, b"\x00\x00\x00\x00", pal=pal2, bf_size=0)[:58], label="trunc:pal")[0], 3)
+            self.assertEqual(decode_buf(mk_v3(1, 1, 24, 0, b"\x01\x02\x03", bf_size=0), label="trunc:scanline")[0], 3)
+            self.assertEqual(decode_buf(mk_v3(2, 1, 8, 1, b"\x02\x00", pal=pal2, bf_size=0), label="trunc:rle_no_eob")[0], 3)
+
+            # Trailing bytes beyond bfSize (bfSize == bfOffBits) must NOT be consumed as pixel payload -> TRUNCATED (3).
+            trail = mk_v3(1, 1, 24, 0, b"\x56\x34\x12\x00", bf_size=54)
+            self.assertEqual(decode_buf(trail, label="bfsize:bound")[0], 3)
+
+            # RLE4 absolute runs: count 3 (2 packed bytes, 0 pad) + count 5 (3 packed bytes, 1 pad) + encoded run 1 (idx 2=B)!
+            # Width 9, height 1: 3 pixels (0,1,2) + 5 pixels (0,1,2,0,1) + 1 pixel (2) = 9 pixels.
+            rle4_data = (
+                b"\x00\x03\x01\x20"         # abs 3: idx 0,1,2 (2 packed bytes, 0 pad)
+                b"\x00\x05\x01\x20\x10\x00" # abs 5: idx 0,1,2,0,1 (3 packed bytes + 1 pad byte!)
+                b"\x01\x20"                 # run 1: idx 2 (Blue!)
+                b"\x00\x01"                 # EOB
+            )
+            e, w, h, _, leak, px = decode_buf(mk_v3(9, 1, 4, 2, rle4_data, pal=pal2), label="rle4:abs3_abs5_pad")
+            self.assertEqual((e, w, h, leak), (0, 9, 1, 0))
+            self.assertEqual(px[8 * 4 : 9 * 4], b"\x00\x00\xFF\xFF")  # 9th pixel is Blue -> pad byte was consumed!
+
+            # RLE8 exact-fit row + final EOL + EOB -> OK; draw at x==width -> INVALID; run crossing end -> INVALID; bad delta -> INVALID.
+            self.assertEqual(decode_buf(mk_v3(2, 1, 8, 1, b"\x02\x00\x00\x00\x00\x01", pal=pal2), label="rle8:eol_eob")[0], 0)
+            self.assertEqual(decode_buf(mk_v3(2, 1, 8, 1, b"\x02\x00\x01\x01\x00\x01", pal=pal2), label="rle8:x_eq_w")[0], 2)
+            self.assertEqual(decode_buf(mk_v3(2, 1, 8, 1, b"\x01\x00\x02\x01\x00\x01", pal=pal2), label="rle8:cross_end")[0], 2)
+            self.assertEqual(decode_buf(mk_v3(2, 1, 8, 1, b"\x00\x02\x00\x01\x00\x01", pal=pal2), label="rle8:bad_delta")[0], 2)
+
+            # Bitfields: overlapping masks -> INVALID; bits outside 16-bit word -> INVALID; 52B header + comp 6 -> INVALID.
+            self.assertEqual(decode_buf(mk_v3(1, 1, 16, 3, b"\x00\x00\x00\x00", masks=struct.pack("<III", 0xFF00, 0x0FF0, 0x000F)))[0], 2)
+            self.assertEqual(decode_buf(mk_v3(1, 1, 16, 3, b"\x00\x00\x00\x00", masks=struct.pack("<III", 0x10000, 0x07E0, 0x001F)))[0], 2)
+            hdr52 = struct.pack("<2sIHHI IiiHHIIiiII III", b"BM", 70, 0, 0, 66, 52, 1, 1, 1, 32, 6, 4, 0, 0, 0, 0, 0xFF0000, 0xFF00, 0xFF) + b"\x00" * 4
+            self.assertEqual(decode_buf(hdr52, label="bf:h52_comp6")[0], 2)
+
+            # Hand-calculated non-contiguous bitfield mask: R=0x000F000F (8 bits), G=0x0000FF00 (8 bits), B=0xFF000000 (8 bits).
+            # Word 0x56_0A_34_0B -> R bits = (0xA << 4) | 0xB = 0xAB, G = 0x34, B = 0x56, A = 0xFF!
+            nc_bmp = mk_v3(1, 1, 32, 3, struct.pack("<I", 0x560A340B), masks=struct.pack("<III", 0x000F000F, 0x0000FF00, 0xFF000000))
+            e, w, h, _, leak, px = decode_buf(nc_bmp, label="bf:noncontig")
+            self.assertEqual((e, w, h, leak, px), (0, 1, 1, 0, b"\xAB\x34\x56\xFF"))
+
+            # V5 embedded profile starting at payload_end (OK) vs overlapping payload_end - 1 (INVALID).
+            def mk_v5_profile(prof_offset_from_dib):
+                bf_off = 14 + 124
+                pix = b"\x56\x34\x12\x00"  # 1x1 24-bpp
+                prof = b"PROF"
+                total = bf_off + len(pix) + len(prof)
+                fh = struct.pack("<2sIHHI", b"BM", total, 0, 0, bf_off)
+                dib = bytearray(124)
+                struct.pack_into("<IiiHHIIiiII", dib, 0, 124, 1, 1, 1, 24, 0, 4, 0, 0, 0, 0)
+                struct.pack_into("<I", dib, 56, 0x4D424544)  # bV5CSType = PROFILE_EMBEDDED ('MBED')
+                struct.pack_into("<II", dib, 112, prof_offset_from_dib, 4)  # bV5ProfileData, bV5ProfileSize
+                return fh + bytes(dib) + pix + prof
+
+            self.assertEqual(decode_buf(mk_v5_profile(124 + 4), label="v5:prof_exact")[0], 0)
+            self.assertEqual(decode_buf(mk_v5_profile(124 + 3), label="v5:prof_overlap")[0], 2)
+        except Exception:
+            killed = True
+            reap_proc()
+            raise
+        finally:
+            watchdog.cancel()
+            if proc.stdin:
+                proc.stdin.close()
+            if proc.stdout:
+                proc.stdout.close()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                killed = True
+                reap_proc()
+                proc.wait(timeout=5)
+                raise
+            err_text = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+            if proc.stderr:
+                proc.stderr.close()
+            if not killed:
+                self.assertEqual(proc.returncode, 0, err_text)
+
+
 if __name__ == "__main__":
     unittest.main()

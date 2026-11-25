@@ -45,6 +45,16 @@
       ]
     },
     {
+      "name": "bmp",
+      "folder": "parts/bmp",
+      "depends": [
+        "image"
+      ],
+      "sources": [
+        "parts/bmp/bmp.c"
+      ]
+    },
+    {
       "name": "checksum",
       "folder": "parts/checksum",
       "depends": [],

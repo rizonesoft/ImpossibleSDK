@@ -77,4 +77,4 @@ Build fixed-point vector paths with `ui/path.h` (`im_path_move_to`, `im_path_lin
 
 ## Can Impossible OS take it?
 
-Yes. Everything in `ui/` and `parts/` (including `parts/checksum/`, `parts/image/`, `parts/inflate/`, `parts/png/`, and `parts/unicode/`) calls no system function and no C library. Image decoders (`parts/png/png.h` into `parts/image/image.h`) output gamma-free straight 8-bit encoded samples (`IM_PIXEL_BGRA8` or `IM_PIXEL_RGBA8`) without colour-profile conversion. The tests compile each part alone as a kernel would and refuse any symbol beyond the four memory routines.
+Yes. Everything in `ui/` and `parts/` (including `parts/bmp/`, `parts/checksum/`, `parts/image/`, `parts/inflate/`, `parts/png/`, and `parts/unicode/`) calls no system function and no C library. Image decoders (`parts/bmp/bmp.h` and `parts/png/png.h` into `parts/image/image.h`) output gamma-free straight 8-bit encoded samples (`IM_PIXEL_BGRA8` or `IM_PIXEL_RGBA8`) without colour-profile conversion. The tests compile each part alone as a kernel would and refuse any symbol beyond the four memory routines.
