@@ -3644,6 +3644,7 @@ class Drawing(unittest.TestCase):
             setter_literals = 0
             for xf in files:
                 root_el = ET.fromstring(xf.read_text(encoding="utf-8-sig"))
+                parent_map = {c: p for p in root_el.iter() for c in p}
                 for el in root_el.iter():
                     tag = el.tag.rsplit("}", 1)[-1]
                     if tag == "Path" and "Data" in el.attrib:
@@ -3659,11 +3660,46 @@ class Drawing(unittest.TestCase):
                         val = el.attrib["Value"]
                         res_v = compiler.parse_value(val, "Data", str(xf.name), 1)
                         self.assertEqual(res_v["kind"], "IM_TVAL_ICON")
-                        self.assertIn(res_v["text"], ("IM_ICON_WINDOW_MAXIMIZE", "IM_ICON_WINDOW_RESTORE"))
+                        # Walk up to owning VisualState and assert exact state -> icon mapping.
+                        cur = el
+                        state_name = None
+                        while cur is not None:
+                            if cur.tag.rsplit("}", 1)[-1] == "VisualState":
+                                state_name = cur.attrib.get("{http://schemas.microsoft.com/winfx/2006/xaml}Name") or cur.attrib.get("Name")
+                                break
+                            cur = parent_map.get(cur)
+                        if state_name == "WindowStateNormal":
+                            self.assertEqual(res_v["text"], "IM_ICON_WINDOW_MAXIMIZE")
+                        elif state_name == "WindowStateMaximized":
+                            self.assertEqual(res_v["text"], "IM_ICON_WINDOW_RESTORE")
+                        else:
+                            self.fail(f"unexpected VisualState {state_name!r} for Target=Path.Data")
                         setter_literals += 1
             self.assertEqual(literals, 6, "pin-filtered corpus must have 6 literal Path.Data elements")
             self.assertEqual(bindings, 1, "pin-filtered corpus must have 1 bound Path.Data element")
             self.assertEqual(setter_literals, 2, "pin-filtered corpus must have 2 Target=Path.Data visual-state setters")
+            # Production compile_checkout validator must visit all 9 occurrences directly.
+            self.assertEqual(tpl_mod.validate_corpus_paths(winui), 9)
+
+            # Verify validate_corpus_paths refuses a malformed out-of-target setter with exact file:line.
+            with tempfile.TemporaryDirectory() as td_c:
+                td_root = Path(td_c)
+                base_p = td_root / pin["base"]
+                base_p.parent.mkdir(parents=True, exist_ok=True)
+                base_p.write_text(
+                    '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+                    ' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">\n'
+                    '  <Style TargetType="Button">\n'
+                    '    <VisualState x:Name="Bad"><VisualState.Setters>\n'
+                    '      <Setter Target="Path.Data" Value="M0,0 C1,2" />\n'
+                    '    </VisualState.Setters></VisualState>\n'
+                    '  </Style>\n'
+                    '</ResourceDictionary>\n',
+                    encoding="utf-8",
+                )
+                with self.assertRaises(tpl_mod.TemplateError) as ctx:
+                    tpl_mod.validate_corpus_paths(td_root)
+                self.assertIn("generic.xaml:4:", str(ctx.exception))
 
         # Verify Microsoft checkmark & caption literal coordinates are never emitted in ui/template_data.c.
         tpl_c = (ROOT / "ui" / "template_data.c").read_text(encoding="utf-8")

@@ -558,7 +558,7 @@ int im_main(void) {
             { "SelectionStates", 0, 2, 0, 0 }
         };
         static const im_template tpl = { "PathTest", "Control", 0, 0, 0, 3, 0, 1 };
-        im_template_tables tbl = { state_setters, elems, props, groups, states, NULL, NULL, NULL };
+        im_template_tables tbl = { state_setters, elems, props, groups, states, NULL, NULL, NULL, NULL };
 
         im_tree tree;
         im_tree_init(&tree, alloc);
@@ -646,7 +646,7 @@ int im_main(void) {
             { "MinMaxStates", 2, 2, 0, 0 }
         };
         static const im_template tpl = { "CaptionBtnTest", "Control", 0, 0, 0, 2, 0, 2 };
-        im_template_tables tbl = { state_setters, elems, props, groups, states, NULL, NULL, NULL };
+        im_template_tables tbl = { state_setters, elems, props, groups, states, NULL, NULL, NULL, NULL };
 
         im_tree tree;
         im_tree_init(&tree, alloc);
@@ -681,8 +681,15 @@ int im_main(void) {
         }
         CHECK(red_p > 20, "Pressed state changes stroke-only Path color to red");
 
-        /* Restore Normal and replace bound Content with IM_ICON_WINDOW_RESTORE, then clear Content -> 0 pixels. */
-        im_states_go_to(&sm, "Normal", 20);
+        /* Release (Pressed -> Normal) with UNCHANGED Content must equal original Normal frame byte-for-byte. */
+        im_states_go_to(&sm, "Normal", 15);
+        for (int i = 0; i < 576; i++) pix_b[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, cp, &s_b, alloc, NULL, 15), "draw released Normal unchanged Content");
+        int diff_rel = 0;
+        for (int i = 0; i < 576; i++) if (pix_b[i] != pix_n[i]) diff_rel++;
+        CHECK(diff_rel == 0, "releasing Pressed -> Normal with unchanged Content restores exact Normal pixels");
+
+        /* Now replace bound Content with IM_ICON_WINDOW_RESTORE, then clear Content -> 0 pixels. */
         im_states_set_binding(&sm, "Content", (im_template_value){ IM_TVAL_ICON, IM_ICON_WINDOW_RESTORE, 0, 0, 0, NULL, NULL });
         for (int i = 0; i < 576; i++) pix_b[i] = 0u;
         CHECK(im_states_draw_path_node(&sm, cp, &s_b, alloc, NULL, 20), "draw replaced bound Content");
@@ -713,6 +720,91 @@ int im_main(void) {
         int diff_back = 0;
         for (int i = 0; i < 576; i++) if (pix_n[i] != pix_b[i]) diff_back++;
         CHECK(diff_back == 0, "returning to WindowStateNormal restores exact maximize pixels");
+
+        im_tree_destroy_subtree(&tree, root);
+    }
+
+    /* 11. Unnamed static compiled Path + auto-sized literal & dynamically replaced/cleared bound Path intrinsic sizing. */
+    {
+        static const im_template_path_seg segs[10] = {
+            /* 0..4: 14x10 rectangle M0,0 L14,0 L14,10 L0,10 Z */
+            { 0, 0, 0, 0, 0, 0, 0, 0, false, false },
+            { 1, FX(14), 0, 0, 0, 0, 0, 0, false, false },
+            { 1, FX(14), FX(10), 0, 0, 0, 0, 0, false, false },
+            { 1, 0, FX(10), 0, 0, 0, 0, 0, false, false },
+            { 5, 0, 0, 0, 0, 0, 0, 0, false, false },
+            /* 5..9: 20x6 rectangle M0,0 L20,0 L20,6 L0,6 Z */
+            { 0, 0, 0, 0, 0, 0, 0, 0, false, false },
+            { 1, FX(20), 0, 0, 0, 0, 0, 0, false, false },
+            { 1, FX(20), FX(6), 0, 0, 0, 0, 0, false, false },
+            { 1, 0, FX(6), 0, 0, 0, 0, 0, false, false },
+            { 5, 0, 0, 0, 0, 0, 0, 0, false, false }
+        };
+        static const im_template_element elems[3] = {
+            { IM_ELEM_STACK_PANEL, "Root", -1, 0, 0 },
+            { IM_ELEM_PATH, NULL, 0, 0, 4 },          /* unnamed literal auto-sized 14x10 path */
+            { IM_ELEM_PATH, "AutoBound", 0, 4, 4 }    /* auto-sized bound path */
+        };
+        static const im_template_prop props[8] = {
+            { "HorizontalAlignment", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Left", NULL } },
+            { "VerticalAlignment", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Top", NULL } },
+            { "Fill", { IM_TVAL_BRUSH, IM_BRUSH_TextFillColorPrimaryBrush, 0, 0, 0, NULL, NULL } },
+            { "Data", { IM_TVAL_PATH, 0, 5, 1, 0, NULL, NULL } },
+            { "HorizontalAlignment", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Left", NULL } },
+            { "VerticalAlignment", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Top", NULL } },
+            { "Fill", { IM_TVAL_BRUSH, IM_BRUSH_TextFillColorPrimaryBrush, 0, 0, 0, NULL, NULL } },
+            { "Data", { IM_TVAL_TEMPLATE_BINDING, 0, 0, 0, 0, "Content", NULL } }
+        };
+        static const im_template tpl = { "AutoPathTest", "Control", 0, 0, 0, 3, 0, 0 };
+        im_template_tables tbl = { NULL, elems, props, NULL, NULL, NULL, NULL, NULL, segs };
+
+        im_tree tree;
+        im_tree_init(&tree, alloc);
+        im_node *root = im_tree_instantiate_custom_template(&tree, &pal, &tpl, NULL, elems, props, "root");
+        im_node *sp = im_tree_find_by_name(root, "Root");
+        im_node *unnamed = (sp && sp->child_count >= 1u) ? sp->children[0] : NULL;
+        im_node *ab = (sp && sp->child_count >= 2u) ? sp->children[1] : NULL;
+        im_state_machine sm;
+        im_states_init_custom(&sm, &tpl, &tbl, &pal);
+
+        /* Step A: unnamed literal 14x10 path measures to 14x10 and paints at arranged location without x:Name. */
+        im_states_set_binding(&sm, "Content", (im_template_value){ IM_TVAL_PATH, 0, 5, 1, 0, NULL, NULL });
+        im_states_apply_to_tree(&sm, root, 0);
+        im_layout_run(&tree, root, FX(32), FX(32), IM_ONE);
+        CHECK(unnamed->name == NULL && unnamed->desired_size.width == FX(14) && unnamed->desired_size.height == FX(10),
+              "unnamed auto-sized literal Path measures to exact 14x10");
+        CHECK(ab->desired_size.width == FX(14) && ab->desired_size.height == FX(10),
+              "auto-sized bound Path measures to 14x10 when bound to 14x10 geometry");
+        uint32_t pix[32 * 32];
+        im_surface s = { pix, 32, 32, 32, pal, IM_ONE, NULL, NULL };
+        for (int i = 0; i < 1024; i++) pix[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, unnamed, &s, alloc, segs, 0), "draw unnamed literal Path");
+        CHECK((pix[5 * 32 + 7] & 0x00FFFFFFu) != 0u && (pix[11 * 32 + 7] & 0x00FFFFFFu) == 0u,
+              "unnamed static Path paints inside its arranged 14x10 rect");
+
+        /* Step B: replace bound geometry with 20x6 -> desired_size, arranged bounds, and pixels update! */
+        im_states_set_binding(&sm, "Content", (im_template_value){ IM_TVAL_PATH, 5, 5, 1, 0, NULL, NULL });
+        im_states_apply_to_tree(&sm, root, 10);
+        im_layout_run(&tree, root, FX(32), FX(32), IM_ONE);
+        CHECK(ab->desired_size.width == FX(20) && ab->desired_size.height == FX(6) &&
+              (ab->absolute_rect.right - ab->absolute_rect.left) == FX(20) &&
+              (ab->absolute_rect.bottom - ab->absolute_rect.top) == FX(6),
+              "replacing bound Path geometry updates desired_size and arranged bounds to 20x6");
+        for (int i = 0; i < 1024; i++) pix[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, ab, &s, alloc, segs, 10), "draw resized bound Path");
+        CHECK((pix[12 * 32 + 18] & 0x00FFFFFFu) != 0u, "resized 20x6 bound Path paints at x=18");
+
+        /* Step C: clear bound geometry -> desired_size shrinks to 0x0 and 0 pixels painted! */
+        im_states_clear_binding(&sm, "Content");
+        im_states_apply_to_tree(&sm, root, 20);
+        im_layout_run(&tree, root, FX(32), FX(32), IM_ONE);
+        CHECK(ab->desired_size.width == 0 && ab->desired_size.height == 0,
+              "clearing bound Path geometry shrinks desired_size to 0x0");
+        for (int i = 0; i < 1024; i++) pix[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, ab, &s, alloc, segs, 20), "draw cleared bound Path");
+        int lit_c = 0;
+        for (int i = 0; i < 1024; i++) if ((pix[i] & 0x00FFFFFFu) != 0u) lit_c++;
+        CHECK(lit_c == 0, "cleared bound Path paints 0 pixels");
 
         im_tree_destroy_subtree(&tree, root);
     }

@@ -985,6 +985,28 @@ void im_states_apply_to_tree(const im_state_machine *sm, im_node *root, uint32_t
             im_tree_invalidate_paint(root);
         }
     }
+    if (root->kind == IM_ELEM_PATH) {
+        im_template_value dval;
+        if (root->name && im_states_sample_value(sm, root->name, "Data", now_ms, &dval)) {
+            if (dval.kind == IM_TVAL_PATH && dval.b > 0) {
+                im_node_set_path_intrinsic_bounds(root, sm->tables.path_segs, (uint32_t)dval.a, (uint32_t)dval.b);
+            } else if (dval.kind == IM_TVAL_ICON && dval.a > IM_ICON_NONE && dval.a < IM_ICON_COUNT) {
+                im_fixed sz = (dval.a == IM_ICON_CHECKMARK) ? (16 * IM_ONE) : (10 * IM_ONE);
+                if (root->intrinsic_width != sz || root->intrinsic_height != sz) {
+                    root->intrinsic_width = sz;
+                    root->intrinsic_height = sz;
+                    im_tree_invalidate_measure(root);
+                }
+            } else if (dval.kind == IM_TVAL_NULL || dval.kind == IM_TVAL_NONE || dval.kind == IM_TVAL_TEMPLATE_BINDING) {
+                im_node_set_path_intrinsic_bounds(root, NULL, 0u, 0u);
+            }
+        } else if (root->path_seg_count > 0u) {
+            im_node_set_path_intrinsic_bounds(root, sm->tables.path_segs, root->path_seg_start, root->path_seg_count);
+        } else if (root->path_data_binding != NULL) {
+            /* Unbound Data={TemplateBinding ...} has zero natural size until bound. */
+            im_node_set_path_intrinsic_bounds(root, NULL, 0u, 0u);
+        }
+    }
     if (root->render_transform_name) {
         const char *tn = root->render_transform_name;
         im_transform tr = im_transform_identity();
@@ -1104,11 +1126,21 @@ bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, i
             fill_argb = im_brush_over(&sm->palette, fill_brush, 0, h, sc);
         }
         fill_argb = apply_node_opacity(fill_argb, node->opacity);
+    } else if (node->path_has_fill) {
+        fill_argb = (node->path_fill_brush < IM_BRUSH_COUNT)
+            ? im_brush_over(&sm->palette, node->path_fill_brush, 0, h, sc)
+            : node->path_fill_argb;
+        fill_argb = apply_node_opacity(fill_argb, node->opacity);
     }
     if (node->name && im_states_sample_brush(sm, node->name, "Stroke", now_ms, &stroke_brush, &stroke_argb, &stroke_trans)) {
         if (!stroke_trans && stroke_brush < IM_BRUSH_COUNT) {
             stroke_argb = im_brush_over(&sm->palette, stroke_brush, 0, h, sc);
         }
+        stroke_argb = apply_node_opacity(stroke_argb, node->opacity);
+    } else if (node->path_has_stroke) {
+        stroke_argb = (node->path_stroke_brush < IM_BRUSH_COUNT)
+            ? im_brush_over(&sm->palette, node->path_stroke_brush, 0, h, sc)
+            : node->path_stroke_argb;
         stroke_argb = apply_node_opacity(stroke_argb, node->opacity);
     }
     bool has_fill = ((fill_argb >> 24) != 0u);

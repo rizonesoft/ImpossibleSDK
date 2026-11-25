@@ -1136,7 +1136,7 @@ static int test_visual_states_and_animation(void) {
             {"CommonStates", 0, 2, 0, 0},
         };
         static const im_template custom_tpl = {"CustomBtn", "Button", 0, 3, 0, 1, 0, 1};
-        im_template_tables tbls = {custom_setters, custom_elems, custom_props, custom_groups, custom_states, NULL, custom_anims, custom_kfs};
+        im_template_tables tbls = {custom_setters, custom_elems, custom_props, custom_groups, custom_states, NULL, custom_anims, custom_kfs, NULL};
         im_state_machine csm;
         im_states_init_custom(&csm, &custom_tpl, &tbls, &pal);
         im_states_go_to(&csm, "PointerOver", 0u);
@@ -1246,7 +1246,7 @@ static int test_visual_states_and_animation(void) {
         };
         static const im_template_group lit_groups[] = {{"CommonStates", 0, 2, 0, 0}};
         static const im_template lit_tpl = {"LitBtn", "Button", 0, 3, 0, 2, 0, 1};
-        im_template_tables lit_tbls = {lit_setters, lit_elems, lit_props, lit_groups, lit_states, NULL, lit_anims, lit_kfs};
+        im_template_tables lit_tbls = {lit_setters, lit_elems, lit_props, lit_groups, lit_states, NULL, lit_anims, lit_kfs, NULL};
         im_state_machine lsm;
         im_states_init_custom(&lsm, &lit_tpl, &lit_tbls, &pal);
         im_states_go_to(&lsm, "Normal", 0u);
@@ -1376,7 +1376,7 @@ static int test_visual_states_and_animation(void) {
         };
         static const im_template_group rep2d_groups[] = {{"G", 0, 2, 0, 0}};
         static const im_template rep2d_tpl = {"Rep2D", "Grid", 0, 0, 0, 0, 0, 1};
-        im_template_tables rep2d_tbls = {NULL, NULL, NULL, rep2d_groups, rep2d_states, NULL, rep2d_anims, NULL};
+        im_template_tables rep2d_tbls = {NULL, NULL, NULL, rep2d_groups, rep2d_states, NULL, rep2d_anims, NULL, NULL};
         im_state_machine rsm;
         im_states_init_custom(&rsm, &rep2d_tpl, &rep2d_tbls, &pal);
         im_states_set_binding(&rsm, "OffsetY", (im_template_value){IM_TVAL_FIXED, -16 * IM_ONE, 0, 0, 0, NULL, NULL});
@@ -1414,7 +1414,7 @@ static int test_visual_states_and_animation(void) {
         };
         static const im_template_group wc_groups[] = {{"G", 0, 3, 0, 4}};
         static const im_template wc_tpl = {"WC", "Grid", 0, 0, 0, 0, 0, 1};
-        im_template_tables wc_tbls = {NULL, NULL, NULL, wc_groups, wc_states, wc_trans, NULL, NULL};
+        im_template_tables wc_tbls = {NULL, NULL, NULL, wc_groups, wc_states, wc_trans, NULL, NULL, NULL};
         im_state_machine wsm;
         im_states_init_custom(&wsm, &wc_tpl, &wc_tbls, &pal);
         /* Case-insensitive "a" enters "A". */
@@ -1586,7 +1586,7 @@ static int test_visual_states_and_animation(void) {
         };
         static const im_template_group di_ord_groups[] = {{"DragStates", 0, 2, 0, 0}};
         static const im_template di_ord_tpl = {"DragOrd", "Grid", 0, 0, 0, 0, 0, 1};
-        im_template_tables di_ord_tbls = {di_ord_setters, NULL, NULL, di_ord_groups, di_ord_states, NULL, di_ord_anims, NULL};
+        im_template_tables di_ord_tbls = {di_ord_setters, NULL, NULL, di_ord_groups, di_ord_states, NULL, di_ord_anims, NULL, NULL};
         im_state_machine dsm;
         im_states_init_custom(&dsm, &di_ord_tpl, &di_ord_tbls, &pal);
         im_states_go_to(&dsm, "Drag", 0u);
@@ -1608,7 +1608,7 @@ static int test_visual_states_and_animation(void) {
         };
         static const im_template_group di_out_groups[] = {{"G", 0, 2, 0, 0}};
         static const im_template di_out_tpl = {"DragOut", "Grid", 0, 0, 0, 0, 0, 1};
-        im_template_tables di_out_tbls = {NULL, NULL, NULL, di_out_groups, di_out_states, NULL, di_out_anims, NULL};
+        im_template_tables di_out_tbls = {NULL, NULL, NULL, di_out_groups, di_out_states, NULL, di_out_anims, NULL, NULL};
         im_state_machine dosm;
         im_states_init_custom(&dosm, &di_out_tpl, &di_out_tbls, &pal);
         im_states_go_to(&dosm, "Dimmed", 0u);
@@ -1650,7 +1650,7 @@ static int test_visual_states_and_animation(void) {
             {"GB", 2, 2, 0, 0},
         };
         static const im_template exp_tpl = {"ExpTrans", "Grid", 0, 0, 0, 0, 0, 2};
-        im_template_tables exp_tbls = {NULL, NULL, NULL, exp_groups, exp_states, exp_trans, exp_anims, NULL};
+        im_template_tables exp_tbls = {NULL, NULL, NULL, exp_groups, exp_states, exp_trans, exp_anims, NULL, NULL};
         im_state_machine esm;
         im_states_init_custom(&esm, &exp_tpl, &exp_tbls, &pal);
         im_states_go_to(&esm, "A0", 0u);
@@ -1683,7 +1683,7 @@ static int test_visual_states_and_animation(void) {
         };
         static const im_template_group del_groups[] = {{"G", 0, 2, 0, 0}};
         static const im_template del_tpl = {"DelKf", "Grid", 0, 0, 0, 1, 0, 1};
-        im_template_tables del_tbls = {del_setters, del_elems, del_props, del_groups, del_states, NULL, del_anims, del_kfs};
+        im_template_tables del_tbls = {del_setters, del_elems, del_props, del_groups, del_states, NULL, del_anims, del_kfs, NULL};
         im_state_machine dlsm;
         im_states_init_custom(&dlsm, &del_tpl, &del_tbls, &pal);
         im_states_go_to(&dlsm, "S1", 100u);

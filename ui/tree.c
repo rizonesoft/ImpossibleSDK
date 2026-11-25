@@ -319,6 +319,43 @@ void im_node_set_paint_outset(im_node *node, im_thickness outset) {
     node->paint_dirty = true;
 }
 
+void im_node_set_path_intrinsic_bounds(im_node *node, const im_template_path_seg *segs,
+                                       uint32_t start, uint32_t count) {
+    if (!node) return;
+    im_fixed nw = 0, nh = 0;
+    if (segs && count > 0u) {
+        bool has = false;
+        int64_t min_x = INT64_MAX, min_y = INT64_MAX, max_x = INT64_MIN, max_y = INT64_MIN;
+        for (uint32_t i = 0; i < count; i++) {
+            const im_template_path_seg *s = &segs[start + i];
+            int64_t xs[3], ys[3];
+            int n = 0;
+            if (s->cmd == 0u || s->cmd == 1u) { xs[0] = s->x1; ys[0] = s->y1; n = 1; }
+            else if (s->cmd == 2u) { xs[0] = s->x1; ys[0] = s->y1; xs[1] = s->x2; ys[1] = s->y2; n = 2; }
+            else if (s->cmd == 3u) { xs[0] = s->x1; ys[0] = s->y1; xs[1] = s->x2; ys[1] = s->y2; xs[2] = s->x3; ys[2] = s->y3; n = 3; }
+            else if (s->cmd == 4u) { xs[0] = s->x2; ys[0] = s->y2; n = 1; }
+            for (int k = 0; k < n; k++) {
+                if (!has || xs[k] < min_x) min_x = xs[k];
+                if (!has || xs[k] > max_x) max_x = xs[k];
+                if (!has || ys[k] < min_y) min_y = ys[k];
+                if (!has || ys[k] > max_y) max_y = ys[k];
+                has = true;
+            }
+        }
+        if (has) {
+            int64_t dw = max_x - min_x;
+            int64_t dh = max_y - min_y;
+            if (dw > 0) nw = (dw > INT32_MAX) ? INT32_MAX : (im_fixed)dw;
+            if (dh > 0) nh = (dh > INT32_MAX) ? INT32_MAX : (im_fixed)dh;
+        }
+    }
+    if (node->intrinsic_width != nw || node->intrinsic_height != nh) {
+        node->intrinsic_width = nw;
+        node->intrinsic_height = nh;
+        im_tree_invalidate_measure(node);
+    }
+}
+
 void im_node_clear_render_transform(im_node *node) {
     if (!node) return;
     if (!node->has_render_transform) return;
@@ -917,6 +954,22 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
         node->path_line_join = parse_line_join_str(v->text);
     } else if (str_eq(prop, "StrokeMiterLimit") && resolve_fixed_val(palette, v, &fx)) {
         node->path_miter_limit = fx;
+    } else if (str_eq(prop, "Fill") && v->kind == IM_TVAL_BRUSH && v->a >= 0 && v->a < IM_BRUSH_COUNT) {
+        node->path_has_fill = true;
+        node->path_fill_brush = (enum im_brush_id)v->a;
+        node->path_fill_argb = 0u;
+    } else if (str_eq(prop, "Fill") && v->kind == IM_TVAL_COLOR) {
+        node->path_has_fill = true;
+        node->path_fill_brush = IM_BRUSH_COUNT;
+        node->path_fill_argb = (uint32_t)((palette && palette->theme == IM_LIGHT) ? v->b : v->a);
+    } else if (str_eq(prop, "Stroke") && v->kind == IM_TVAL_BRUSH && v->a >= 0 && v->a < IM_BRUSH_COUNT) {
+        node->path_has_stroke = true;
+        node->path_stroke_brush = (enum im_brush_id)v->a;
+        node->path_stroke_argb = 0u;
+    } else if (str_eq(prop, "Stroke") && v->kind == IM_TVAL_COLOR) {
+        node->path_has_stroke = true;
+        node->path_stroke_brush = IM_BRUSH_COUNT;
+        node->path_stroke_argb = (uint32_t)((palette && palette->theme == IM_LIGHT) ? v->b : v->a);
     } else if (str_eq(prop, "Data") && v->kind == IM_TVAL_PATH && v->b > 0) {
         node->path_seg_start = (uint32_t)v->a;
         node->path_seg_count = (uint32_t)v->b;

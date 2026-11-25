@@ -1818,6 +1818,80 @@ class Compiler:
         return self.compile_control_template(ct_node, key=key, target_type=target_type, style_setters=(setter_start, setter_count), enum_id=enum_id)
 
 
+def validate_corpus_paths(root):
+    """Validate every <Path Data="..."> and <Setter Target="...Data" Value="..."> across the
+    pin-filtered XAML corpus (base + controls minus skip) with exact file:line errors."""
+    files = [PIN["base"]] + [
+        str(p.relative_to(root)).replace("\\", "/")
+        for p in sorted(root.glob(PIN["controls"]))
+        if not any(sk in p.name for sk in PIN.get("skip", []))
+    ]
+    checked = 0
+    ns_pres = "http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    ns_shapes = "using:Microsoft.UI.Xaml.Shapes"
+
+    for rel in files:
+        text = (root / rel).read_text(encoding="utf-8-sig")
+        raw = text.encode("utf-8")
+        line_starts = [0]
+        idx = raw.find(b"\n")
+        while idx != -1:
+            line_starts.append(idx + 1)
+            idx = raw.find(b"\n", idx + 1)
+
+        def line_at(byte_pos):
+            lo, hi = 0, len(line_starts) - 1
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                if line_starts[mid] <= byte_pos:
+                    lo = mid
+                else:
+                    hi = mid - 1
+            return lo + 1
+
+        def attr_line(byte_idx, attr_name):
+            end = raw.find(b">", byte_idx)
+            chunk = raw[byte_idx:(end + 1 if end != -1 else len(raw))].decode("utf-8", errors="replace")
+            m = re.search(rf'\b{re.escape(attr_name)}\s*=', chunk)
+            if m:
+                return line_at(byte_idx + len(chunk[:m.start()].encode("utf-8")))
+            return line_at(byte_idx)
+
+        parser = expat.ParserCreate(namespace_separator=" ")
+
+        def start(tag, attrs):
+            nonlocal checked
+            if " " in tag:
+                el_ns, el_local = tag.rsplit(" ", 1)
+                if el_ns not in (ns_pres, ns_shapes):
+                    return
+            else:
+                el_local = tag
+            byte_idx = parser.CurrentByteIndex
+            if el_local == "Path" and "Data" in attrs:
+                val = attrs["Data"].strip()
+                ln = attr_line(byte_idx, "Data")
+                if val.startswith("{"):
+                    if not (val.startswith("{TemplateBinding ") or val.startswith("{Binding ")):
+                        raise TemplateError(f"{rel}:{ln}: unsupported Path.Data markup extension {val!r}")
+                else:
+                    parse_path_markup(val, rel, ln)
+                checked += 1
+            elif el_local == "Setter" and attrs.get("Target", "").strip().endswith(".Data") and "Value" in attrs:
+                val = attrs["Value"].strip()
+                ln = attr_line(byte_idx, "Value")
+                if val.startswith("{"):
+                    if not (val.startswith("{TemplateBinding ") or val.startswith("{Binding ")):
+                        raise TemplateError(f"{rel}:{ln}: unsupported Setter.Value Path.Data markup extension {val!r}")
+                else:
+                    parse_path_markup(val, rel, ln)
+                checked += 1
+
+        parser.StartElementHandler = start
+        parser.Parse(raw, True)
+    return checked
+
+
 def compile_checkout(checkout):
     head = subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     if head != PIN["commit"]:
@@ -1853,6 +1927,7 @@ def compile_checkout(checkout):
                 raise TemplateError(f"{rel_path}:1: Style key={style_key!r} TargetType={target_type!r} not found")
             compiler.compile_style(found, enum_id=enum_id)
             verify_fully_consumed(found)
+        validate_corpus_paths(root)
         return compiler
 
 

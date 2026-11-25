@@ -27,6 +27,7 @@ typedef struct im_template_tables {
     const im_template_transition *transitions;
     const im_template_anim *anims;
     const im_template_keyframe *keyframes;
+    const im_template_path_seg *path_segs;
 } im_template_tables;
 
 /* One caller-supplied binding value attached to a state machine. */
