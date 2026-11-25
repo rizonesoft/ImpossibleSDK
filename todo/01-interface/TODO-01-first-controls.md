@@ -140,7 +140,11 @@ The engine that measures and arranges the compiled elements: Grid, StackPanel, B
 
 ## 4. Visual states and animation
 
+> **Started:** 2026-11-25T02:33Z
+
 States, transitions and storyboards run from a caller-supplied clock, so a frame can be drawn for any instant.
+
+**Corrected 2026-11-25:** Implement portable freestanding (no floats, no OS calls, no libc) fixed-point animation evaluation in `ui/animate.h`/`ui/animate.c` and compiled visual-state execution in `ui/states.h`/`ui/states.c`, registering both in `parts.json` under `"ui"` and adding them to `docs/guide/drawing.md` `sources=` (reviewed `2026-11-25`). `ui/animate.{h,c}` provides: (a) 16.16 fixed-point cubic Bezier `KeySpline` evaluation (`im_spline_eval(x1, y1, x2, y2, t)`) solving `B_x(u) = t` via monotonic bisection in 64-bit integer arithmetic so values at 10+ instants match the exact XAML cubic Bezier curve within 1 unit; (b) storyboard track evaluation (`im_anim_eval_fixed`, `im_anim_eval_color`) for `IM_ANIM_DOUBLE`, `IM_ANIM_DOUBLE_KEYFRAMES` (`IM_KF_DISCRETE`, `IM_KF_LINEAR_DOUBLE`, `IM_KF_SPLINE_DOUBLE`, `IM_KF_EASING_DOUBLE`), `IM_ANIM_COLOR_KEYFRAMES` (`IM_KF_LINEAR_COLOR`), and `IM_ANIM_REPOSITION_THEME` (WinUI `0.1, 0.9, 0.2, 1.0` cubic Bezier over 167 ms); (c) `im_brush_transition` (83 ms on compiled Button templates via `IM_ELEM_BRUSH_TRANSITION`) interpolating ARGB colors smoothly and retargeting from the current interpolated value when interrupted mid-flight; (d) `reduced_motion` support snapping all animations and brush transitions to their end state on the first frame (`now_ms == start_ms`). `ui/states.{h,c}` provides `im_state_machine` over compiled `im_template` tables (`ui/template_data.c`) supporting independent state groups (`CommonStates`, `ToggleStates`, `ContentStates`, etc.), state setters and keyframe animations, WinUI transition lookup (`(from, to)` -> `(from, NULL)` -> `(NULL, to)` -> `(NULL, NULL)`), base-style reset when returning to `Normal`, caller-supplied monotonic clock (`uint32_t now_ms`), and `im_states_draw_button` driving button drawing directly from resolved template state brushes and `BackgroundSizing`. Verify in `tests/fixtures/ui_tests.c` and `tests/test_ui.py` (plus `tools/check_parts.py`, `tools/build.py`, `tools/site/build.py --check`): (1) `im_states_draw_button` matches `im_draw_button` byte-for-byte across all 4 states (`Normal`, `PointerOver`, `Pressed`, `Disabled`) of `IM_TEMPLATE_BUTTON`, `IM_TEMPLATE_BUTTON_ACCENT`, and `IM_TEMPLATE_BUTTON_SUBTLE` in both Dark and Light themes; (2) `im_spline_eval` and `ToggleSwitch` knob `Off -> On` / `PointerOver` animations match exact double-precision XAML cubic Bezier reference values at 11 instants (`0..100%`) within 1; (3) Button 83 ms `BrushTransition` interpolates smoothly at midpoint, retargets cleanly on mid-flight interruption, and resets cleanly on return to `Normal`; (4) `reduced_motion = true` reaches the exact end state on the first frame (`now_ms == start_ms`, `is_animating == false`).
 
 **Phase:** 1
 **Needs:** none
@@ -148,15 +152,15 @@ States, transitions and storyboards run from a caller-supplied clock, so a frame
 
 **Build order:**
 
-1. Write `ui/states.c`. Done when: hover and press change through the compiled states.
-2. Write `ui/animate.c` with WinUI's easing in fixed point. Done when: the toggle knob's path matches the reference.
+1. Write `ui/animate.h`, `ui/animate.c`, `ui/states.h`, and `ui/states.c`, register both in `parts.json` under `"ui"`, add to `CMakeLists.txt`, and update `docs/guide/drawing.md`. Done when: `python3 tools/check_parts.py` and `python3 tools/site/build.py --check` pass and hover/press/disabled states of compiled Button templates switch through `ui/states.c`.
+2. Add comprehensive fixed-point spline, ToggleSwitch knob curve, brush transition, interruption, reduced-motion, and byte-for-byte Button state frame parity tests in `tests/fixtures/ui_tests.c` and `tests/test_ui.py`. Done when: `python3 tools/build.py` and `python3 tools/site/build.py --check` exit 0.
 
-- [ ] Run state groups and setters in `ui/states.c`. Done when: every state of the button gives the frame the direct drawing gave. Cheaper substitute: keeping `ui/button.c`.
-- [ ] Implement the key splines and brush transitions in `ui/animate.c`. Done when: values at 10 instants are within 1 of the XAML-defined curve. Cheaper substitute: linear steps.
-- [ ] Honour the reduced-animation setting in `ui/animate.c`. Done when: a test sees the end state in the first frame.
+- [ ] Run state groups, transitions, and setters in `ui/states.h`/`ui/states.c`. Done when: every state (`Normal`, `PointerOver`, `Pressed`, `Disabled`) of `IM_TEMPLATE_BUTTON`, `IM_TEMPLATE_BUTTON_ACCENT`, and `IM_TEMPLATE_BUTTON_SUBTLE` in Dark and Light themes produces the exact same frame as `im_draw_button` (0 pixel diffs). Cheaper substitute: keeping `ui/button.c`.
+- [ ] Implement cubic Bezier key splines, keyframe tracks, `RepositionThemeAnimation`, and `BrushTransition` in `ui/animate.h`/`ui/animate.c`. Done when: values at 10+ instants match the exact XAML-defined cubic Bezier curve within 1 and mid-flight brush transitions interpolate and retarget cleanly. Cheaper substitute: linear steps.
+- [ ] Honour the reduced-animation setting (`reduced_motion`) in `ui/animate.c` and `ui/states.c`. Done when: a test sees the exact end state on the first frame (`now_ms == start_ms`) with `im_states_is_animating == false`.
 - [ ] Commit: `ui: visual states and animation`
 
-**Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+**Test checkpoint:** `python3 tools/build.py`, `python3 tools/check_parts.py`, and `python3 tools/site/build.py --check` exit 0, and the new tests fail when their production change is reverted.
 
 ## 5. Text in fixed point
 
