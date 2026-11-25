@@ -220,6 +220,9 @@ class LivePass(unittest.TestCase):
                     time.sleep(0.02)
                 self.assertTrue(gone, f"grandchild pid {child_pid} still alive after process-group kill")
 
+    def test_control_shots_source_makes_live_pass_owed(self):
+        self.assertTrue(live.owes("tests/fixtures/control_shots.c"))
+
 
 if __name__ == "__main__":
     unittest.main()

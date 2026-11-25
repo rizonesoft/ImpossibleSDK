@@ -536,6 +536,95 @@ static int test_tree_and_layout(void) {
     im_tree_destroy(&tree);
     if (ta.live_allocs != 0 || ta.live_bytes != 0) return 180;
 
+    /* 12. Parent StackPanel must NOT cache a child 17-column Grid's transient allocation failure. */
+    ta.used = 0; ta.fail_on_call = 0;
+    if (!im_tree_init(&tree, alloc)) return 193;
+    im_node *pstack = im_tree_create_node(&tree, IM_ELEM_STACK_PANEL, "PStack");
+    im_node *pg17 = im_tree_create_node(&tree, IM_ELEM_GRID, "PGrid17");
+    im_node *pc17 = im_tree_create_node(&tree, IM_ELEM_BORDER, "PCell17");
+    if (!pstack || !pg17 || !pc17) return 193;
+    if (!im_tree_set_grid_cols(&tree, pg17, cols17, 17)) return 193;
+    im_node_set_grid_cell(pc17, 0, 16, 1, 1);
+    im_tree_append_child(&tree, pg17, pc17);
+    im_tree_append_child(&tree, pstack, pg17);
+    tree.root = pstack;
+    ta.fail_on_call = ta.alloc_calls + 1u;
+    im_layout_run(&tree, pstack, fxi(100), fxi(20), IM_ONE);
+    ta.fail_on_call = 0;
+    if (!pstack->measure_dirty) return 194;
+    /* Retry at root StackPanel with identical constraints and NO manual invalidation must succeed! */
+    im_layout_run(&tree, pstack, fxi(100), fxi(20), IM_ONE);
+    if (pstack->desired_size.width != fxi(34) || pc17->absolute_rect.left != fxi(32)) return 195;
+    /* Also verify parent arrange_dirty stays true when child Grid arrange allocation fails. */
+    im_tree_invalidate_arrange(pg17);
+    ta.fail_on_call = ta.alloc_calls + 1u;
+    im_layout_arrange(&tree, pstack, (im_rect){0, 0, fxi(100), fxi(20)}, IM_ONE);
+    ta.fail_on_call = 0;
+    if (!pstack->arrange_dirty) return 195;
+    im_layout_arrange(&tree, pstack, (im_rect){0, 0, fxi(100), fxi(20)}, IM_ONE);
+    if (pstack->arrange_dirty || pc17->absolute_rect.left != fxi(32)) return 195;
+    im_tree_destroy(&tree);
+    if (ta.live_allocs != 0 || ta.live_bytes != 0) return 195;
+
+    /* 13. Compiled Grid Star weights ("2*", "1*") AND direct "0*", "1*" Star weights. */
+    ta.used = 0; ta.fail_on_call = 0;
+    if (!im_tree_init(&tree, alloc)) return 196;
+    static const im_template_prop gw_props[] = {
+        {"Width", {IM_TVAL_ENUM_STR, 0, 0, 0, 0, "2*", NULL}},
+        {"Width", {IM_TVAL_ENUM_STR, 0, 0, 0, 0, "1*", NULL}},
+        {"Grid.Column", {IM_TVAL_INT, 0, 0, 0, 0, NULL, NULL}},
+        {"Grid.Column", {IM_TVAL_INT, 1, 0, 0, 0, NULL, NULL}},
+    };
+    static const im_template_element gw_elems[] = {
+        {IM_ELEM_GRID, "WGrid", -1, 0, 0},
+        {IM_ELEM_COLUMN_DEFINITION, NULL, 0, 0, 1},
+        {IM_ELEM_COLUMN_DEFINITION, NULL, 0, 1, 1},
+        {IM_ELEM_BORDER, "WC0", 0, 2, 1},
+        {IM_ELEM_BORDER, "WC1", 0, 3, 1},
+    };
+    static const im_template gw_tpl = {"GridStarTest", "ContentControl", 0, 0, 0, 5, 0, 0};
+    im_node *gw_host = im_tree_instantiate_custom_template(&tree, &pal, &gw_tpl, NULL, gw_elems, gw_props, "GWHost");
+    if (!gw_host) return 196;
+    tree.root = gw_host;
+    im_layout_run(&tree, gw_host, fxi(90), fxi(20), IM_ONE);
+    im_node *wc0 = im_tree_find_by_name(gw_host, "WC0");
+    im_node *wc1 = im_tree_find_by_name(gw_host, "WC1");
+    if (!wc0 || !wc1 || (wc0->absolute_rect.right - wc0->absolute_rect.left) != fxi(60) ||
+        (wc1->absolute_rect.right - wc1->absolute_rect.left) != fxi(30)) return 197;
+    /* Direct 0* + 1* in 100 DIP -> 0 and 100. */
+    im_node *wgrid = im_tree_find_by_name(gw_host, "WGrid");
+    im_grid_def zero_star[2] = {
+        {IM_GRID_STAR, 0, 0, IM_FIXED_INF},
+        {IM_GRID_STAR, IM_ONE, 0, IM_FIXED_INF},
+    };
+    if (!im_tree_set_grid_cols(&tree, wgrid, zero_star, 2)) return 198;
+    im_layout_run(&tree, gw_host, fxi(100), fxi(20), IM_ONE);
+    if ((wc0->absolute_rect.right - wc0->absolute_rect.left) != 0 ||
+        (wc1->absolute_rect.right - wc1->absolute_rect.left) != fxi(100)) return 199;
+    im_tree_destroy(&tree);
+    if (ta.live_allocs != 0 || ta.live_bytes != 0) return 199;
+
+    /* 14. Strictly unbiased layout rounding at 125% (raw 26214 -> 0) and center alignment at 150% (109226 - 65536 -> 0). */
+    ta.used = 0; ta.fail_on_call = 0;
+    if (!im_tree_init(&tree, alloc)) return 200;
+    im_node *ub = im_tree_create_node(&tree, IM_ELEM_BORDER, "UB");
+    im_node *uc = im_tree_create_node(&tree, IM_ELEM_BORDER, "UC");
+    if (!ub || !uc) return 200;
+    im_tree_append_child(&tree, ub, uc);
+    tree.root = ub;
+    im_layout_measure(&tree, ub, (im_size){fxi(10), fxi(10)}, 81920);
+    im_layout_arrange(&tree, ub, (im_rect){26214, 0, 26214 + fxi(10), fxi(10)}, 81920);
+    if (ub->layout_rect.left != 0) return 201;
+    im_node_set_alignment(uc, IM_ALIGN_CENTER, IM_ALIGN_START);
+    im_node_set_size(uc, 65536, 65536);
+    im_node_set_layout_rounding(ub, false);
+    im_node_set_layout_rounding(uc, true);
+    im_layout_measure(&tree, ub, (im_size){109226, fxi(10)}, 98304);
+    im_layout_arrange(&tree, ub, (im_rect){0, 0, 109226, fxi(10)}, 98304);
+    if (uc->layout_rect.left != 0) return 202;
+    im_tree_destroy(&tree);
+    if (ta.live_allocs != 0 || ta.live_bytes != 0) return 202;
+
     return 0;
 }
 
@@ -722,6 +811,14 @@ static int test_clips_and_layers(void) {
     if (at(55, 55) != 0x00102030 || at(30, 30) != 0x00FF0000) return 135;
     im_layer_pop_clip(&ctx);
     im_layer_pop_clip(&ctx);
+    /* Empty fractional clip intersection: [0, 0.5) and [0.5, 1) share zero area -> coverage MUST be 0! */
+    if (!im_layer_push_clip_rect(&ctx, (im_rect){0, 0, IM_ONE / 2, IM_ONE})) return 203;
+    if (!im_layer_push_clip_rect(&ctx, (im_rect){IM_ONE / 2, 0, IM_ONE, IM_ONE})) return 203;
+    if (im_clip_pixel_coverage(&ctx.clips, 0, 0) != 0) return 204;
+    im_fill_argb(&surface, box(0, 0, 2, 2), sq, 0xFFFFFFFF);
+    if (at(0, 0) != 0x00102030) return 205;
+    im_layer_pop_clip(&ctx);
+    im_layer_pop_clip(&ctx);
     /* Post-pop sibling draws outside former clip. */
     im_fill_argb(&surface, box(2, 2, 6, 6), sq, 0xFF0000FF);
     if (at(3, 3) != 0x000000FF) return 136;
@@ -760,11 +857,14 @@ static int test_clips_and_layers(void) {
     surface.palette.theme = IM_DARK;
     if (!im_layer_init(&ctx, &surface, alloc, 256 * 1024)) return 144;
     if (im_layer_push(&ctx, box(12, 16, 52, 48), 180u, true, (im_radii){8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE}) != IM_LAYER_OK) return 145;
-    im_draw_button(&surface, box(14, 18, 50, 46), IM_BUTTON, IM_REST);
+    /* Button [10,54) x [18,46) extends outside the [12,52) clip on the left/right AND across the r=8 rounded corner at (13,19)! */
+    im_draw_button(&surface, box(10, 18, 54, 46), IM_BUTTON, IM_REST);
     im_layer_pop(&ctx);
-    /* Outside clip (8,20) and rounded clip corner (12,16) stay 0x00202020; interior fill (32,32) changes;
-       top 1px stroke (32,18) is inside the layer and MUST differ from both background and interior fill! */
-    if (at(8, 20) != 0x00202020 || at(12, 16) != 0x00202020 || at(32, 32) == 0x00202020) return 146;
+    /* (10,32) is inside button fill but outside clip -> must stay 0x00202020;
+       (12,18) is inside button AND clip rect, but outside r=8 rounded corner -> must stay 0x00202020;
+       (32,32) is inside button fill -> must change;
+       (32,18) is on button 1px top stroke inside clip -> must differ from both background and fill! */
+    if (at(10, 32) != 0x00202020 || at(12, 18) != 0x00202020 || at(32, 32) == 0x00202020) return 146;
     if (at(32, 18) == 0x00202020 || at(32, 18) == at(32, 32)) return 181;
     im_layer_destroy(&ctx);
     if (rec.live_allocs != 0 || rec.live_bytes != 0) return 147;

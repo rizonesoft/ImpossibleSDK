@@ -616,6 +616,40 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
     }
 }
 
+static bool parse_star_weight(const char *s, im_fixed *out) {
+    if (!s || !*s) return false;
+    const char *p = s;
+    if (p[0] == '*' && p[1] == '\0') {
+        *out = IM_ONE;
+        return true;
+    }
+    int64_t int_part = 0;
+    int64_t frac_num = 0;
+    int64_t frac_den = 1;
+    bool has_digit = false;
+    while (*p >= '0' && *p <= '9') {
+        has_digit = true;
+        if (int_part < 32767) int_part = int_part * 10 + (*p - '0');
+        p++;
+    }
+    if (*p == '.') {
+        p++;
+        while (*p >= '0' && *p <= '9') {
+            has_digit = true;
+            if (frac_den < 1000000) {
+                frac_num = frac_num * 10 + (*p - '0');
+                frac_den *= 10;
+            }
+            p++;
+        }
+    }
+    if (!has_digit || p[0] != '*' || p[1] != '\0') return false;
+    int64_t val = int_part * (int64_t)IM_ONE + (frac_num * (int64_t)IM_ONE + frac_den / 2) / frac_den;
+    if (val >= (int64_t)IM_FIXED_INF) val = IM_FIXED_INF - 1;
+    *out = (im_fixed)val;
+    return true;
+}
+
 static bool parse_grid_def_from_elem(const im_palette *palette, const im_template_element *el, const im_template_prop *props, im_grid_def *out) {
     out->unit = IM_GRID_STAR;
     out->value = IM_ONE;
@@ -628,9 +662,9 @@ static bool parse_grid_def_from_elem(const im_palette *palette, const im_templat
             if (pr->value.kind == IM_TVAL_ENUM_STR && str_eq(pr->value.text, "Auto")) {
                 out->unit = IM_GRID_AUTO;
                 out->value = 0;
-            } else if (pr->value.kind == IM_TVAL_ENUM_STR && pr->value.text && pr->value.text[0] == '*') {
+            } else if (pr->value.kind == IM_TVAL_ENUM_STR && parse_star_weight(pr->value.text, &fx)) {
                 out->unit = IM_GRID_STAR;
-                out->value = IM_ONE;
+                out->value = fx;
             } else if (resolve_fixed_val(palette, &pr->value, &fx)) {
                 out->unit = IM_GRID_PIXEL;
                 out->value = fx;

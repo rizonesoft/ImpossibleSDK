@@ -1310,8 +1310,7 @@ class LiveReference(unittest.TestCase):
                         "id": "op-group",
                         "control": "Grid",
                         "properties": {
-                            "Width": 32, "Height": 32,
-                            "HorizontalAlignment": "Center", "VerticalAlignment": "Center",
+                            "Width": 40, "Height": 40,
                             "Opacity": 0.5,
                         },
                         "children": [
@@ -1319,19 +1318,19 @@ class LiveReference(unittest.TestCase):
                                 "id": "red-half",
                                 "control": "Border",
                                 "properties": {
-                                    "Width": 16, "Height": 32,
+                                    "Width": 20, "Height": 40,
                                     "HorizontalAlignment": "Left", "VerticalAlignment": "Top",
-                                    "Background": "#FFFF0000",
+                                    "Background": "#FF602020",
                                 },
                             },
                             {
                                 "id": "blue-half",
                                 "control": "Border",
                                 "properties": {
-                                    "Width": 16, "Height": 32,
-                                    "Margin": [16, 0, 0, 0],
+                                    "Width": 20, "Height": 40,
+                                    "Margin": [20, 0, 0, 0],
                                     "HorizontalAlignment": "Left", "VerticalAlignment": "Top",
-                                    "Background": "#FF0000FF",
+                                    "Background": "#FF202060",
                                 },
                             },
                         ],

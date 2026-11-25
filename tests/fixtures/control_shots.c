@@ -158,8 +158,8 @@ static int emit_clip_shots(HANDLE out) {
         if (!im_layer_push_clip_rounded(&ctx, clip_r, (im_radii){rad, rad, rad, rad})) return 1;
         im_fill_argb(&s, (im_rect){0, 0, w * IM_ONE, h * IM_ONE}, sq, 0xFF183048);
         if (im_layer_push(&ctx, clip_r, 128u, false, sq) != IM_LAYER_OK) return 1;
-        im_fill_argb(&s, (im_rect){(im_fixed)(16LL * sc), (im_fixed)(16LL * sc), (im_fixed)(32LL * sc), (im_fixed)(48LL * sc)}, sq, 0xFFFF0000);
-        im_fill_argb(&s, (im_rect){(im_fixed)(32LL * sc), (im_fixed)(16LL * sc), (im_fixed)(48LL * sc), (im_fixed)(48LL * sc)}, sq, 0xFF0000FF);
+        im_fill_argb(&s, (im_rect){(im_fixed)(12LL * sc), (im_fixed)(12LL * sc), (im_fixed)(32LL * sc), (im_fixed)(52LL * sc)}, sq, 0xFF602020);
+        im_fill_argb(&s, (im_rect){(im_fixed)(32LL * sc), (im_fixed)(12LL * sc), (im_fixed)(52LL * sc), (im_fixed)(52LL * sc)}, sq, 0xFF202060);
         im_layer_pop(&ctx);
         im_layer_pop_clip(&ctx);
         im_layer_destroy(&ctx);

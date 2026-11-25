@@ -330,6 +330,20 @@ int im_main(void) {
             emit_case("button-child", tag, sc, frame);
         }
     }
+    /* 8. stored-button-s100: matches tests/reference/cases.json button-dark-rest (120x32 centered in 160x64). */
+    {
+        arena_used = 0;
+        im_tree t; im_tree_init(&t, alloc);
+        im_node *frame = im_tree_create_node(&t, IM_ELEM_GRID, NULL);
+        im_node *btn = im_tree_instantiate_template(&t, &pal, IM_TEMPLATE_BUTTON, "StoredButton");
+        im_node_set_size(btn, fx(120), fx(32));
+        im_node_set_alignment(btn, IM_ALIGN_CENTER, IM_ALIGN_CENTER);
+        im_tree_append_child(&t, frame, btn);
+        t.root = frame;
+        im_layout_run(&t, frame, fx(160), fx(64), IM_ONE);
+        out_str(",");
+        emit_case("stored-button", "s100", IM_ONE, frame);
+    }
     out_str("}\n");
     return 0;
 }

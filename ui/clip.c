@@ -57,23 +57,33 @@ static bool push_clip_impl(im_clip_stack *stack, im_rect rect, im_radii radii, b
     if (!stack || stack->count == UINT32_MAX) return false;
     if (!ensure_clip_cap(stack, stack->count + 1u)) return false;
 
+    im_rect prev_eff = {0, 0, (im_fixed)((int64_t)stack->surface_w * IM_ONE), (im_fixed)((int64_t)stack->surface_h * IM_ONE)};
     int pl = 0, pt = 0, pr = stack->surface_w, pb = stack->surface_h;
     if (stack->count > 0) {
         const im_clip_entry *prev = &stack->entries[stack->count - 1u];
+        prev_eff = prev->eff_rect;
         pl = prev->int_left;
         pt = prev->int_top;
         pr = prev->int_right;
         pb = prev->int_bottom;
     }
 
+    im_rect eff;
+    eff.left = rect.left > prev_eff.left ? rect.left : prev_eff.left;
+    eff.top = rect.top > prev_eff.top ? rect.top : prev_eff.top;
+    eff.right = rect.right < prev_eff.right ? rect.right : prev_eff.right;
+    eff.bottom = rect.bottom < prev_eff.bottom ? rect.bottom : prev_eff.bottom;
+
     int cl, ct, cr, cb;
-    if (rect.left >= rect.right || rect.top >= rect.bottom) {
+    if (eff.left >= eff.right || eff.top >= eff.bottom) {
+        eff.right = eff.left;
+        eff.bottom = eff.top;
         cl = pr; ct = pb; cr = pr; cb = pb;
     } else {
-        cl = floor_px(rect.left, stack->surface_w);
-        ct = floor_px(rect.top, stack->surface_h);
-        cr = ceil_px(rect.right, stack->surface_w);
-        cb = ceil_px(rect.bottom, stack->surface_h);
+        cl = floor_px(eff.left, stack->surface_w);
+        ct = floor_px(eff.top, stack->surface_h);
+        cr = ceil_px(eff.right, stack->surface_w);
+        cb = ceil_px(eff.bottom, stack->surface_h);
         if (cl < pl) cl = pl;
         if (ct < pt) ct = pt;
         if (cr > pr) cr = pr;
@@ -84,6 +94,7 @@ static bool push_clip_impl(im_clip_stack *stack, im_rect rect, im_radii radii, b
 
     im_clip_entry *e = &stack->entries[stack->count++];
     e->rect = rect;
+    e->eff_rect = eff;
     e->radii = radii;
     e->is_rounded = is_rounded && (radii.top_left > 0 || radii.top_right > 0 || radii.bottom_right > 0 || radii.bottom_left > 0);
     e->int_left = cl;
@@ -121,35 +132,60 @@ void im_clip_bounds(const im_clip_stack *stack, int *left, int *top, int *right,
     *bottom = e->int_bottom;
 }
 
-static uint32_t entry_coverage(const im_clip_entry *e, int x, int y) {
-    if (x < e->int_left || x >= e->int_right || y < e->int_top || y >= e->int_bottom) return 0;
-    int64_t px0 = (int64_t)x * IM_ONE, px1 = px0 + IM_ONE;
-    int64_t py0 = (int64_t)y * IM_ONE, py1 = py0 + IM_ONE;
-    if (!e->is_rounded) {
-        int64_t x0 = px0 > e->rect.left ? px0 : e->rect.left;
-        int64_t x1 = px1 < e->rect.right ? px1 : e->rect.right;
-        int64_t y0 = py0 > e->rect.top ? py0 : e->rect.top;
-        int64_t y1 = py1 < e->rect.bottom ? py1 : e->rect.bottom;
-        if (x1 <= x0 || y1 <= y0) return 0;
-        uint64_t dx = (uint64_t)(x1 - x0);
-        uint64_t dy = (uint64_t)(y1 - y0);
-        if (dx == IM_ONE && dy == IM_ONE) return IM_ONE;
-        return (uint32_t)((dx * dy + IM_ONE / 2) >> 16);
-    }
-    return im_shape_coverage(e->rect, e->radii, x, y);
-}
-
 uint32_t im_clip_pixel_coverage_range(const im_clip_stack *stack, uint32_t from_idx, uint32_t to_idx, int x, int y) {
     if (!stack || from_idx >= to_idx || to_idx > stack->count) return IM_ONE;
     const im_clip_entry *top = &stack->entries[to_idx - 1u];
     if (x < top->int_left || x >= top->int_right || y < top->int_top || y >= top->int_bottom) return 0;
-    uint32_t cov = IM_ONE;
+
+    /* Intersect all axis-aligned bounds in [from_idx, to_idx) with pixel (x, y) first
+       so touching or disjoint fractional clips yield exact zero coverage. */
+    int64_t ix0 = (int64_t)x * IM_ONE, ix1 = ix0 + IM_ONE;
+    int64_t iy0 = (int64_t)y * IM_ONE, iy1 = iy0 + IM_ONE;
+    bool has_rounded = false;
     for (uint32_t i = from_idx; i < to_idx; i++) {
-        uint32_t c = entry_coverage(&stack->entries[i], x, y);
-        if (c == 0) return 0;
-        if (c != IM_ONE) {
-            cov = (uint32_t)(((uint64_t)cov * c + IM_ONE / 2) >> 16);
-            if (cov == 0) return 0;
+        const im_clip_entry *e = &stack->entries[i];
+        if (e->rect.left > ix0) ix0 = e->rect.left;
+        if (e->rect.right < ix1) ix1 = e->rect.right;
+        if (e->rect.top > iy0) iy0 = e->rect.top;
+        if (e->rect.bottom < iy1) iy1 = e->rect.bottom;
+        if (ix1 <= ix0 || iy1 <= iy0) return 0;
+        if (e->is_rounded) has_rounded = true;
+    }
+
+    uint64_t dx = (uint64_t)(ix1 - ix0);
+    uint64_t dy = (uint64_t)(iy1 - iy0);
+    uint32_t rect_cov = (dx == IM_ONE && dy == IM_ONE) ? IM_ONE : (uint32_t)((dx * dy + IM_ONE / 2) >> 16);
+    if (!has_rounded) return rect_cov;
+
+    /* Combine non-rounded intersected box coverage with each rounded entry's exact shape coverage. */
+    uint32_t cov = IM_ONE;
+    bool any_non_rounded = false;
+    int64_t rx0 = (int64_t)x * IM_ONE, rx1 = rx0 + IM_ONE;
+    int64_t ry0 = (int64_t)y * IM_ONE, ry1 = ry0 + IM_ONE;
+    for (uint32_t i = from_idx; i < to_idx; i++) {
+        const im_clip_entry *e = &stack->entries[i];
+        if (!e->is_rounded) {
+            any_non_rounded = true;
+            if (e->rect.left > rx0) rx0 = e->rect.left;
+            if (e->rect.right < rx1) rx1 = e->rect.right;
+            if (e->rect.top > ry0) ry0 = e->rect.top;
+            if (e->rect.bottom < ry1) ry1 = e->rect.bottom;
+        } else {
+            uint32_t c = im_shape_coverage(e->rect, e->radii, x, y);
+            if (c == 0) return 0;
+            if (c != IM_ONE) {
+                cov = (uint32_t)(((uint64_t)cov * c + IM_ONE / 2) >> 16);
+                if (cov == 0) return 0;
+            }
+        }
+    }
+    if (any_non_rounded) {
+        if (rx1 <= rx0 || ry1 <= ry0) return 0;
+        uint64_t rdx = (uint64_t)(rx1 - rx0);
+        uint64_t rdy = (uint64_t)(ry1 - ry0);
+        if (rdx != IM_ONE || rdy != IM_ONE) {
+            uint32_t rc = (uint32_t)((rdx * rdy + IM_ONE / 2) >> 16);
+            cov = (uint32_t)(((uint64_t)cov * rc + IM_ONE / 2) >> 16);
         }
     }
     return cov;

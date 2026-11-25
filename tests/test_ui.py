@@ -2910,12 +2910,99 @@ class Drawing(unittest.TestCase):
             ux = nodes["UnroundedChild"]["Rect"]["X"] - 60.0
             self.assertNotAlmostEqual(rx, ux, places=2, msg=f"expected rounding difference at {tag}: rounded={rx} unrounded={ux}")
 
-        # Verify compiled StackPanel template support in tools/winui/templates.py.
+        # Verify stored reference Button (120x32 centered in 160x64) against tests/reference/cases.json button-Normal-Dark.
+        ref_manifest = json.loads((ROOT / "tests/reference/cases.json").read_text(encoding="utf-8"))
+        ref_btn = next(c for c in ref_manifest["cases"] if c["id"] == "button-Normal-Dark")
+        def _find_type(node, typ):
+            if node.get("Type") == typ:
+                return node
+            for ch in node.get("Children", []):
+                hit = _find_type(ch, typ)
+                if hit is not None:
+                    return hit
+            return None
+        ref_btn_node = _find_type(ref_btn["layout"], "Button")
+        self.assertIsNotNone(ref_btn_node, "button-Normal-Dark missing Button node in layout")
+        ref_rect = ref_btn_node["Rect"]
+        sdk_rect = actual["stored-button-s100"]["nodes"]["StoredButton"]["Rect"]
+        for k in ("X", "Y", "Width", "Height"):
+            self.assertAlmostEqual(sdk_rect[k], ref_rect[k], places=2, msg=f"stored button {k}: sdk={sdk_rect[k]} ref={ref_rect[k]}")
+
+        # Verify compiled StackPanel XAML template end-to-end: compile real XAML via tools/winui/templates.py,
+        # build and execute a freestanding C harness linked against libImpossibleUI.a, and assert child layout.
         sys.path.insert(0, str(ROOT / "tools/winui"))
         import templates as tpl_mod
-        self.assertEqual(tpl_mod.ELEMENT_KINDS.get("StackPanel"), "IM_ELEM_STACK_PANEL")
-        self.assertIn("Spacing", tpl_mod.ELEMENT_OWN_PROPS["StackPanel"])
-        self.assertIn("Orientation", tpl_mod.ELEMENT_OWN_PROPS["StackPanel"])
+        xaml = (
+            '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+            ' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">'
+            '<ControlTemplate TargetType="ContentControl">'
+            '<StackPanel Orientation="Horizontal" Spacing="8">'
+            '<Border x:Name="TplA" Width="20" Height="10"/>'
+            '<Border x:Name="TplB" Width="30" Height="10"/>'
+            '</StackPanel>'
+            '</ControlTemplate>'
+            '</ResourceDictionary>'
+        )
+        doc = tpl_mod.parse_xaml(xaml, "stack_test.xaml")
+        comp = tpl_mod.Compiler(res_dict={}, brushes={}, values={})
+        comp.compile_control_template(doc.children[0], key="StackTestTpl", target_type="ContentControl", style_setters=(0, 0), enum_id="IM_TEMPLATE_STACK_TEST")
+        tpl_mod.verify_fully_consumed(doc.children[0])
+        emitted = tpl_mod.emit(comp)
+        h_text, c_text = emitted["template_data.h"], emitted["template_data.c"]
+        self.assertIn("IM_ELEM_STACK_PANEL", c_text)
+        self.assertIn('"Horizontal"', c_text)
+        self.assertIn('"Spacing"', c_text)
+        cache_path = BUILD / "CMakeCache.txt"
+        if cache_path.is_file():
+            cc = None
+            for line in cache_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith("CMAKE_C_COMPILER:FILEPATH="):
+                    cc = line.split("=", 1)[1].strip()
+                    break
+            if cc and Path(cc).is_file():
+                with tempfile.TemporaryDirectory() as tmp:
+                    tp = Path(tmp)
+                    (tp / "tpl_stack.h").write_text(h_text, encoding="utf-8")
+                    (tp / "tpl_stack.c").write_text(
+                        c_text.replace("const im_template im_templates[", "static const im_template test_templates[")
+                              .replace("const im_template_setter im_template_setters[]", "static const im_template_setter test_setters[]")
+                              .replace("const im_template_element im_template_elements[]", "static const im_template_element test_elements[]")
+                              .replace("const im_template_prop im_template_props[]", "static const im_template_prop test_props[]")
+                              .replace("const im_template_group im_template_groups[]", "static const im_template_group test_groups[]")
+                              .replace("const im_template_state im_template_states[]", "static const im_template_state test_states[]")
+                              .replace("const im_template_transition im_template_transitions[]", "static const im_template_transition test_transitions[]")
+                              .replace("const im_template_anim im_template_anims[]", "static const im_template_anim test_anims[]")
+                              .replace("const im_template_keyframe im_template_keyframes[]", "static const im_template_keyframe test_keyframes[]"),
+                        encoding="utf-8",
+                    )
+                    (tp / "main.c").write_text(
+                        '#include <stdint.h>\n#include <stddef.h>\n#include "tree.h"\n#include "layout.h"\n'
+                        '#include "tpl_stack.c"\n'
+                        'static uint8_t mem[65536]; static size_t used = 0;\n'
+                        'static void *al(void *c, size_t n){(void)c; n=(n+7u)&~7u; if(used+n>sizeof(mem))return NULL; void *p=&mem[used]; used+=n; return p;}\n'
+                        'static void *rl(void *c, void *p, size_t o, size_t n){void *q=al(c,n); if(!q)return NULL; if(p){for(size_t i=0;i<(o<n?o:n);i++)((uint8_t*)q)[i]=((uint8_t*)p)[i];} return q;}\n'
+                        'static void fr(void *c, void *p, size_t n){(void)c;(void)p;(void)n;}\n'
+                        'int main(void){\n'
+                        '  im_tree t; im_palette pal={IM_DARK,{0}}; im_allocator a={al,rl,fr,NULL};\n'
+                        '  if(!im_tree_init(&t,a)) return 1;\n'
+                        '  im_node *r=im_tree_instantiate_custom_template(&t,&pal,&test_templates[0],test_setters,test_elements,test_props,"H");\n'
+                        '  if(!r) return 2;\n'
+                        '  t.root=r; im_layout_run(&t,r,100*IM_ONE,40*IM_ONE,IM_ONE);\n'
+                        '  im_node *b=im_tree_find_by_name(r,"TplB");\n'
+                        '  if(!b || b->absolute_rect.left!=28*IM_ONE || (b->absolute_rect.right-b->absolute_rect.left)!=30*IM_ONE) return 3;\n'
+                        '  im_tree_destroy(&t); return 0;\n'
+                        '}\n',
+                        encoding="utf-8",
+                    )
+                    exe = tp / "stack_tpl_test.exe"
+                    subprocess.run(
+                        [cc, "-std=gnu23", "-I", str(ROOT / "ui"), str(tp / "main.c"),
+                         str(ROOT / "ui/tree.c"), str(ROOT / "ui/layout.c"), str(ROOT / "ui/theme.c"),
+                         "-o", str(exe)],
+                        check=True, capture_output=True, text=True, timeout=60,
+                    )
+                    res = subprocess.run([str(exe)], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(res.returncode, 0, f"compiled StackPanel template failed rc={res.returncode}")
 
     def test_rounded_clips_and_group_opacity_100_to_300(self):
         sys.path.insert(0, str(ROOT / "reference"))
