@@ -72,6 +72,8 @@ Parts are separate folders with their own tests and dependency list, so Impossib
 
 ## 2. Inflate and checksums
 
+> **Started:** 2026-11-25T12:28Z
+
 Deflate data sits inside PNG, so it comes first. Own code, because the OS part must not need a C library.
 
 **Phase:** 4

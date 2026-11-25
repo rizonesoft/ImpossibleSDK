@@ -686,5 +686,163 @@ class UnicodePart(unittest.TestCase):
         self.assertEqual(checked_total, 1114112)
 
 
+class InflateAndChecksum(unittest.TestCase):
+    def test_inflate_and_checksums_10000_random_streaming_and_1gb_bomb(self):
+        import gzip
+        import random
+        import struct
+        import zlib
+
+        exe = BUILD / "inflate-tests.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+
+        # 1. Self-contained unit vectors (CRC-32, Adler-32, zlib vector, exact limit, FDICT, truncation, trailing bytes).
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("inflate_tests: ALL PASSED", res.stdout)
+
+        # 2. Persistent batch process for 10,000 random zlib round-trips, byte-by-byte streaming, gzip, and 1 GB bomb!
+        proc = subprocess.Popen(
+            [str(exe), "--batch"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            def read_exact(n):
+                buf = bytearray()
+                while len(buf) < n:
+                    chunk = proc.stdout.read(n - len(buf))
+                    if not chunk:
+                        raise RuntimeError(f"EOF from inflate-tests: {proc.stderr.read().decode('utf-8', 'replace')}")
+                    buf.extend(chunk)
+                return bytes(buf)
+
+            def check_cksum(data: bytes):
+                proc.stdin.write(struct.pack("<II", 1, len(data)) + data)
+                proc.stdin.flush()
+                crc, adl = struct.unpack("<II", read_exact(8))
+                self.assertEqual(crc, zlib.crc32(data) & 0xFFFFFFFF)
+                self.assertEqual(adl, zlib.adler32(data) & 0xFFFFFFFF)
+
+            def run_inflate(fmt: int, comp: bytes, out_cap: int, has_limit=False, limit=0, stream_1by1=False):
+                flags = (1 if has_limit else 0) | (2 if stream_1by1 else 0)
+                proc.stdin.write(struct.pack("<IBBIII", 2, fmt, flags, limit, out_cap, len(comp)) + comp)
+                proc.stdin.flush()
+                st, iu, olen = struct.unpack("<III", read_exact(12))
+                out = read_exact(olen) if olen else b""
+                return st, iu, out
+
+            rng = random.Random(20261125)
+
+            # Checksum verification across 100 varied lengths (0 to 32 KB)
+            for n in (0, 1, 2, 3, 7, 15, 64, 5551, 5552, 5553, 16384, 32768):
+                check_cksum(rng.randbytes(n))
+            for _ in range(88):
+                check_cksum(rng.randbytes(rng.randint(0, 4096)))
+
+            # 10,000 random inputs across ALL levels 0..9 and ALL 3 formats (raw=0, zlib=1, gzip=2)!
+            wbits_for = {0: -15, 1: 15, 2: 31}
+            for i in range(10000):
+                level = i % 10
+                fmt = i % 3
+                kind = i % 4
+                if kind == 0:
+                    raw = rng.randbytes(rng.randint(0, 64))
+                elif kind == 1:
+                    raw = bytes([rng.randint(0, 255)]) * rng.randint(1, 200)
+                elif kind == 2:
+                    pat = rng.randbytes(rng.randint(1, 12))
+                    raw = (pat * rng.randint(2, 30))[: rng.randint(1, 300)]
+                else:
+                    raw = rng.randbytes(rng.randint(65, 512))
+                cobj = zlib.compressobj(level=level, wbits=wbits_for[fmt])
+                comp = cobj.compress(raw) + cobj.flush()
+                st, iu, out = run_inflate(fmt, comp, max(len(raw) + 16, 64), has_limit=True, limit=len(raw))
+                self.assertEqual(st, 0, f"case {i} fmt={fmt} level={level} len={len(raw)} st={st}")
+                self.assertEqual(out, raw, f"case {i} mismatch")
+                self.assertEqual(iu, len(comp), f"case {i} in_used")
+
+            # Byte-at-a-time streaming (1-byte input AND 1-byte output) across stored, fixed, dynamic,
+            # overlapping matches (dist=1, dist=3), 32 KiB window wrap, and multi-member gzip with FHCRC!
+            stream_cases = [
+                (1, zlib.compress(b"stored block test " * 20, 0), b"stored block test " * 20),
+                (1, zlib.compress(b"A" * 5000, 6), b"A" * 5000),
+                (1, zlib.compress(b"ABC" * 2000, 9), b"ABC" * 2000),
+                (0, zlib.compressobj(9, zlib.DEFLATED, -15).compress(b"hello " * 100) + zlib.compressobj(9, zlib.DEFLATED, -15).flush(), None),
+            ]
+            # 40 KiB window-wrap case (exceeding 32768-byte sliding window)
+            wrap_data = (rng.randbytes(1024) * 40)[:40960]
+            stream_cases = [
+                (1, zlib.compress(b"stored block test " * 20, 0), b"stored block test " * 20),
+                (1, zlib.compress(b"A" * 5000, 6), b"A" * 5000),
+                (1, zlib.compress(b"ABC" * 2000, 9), b"ABC" * 2000),
+                (1, zlib.compress(wrap_data, 6), wrap_data),
+                (2, gzip.compress(b"FirstMember!") + gzip.compress(b"SecondMember!"), b"FirstMember!SecondMember!"),
+            ]
+            for fmt, comp, expected in stream_cases:
+                st, iu, out = run_inflate(fmt, comp, len(expected) + 16, stream_1by1=True)
+                self.assertEqual(st, 0, f"1-by-1 fmt={fmt} st={st}")
+                self.assertEqual(out, expected)
+                self.assertEqual(iu, len(comp))
+
+            # Gzip optional fields (FEXTRA + FNAME + FCOMMENT + FHCRC) split byte-by-byte + bad FHCRC + reserved flag
+            body_raw = b"Gzip optional headers work!"
+            body_c = zlib.compressobj(6, zlib.DEFLATED, -15)
+            defl = body_c.compress(body_raw) + body_c.flush()
+            hdr = bytearray([0x1F, 0x8B, 0x08, 0x1E, 0, 0, 0, 0, 0, 255])  # FHCRC|FEXTRA|FNAME|FCOMMENT
+            hdr += struct.pack("<H", 4) + b"ABCD"
+            hdr += b"file.txt\x00"
+            hdr += b"a comment\x00"
+            fhcrc = zlib.crc32(hdr) & 0xFFFF
+            gz_opt = bytes(hdr) + struct.pack("<H", fhcrc) + defl + struct.pack("<II", zlib.crc32(body_raw) & 0xFFFFFFFF, len(body_raw))
+            st, _, out = run_inflate(2, gz_opt, len(body_raw) + 16, stream_1by1=True)
+            self.assertEqual(st, 0)
+            self.assertEqual(out, body_raw)
+
+            # Bad FHCRC -> IM_INFLATE_BAD_CHECKSUM (7)
+            bad_fhcrc = bytearray(gz_opt)
+            bad_fhcrc[len(hdr)] ^= 0xFF
+            st, _, _ = run_inflate(2, bytes(bad_fhcrc), 64)
+            self.assertEqual(st, 7)
+
+            # Reserved gzip flag -> IM_INFLATE_BAD_DATA (6)
+            bad_flg = bytearray(gz_opt)
+            bad_flg[3] |= 0x20
+            st, _, _ = run_inflate(2, bytes(bad_flg), 64)
+            self.assertEqual(st, 6)
+
+            # Multi-member gzip: damaged 2nd trailer -> BAD_CHECKSUM (7); 2nd member crossing limit -> LIMIT (3)
+            gz2 = gzip.compress(b"12345") + gzip.compress(b"67890")
+            gz2_bad = bytearray(gz2)
+            gz2_bad[-1] ^= 1
+            self.assertEqual(run_inflate(2, bytes(gz2_bad), 32)[0], 7)
+            self.assertEqual(run_inflate(2, gz2, 32, has_limit=True, limit=7)[0], 3)
+
+            # 1 GB zip bomb refused at 1 MB output_limit with IM_INFLATE_LIMIT (3) and exact total_out == 1 MB!
+            c_bomb = zlib.compressobj(level=9, wbits=15)
+            chunk_1mb = b"\x00" * (1024 * 1024)
+            parts = [c_bomb.compress(chunk_1mb) for _ in range(1024)]
+            parts.append(c_bomb.flush())
+            bomb = b"".join(parts)
+            self.assertLess(len(bomb), 1500000)
+            limit_1mb = 1024 * 1024
+            proc.stdin.write(struct.pack("<IBII", 3, 1, limit_1mb, len(bomb)) + bomb)
+            proc.stdin.flush()
+            st_b, tout_b = struct.unpack("<IQ", read_exact(12))
+            self.assertEqual(st_b, 3, f"1 GB bomb must return IM_INFLATE_LIMIT (3), got {st_b}")
+            self.assertEqual(tout_b, limit_1mb)
+        finally:
+            if proc.stdin:
+                proc.stdin.close()
+            if proc.stdout:
+                proc.stdout.close()
+            err_text = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+            if proc.stderr:
+                proc.stderr.close()
+            proc.wait(timeout=30)
+            self.assertEqual(proc.returncode, 0, err_text)
+
+
 if __name__ == "__main__":
     unittest.main()

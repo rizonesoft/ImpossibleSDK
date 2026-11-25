@@ -45,6 +45,24 @@
       ]
     },
     {
+      "name": "checksum",
+      "folder": "parts/checksum",
+      "depends": [],
+      "sources": [
+        "parts/checksum/checksum.c"
+      ]
+    },
+    {
+      "name": "inflate",
+      "folder": "parts/inflate",
+      "depends": [
+        "checksum"
+      ],
+      "sources": [
+        "parts/inflate/inflate.c"
+      ]
+    },
+    {
       "name": "unicode",
       "folder": "parts/unicode",
       "depends": [],
