@@ -200,6 +200,46 @@ static void fit(HWND handle, int width, int height) {
                  height * dpi / 96 + (outer.bottom - outer.top) - inner.bottom, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
+typedef HRESULT (WINAPI *dwm_set_attr_fn)(HWND, DWORD, LPCVOID, DWORD);
+
+static bool apply_native_backdrop(HWND handle, im_backdrop_kind backdrop) {
+    /* Dynamically resolve DwmSetWindowAttribute so Tier 1 PE imports stay clean and older OSes fall back cleanly. */
+    HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+    if (!dwm) return false;
+    dwm_set_attr_fn set_attr = (dwm_set_attr_fn)(void *)GetProcAddress(dwm, "DwmSetWindowAttribute");
+    if (!set_attr) return false;
+    DWORD val = 1u; /* DWMSBT_NONE */
+    if (backdrop == IM_BACKDROP_MICA) val = 2u;          /* DWMSBT_MAINWINDOW */
+    else if (backdrop == IM_BACKDROP_ACRYLIC) val = 3u;  /* DWMSBT_TRANSIENTWINDOW */
+    else if (backdrop == IM_BACKDROP_MICA_ALT) val = 4u; /* DWMSBT_TABBEDWINDOW */
+    HRESULT hr = set_attr(handle, 38u /* DWMWA_SYSTEMBACKDROP_TYPE */, &val, sizeof(val));
+    return SUCCEEDED(hr);
+}
+
+bool im_window_set_backdrop(im_window *window, im_backdrop_kind backdrop) {
+    if (!window) return false;
+    if (backdrop != IM_BACKDROP_NONE && backdrop != IM_BACKDROP_MICA &&
+        backdrop != IM_BACKDROP_MICA_ALT && backdrop != IM_BACKDROP_ACRYLIC) {
+        return false;
+    }
+    window->backdrop = backdrop;
+    if (!window->native) {
+        window->backdrop_active = false;
+        window->applied_backdrop = IM_BACKDROP_NONE;
+        return true;
+    }
+    HWND handle = (HWND)window->native;
+    if (!apply_native_backdrop(handle, backdrop)) {
+        return false;
+    }
+    window->applied_backdrop = backdrop;
+    window->backdrop_active = (backdrop != IM_BACKDROP_NONE);
+    window->pending_count = 0;
+    window->pending_overflow = true;
+    InvalidateRect(handle, NULL, FALSE);
+    return true;
+}
+
 bool im_window_run(im_window *window, bool one_frame) {
     window->painted = window->failed = false;
     window->pending_count = 0;
@@ -207,6 +247,8 @@ bool im_window_run(im_window *window, bool one_frame) {
     window->frame_timer_active = false;
     window->frame_timer_is_posted = false;
     window->frame_token = 0u;
+    window->applied_backdrop = IM_BACKDROP_NONE;
+    window->backdrop_active = false;
     if (window->width < 1 || window->height < 1 || window->width > 32767 || window->height > 32767) return false;
     HINSTANCE self = GetModuleHandleW(NULL);
     WNDCLASSEXW type = {.cbSize = sizeof type, .lpfnWndProc = procedure, .hInstance = self,
@@ -215,6 +257,9 @@ bool im_window_run(im_window *window, bool one_frame) {
     HWND handle = CreateWindowExW(0, IM_CLASS, window->title, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                                   window->width, window->height, NULL, NULL, self, window);
     if (!handle) return false;
+    if (window->backdrop != IM_BACKDROP_NONE) {
+        (void)im_window_set_backdrop(window, window->backdrop);
+    }
     fit(handle, window->width, window->height);
     ShowWindow(handle, one_frame ? SW_SHOWNOACTIVATE : SW_SHOW);
 

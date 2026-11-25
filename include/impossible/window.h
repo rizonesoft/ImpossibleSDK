@@ -37,6 +37,14 @@ typedef struct im_event {
     int key;  /* Windows virtual key, for IM_KEY_DOWN */
 } im_event;
 
+/* System backdrop material requested for a top-level window (Windows 11 DWMWA_SYSTEMBACKDROP_TYPE). */
+typedef enum im_backdrop_kind {
+    IM_BACKDROP_NONE = 0,
+    IM_BACKDROP_MICA,
+    IM_BACKDROP_MICA_ALT,
+    IM_BACKDROP_ACRYLIC
+} im_backdrop_kind;
+
 /* Fill in from title to event; the rest belongs to the kit and starts as zero. */
 typedef struct im_window {
     const wchar_t *title;
@@ -45,6 +53,9 @@ typedef struct im_window {
     void (*paint)(struct im_window *window, im_canvas *canvas);
     bool (*event)(struct im_window *window, const im_event *event); /* true repaints; may be NULL */
     void (*tick)(struct im_window *window); /* one-shot frame timer callback; may be NULL */
+    im_backdrop_kind backdrop; /* requested backdrop material (applied on open or via im_window_set_backdrop) */
+    im_backdrop_kind applied_backdrop; /* backdrop currently active on the native window */
+    bool backdrop_active; /* true when the host accepted the requested backdrop; false means draw fallback */
     void *native;
     void *cursor; /* active client HCURSOR set by im_host_set_cursor; NULL means arrow */
     uint32_t *buffer;
@@ -78,3 +89,8 @@ bool im_window_request_frame(im_window *window, uint32_t delay_ms);
 
 /* Cancels any pending one-shot frame wake-up on an open window. Returns false if window is not open. */
 bool im_window_cancel_frame(im_window *window);
+
+/* Request or clear a native system backdrop (Mica, Mica Alt, Acrylic, or None) on a window.
+   Valid before open (deferred until creation) and while open; returns false on invalid kind or host failure
+   without corrupting the previously active backdrop state. */
+bool im_window_set_backdrop(im_window *window, im_backdrop_kind backdrop);

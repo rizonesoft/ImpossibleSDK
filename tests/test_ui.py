@@ -4311,6 +4311,13 @@ class Drawing(unittest.TestCase):
             bad_comp.compile_style(bad_doc.children[0], enum_id="IM_TPL_BAD_TRANS")
         self.assertIn("bad_trans.xaml:", str(ctx.exception))
 
+    def test_shadows_and_materials_cache_and_fallbacks(self):
+        exe = BUILD / "test-shadow-material.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("test_shadow_material: ALL PASSED", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

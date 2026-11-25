@@ -354,6 +354,8 @@ Moving, scaling and turning elements, and drawing a picture held in memory.
 
 ## 12. Shadows and materials
 
+> **Started:** 2026-11-25T10:53Z
+
 Elevation shadows, and the solid or see-through grounds of windows, flyouts and menus. The layer behind the window draws Mica and Acrylic; the engine marks where and draws the fallback colour.
 
 **Phase:** 1
@@ -362,8 +364,9 @@ Elevation shadows, and the solid or see-through grounds of windows, flyouts and 
 
 **Build order:**
 
-1. Write `ui/shadow.c` with its first item. Done when: the first item below passes.
-2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+1. Implement portable integer rounded-shape elevation shadows and LRU shadow caching in `ui/shadow.{h,c}` (3-pass separable integer box blur matching WinUI Gaussian elevation kernels for elevations 2, 4, 8, 16, 32, and 128, cached by size, corner radii, elevation, and scale with caller-supplied `im_allocator` and `blur_computations` counter proving zero recomputation on frame 2, honouring `surface->layers` clips/opacity). Done when: `ui/shadow.c` compiles freestanding with zero floats/libc, matches exact double-precision Gaussian shadow oracle within 3 of 255 across elevations 2/4/8/16/32/128, and hits the cache with 0 new blurs on frame 2.
+2. Implement portable backdrop region recording and theme-data fallback painting in `ui/material.{h,c}` (Mica, Mica Alt, Acrylic in-app, Acrylic backdrop; records each region with bounds, radii, tint, and fallback into `im_material_list` for the host; resolves theme fallback colours from `ui/theme_data` and `ui/resources` across Dark, Light, all 4 Contrast themes, and transparency-off); add `im_backdrop_kind` and `im_window_set_backdrop` in `include/impossible/window.h` and `src/window.c` using dynamic `LoadLibraryW(L"dwmapi.dll")` + `GetProcAddress("DwmSetWindowAttribute")` (`DWMWA_SYSTEMBACKDROP_TYPE = 38`, keeping Tier 1 imports clean) with graceful `backdrop_active = false` fallback when unavailable or failing; register `ui/shadow.c` and `ui/material.c` in `parts.json` and `tools/winvm/live.py` `COVERED`; and update `docs/guide/drawing.md`. Done when: recording host receives every Mica/Mica Alt/Acrylic region with tint and fallback, contrast/transparency-off fallbacks match theme brushes, and `im_window_set_backdrop` activates Mica on Windows 11 and falls back cleanly on failure.
+3. Add `tests/fixtures/test_shadow_material.c` (`test-shadow-material` in `CMakeLists.txt`) and `tests/test_ui.py` checks (elevations 2/4/8/16/32/128 vs double-precision Gaussian oracle within 3/255, cache hit 0-blur proof + eviction + zero leaks, recording host material list, contrast + transparency-off fallback pixels, and Windows backdrop activation/fallback). Done when: `tools/check_parts.py`, `tools/site/build.py --check`, `tools/build.py`, and `tools/winvm/live.py --check` exit 0 and checks fail on planted reversions.
 
 - [ ] Blur a rounded shape in integers in `ui/shadow.c`. Done when: shadows at elevations 2, 4, 8, 16, 32 and 128 match real WinUI within 3 of 255. Cheaper substitute: a dark outline.
 - [ ] Cache shadows by size, radius and elevation in `ui/shadow.c`. Done when: the second frame of a menu computes no blur. Cheaper substitute: blurring each frame.
