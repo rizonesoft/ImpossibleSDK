@@ -104,6 +104,8 @@ im_node *im_tree_create_node(im_tree *tree, im_element_kind kind, const char *na
         node->default_v_content_align = IM_ALIGN_CENTER;
     }
     node->visibility = IM_VIS_VISIBLE;
+    node->opacity = IM_ONE;
+    node->base_opacity = IM_ONE;
     node->flow_direction = IM_FLOW_LTR;
     node->use_layout_rounding = true;
     node->orientation = IM_ORIENT_VERTICAL;
@@ -800,7 +802,13 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
             node->bind_mask |= IM_PBIT_H_CONTENT_ALIGN;
         } else if (str_eq(prop, "VerticalContentAlignment") && str_eq(v->text, "VerticalContentAlignment")) {
             node->bind_mask |= IM_PBIT_V_CONTENT_ALIGN;
+        } else if (str_eq(prop, "Data")) {
+            node->path_data_binding = v->text;
         }
+        return;
+    }
+    if (v->kind == IM_TVAL_BINDING && str_eq(prop, "Data")) {
+        node->path_data_binding = v->text;
         return;
     }
 
@@ -874,6 +882,25 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
     } else if (str_eq(prop, "RenderTransformOrigin") && v->kind == IM_TVAL_POINT) {
         node->render_transform_origin_x = (im_fixed)v->a;
         node->render_transform_origin_y = (im_fixed)v->b;
+    } else if (str_eq(prop, "Opacity") && resolve_fixed_val(palette, v, &fx)) {
+        if (fx < 0) fx = 0;
+        if (fx > IM_ONE) fx = IM_ONE;
+        node->opacity = fx;
+        node->base_opacity = fx;
+    } else if (str_eq(prop, "Stretch") && v->kind == IM_TVAL_ENUM_STR) {
+        if (str_eq(v->text, "Fill")) node->path_stretch = 1;
+        else if (str_eq(v->text, "Uniform")) node->path_stretch = 2;
+        else if (str_eq(v->text, "UniformToFill")) node->path_stretch = 3;
+        else node->path_stretch = 0;
+    } else if (str_eq(prop, "Data") && v->kind == IM_TVAL_PATH && v->b > 0) {
+        node->path_seg_start = (uint32_t)v->a;
+        node->path_seg_count = (uint32_t)v->b;
+        node->path_fill_rule = (uint8_t)v->c;
+        node->path_is_sdk_checkmark = false;
+    } else if (str_eq(prop, "Data") && v->kind == IM_TVAL_ICON && v->a == IM_ICON_CHECKMARK) {
+        node->path_is_sdk_checkmark = true;
+        node->intrinsic_width = 16 * IM_ONE;
+        node->intrinsic_height = 16 * IM_ONE;
     }
 }
 

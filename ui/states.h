@@ -129,3 +129,8 @@ void im_states_apply_to_tree(const im_state_machine *sm, im_node *root, uint32_t
 
 /* Draw a Button using solely the state machine's resolved Background, BorderBrush, and BackgroundSizing. */
 void im_states_draw_button(const im_state_machine *sm, im_surface *surface, im_rect bounds, uint32_t now_ms);
+
+/* Draw a compiled IM_ELEM_PATH node using its arranged bounds, Stretch, Fill brush, Opacity,
+   Visibility, and node device transform (mapping IM_ICON_CHECKMARK to im_path_sdk_checkmark). */
+bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, im_surface *surface,
+                              im_allocator alloc, const im_template_path_seg *path_segs, uint32_t now_ms);

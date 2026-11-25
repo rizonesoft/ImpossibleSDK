@@ -39,6 +39,7 @@ typedef enum im_element_kind {
     IM_ELEM_REORDER_THEME_TRANSITION,
     IM_ELEM_ENTRANCE_THEME_TRANSITION,
     IM_ELEM_STACK_PANEL,
+    IM_ELEM_PATH,
     IM_ELEM_COUNT
 } im_element_kind;
 
@@ -61,7 +62,8 @@ typedef enum im_value_kind {
     IM_TVAL_BINDING,
     IM_TVAL_ENUM_STR,
     IM_TVAL_NULL,
-    IM_TVAL_NESTED_TEMPLATE
+    IM_TVAL_NESTED_TEMPLATE,
+    IM_TVAL_PATH
 } im_value_kind;
 
 /* Binding source for IM_TVAL_BINDING values (stored in value.a). */
@@ -116,6 +118,18 @@ typedef struct im_template_value {
     const char *text;
     const char *fallback;
 } im_template_value;
+
+/* One compiled fixed-point vector path segment stored in im_template_path_segs.
+   cmd matches im_path_cmd (0=MOVE, 1=LINE, 2=QUAD, 3=CUBIC, 4=ARC, 5=CLOSE). */
+typedef struct im_template_path_seg {
+    uint8_t cmd;
+    im_fixed x1, y1;
+    im_fixed x2, y2;
+    im_fixed x3, y3;
+    im_fixed angle_deg;
+    bool large_arc;
+    bool sweep;
+} im_template_path_seg;
 
 /* One named property on a compiled template element. */
 typedef struct im_template_prop {

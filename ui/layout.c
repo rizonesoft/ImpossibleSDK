@@ -846,6 +846,11 @@ static im_size measure_override(im_tree *tree, im_node *node, im_size avail, im_
     case IM_ELEM_BORDER:
     case IM_ELEM_CONTENT_PRESENTER:
         return measure_single_box(tree, node, avail, scale, rounding);
+    case IM_ELEM_PATH:
+        return (im_size){
+            round_if(max_fixed(0, node->intrinsic_width), scale, rounding),
+            round_if(max_fixed(0, node->intrinsic_height), scale, rounding),
+        };
     case IM_ELEM_BUTTON:
     default:
         if (node->child_count > 0) {

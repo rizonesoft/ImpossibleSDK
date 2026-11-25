@@ -1,6 +1,8 @@
 /* Impossible UI: compiled WinUI visual state groups, transitions and setters. Portable. */
 #include "states.h"
 #include "button.h"
+#include "input.h"
+#include "path.h"
 
 static bool str_eq(const char *a, const char *b) {
     if (a == b) return true;
@@ -968,6 +970,14 @@ void im_states_apply_to_tree(const im_state_machine *sm, im_node *root, uint32_t
         } else {
             im_node_set_state_border_thickness(root, false, (im_thickness){0, 0, 0, 0});
         }
+
+        im_fixed op = im_states_sample_fixed(sm, root->name, "Opacity", now_ms, root->base_opacity);
+        if (op < 0) op = 0;
+        if (op > IM_ONE) op = IM_ONE;
+        if (op != root->opacity) {
+            root->opacity = op;
+            im_tree_invalidate_paint(root);
+        }
     }
     if (root->render_transform_name) {
         const char *tn = root->render_transform_name;
@@ -1054,4 +1064,64 @@ void im_states_draw_button(const im_state_machine *sm, im_surface *surface, im_r
             im_stroke(surface, bounds, stroke_radii, thickness, border_brush);
         }
     }
+}
+
+bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, im_surface *surface,
+                              im_allocator alloc, const im_template_path_seg *path_segs, uint32_t now_ms) {
+    if (!sm || !node || !surface || node->kind != IM_ELEM_PATH) return true;
+    if (node->visibility == IM_VIS_COLLAPSED || node->opacity <= 0) return true;
+    int64_t w = (int64_t)node->absolute_rect.right - node->absolute_rect.left;
+    int64_t h = (int64_t)node->absolute_rect.bottom - node->absolute_rect.top;
+    if (w <= 0 || h <= 0) return true;
+
+    enum im_brush_id fill_brush = IM_BRUSH_COUNT;
+    uint32_t fill_argb = 0u;
+    bool fill_trans = false;
+    if (node->name && im_states_sample_brush(sm, node->name, "Fill", now_ms, &fill_brush, &fill_argb, &fill_trans)) {
+        if (!fill_trans && fill_brush < IM_BRUSH_COUNT) {
+            fill_argb = im_brush_over(&sm->palette, fill_brush, 0, h, (surface->scale > 0) ? surface->scale : IM_ONE);
+        }
+    }
+    if ((fill_argb >> 24) == 0u) return true;
+
+    if (node->opacity < IM_ONE) {
+        uint32_t a = (fill_argb >> 24) & 0xFFu;
+        uint32_t scaled_a = (uint32_t)(((uint64_t)a * (uint64_t)node->opacity + (IM_ONE / 2)) >> 16);
+        if (scaled_a == 0u) return true;
+        fill_argb = (scaled_a << 24) | (fill_argb & 0x00FFFFFFu);
+    }
+
+    im_transform dev_tr;
+    im_fixed sc = (surface->scale > 0) ? surface->scale : IM_ONE;
+    if (!im_node_device_transform(node, sc, &dev_tr)) return true;
+
+    im_path_data pd = { NULL, 0u, IM_FILL_EVEN_ODD };
+    im_path_seg *tmp = NULL;
+    size_t tmp_bytes = 0u;
+    if (node->path_is_sdk_checkmark) {
+        pd = im_path_sdk_checkmark();
+    } else if (path_segs && node->path_seg_count > 0u) {
+        if (!alloc.alloc || !alloc.free) return false;
+        tmp_bytes = (size_t)node->path_seg_count * sizeof(im_path_seg);
+        tmp = (im_path_seg *)alloc.alloc(alloc.ctx, tmp_bytes);
+        if (!tmp) return false;
+        for (uint32_t i = 0; i < node->path_seg_count; i++) {
+            const im_template_path_seg *s = &path_segs[node->path_seg_start + i];
+            tmp[i] = (im_path_seg){
+                (im_path_cmd)s->cmd, s->x1, s->y1, s->x2, s->y2, s->x3, s->y3,
+                s->angle_deg, s->large_arc, s->sweep
+            };
+        }
+        pd = (im_path_data){ tmp, node->path_seg_count, (im_fill_rule)node->path_fill_rule };
+    } else {
+        return true;
+    }
+
+    const im_transform *saved = surface->transform;
+    surface->transform = &dev_tr;
+    bool ok = im_path_draw_stretched(surface, alloc, &pd, (im_rect){0, 0, (im_fixed)w, (im_fixed)h},
+                                     node->path_stretch, fill_argb, NULL, 0u);
+    surface->transform = saved;
+    if (tmp) alloc.free(alloc.ctx, tmp, tmp_bytes);
+    return ok;
 }

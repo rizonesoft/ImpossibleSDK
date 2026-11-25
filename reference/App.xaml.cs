@@ -591,7 +591,7 @@ public partial class App : Application
             }
             case "Background":
             {
-                var brush = new SolidColorBrush(ParseColor(caseId, prop, val.GetString() ?? ""));
+                var brush = ParseBrush(caseId, prop, val);
                 if (el is Border bBg) bBg.Background = brush;
                 else if (el is Control cBg) cBg.Background = brush;
                 else if (el is Panel pBg) pBg.Background = brush;
@@ -601,7 +601,7 @@ public partial class App : Application
             }
             case "Foreground":
             {
-                var brush = new SolidColorBrush(ParseColor(caseId, prop, val.GetString() ?? ""));
+                var brush = ParseBrush(caseId, prop, val);
                 if (el is Control cFg) cFg.Foreground = brush;
                 else if (el is TextBlock tFg) tFg.Foreground = brush;
                 else if (el is IconElement iFg) iFg.Foreground = brush;
@@ -683,7 +683,25 @@ public partial class App : Application
                         $"<Geometry xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>{System.Security.SecurityElement.Escape(pathData)}</Geometry>");
                     pi.Data = geom;
                 }
+                else if (el is Microsoft.UI.Xaml.Shapes.Path sp)
+                {
+                    string pathData = val.GetString() ?? "";
+                    var tmp = (Microsoft.UI.Xaml.Shapes.Path)XamlReader.Load(
+                        $"<Path xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Data='{System.Security.SecurityElement.Escape(pathData)}'/>");
+                    var geom = tmp.Data;
+                    tmp.Data = null;
+                    sp.Data = geom;
+                }
                 else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
+                break;
+            case "StrokeDashArray":
+                if (el is Microsoft.UI.Xaml.Shapes.Shape shDash && val.ValueKind == JsonValueKind.Array)
+                {
+                    var dc = new DoubleCollection();
+                    foreach (var item in val.EnumerateArray()) dc.Add(item.GetDouble());
+                    shDash.StrokeDashArray = dc;
+                }
+                else throw new InvalidOperationException($"{caseId}.{prop}: requires a Shape and JSON number array");
                 break;
             case "RowDefinitions":
                 if (el is Grid grRows && val.ValueKind == JsonValueKind.Array)
@@ -776,13 +794,77 @@ public partial class App : Application
                 else if (pt.IsEnum) converted = Enum.Parse(pt, val.GetString() ?? "", ignoreCase: false);
                 else if (pt == typeof(Thickness)) converted = ParseThickness(caseId, prop, val);
                 else if (pt == typeof(CornerRadius)) converted = ParseCornerRadius(caseId, prop, val);
-                else if (pt == typeof(Brush)) converted = new SolidColorBrush(ParseColor(caseId, prop, val.GetString() ?? ""));
+                else if (pt == typeof(Brush)) converted = ParseBrush(caseId, prop, val);
                 else if (pt == typeof(FontFamily)) converted = new FontFamily(val.GetString() ?? "");
                 else throw new InvalidOperationException($"{caseId}.{prop}: unsupported property type '{propInfo.PropertyType.Name}' on {el.GetType().Name}");
                 propInfo.SetValue(el, converted);
                 break;
             }
         }
+    }
+
+    private static Windows.Foundation.Point ParsePoint(string caseId, string prop, JsonElement val)
+    {
+        if (val.ValueKind == JsonValueKind.Array && val.GetArrayLength() == 2)
+        {
+            return new Windows.Foundation.Point(val[0].GetDouble(), val[1].GetDouble());
+        }
+        throw new InvalidOperationException($"{caseId}.{prop}: expected [x, y] point array");
+    }
+
+    private static Brush ParseBrush(string caseId, string prop, JsonElement val)
+    {
+        if (val.ValueKind == JsonValueKind.String)
+        {
+            return new SolidColorBrush(ParseColor(caseId, prop, val.GetString() ?? ""));
+        }
+        if (val.ValueKind == JsonValueKind.Object)
+        {
+            string kind = val.TryGetProperty("kind", out var kEl) ? (kEl.GetString() ?? "") : "";
+            if (kind == "LinearGradient")
+            {
+                var lg = new LinearGradientBrush();
+                if (val.TryGetProperty("start", out var st)) lg.StartPoint = ParsePoint(caseId, prop + ".start", st);
+                if (val.TryGetProperty("end", out var en)) lg.EndPoint = ParsePoint(caseId, prop + ".end", en);
+                if (val.TryGetProperty("mapping", out var mp)) lg.MappingMode = Enum.Parse<BrushMappingMode>(mp.GetString() ?? "RelativeToBoundingBox");
+                if (val.TryGetProperty("spread", out var sp)) lg.SpreadMethod = Enum.Parse<GradientSpreadMethod>(sp.GetString() ?? "Pad");
+                if (val.TryGetProperty("stops", out var stopsEl) && stopsEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var s in stopsEl.EnumerateArray())
+                    {
+                        lg.GradientStops.Add(new GradientStop
+                        {
+                            Offset = s.GetProperty("offset").GetDouble(),
+                            Color = ParseColor(caseId, prop + ".stop", s.GetProperty("color").GetString() ?? ""),
+                        });
+                    }
+                }
+                return lg;
+            }
+            if (kind == "RadialGradient")
+            {
+                var rg = new RadialGradientBrush();
+                if (val.TryGetProperty("center", out var ce)) rg.Center = ParsePoint(caseId, prop + ".center", ce);
+                if (val.TryGetProperty("origin", out var og)) rg.GradientOrigin = ParsePoint(caseId, prop + ".origin", og);
+                if (val.TryGetProperty("radius_x", out var rx)) rg.RadiusX = rx.GetDouble();
+                if (val.TryGetProperty("radius_y", out var ry)) rg.RadiusY = ry.GetDouble();
+                if (val.TryGetProperty("mapping", out var mp)) rg.MappingMode = Enum.Parse<BrushMappingMode>(mp.GetString() ?? "RelativeToBoundingBox");
+                if (val.TryGetProperty("spread", out var sp)) rg.SpreadMethod = Enum.Parse<GradientSpreadMethod>(sp.GetString() ?? "Pad");
+                if (val.TryGetProperty("stops", out var stopsEl) && stopsEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var s in stopsEl.EnumerateArray())
+                    {
+                        rg.GradientStops.Add(new GradientStop
+                        {
+                            Offset = s.GetProperty("offset").GetDouble(),
+                            Color = ParseColor(caseId, prop + ".stop", s.GetProperty("color").GetString() ?? ""),
+                        });
+                    }
+                }
+                return rg;
+            }
+        }
+        throw new InvalidOperationException($"{caseId}.{prop}: unsupported brush JSON");
     }
 
     private static Thickness ScaleThickness(Thickness t, double scaleFactor)

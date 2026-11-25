@@ -197,6 +197,16 @@ typedef struct im_node {
     im_fixed render_transform_origin_y;
     const char *render_transform_name;
     im_element_kind render_transform_kind;
+
+    /* Opacity (0..IM_ONE, default IM_ONE) and compiled Path element properties. */
+    im_fixed opacity;
+    im_fixed base_opacity;
+    uint32_t path_seg_start;
+    uint32_t path_seg_count;
+    uint8_t path_fill_rule;
+    bool path_is_sdk_checkmark;
+    int path_stretch;
+    const char *path_data_binding;
 } im_node;
 
 /* Maximum number of detached/destroyed subtree bounds buffered before overflowing to a full repaint. */

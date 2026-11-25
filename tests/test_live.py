@@ -1371,3 +1371,130 @@ class LiveReference(unittest.TestCase):
                                 worst_straight = d
                 self.assertLessEqual(worst_straight, 2, f"{tag} straight/group-opacity diff={worst_straight}")
                 self.assertLessEqual(worst_corner, 40, f"{tag} rounded-corner diff={worst_corner}")
+
+    def test_live_paths_and_gradients_match_sdk(self):
+        sys.path.insert(0, str(ROOT / "reference"))
+        import run as ref_run
+
+        shots_exe = ROOT / "build" / "linux" / "control-shots.exe"
+        if not shots_exe.exists():
+            shots_exe = ROOT / "build" / "control-shots.exe"
+        self.assertTrue(shots_exe.exists(), f"missing control-shots.exe at {shots_exe}")
+        sdk_raw = subprocess.check_output([str(shots_exe), "--path-shots"])
+        frame_bytes = 64 * 64 * 4
+        self.assertEqual(len(sdk_raw), 3 * frame_bytes)
+        sdk_frames = {
+            "path-stroke-joins": sdk_raw[0:frame_bytes],
+            "grad-linear-diag": sdk_raw[frame_bytes:2 * frame_bytes],
+            "grad-radial-offcenter": sdk_raw[2 * frame_bytes:3 * frame_bytes],
+        }
+
+        cases = [
+            {
+                "id": "path-stroke-joins",
+                "case_group": "path",
+                "control": "Path",
+                "theme": "Dark",
+                "scale": 1.0,
+                "frame": {"width": 64, "height": 64, "background": "#FF202020"},
+                "properties": {
+                    "Width": 64,
+                    "Height": 64,
+                    "Data": "M 12,48 L 28,16 L 52,44",
+                    "Stroke": "#FFFFFFFF",
+                    "StrokeThickness": 6,
+                    "StrokeStartLineCap": "Round",
+                    "StrokeEndLineCap": "Square",
+                    "StrokeLineJoin": "Round",
+                    "HorizontalAlignment": "Left",
+                    "VerticalAlignment": "Top",
+                },
+            },
+            {
+                "id": "grad-linear-diag",
+                "case_group": "gradient",
+                "control": "Border",
+                "theme": "Dark",
+                "scale": 1.0,
+                "frame": {"width": 64, "height": 64, "background": "#FF202020"},
+                "properties": {
+                    "Width": 48,
+                    "Height": 32,
+                    "HorizontalAlignment": "Center",
+                    "VerticalAlignment": "Center",
+                    "Background": {
+                        "kind": "LinearGradient",
+                        "start": [0.0, 0.0],
+                        "end": [1.0, 1.0],
+                        "mapping": "RelativeToBoundingBox",
+                        "spread": "Pad",
+                        "stops": [
+                            {"offset": 0.0, "color": "#FFFF2020"},
+                            {"offset": 0.5, "color": "#8020FF20"},
+                            {"offset": 1.0, "color": "#FF2020FF"},
+                        ],
+                    },
+                },
+            },
+            {
+                "id": "grad-radial-offcenter",
+                "case_group": "gradient",
+                "control": "Border",
+                "theme": "Dark",
+                "scale": 1.0,
+                "frame": {"width": 64, "height": 64, "background": "#FF202020"},
+                "properties": {
+                    "Width": 48,
+                    "Height": 32,
+                    "HorizontalAlignment": "Center",
+                    "VerticalAlignment": "Center",
+                    "Background": {
+                        "kind": "RadialGradient",
+                        "center": [0.35, 0.40],
+                        "origin": [0.50, 0.50],
+                        "radius_x": 0.55,
+                        "radius_y": 0.60,
+                        "mapping": "RelativeToBoundingBox",
+                        "spread": "Pad",
+                        "stops": [
+                            {"offset": 0.0, "color": "#FFFFFF40"},
+                            {"offset": 1.0, "color": "#FF2040C0"},
+                        ],
+                    },
+                },
+            },
+        ]
+
+        with tempfile.TemporaryDirectory(dir=ref_run.host_temp_root(), prefix="impossible-live-path-") as build_tmp:
+            exe = ref_run.build_reference(build_tmp)
+            cf = Path(build_tmp) / "path_cases.json"
+            cf.write_text(json.dumps({"cases": cases}), encoding="utf-8")
+            out_dir = Path(build_tmp) / "out"
+            ref_run.run_reference(exe, out_dir, cases_path=cf, work_dir=build_tmp)
+
+            # 1. Stroked Path: compare against WinUI within corner limit (40 on AA edge pixels, <=2 on solid interior/bg).
+            w_path = (out_dir / "path-stroke-joins.bgra").read_bytes()
+            s_path = sdk_frames["path-stroke-joins"]
+            self.assertEqual(len(w_path), len(s_path))
+            worst_path = 0
+            fg_count = 0
+            for i in range(0, len(w_path), 4):
+                d = max(abs(w_path[i + c] - s_path[i + c]) for c in range(3))
+                if d > worst_path:
+                    worst_path = d
+                if s_path[i] > 0xE0 and w_path[i] > 0xE0:
+                    fg_count += 1
+            self.assertGreater(fg_count, 100, "stroked path must have substantial matching foreground pixels")
+            self.assertLessEqual(worst_path, 40, f"stroked path worst pixel diff={worst_path} > corner limit 40")
+
+            # 2. Linear & Radial Gradients: compare every pixel within 2 of 255!
+            for cid in ("grad-linear-diag", "grad-radial-offcenter"):
+                wg = (out_dir / f"{cid}.bgra").read_bytes()
+                sg = sdk_frames[cid]
+                self.assertEqual(len(wg), len(sg), cid)
+                worst = 0
+                for i in range(0, len(wg), 4):
+                    d = max(abs(wg[i + c] - sg[i + c]) for c in range(3))
+                    if d > worst:
+                        worst = d
+                self.assertLessEqual(worst, 2, f"{cid} worst pixel diff={worst} > 2")

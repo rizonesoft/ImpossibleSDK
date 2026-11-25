@@ -10,6 +10,7 @@ impossible_add_program(ui-tests CONSOLE TIER 0 SOURCES tests/fixtures/ui_tests.c
 impossible_add_program(test-host CONSOLE TIER 1 SOURCES tests/fixtures/test_host.c)
 impossible_add_program(test-dirty CONSOLE TIER 1 SOURCES tests/fixtures/test_dirty.c)
 impossible_add_program(test-transform CONSOLE TIER 0 SOURCES tests/fixtures/test_transform.c)
+impossible_add_program(test-path CONSOLE TIER 0 SOURCES tests/fixtures/test_path.c)
 impossible_add_program(anim-dump CONSOLE TIER 0 SOURCES tests/fixtures/anim_dump.c)
 impossible_add_program(layout-dump CONSOLE TIER 0 SOURCES tests/fixtures/layout_dump.c)
 impossible_add_program(image-tests CONSOLE TIER 0 SOURCES tests/fixtures/image_tests.c)

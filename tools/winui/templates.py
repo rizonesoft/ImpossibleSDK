@@ -59,6 +59,7 @@ ELEMENT_KINDS = {
     "ReorderThemeTransition": "IM_ELEM_REORDER_THEME_TRANSITION",
     "EntranceThemeTransition": "IM_ELEM_ENTRANCE_THEME_TRANSITION",
     "StackPanel": "IM_ELEM_STACK_PANEL",
+    "Path": "IM_ELEM_PATH",
 }
 
 # Property-element wrapper tags accepted inside element subtrees.
@@ -248,6 +249,11 @@ ELEMENT_OWN_PROPS = {
         "StrokeDashCap", "StrokeDashOffset", "StrokeEndLineCap", "StrokeLineJoin",
         "StrokeMiterLimit", "StrokeStartLineCap", "StrokeThickness",
     },
+    "Path": {
+        "Data", "Fill", "Stretch", "Stroke", "StrokeDashArray",
+        "StrokeDashCap", "StrokeDashOffset", "StrokeEndLineCap", "StrokeLineJoin",
+        "StrokeMiterLimit", "StrokeStartLineCap", "StrokeThickness",
+    },
     "TextBlock": {
         "CharacterSpacing", "FontFamily", "FontSize", "FontStretch", "FontStyle", "FontWeight",
         "Foreground", "HorizontalTextAlignment", "IsColorFontEnabled", "IsTextScaleFactorEnabled",
@@ -340,6 +346,7 @@ ELEMENT_TYPES = {
     "Border": {"Border", "FrameworkElement", "UIElement"},
     "ContentPresenter": {"ContentPresenter", "FrameworkElement", "UIElement"},
     "Rectangle": {"Rectangle", "Shape", "FrameworkElement", "UIElement"},
+    "Path": {"Path", "Shape", "FrameworkElement", "UIElement"},
     "TextBlock": {"TextBlock", "FrameworkElement", "UIElement"},
     "Button": {"Button", "ButtonBase", "ContentControl", "Control", "FrameworkElement", "UIElement"},
     "ScrollViewer": {"ScrollViewer", "ContentControl", "Control", "FrameworkElement", "UIElement"},
@@ -791,6 +798,316 @@ def clean_target_property(prop, file, line):
     raise TemplateError(f"{file}:{line}: unknown TargetProperty {prop!r}")
 
 
+# Pinned Microsoft checkmark Path Data literal mapped to SDK-owned IM_ICON_CHECKMARK geometry
+# (never emitted verbatim into ui/template_data.c, per the SDK asset rule).
+PINNED_MICROSOFT_CHECKMARK_DATA = "M0,123 L39,93 L124,164 L256,18 L295,49 L124,240 z"
+
+_PATH_NUM_RE = re.compile(r"[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?")
+_PATH_CMDS = set("MmLlHhVvCcSsQqTtAaZz")
+
+
+def _to_fixed16(val, file, line, label):
+    q = int(round(val * 65536.0))
+    if q < -2147483648 or q > 2147483647:
+        raise TemplateError(f"{file}:{line}: path {label} {val} overflows 16.16 fixed point")
+    return q
+
+
+def parse_path_markup(text, file, line):
+    """Parse WinUI XAML Path Mini-Language into compiled fixed-point segment dicts.
+    Refuses malformed commands, misplaced fill rules, incomplete tuples, invalid arc flags,
+    trailing garbage, or 16.16 overflow after relative addition with exact file:line."""
+    if text is None:
+        raise TemplateError(f"{file}:{line}: empty path markup")
+    s = text.strip()
+    if not s:
+        raise TemplateError(f"{file}:{line}: empty path markup")
+
+    n = len(s)
+    pos = 0
+
+    def skip_ws():
+        nonlocal pos
+        while pos < n and s[pos] in " \t\r\n":
+            pos += 1
+
+    def skip_sep():
+        nonlocal pos
+        skip_ws()
+        if pos < n and s[pos] == ",":
+            pos += 1
+            skip_ws()
+            if pos < n and s[pos] == ",":
+                raise TemplateError(f"{file}:{line}: unexpected duplicate comma in path markup")
+
+    def peek_num():
+        nonlocal pos
+        save = pos
+        skip_ws()
+        if pos < n and s[pos] == ",":
+            pos += 1
+            skip_ws()
+        m = _PATH_NUM_RE.match(s, pos)
+        pos = save
+        return m is not None
+
+    def read_num(first_after_cmd=False):
+        nonlocal pos
+        if first_after_cmd:
+            skip_ws()
+        else:
+            skip_sep()
+        m = _PATH_NUM_RE.match(s, pos)
+        if not m:
+            got = s[pos:pos + 12] if pos < n else "<eof>"
+            raise TemplateError(f"{file}:{line}: expected number in path markup near {got!r}")
+        pos = m.end()
+        return float(m.group(0))
+
+    def read_flag():
+        nonlocal pos
+        skip_sep()
+        if pos >= n or s[pos] not in ("0", "1"):
+            got = s[pos:pos + 12] if pos < n else "<eof>"
+            raise TemplateError(f"{file}:{line}: expected arc flag '0' or '1' near {got!r}")
+        v = (s[pos] == "1")
+        pos += 1
+        return v
+
+    fill_rule = 0  # IM_FILL_EVEN_ODD default in WinUI
+    skip_ws()
+    if pos < n and s[pos] in ("F", "f"):
+        if pos + 1 >= n or s[pos + 1] not in ("0", "1"):
+            raise TemplateError(f"{file}:{line}: invalid fill rule in path markup near {s[pos:pos + 8]!r}")
+        fill_rule = 1 if s[pos + 1] == "1" else 0
+        pos += 2
+        skip_ws()
+        if pos < n and s[pos] not in _PATH_CMDS:
+            raise TemplateError(f"{file}:{line}: expected path command after fill rule near {s[pos:pos + 8]!r}")
+
+    segs = []
+    cx = 0.0
+    cy = 0.0
+    sx = 0.0
+    sy = 0.0
+    has_cur = False
+    prev_cmd = ""
+    prev_c2x = 0.0
+    prev_c2y = 0.0
+    prev_q1x = 0.0
+    prev_q1y = 0.0
+
+    while True:
+        skip_ws()
+        if pos >= n:
+            break
+        ch = s[pos]
+        if ch in ("F", "f"):
+            raise TemplateError(f"{file}:{line}: misplaced fill rule {ch!r} after path commands")
+        if ch not in _PATH_CMDS:
+            raise TemplateError(f"{file}:{line}: unknown path command {ch!r}")
+        pos += 1
+        cmd = ch
+
+        if cmd in ("Z", "z"):
+            if not has_cur:
+                raise TemplateError(f"{file}:{line}: close command {cmd!r} before initial MoveTo")
+            segs.append({
+                "cmd": 5, "x1": 0, "y1": 0, "x2": 0, "y2": 0, "x3": 0, "y3": 0,
+                "angle_deg": 0, "large_arc": False, "sweep": False,
+            })
+            cx, cy = sx, sy
+            prev_cmd = cmd
+            continue
+
+        if cmd not in ("M", "m") and not has_cur:
+            raise TemplateError(f"{file}:{line}: path command {cmd!r} before initial MoveTo")
+
+        first = True
+        while True:
+            if not first and not peek_num():
+                break
+            rel = cmd.islower()
+            ucmd = cmd.upper()
+
+            if ucmd == "M":
+                x = read_num(first)
+                y = read_num(False)
+                if rel and has_cur:
+                    x += cx
+                    y += cy
+                elif rel and not has_cur:
+                    pass
+                fx = _to_fixed16(x, file, line, "MoveTo x")
+                fy = _to_fixed16(y, file, line, "MoveTo y")
+                segs.append({
+                    "cmd": 0, "x1": fx, "y1": fy, "x2": 0, "y2": 0, "x3": 0, "y3": 0,
+                    "angle_deg": 0, "large_arc": False, "sweep": False,
+                })
+                cx, cy = x, y
+                sx, sy = x, y
+                has_cur = True
+                prev_cmd = cmd
+                # Subsequent coordinate pairs after M/m are implicit L/l!
+                cmd = "l" if rel else "L"
+                first = False
+                continue
+
+            if ucmd == "L":
+                x = read_num(first)
+                y = read_num(False)
+                if rel:
+                    x += cx
+                    y += cy
+                fx = _to_fixed16(x, file, line, "LineTo x")
+                fy = _to_fixed16(y, file, line, "LineTo y")
+                segs.append({
+                    "cmd": 1, "x1": fx, "y1": fy, "x2": 0, "y2": 0, "x3": 0, "y3": 0,
+                    "angle_deg": 0, "large_arc": False, "sweep": False,
+                })
+                cx, cy = x, y
+                prev_cmd = cmd
+            elif ucmd == "H":
+                x = read_num(first)
+                if rel:
+                    x += cx
+                fx = _to_fixed16(x, file, line, "HLineTo x")
+                fy = _to_fixed16(cy, file, line, "HLineTo y")
+                segs.append({
+                    "cmd": 1, "x1": fx, "y1": fy, "x2": 0, "y2": 0, "x3": 0, "y3": 0,
+                    "angle_deg": 0, "large_arc": False, "sweep": False,
+                })
+                cx = x
+                prev_cmd = cmd
+            elif ucmd == "V":
+                y = read_num(first)
+                if rel:
+                    y += cy
+                fx = _to_fixed16(cx, file, line, "VLineTo x")
+                fy = _to_fixed16(y, file, line, "VLineTo y")
+                segs.append({
+                    "cmd": 1, "x1": fx, "y1": fy, "x2": 0, "y2": 0, "x3": 0, "y3": 0,
+                    "angle_deg": 0, "large_arc": False, "sweep": False,
+                })
+                cy = y
+                prev_cmd = cmd
+            elif ucmd == "C":
+                x1 = read_num(first)
+                y1 = read_num(False)
+                x2 = read_num(False)
+                y2 = read_num(False)
+                x3 = read_num(False)
+                y3 = read_num(False)
+                if rel:
+                    x1 += cx; y1 += cy; x2 += cx; y2 += cy; x3 += cx; y3 += cy
+                segs.append({
+                    "cmd": 3,
+                    "x1": _to_fixed16(x1, file, line, "Cubic x1"),
+                    "y1": _to_fixed16(y1, file, line, "Cubic y1"),
+                    "x2": _to_fixed16(x2, file, line, "Cubic x2"),
+                    "y2": _to_fixed16(y2, file, line, "Cubic y2"),
+                    "x3": _to_fixed16(x3, file, line, "Cubic x3"),
+                    "y3": _to_fixed16(y3, file, line, "Cubic y3"),
+                    "angle_deg": 0, "large_arc": False, "sweep": False,
+                })
+                prev_c2x, prev_c2y = x2, y2
+                cx, cy = x3, y3
+                prev_cmd = cmd
+            elif ucmd == "S":
+                if prev_cmd in ("C", "c", "S", "s"):
+                    x1 = 2.0 * cx - prev_c2x
+                    y1 = 2.0 * cy - prev_c2y
+                else:
+                    x1, y1 = cx, cy
+                x2 = read_num(first)
+                y2 = read_num(False)
+                x3 = read_num(False)
+                y3 = read_num(False)
+                if rel:
+                    x2 += cx; y2 += cy; x3 += cx; y3 += cy
+                segs.append({
+                    "cmd": 3,
+                    "x1": _to_fixed16(x1, file, line, "SmoothCubic x1"),
+                    "y1": _to_fixed16(y1, file, line, "SmoothCubic y1"),
+                    "x2": _to_fixed16(x2, file, line, "SmoothCubic x2"),
+                    "y2": _to_fixed16(y2, file, line, "SmoothCubic y2"),
+                    "x3": _to_fixed16(x3, file, line, "SmoothCubic x3"),
+                    "y3": _to_fixed16(y3, file, line, "SmoothCubic y3"),
+                    "angle_deg": 0, "large_arc": False, "sweep": False,
+                })
+                prev_c2x, prev_c2y = x2, y2
+                cx, cy = x3, y3
+                prev_cmd = cmd
+            elif ucmd == "Q":
+                x1 = read_num(first)
+                y1 = read_num(False)
+                x2 = read_num(False)
+                y2 = read_num(False)
+                if rel:
+                    x1 += cx; y1 += cy; x2 += cx; y2 += cy
+                segs.append({
+                    "cmd": 2,
+                    "x1": _to_fixed16(x1, file, line, "Quad x1"),
+                    "y1": _to_fixed16(y1, file, line, "Quad y1"),
+                    "x2": _to_fixed16(x2, file, line, "Quad x2"),
+                    "y2": _to_fixed16(y2, file, line, "Quad y2"),
+                    "x3": 0, "y3": 0,
+                    "angle_deg": 0, "large_arc": False, "sweep": False,
+                })
+                prev_q1x, prev_q1y = x1, y1
+                cx, cy = x2, y2
+                prev_cmd = cmd
+            elif ucmd == "T":
+                if prev_cmd in ("Q", "q", "T", "t"):
+                    x1 = 2.0 * cx - prev_q1x
+                    y1 = 2.0 * cy - prev_q1y
+                else:
+                    x1, y1 = cx, cy
+                x2 = read_num(first)
+                y2 = read_num(False)
+                if rel:
+                    x2 += cx; y2 += cy
+                segs.append({
+                    "cmd": 2,
+                    "x1": _to_fixed16(x1, file, line, "SmoothQuad x1"),
+                    "y1": _to_fixed16(y1, file, line, "SmoothQuad y1"),
+                    "x2": _to_fixed16(x2, file, line, "SmoothQuad x2"),
+                    "y2": _to_fixed16(y2, file, line, "SmoothQuad y2"),
+                    "x3": 0, "y3": 0,
+                    "angle_deg": 0, "large_arc": False, "sweep": False,
+                })
+                prev_q1x, prev_q1y = x1, y1
+                cx, cy = x2, y2
+                prev_cmd = cmd
+            elif ucmd == "A":
+                rx = abs(read_num(first))
+                ry = abs(read_num(False))
+                rot = read_num(False)
+                la = read_flag()
+                sw = read_flag()
+                x = read_num(False)
+                y = read_num(False)
+                if rel:
+                    x += cx; y += cy
+                segs.append({
+                    "cmd": 4,
+                    "x1": _to_fixed16(rx, file, line, "Arc rx"),
+                    "y1": _to_fixed16(ry, file, line, "Arc ry"),
+                    "x2": _to_fixed16(x, file, line, "Arc x"),
+                    "y2": _to_fixed16(y, file, line, "Arc y"),
+                    "x3": 0, "y3": 0,
+                    "angle_deg": _to_fixed16(rot, file, line, "Arc angle"),
+                    "large_arc": la, "sweep": sw,
+                })
+                cx, cy = x, y
+                prev_cmd = cmd
+            first = False
+
+    if not segs:
+        raise TemplateError(f"{file}:{line}: path markup has no drawing commands")
+    return {"fill_rule": fill_rule, "segs": segs}
+
+
 class Compiler:
     """Compiles WinUI styles and control templates into flat portable C tables."""
 
@@ -807,6 +1124,7 @@ class Compiler:
         self.transitions = []
         self.anims = []
         self.keyframes = []
+        self.path_segs = []
         self.local_resources = {}  # nested style keys inside Grid.Resources
 
     def resolve_string_resource(self, key, file, line):
@@ -949,6 +1267,16 @@ class Compiler:
                 raise TemplateError(f"{file}:{line}: unsupported resource {key!r} of type {tag!r}")
 
             raise TemplateError(f"{file}:{line}: unknown markup extension {head!r}")
+
+        # Path.Data literal markup (bindings are already dispatched above before literal parsing)
+        if prop_name == "Data":
+            parsed = parse_path_markup(text, file, line)
+            norm = " ".join(text.strip().split())
+            if norm == PINNED_MICROSOFT_CHECKMARK_DATA:
+                return {"kind": "IM_TVAL_ICON", "a": 0, "b": 0, "c": 0, "d": 0, "text": "IM_ICON_CHECKMARK", "fallback": None}
+            start = len(self.path_segs)
+            self.path_segs.extend(parsed["segs"])
+            return {"kind": "IM_TVAL_PATH", "a": start, "b": len(parsed["segs"]), "c": parsed["fill_rule"], "d": 0, "text": None, "fallback": None}
 
         # Private-use Unicode glyph check (e.g. SymbolThemeFontFamily glyphs on TextBlock/FontIcon)
         if prop_name in ("Text", "Glyph") and len(text) == 1 and 0xE000 <= ord(text) <= 0xF8FF:
@@ -1557,6 +1885,8 @@ def emit(compiler):
     h.append("/* Compiled visual transitions table. */\nextern const im_template_transition im_template_transitions[];\n")
     h.append("/* Compiled storyboard animations table. */\nextern const im_template_anim im_template_anims[];\n")
     h.append("/* Compiled animation keyframes table. */\nextern const im_template_keyframe im_template_keyframes[];\n")
+    if compiler.path_segs:
+        h.append("/* Compiled vector path segments table. */\nextern const im_template_path_seg im_template_path_segs[];\n")
 
     c = [head, '#include "template.h"\n\n']
     c.append("const im_template im_templates[IM_TEMPLATE_COUNT] = {\n")
@@ -1590,6 +1920,14 @@ def emit(compiler):
     for kf in compiler.keyframes:
         sp = ", ".join(str(x) for x in kf["spline"])
         c.append(f"    {{{kf['kind']}, {kf['key_time_ms']}, {format_val_c(kf['value'])}, {{{sp}}}}},\n")
+    if compiler.path_segs:
+        c.append("};\n\nconst im_template_path_seg im_template_path_segs[] = {\n")
+        for ps in compiler.path_segs:
+            la = "true" if ps["large_arc"] else "false"
+            sw = "true" if ps["sweep"] else "false"
+            c.append(
+                f"    {{{ps['cmd']}, {ps['x1']}, {ps['y1']}, {ps['x2']}, {ps['y2']}, {ps['x3']}, {ps['y3']}, {ps['angle_deg']}, {la}, {sw}}},\n"
+            )
     c.append("};\n")
     return {"template_data.h": "".join(h), "template_data.c": "".join(c)}
 

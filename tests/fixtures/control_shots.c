@@ -5,7 +5,9 @@
 #include <impossible/base.h>
 #include <windows.h>
 #include "button.h"
+#include "gradient.h"
 #include "layer.h"
+#include "path.h"
 #include "accents.h"
 
 enum { MAX_W = 160, MAX_H = 128 };
@@ -168,9 +170,65 @@ static int emit_clip_shots(HANDLE out) {
     return 0;
 }
 
+static int emit_path_shots(HANDLE out) {
+    static uint32_t buf[64 * 64];
+    im_allocator alloc = {sa_alloc, sa_realloc, sa_free, NULL};
+    im_radii sq = {0, 0, 0, 0};
+
+    /* 1. Stroked Path: M 12,48 L 28,16 L 52,44 with Round start cap, Square end cap, Round join, thickness 6. */
+    {
+        for (int i = 0; i < 64 * 64; i++) buf[i] = 0x00202020u;
+        im_surface s = {buf, 64, 64, 64, {IM_DARK, {0}}, IM_ONE, NULL, NULL};
+        shot_arena_used = 0;
+        im_path p;
+        if (!im_path_init(&p, alloc, IM_FILL_EVEN_ODD)) return 1;
+        im_path_move_to(&p, 12 * IM_ONE, 48 * IM_ONE);
+        im_path_line_to(&p, 28 * IM_ONE, 16 * IM_ONE);
+        im_path_line_to(&p, 52 * IM_ONE, 44 * IM_ONE);
+        im_stroke_style st = {6 * IM_ONE, IM_CAP_ROUND, IM_CAP_SQUARE, IM_CAP_FLAT, IM_JOIN_ROUND, 10 * IM_ONE, NULL, 0u, 0};
+        im_path_data pd = im_path_view(&p);
+        if (!im_path_stroke_argb(&s, alloc, &pd, &st, 0xFFFFFFFFu)) return 1;
+        im_path_destroy(&p);
+        if (!write_all(out, buf, 64 * 64 * 4)) return 1;
+    }
+
+    /* 2. LinearGradientBrush on 48x32 centered Border in 64x64: (0,0)->(1,1) with translucent middle stop. */
+    {
+        for (int i = 0; i < 64 * 64; i++) buf[i] = 0x00202020u;
+        im_surface s = {buf, 64, 64, 64, {IM_DARK, {0}}, IM_ONE, NULL, NULL};
+        im_gradient_stop stops[3] = {
+            {0, 0xFFFF2020u},
+            {IM_ONE / 2, 0x8020FF20u},
+            {IM_ONE, 0xFF2020FFu},
+        };
+        im_linear_gradient lg = {0, 0, IM_ONE, IM_ONE, IM_MAPPING_RELATIVE, IM_SPREAD_PAD, IM_GRAD_SPACE_SRGB, stops, 3u};
+        im_gradient_fill_rect_linear(&s, (im_rect){8 * IM_ONE, 16 * IM_ONE, 56 * IM_ONE, 48 * IM_ONE}, sq, &lg);
+        if (!write_all(out, buf, 64 * 64 * 4)) return 1;
+    }
+
+    /* 3. RadialGradientBrush on 48x32 centered Border: Center=(0.35,0.4), default Origin=(0.5,0.5), Rx=0.55, Ry=0.6. */
+    {
+        for (int i = 0; i < 64 * 64; i++) buf[i] = 0x00202020u;
+        im_surface s = {buf, 64, 64, 64, {IM_DARK, {0}}, IM_ONE, NULL, NULL};
+        im_gradient_stop stops[2] = {
+            {0, 0xFFFFFF40u},
+            {IM_ONE, 0xFF2040C0u},
+        };
+        im_radial_gradient rg = im_radial_gradient_default(stops, 2u);
+        rg.center_x = (35 * IM_ONE + 50) / 100;
+        rg.center_y = (40 * IM_ONE + 50) / 100;
+        rg.radius_x = (55 * IM_ONE + 50) / 100;
+        rg.radius_y = (60 * IM_ONE + 50) / 100;
+        im_gradient_fill_rect_radial(&s, (im_rect){8 * IM_ONE, 16 * IM_ONE, 56 * IM_ONE, 48 * IM_ONE}, sq, &rg);
+        if (!write_all(out, buf, 64 * 64 * 4)) return 1;
+    }
+    return 0;
+}
+
 int im_main(void) {
     HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
     if (im_has_argument(L"--clip-shots")) return emit_clip_shots(out);
+    if (im_has_argument(L"--path-shots")) return emit_path_shots(out);
     uint32_t accents[7] = ACCENTS;
     if (parse_accents(accents) < 0) return 2;
     static const im_fixed pad = IM_ONE;

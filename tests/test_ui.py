@@ -3414,6 +3414,280 @@ class Drawing(unittest.TestCase):
                     self.assertLessEqual(abs(gg - wg), 2.0, f"mode {mode} G at ({x},{y}): got={gg} want={wg}")
                     self.assertLessEqual(abs(gb - wb), 2.0, f"mode {mode} B at ({x},{y}): got={gb} want={wb}")
 
+    def test_paths_arcs_and_gradients_match_oracles(self):
+        import math
+        exe = BUILD / "test-path.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("test_path: ALL PASSED", res.stdout)
+
+        # Independent Python 16-subscanline analytic horizontal interval oracle + converged curve flattening
+        # for ALL 1,000 random cubic and quadratic paths (500 EvenOdd, 500 NonZero), tolerance <= 4/255.
+        def flatten_poly(kind, pts):
+            poly = [(pts[0][0], pts[0][1])]
+            steps = 64  # converged reference flattening
+            if kind == 3:
+                triples = [(pts[0], pts[1], pts[2], pts[3]), (pts[3], pts[4], pts[5], pts[6]), (pts[6], pts[7], pts[8], pts[0])]
+                for p0, p1, p2, p3 in triples:
+                    for i in range(1, steps + 1):
+                        t = i / steps
+                        mt = 1.0 - t
+                        x = mt**3 * p0[0] + 3 * mt**2 * t * p1[0] + 3 * mt * t**2 * p2[0] + t**3 * p3[0]
+                        y = mt**3 * p0[1] + 3 * mt**2 * t * p1[1] + 3 * mt * t**2 * p2[1] + t**3 * p3[1]
+                        poly.append((x, y))
+            else:
+                pairs = [(pts[0], pts[1], pts[2]), (pts[2], pts[3], pts[4]), (pts[4], pts[5], pts[0])]
+                for p0, p1, p2 in pairs:
+                    for i in range(1, steps + 1):
+                        t = i / steps
+                        mt = 1.0 - t
+                        x = mt**2 * p0[0] + 2 * mt * t * p1[0] + t**2 * p2[0]
+                        y = mt**2 * p0[1] + 2 * mt * t * p1[1] + t**2 * p2[1]
+                        poly.append((x, y))
+            return poly
+
+        def eval_rows(poly, rule, rows):
+            edges = []
+            n = len(poly)
+            for i in range(n):
+                x0, y0 = poly[i]
+                x1, y1 = poly[(i + 1) % n]
+                if y0 == y1:
+                    continue
+                if y0 < y1:
+                    edges.append((x0, y0, x1, y1, 1))
+                else:
+                    edges.append((x1, y1, x0, y0, -1))
+            out = {}
+            for y in rows:
+                cov = [0.0] * 16
+                for s in range(16):
+                    sy = y + (2 * s + 1) / 32.0
+                    xs = []
+                    for x0, y0, x1, y1, d in edges:
+                        if y0 <= sy < y1:
+                            xs.append((x0 + (x1 - x0) * (sy - y0) / (y1 - y0), d))
+                    if len(xs) < 2:
+                        continue
+                    xs.sort(key=lambda t: t[0])
+                    w = 0
+                    inside = False
+                    sx = 0.0
+                    for ix, d in xs:
+                        w += d
+                        now_in = (w != 0) if rule == 1 else ((w & 1) != 0)
+                        if not inside and now_in:
+                            sx = ix
+                            inside = True
+                        elif inside and not now_in:
+                            sl = max(0.0, sx)
+                            sr = min(16.0, ix)
+                            inside = False
+                            if sr > sl:
+                                px0 = int(math.floor(sl))
+                                px1 = min(15, int(math.floor(sr - 1e-12)))
+                                for px in range(px0, px1 + 1):
+                                    ol = max(sl, float(px))
+                                    or_ = min(sr, float(px + 1))
+                                    if or_ > ol:
+                                        cov[px] += (or_ - ol)
+                out[y] = [int(round(255.0 * min(1.0, c / 16.0))) for c in cov]
+            return out
+
+        def sample_stops_oracle(stops, spread, t):
+            if spread == 0:
+                t = max(0.0, min(1.0, t))
+            elif spread == 2:
+                t = t - math.floor(t)
+            else:
+                t = t % 2.0
+                if t > 1.0:
+                    t = 2.0 - t
+            for i in range(len(stops) - 1):
+                o0, c0 = stops[i]
+                o1, c1 = stops[i + 1]
+                if t <= o1 or i == len(stops) - 2:
+                    w = 0.0 if o1 == o0 else max(0.0, min(1.0, (t - o0) / (o1 - o0)))
+                    a0, r0, g0, b0 = (c0 >> 24) & 255, (c0 >> 16) & 255, (c0 >> 8) & 255, c0 & 255
+                    a1, r1, g1, b1 = (c1 >> 24) & 255, (c1 >> 16) & 255, (c1 >> 8) & 255, c1 & 255
+                    a = a0 * (1.0 - w) + a1 * w
+                    if a < 0.5:
+                        return (0, 0, 0, 0)
+                    r = (r0 * a0 * (1.0 - w) + r1 * a1 * w) / a
+                    g = (g0 * a0 * (1.0 - w) + g1 * a1 * w) / a
+                    b = (b0 * a0 * (1.0 - w) + b1 * a1 * w) / a
+                    return (int(round(a)), int(round(r)), int(round(g)), int(round(b)))
+            return (0, 0, 0, 0)
+
+        rpath_count = 0
+        glin_count = 0
+        grad_count = 0
+        probe = [34, 53, 88, 119, 136, 170, 201, 220]
+        probe_rows = sorted({p // 16 for p in probe})
+        stops3 = [(0.0, 0xFFFF1020), (0.5, 0x8020E040), (1.0, 0xFF1040F0)]
+
+        for line in res.stdout.splitlines():
+            if line.startswith("RPATH "):
+                left, right = line.split(" : ")
+                toks = left.split()
+                rule = int(toks[1])
+                kind = int(toks[2])
+                npts = int(toks[3])
+                pts = [(int(toks[4 + 2 * k]) / 65536.0, int(toks[5 + 2 * k]) / 65536.0) for k in range(npts)]
+                got = [int(v) for v in right.split()]
+                poly = flatten_poly(kind, pts)
+                if len(got) == 256:
+                    want_rows = eval_rows(poly, rule, range(16))
+                    for y in range(16):
+                        for x in range(16):
+                            g = got[y * 16 + x]
+                            w = want_rows[y][x]
+                            self.assertLessEqual(abs(g - w), 4, f"RPATH #{rpath_count} ({x},{y}): got={g} want={w}")
+                else:
+                    want_rows = eval_rows(poly, rule, probe_rows)
+                    for j, pidx in enumerate(probe):
+                        g = got[j]
+                        w = want_rows[pidx // 16][pidx % 16]
+                        self.assertLessEqual(abs(g - w), 4, f"RPATH #{rpath_count} probe {pidx}: got={g} want={w}")
+                rpath_count += 1
+            elif line.startswith("GLIN "):
+                _, sx, sy, scol = line.split()
+                x, y, col = float(sx), float(sy), int(scol) & 0xFFFFFFFF
+                # box [10,90] x [20,60], start=(10,20), end=(90,60), Reflect
+                vx, vy = 80.0, 40.0
+                t = ((x - 10.0) * vx + (y - 20.0) * vy) / (vx * vx + vy * vy)
+                wa, wr, wg, wb = sample_stops_oracle(stops3, 1, t)
+                ga, gr, gg, gb = (col >> 24) & 255, (col >> 16) & 255, (col >> 8) & 255, col & 255
+                for ch, g, w in (("A", ga, wa), ("R", gr, wr), ("G", gg, wg), ("B", gb, wb)):
+                    self.assertLessEqual(abs(g - w), 2, f"GLIN ({x},{y}) {ch}: got={g} want={w}")
+                glin_count += 1
+            elif line.startswith("GRAD "):
+                _, sx, sy, scol = line.split()
+                x, y, col = float(sx), float(sy), int(scol) & 0xFFFFFFFF
+                # box [10,90] x [20,60], center=(0.35,0.40), origin=(0.50,0.50), rx=0.55, ry=0.60, Repeat
+                cx, cy = 10.0 + 0.35 * 80.0, 20.0 + 0.40 * 40.0
+                ox, oy = 10.0 + 0.50 * 80.0, 20.0 + 0.50 * 40.0
+                rx, ry = 0.55 * 80.0, 0.60 * 40.0
+                px, py = (x - cx) / rx, (y - cy) / ry
+                fx, fy = (ox - cx) / rx, (oy - cy) / ry
+                dx, dy = px - fx, py - fy
+                f2 = fx * fx + fy * fy
+                fd = fx * dx + fy * dy
+                d2 = dx * dx + dy * dy
+                t = (math.sqrt(fd * fd + d2 * (1.0 - f2)) + fd) / (1.0 - f2)
+                wa, wr, wg, wb = sample_stops_oracle(stops3, 2, t)
+                ga, gr, gg, gb = (col >> 24) & 255, (col >> 16) & 255, (col >> 8) & 255, col & 255
+                for ch, g, w in (("A", ga, wa), ("R", gr, wr), ("G", gg, wg), ("B", gb, wb)):
+                    self.assertLessEqual(abs(g - w), 2, f"GRAD ({x},{y}) {ch}: got={g} want={w}")
+                grad_count += 1
+
+        self.assertEqual(rpath_count, 1000)
+        self.assertEqual(glin_count, 20)
+        self.assertEqual(grad_count, 20)
+
+    def test_path_markup_compiler_corpus_and_refusals(self):
+        import xml.etree.ElementTree as ET
+        sys.path.insert(0, str(ROOT / "tools" / "winui"))
+        import templates as tpl_mod
+
+        # 1. Exact decoded-command fixtures: implicit L after M, relative after Z, S/T reflection & reset,
+        # adjacent 1-char arc flags, unsigned radii, scientific notation, glued signs.
+        p_ml = tpl_mod.parse_path_markup("F1 M 10,20 30,40 l 5-5 z l 1,2", "fx.xaml", 10)
+        self.assertEqual(p_ml["fill_rule"], 1)
+        self.assertEqual([s["cmd"] for s in p_ml["segs"]], [0, 1, 1, 5, 1])
+        # After z, current point returned to subpath start (10, 20), so l 1,2 lands at (11, 22).
+        self.assertEqual((p_ml["segs"][4]["x1"], p_ml["segs"][4]["y1"]), (11 * 65536, 22 * 65536))
+
+        p_st = tpl_mod.parse_path_markup("M0,0 C1,2 3,4 5,6 S7,8 9,10 L12,12 S14,14 16,16 Q18,20 22,20 T26,20", "fx.xaml", 11)
+        # First S reflects (3,4) across (5,6) -> (7,8); second S after L resets c1 to cur (12,12).
+        self.assertEqual((p_st["segs"][2]["x1"], p_st["segs"][2]["y1"]), (7 * 65536, 8 * 65536))
+        self.assertEqual((p_st["segs"][4]["x1"], p_st["segs"][4]["y1"]), (12 * 65536, 12 * 65536))
+        # T reflects Q's control (18,20) across (22,20) -> (26,20).
+        self.assertEqual((p_st["segs"][6]["x1"], p_st["segs"][6]["y1"]), (26 * 65536, 20 * 65536))
+
+        p_arc = tpl_mod.parse_path_markup("M0,0 a-10,5.5e0 30 1110,10", "fx.xaml", 12)
+        self.assertEqual(p_arc["segs"][1]["cmd"], 4)
+        self.assertEqual((p_arc["segs"][1]["x1"], p_arc["segs"][1]["y1"]), (10 * 65536, int(5.5 * 65536)))
+        self.assertEqual((p_arc["segs"][1]["large_arc"], p_arc["segs"][1]["sweep"]), (True, True))
+        self.assertEqual((p_arc["segs"][1]["x2"], p_arc["segs"][1]["y2"]), (10 * 65536, 10 * 65536))
+
+        # 2. Malformed path markup refusals with exact file:line.
+        bad_cases = [
+            ("", "empty"),
+            ("M0,0 F1 L1,1", "misplaced fill rule"),
+            ("M0,0 L1", "incomplete tuple"),
+            ("M0,0 A10,10 0 2 1 20,20", "invalid arc flag"),
+            ("M0,0 X1,1", "unknown command"),
+            ("L10,10", "before initial MoveTo"),
+            ("M30000,0 l5000,0", "overflow after relative addition"),
+        ]
+        for bad, desc in bad_cases:
+            with self.assertRaises(tpl_mod.TemplateError, msg=desc) as ctx:
+                tpl_mod.parse_path_markup(bad, "bad_path.xaml", 42)
+            self.assertIn("bad_path.xaml:42:", str(ctx.exception), desc)
+
+        # 3. Independent scan of pin-filtered WinUI XAML corpus (pin.json base + controls minus skip):
+        # verify all 7 <Path Data="..."> occurrences (6 literals + 1 {TemplateBinding Content}) compile,
+        # and verify Microsoft checkmark coordinates are NOT emitted into ui/template_data.c.
+        pin = json.loads((ROOT / "tools" / "winui" / "pin.json").read_text(encoding="utf-8"))
+        winui = Path(os.environ.get("IMPOSSIBLE_WINUI", Path.home() / ".cache" / "impossible-sdk" / "winui"))
+        if winui.is_dir():
+            files = [winui / pin["base"]] + [
+                p for p in sorted(winui.glob(pin["controls"]))
+                if not any(sk in p.name for sk in pin.get("skip", []))
+            ]
+            compiler = tpl_mod.Compiler()
+            literals = 0
+            bindings = 0
+            for xf in files:
+                root_el = ET.fromstring(xf.read_text(encoding="utf-8-sig"))
+                for el in root_el.iter():
+                    tag = el.tag.rsplit("}", 1)[-1]
+                    if tag == "Path" and "Data" in el.attrib:
+                        val = el.attrib["Data"]
+                        res_v = compiler.parse_value(val, "Data", str(xf.name), 1)
+                        if val.strip().startswith("{"):
+                            self.assertEqual(res_v["kind"], "IM_TVAL_TEMPLATE_BINDING")
+                            bindings += 1
+                        else:
+                            self.assertIn(res_v["kind"], ("IM_TVAL_PATH", "IM_TVAL_ICON"))
+                            literals += 1
+            self.assertEqual(literals, 6, "pin-filtered corpus must have 6 literal Path.Data elements")
+            self.assertEqual(bindings, 1, "pin-filtered corpus must have 1 bound Path.Data element")
+
+        # Verify Microsoft checkmark literal coordinates are never emitted in ui/template_data.c.
+        tpl_c = (ROOT / "ui" / "template_data.c").read_text(encoding="utf-8")
+        self.assertNotIn("123 * 65536", tpl_c)
+        self.assertNotIn("8060928", tpl_c)  # 123 * 65536
+
+        # 4. Malformed Path literal in a standalone style outside TARGET_STYLES is refused with file:line.
+        with tempfile.TemporaryDirectory() as td:
+            bad_xaml = Path(td) / "extra_style.xaml"
+            bad_xaml.write_text(
+                '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+                ' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">\n'
+                '  <Style x:Key="ExtraStyle" TargetType="Button">\n'
+                '    <Setter Property="Template">\n'
+                '      <Setter.Value>\n'
+                '        <ControlTemplate TargetType="Button">\n'
+                '          <Grid>\n'
+                '            <Path Data="M0,0 Q10" />\n'
+                '          </Grid>\n'
+                '        </ControlTemplate>\n'
+                '      </Setter.Value>\n'
+                '    </Setter>\n'
+                '  </Style>\n'
+                '</ResourceDictionary>\n',
+                encoding="utf-8",
+            )
+            p_bad = subprocess.run(
+                [sys.executable, str(ROOT / "tools" / "winui" / "templates.py"), "--parse-file", str(bad_xaml)],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(p_bad.returncode, 0)
+            self.assertIn("extra_style.xaml:7:", p_bad.stderr + p_bad.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

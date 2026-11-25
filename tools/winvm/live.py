@@ -45,8 +45,12 @@ COVERED = (
     "ui/clip.h",
     "ui/draw.c",
     "ui/draw.h",
+    "ui/gradient.c",
+    "ui/gradient.h",
     "ui/layer.c",
     "ui/layer.h",
+    "ui/path.c",
+    "ui/path.h",
     "ui/template_data.c",
 )
 TRY = "build/live-try.json"
