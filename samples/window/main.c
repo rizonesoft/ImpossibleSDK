@@ -45,6 +45,7 @@ int im_main(void) {
     state at = {.x = 240, .y = 160};
     im_window window = {.title = L"Impossible SDK", .width = 640, .height = 400, .user = &at, .paint = paint, .event = event};
     im_win_host_init(&at.host, &window);
-    if (im_host_set_cursor(&at.host, IM_CURSOR_ARROW) != IM_HOST_OK || im_host_now_ms(&at.host) == 0u) return 1;
+    if (im_host_set_cursor(&at.host, IM_CURSOR_ARROW) != IM_HOST_OK ||
+        im_host_require(&at.host, "now_ms", NULL) != IM_HOST_OK) return 1;
     return im_window_run(&window, im_has_argument(L"--one-frame")) ? 0 : 1;
 }

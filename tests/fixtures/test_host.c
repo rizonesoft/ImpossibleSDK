@@ -74,6 +74,7 @@ typedef struct rec_host {
     im_rect last_ime_rect;
     char last_url[64];
     char last_announce[64];
+    size_t last_pick_cap;
     rec_event log[REC_LOG_CAP];
     uint32_t log_count;
 } rec_host;
@@ -211,6 +212,7 @@ static im_host_result rec_play_sound(void *ctx, im_sound_id sound) {
 
 static im_host_result rec_file_pick(void *ctx, im_file_pick_kind kind, char *utf8_path, size_t cap, size_t *out_len) {
     rec_host *r = (rec_host *)ctx;
+    r->last_pick_cap = cap;
     rec_push(r, OP_FILE_PICK, ctx, (int32_t)kind);
     if (r->cancel_next_pick) {
         r->cancel_next_pick = false;
@@ -330,13 +332,17 @@ int im_main(void) {
         if (im_host_require(&v1_big.host, "set_cursor", &missing) != IM_HOST_UNSUPPORTED || !str_eq(missing, "set_cursor")) return 18;
         if (im_host_set_cursor(&v1_big.host, IM_CURSOR_HAND) != IM_HOST_UNSUPPORTED) return 19;
 
-        /* Incompatible versions (0 and 99) and undersized header must provide refusal reasons. */
+        /* Incompatible versions (0 and 99) and undersized header must each provide a fresh refusal reason. */
         im_host bad_v0 = {.version = 0u, .size = (uint32_t)sizeof(im_host)};
         im_host bad_v99 = {.version = 99u, .size = (uint32_t)sizeof(im_host)};
         im_host bad_sz = {.version = 1u, .size = 4u};
+        reason = NULL;
         if (im_host_accept(NULL, &reason) != IM_HOST_INVALID || !reason) return 13;
+        reason = NULL;
         if (im_host_accept(&bad_v0, &reason) != IM_HOST_INVALID || !reason) return 14;
+        reason = NULL;
         if (im_host_accept(&bad_v99, &reason) != IM_HOST_INVALID || !reason) return 15;
+        reason = NULL;
         if (im_host_accept(&bad_sz, &reason) != IM_HOST_INVALID || !reason) return 16;
     }
 
@@ -467,9 +473,12 @@ int im_main(void) {
         if (im_host_play_sound(&rec.host, IM_SOUND_FOCUS) != IM_HOST_OK) return 57;
         char pbuf[32] = {0};
         size_t plen = 0u;
-        if (im_host_file_pick(&rec.host, IM_FILE_PICK_OPEN, pbuf, sizeof(pbuf), &plen) != IM_HOST_OK || plen != 11u || !str_eq(pbuf, "C:/demo.txt")) return 58;
+        if (im_host_file_pick(&rec.host, IM_FILE_PICK_OPEN, pbuf, sizeof(pbuf), &plen) != IM_HOST_OK ||
+            rec.last_pick_cap != sizeof(pbuf) || plen != 11u || !str_eq(pbuf, "C:/demo.txt")) return 58;
         rec.cancel_next_pick = true;
-        if (im_host_file_pick(&rec.host, IM_FILE_PICK_SAVE, pbuf, sizeof(pbuf), &plen) != IM_HOST_CANCELLED || plen != 0u || pbuf[0] != '\0') return 59;
+        rec.last_pick_cap = 0u;
+        if (im_host_file_pick(&rec.host, IM_FILE_PICK_SAVE, pbuf, sizeof(pbuf), &plen) != IM_HOST_CANCELLED ||
+            rec.last_pick_cap != sizeof(pbuf) || plen != 0u || pbuf[0] != '\0') return 59;
         if (im_host_announce(&rec.host, "Saved") != IM_HOST_OK || !str_eq(rec.last_announce, "Saved")) return 60;
 
         const rec_op want_ops[15] = {

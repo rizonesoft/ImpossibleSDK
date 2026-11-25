@@ -40,7 +40,7 @@ static bool event(im_window *window, const im_event *event) {
 }
 ```
 
-The kinds of event are pointer move, down and up, and a key going down. [window.h](site:api-window.html) lists them, and [win_host.h](site:api-win_host.html) initializes the Windows host callback table for clock and cursor updates.
+The kinds of event are pointer move, down and up, and a key going down. [window.h](site:api-window.html) lists them, and [win_host.h](site:api-win_host.html) initializes the Windows host callback table for clock (`now_ms`) and cursor updates.
 
 ## What happens on a screen at 150 percent?
 
