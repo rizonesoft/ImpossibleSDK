@@ -1239,7 +1239,8 @@ static bool resolve_sdk_icon_path(im_icon_id id, im_path_data *out) {
 bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, im_surface *surface,
                               im_allocator alloc, const im_template_path_seg *path_segs, uint32_t now_ms) {
     if (!sm || !node || !surface || node->kind != IM_ELEM_PATH) return true;
-    if (node->visibility == IM_VIS_COLLAPSED || node->opacity <= 0) return true;
+    im_fixed eff_op = im_node_effective_opacity(node);
+    if (node->visibility == IM_VIS_COLLAPSED || eff_op <= 0) return true;
     int64_t w = (int64_t)node->absolute_rect.right - node->absolute_rect.left;
     int64_t h = (int64_t)node->absolute_rect.bottom - node->absolute_rect.top;
     if (w <= 0 || h <= 0) return true;
@@ -1270,12 +1271,12 @@ bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, i
     bool has_stroke = ((stroke_argb >> 24) != 0u && node->path_stroke_thickness > 0);
     if (!has_fill && !has_stroke) return true;
 
-    /* When both fill and stroke are present and Opacity < 1, composite through one opacity group
-       so overlap pixels receive node->opacity once instead of twice. */
-    bool use_group_opacity = (has_fill && has_stroke && node->opacity < IM_ONE);
+    /* When both fill and stroke are present and effective opacity < 1, composite through one opacity group
+       so overlap pixels receive effective opacity once instead of twice. */
+    bool use_group_opacity = (has_fill && has_stroke && eff_op < IM_ONE);
     if (!use_group_opacity) {
-        if (has_fill) fill_argb = apply_node_opacity(fill_argb, node->opacity);
-        if (has_stroke) stroke_argb = apply_node_opacity(stroke_argb, node->opacity);
+        if (has_fill) fill_argb = apply_node_opacity(fill_argb, eff_op);
+        if (has_stroke) stroke_argb = apply_node_opacity(stroke_argb, eff_op);
         has_fill = ((fill_argb >> 24) != 0u);
         has_stroke = ((stroke_argb >> 24) != 0u && node->path_stroke_thickness > 0);
         if (!has_fill && !has_stroke) return true;
@@ -1349,7 +1350,7 @@ bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, i
     bool created_layers = false;
     bool pushed_layer = false;
     if (use_group_opacity) {
-        uint8_t op8 = (uint8_t)(((uint64_t)node->opacity * 255u + (IM_ONE / 2)) >> 16);
+        uint8_t op8 = (uint8_t)(((uint64_t)eff_op * 255u + (IM_ONE / 2)) >> 16);
         im_rect full_bounds = { 0, 0, (im_fixed)(surface->width * IM_ONE), (im_fixed)(surface->height * IM_ONE) };
         if (!surface->layers) {
             size_t cap = (size_t)surface->width * (size_t)surface->height * 4u + 4096u;

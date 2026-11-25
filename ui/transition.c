@@ -3,20 +3,21 @@
 #include <stddef.h>
 
 #define FX(n) ((im_fixed)((int64_t)(n) * IM_ONE))
-/* Standard WinUI PVL scale constants in 16.16 fixed point. */
+/* Standard WinUI PVL scale constants in 16.16 fixed point (pinned ThemeTransitions.cpp:2859, 2945). */
 #define SCALE_ADD_DELETE ((im_fixed)55706) /* 0.85 */
-#define SCALE_DRILL_IN   ((im_fixed)60293) /* 0.92 */
-#define SCALE_DRILL_OUT  ((im_fixed)70779) /* 1.08 */
+#define SCALE_DRILL_IN   ((im_fixed)61604) /* 0.94 */
+#define SCALE_DRILL_OUT  ((im_fixed)69468) /* 1.06 */
 
+/* Pinned defaults: DependencyProperty.cpp:687 (Entrance/Content=(0,28), Popup=40), ThemeTransitions.h:328 (783/333, 333/333). */
 static const im_transition_spec k_specs[IM_TRANS_KIND_COUNT] = {
     [IM_TRANS_ENTRANCE] = {
         IM_TRANS_ENTRANCE, "EntranceThemeTransition", 367u, 167u, 33u, 6u,
-        FX(100), 0, IM_ONE, IM_ONE, 0, IM_ONE, 0, 0,
+        0, FX(28), IM_ONE, IM_ONE, 0, IM_ONE, 0, 0,
         IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2
     },
     [IM_TRANS_POPUP_OPEN] = {
         IM_TRANS_POPUP_OPEN, "PopupThemeTransition", 167u, 83u, 0u, 0u,
-        0, FX(50), IM_ONE, IM_ONE, 0, IM_ONE, 0, 0,
+        0, FX(40), IM_ONE, IM_ONE, 0, IM_ONE, 0, 0,
         IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2
     },
     [IM_TRANS_POPUP_CLOSE] = {
@@ -46,16 +47,16 @@ static const im_transition_spec k_specs[IM_TRANS_KIND_COUNT] = {
     },
     [IM_TRANS_CONTENT] = {
         IM_TRANS_CONTENT, "ContentThemeTransition", 367u, 167u, 0u, 0u,
-        FX(40), 0, IM_ONE, IM_ONE, 0, IM_ONE, 0, 0,
+        0, FX(28), IM_ONE, IM_ONE, 0, IM_ONE, 0, 0,
         IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2
     },
     [IM_TRANS_DRILL_IN] = {
-        IM_TRANS_DRILL_IN, "NavigationThemeTransition", 367u, 167u, 0u, 0u,
+        IM_TRANS_DRILL_IN, "NavigationThemeTransition", 783u, 333u, 0u, 0u,
         0, 0, SCALE_DRILL_IN, IM_ONE, 0, IM_ONE, IM_ONE / 2, IM_ONE / 2,
         IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2
     },
     [IM_TRANS_DRILL_OUT] = {
-        IM_TRANS_DRILL_OUT, "NavigationThemeTransition", 367u, 167u, 0u, 0u,
+        IM_TRANS_DRILL_OUT, "NavigationThemeTransition", 333u, 333u, 0u, 0u,
         0, 0, SCALE_DRILL_OUT, IM_ONE, 0, IM_ONE, IM_ONE / 2, IM_ONE / 2,
         IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2
     },
@@ -193,6 +194,9 @@ void im_transition_retarget(im_transition *tr, im_fixed new_to_x, im_fixed new_t
     tr->to_y = new_to_y;
     tr->to_scale = new_to_scale;
     tr->to_opacity = new_to_opacity;
+    if (tr->from_opacity != tr->to_opacity && tr->opacity_duration_ms == 0u) {
+        tr->opacity_duration_ms = tr->move_duration_ms ? tr->move_duration_ms : 167u;
+    }
     tr->start_ms = now_ms;
     tr->delay_ms = 0u;
     if (tr->reduced_motion) {
@@ -278,10 +282,11 @@ bool im_transition_on_reposition(const im_node *owner, im_transition *tr, im_rec
     const im_transition_decl *d = find_decl(owner, IM_ELEM_REPOSITION_THEME_TRANSITION);
     if (!d) d = find_decl(owner, IM_ELEM_ADD_DELETE_THEME_TRANSITION);
     if (!d) return false;
-    im_fixed dx = old_rect.left - new_rect.left;
-    im_fixed dy = old_rect.top - new_rect.top;
-    if (dx == 0 && dy == 0) return false;
-    im_transition_start_offset(tr, IM_TRANS_REPOSITION, dx, dy, 0, 0, now_ms,
+    int64_t dx64 = (int64_t)old_rect.left - (int64_t)new_rect.left;
+    int64_t dy64 = (int64_t)old_rect.top - (int64_t)new_rect.top;
+    if (dx64 == 0 && dy64 == 0) return false;
+    if (dx64 < INT32_MIN || dx64 > INT32_MAX || dy64 < INT32_MIN || dy64 > INT32_MAX) return false;
+    im_transition_start_offset(tr, IM_TRANS_REPOSITION, (im_fixed)dx64, (im_fixed)dy64, 0, 0, now_ms,
                                d->is_staggering ? stagger_index : 0u, reduced_motion);
     return true;
 }
@@ -289,10 +294,11 @@ bool im_transition_on_reposition(const im_node *owner, im_transition *tr, im_rec
 bool im_transition_on_reorder(const im_node *owner, im_transition *tr, im_rect old_rect, im_rect new_rect,
                               uint32_t now_ms, bool reduced_motion) {
     if (!find_decl(owner, IM_ELEM_REORDER_THEME_TRANSITION)) return false;
-    im_fixed dx = old_rect.left - new_rect.left;
-    im_fixed dy = old_rect.top - new_rect.top;
-    if (dx == 0 && dy == 0) return false;
-    im_transition_start_offset(tr, IM_TRANS_REORDER, dx, dy, 0, 0, now_ms, 0u, reduced_motion);
+    int64_t dx64 = (int64_t)old_rect.left - (int64_t)new_rect.left;
+    int64_t dy64 = (int64_t)old_rect.top - (int64_t)new_rect.top;
+    if (dx64 == 0 && dy64 == 0) return false;
+    if (dx64 < INT32_MIN || dx64 > INT32_MAX || dy64 < INT32_MIN || dy64 > INT32_MAX) return false;
+    im_transition_start_offset(tr, IM_TRANS_REORDER, (im_fixed)dx64, (im_fixed)dy64, 0, 0, now_ms, 0u, reduced_motion);
     return true;
 }
 
@@ -352,14 +358,16 @@ bool im_transition_on_delete(const im_node *owner, im_transition_ghosts *ghosts,
 }
 
 static void ghost_dev_rect(const im_transition_ghost *g, im_fixed scale, int32_t out[4]) {
-    int64_t l = ((int64_t)g->base_bounds.left * (int64_t)scale) >> 16;
-    int64_t t = ((int64_t)g->base_bounds.top * (int64_t)scale) >> 16;
-    int64_t r = ((int64_t)g->base_bounds.right * (int64_t)scale + IM_ONE - 1) >> 16;
-    int64_t b = ((int64_t)g->base_bounds.bottom * (int64_t)scale + IM_ONE - 1) >> 16;
-    out[0] = (int32_t)(l >> 16);
-    out[1] = (int32_t)(t >> 16);
-    out[2] = (int32_t)(r >> 16);
-    out[3] = (int32_t)(b >> 16);
+    /* Outward floor/ceil conversion matching ui/dirty.c so fractional edges never omit a pixel. */
+    int64_t sl = (int64_t)g->base_bounds.left * (int64_t)scale;
+    int64_t st = (int64_t)g->base_bounds.top * (int64_t)scale;
+    int64_t sr = (int64_t)g->base_bounds.right * (int64_t)scale;
+    int64_t sb = (int64_t)g->base_bounds.bottom * (int64_t)scale;
+    const int64_t unit32 = (1LL << 32);
+    out[0] = (int32_t)(sl >= 0 ? (sl >> 32) : -(((-sl) + unit32 - 1) >> 32));
+    out[1] = (int32_t)(st >= 0 ? (st >> 32) : -(((-st) + unit32 - 1) >> 32));
+    out[2] = (int32_t)(sr >= 0 ? ((sr + unit32 - 1) >> 32) : -((-sr) >> 32));
+    out[3] = (int32_t)(sb >= 0 ? ((sb + unit32 - 1) >> 32) : -((-sb) >> 32));
 }
 
 bool im_transition_ghosts_step(im_transition_ghosts *ghosts, im_dirty_list *dl, im_fixed scale, uint32_t now_ms) {

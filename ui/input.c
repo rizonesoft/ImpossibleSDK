@@ -69,7 +69,7 @@ static bool node_logical_transform(const im_node *node, im_transform *out) {
             int64_t ah = (int64_t)anc->absolute_rect.bottom - anc->absolute_rect.top;
             int64_t aox = (int64_t)anc->absolute_rect.left + (((int64_t)aw * (int64_t)anc->render_transform_origin_x + (IM_ONE / 2)) >> 16);
             int64_t aoy = (int64_t)anc->absolute_rect.top + (((int64_t)ah * (int64_t)anc->render_transform_origin_y + (IM_ONE / 2)) >> 16);
-            if (aox < INT32_MIN || aox > INT32_MAX || aoy < INT32_MIN || aoy > INT32_MAX) return false;
+            if (aox <= INT32_MIN || aox > INT32_MAX || aoy <= INT32_MIN || aoy > INT32_MAX) return false;
             im_transform t1 = im_transform_translate(-(im_fixed)aox, -(im_fixed)aoy);
             im_transform t2 = im_transform_translate((im_fixed)aox, (im_fixed)aoy);
             im_transform m1, m2;
@@ -82,7 +82,7 @@ static bool node_logical_transform(const im_node *node, im_transform *out) {
             int64_t ah = (int64_t)anc->absolute_rect.bottom - anc->absolute_rect.top;
             int64_t aox = (int64_t)anc->absolute_rect.left + (((int64_t)aw * (int64_t)anc->transition_origin_x + (IM_ONE / 2)) >> 16);
             int64_t aoy = (int64_t)anc->absolute_rect.top + (((int64_t)ah * (int64_t)anc->transition_origin_y + (IM_ONE / 2)) >> 16);
-            if (aox < INT32_MIN || aox > INT32_MAX || aoy < INT32_MIN || aoy > INT32_MAX) return false;
+            if (aox <= INT32_MIN || aox > INT32_MAX || aoy <= INT32_MIN || aoy > INT32_MAX) return false;
             im_transform t1 = im_transform_translate(-(im_fixed)aox, -(im_fixed)aoy);
             im_transform t2 = im_transform_translate((im_fixed)aox, (im_fixed)aoy);
             im_transform m1, m2;

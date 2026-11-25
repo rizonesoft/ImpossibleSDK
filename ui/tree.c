@@ -35,6 +35,12 @@ static bool is_non_visual_kind(im_element_kind kind) {
     case IM_ELEM_CONTENT_THEME_TRANSITION:
     case IM_ELEM_REORDER_THEME_TRANSITION:
     case IM_ELEM_ENTRANCE_THEME_TRANSITION:
+    case IM_ELEM_POPUP_THEME_TRANSITION:
+    case IM_ELEM_REPOSITION_THEME_TRANSITION:
+    case IM_ELEM_NAVIGATION_THEME_TRANSITION:
+    case IM_ELEM_DRILL_IN_NAV_INFO:
+    case IM_ELEM_SLIDE_NAV_INFO:
+    case IM_ELEM_SUPPRESS_NAV_INFO:
         return true;
     default:
         return false;
