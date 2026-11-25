@@ -98,6 +98,8 @@ Deflate data sits inside PNG, so it comes first. Own code, because the OS part m
 
 ## 3. PNG decoder
 
+> **Started:** 2026-11-25T13:04Z
+
 All colour types, bit depths, interlacing, palettes, transparency and gamma-free output. The decoder takes bytes and gives 32-bit pixels or a named error, uses no floating point, and never reads outside its input.
 
 **Phase:** 4
@@ -106,12 +108,12 @@ All colour types, bit depths, interlacing, palettes, transparency and gamma-free
 
 **Build order:**
 
-1. Write `parts/png/png.c` with `png.h`. Done when: every file of the corpus decodes to the same pixels as the reference library.
+1. Write `parts/png/png.c` with `png.h`. Done when: every valid file of the corpus decodes to the same pixels as the pinned reference library and every invalid file returns its named error.
 2. Add `tests/fixtures/png_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
 - [ ] Parse the header of PNG in `parts/png/png.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
 - [ ] Decode every variant the specification requires in `parts/png/png.c`. Done when: every valid file of PngSuite gives the pixels of a pinned reference decoder, and every invalid one its named error. Cheaper substitute: the common variant only.
-- [ ] Return a named error for truncated and damaged data with no partial picture in `parts/png/png.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
+- [ ] Return a named error for truncated and damaged data with no partial picture in `parts/png/png.c`. Done when: every proper prefix of every corpus file returns a named error and a zeroed image. Cheaper substitute: a half picture.
 - [ ] Fuzz `parts/png/png.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
 - [ ] Commit: `formats: PNG decoder`
 

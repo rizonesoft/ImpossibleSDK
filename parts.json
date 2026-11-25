@@ -63,6 +63,18 @@
       ]
     },
     {
+      "name": "png",
+      "folder": "parts/png",
+      "depends": [
+        "image",
+        "inflate",
+        "checksum"
+      ],
+      "sources": [
+        "parts/png/png.c"
+      ]
+    },
+    {
       "name": "unicode",
       "folder": "parts/unicode",
       "depends": [],

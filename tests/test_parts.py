@@ -708,6 +708,7 @@ class InflateAndChecksum(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        killed = False
         try:
             def read_exact(n):
                 buf = bytearray()
@@ -911,6 +912,7 @@ class InflateAndChecksum(unittest.TestCase):
             self.assertEqual(st_b, 3, f"1 GB bomb must return IM_INFLATE_LIMIT (3), got {st_b}")
             self.assertEqual(tout_b, limit_1mb)
         except Exception:
+            killed = True
             proc.kill()
             raise
         finally:
@@ -927,7 +929,240 @@ class InflateAndChecksum(unittest.TestCase):
                 proc.kill()
                 proc.wait(timeout=5)
                 raise
-            self.assertEqual(proc.returncode, 0, err_text)
+            if not killed:
+                self.assertEqual(proc.returncode, 0, err_text)
+
+
+class PngDecoder(unittest.TestCase):
+    def _ensure_pngsuite(self, manifest: dict) -> Path:
+        import hashlib
+        import tarfile
+        import urllib.request
+
+        cache_dir = Path.home() / ".cache" / "impossible-sdk" / "pngsuite"
+        files = manifest["files"]
+
+        def cache_valid() -> bool:
+            if not cache_dir.is_dir():
+                return False
+            for name, meta in files.items():
+                p = cache_dir / name
+                if not p.is_file():
+                    return False
+                if hashlib.sha256(p.read_bytes()).hexdigest() != meta["file_sha256"]:
+                    return False
+            return True
+
+        if not cache_valid():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            tgz_path = cache_dir / "PngSuite-2017jul19.tgz"
+            urllib.request.urlretrieve(manifest["archive_url"], tgz_path)
+            got_sha = hashlib.sha256(tgz_path.read_bytes()).hexdigest()
+            self.assertEqual(got_sha, manifest["archive_sha256"], "PngSuite archive SHA-256 mismatch")
+            with tarfile.open(tgz_path, "r:gz") as tf:
+                tf.extractall(cache_dir, filter="data")
+            self.assertTrue(cache_valid(), "PngSuite extracted file SHA-256 verification failed")
+        return cache_dir
+
+    def test_png_decoder_pngsuite_synthetic_boundaries_and_all_prefixes(self):
+        import hashlib
+        import json
+        import struct
+        import zlib
+
+        exe = BUILD / "png-tests.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+
+        # 1. Unit tests (max IHDR 0 allocs, independent limits, 33B probe, NULL limits, RGBA8/BGRA8, OOM, late CRC).
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("png_tests: ALL PASSED", res.stdout)
+
+        # 2. Load pinned cross-host PngSuite manifest and verify every file SHA-256 even on warm cache.
+        manifest = json.loads((ROOT / "tests" / "data" / "pngsuite_ref.json").read_text(encoding="utf-8"))
+        cache_dir = self._ensure_pngsuite(manifest)
+
+        err_enum = {
+            "IM_IMAGE_OK": 0,
+            "IM_IMAGE_BAD_ARG": 1,
+            "IM_IMAGE_INVALID": 2,
+            "IM_IMAGE_TRUNCATED": 3,
+            "IM_IMAGE_UNSUPPORTED": 4,
+            "IM_IMAGE_TOO_LARGE": 5,
+            "IM_IMAGE_NO_MEMORY": 6,
+        }
+
+        proc = subprocess.Popen(
+            [str(exe), "--batch"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        killed = False
+        try:
+            def read_exact(n: int) -> bytes:
+                buf = bytearray()
+                while len(buf) < n:
+                    chunk = proc.stdout.read(n - len(buf))
+                    if not chunk:
+                        raise RuntimeError(f"EOF from png-tests: {proc.stderr.read().decode('utf-8', 'replace')}")
+                    buf.extend(chunk)
+                return bytes(buf)
+
+            def decode_buf(data: bytes, bgra: bool = False):
+                op = 2 if bgra else 1
+                proc.stdin.write(struct.pack("<II", op, len(data)) + data)
+                proc.stdin.flush()
+                err, w, h, bsz, leak = struct.unpack("<IIIII", read_exact(20))
+                px = read_exact(bsz) if (err == 0 and bsz > 0) else b""
+                return err, w, h, bsz, leak, px
+
+            def check_all_prefixes(data: bytes):
+                proc.stdin.write(struct.pack("<II", 3, len(data)) + data)
+                proc.stdin.flush()
+                return struct.unpack("<II", read_exact(8))
+
+            # 2a. All 176 PngSuite files: 162 valid pixel-for-pixel + 14 invalid named errors.
+            valid_count = 0
+            invalid_count = 0
+            for name, meta in sorted(manifest["files"].items()):
+                raw = (cache_dir / name).read_bytes()
+                err, w, h, bsz, leak, px = decode_buf(raw, bgra=False)
+                self.assertEqual(leak, 0, f"{name}: allocator/zero-image invariant failed")
+                if meta["valid"]:
+                    valid_count += 1
+                    self.assertEqual(err, 0, f"{name}: expected IM_IMAGE_OK, got {err}")
+                    self.assertEqual(w, meta["width"], f"{name}: width mismatch")
+                    self.assertEqual(h, meta["height"], f"{name}: height mismatch")
+                    self.assertEqual(bsz, w * h * 4, f"{name}: byte_size mismatch")
+                    got_sha = hashlib.sha256(px).hexdigest()
+                    self.assertEqual(got_sha, meta["rgba8_sha256"], f"{name}: RGBA8 pixels differ from pinned libpng")
+                else:
+                    invalid_count += 1
+                    want_err = err_enum[meta["expected_error"]]
+                    self.assertEqual(err, want_err, f"{name}: expected {meta['expected_error']} ({want_err}), got {err}")
+
+                # Exhaustive proper-prefix test: EVERY prefix 0..len(raw)-1 must fail with zeroed image and 0 leaks.
+                bad_cnt, first_bad = check_all_prefixes(raw)
+                self.assertEqual(bad_cnt, 0, f"{name}: {bad_cnt} proper prefixes succeeded or leaked (first={first_bad})")
+
+            self.assertEqual(valid_count, 162)
+            self.assertEqual(invalid_count, 14)
+
+            # 2b. Verify BGRA8 swaps R and B while keeping G and A identical on a real color+alpha PngSuite fixture.
+            for sample_name in ("tm3n3p02.png", "tbbn2c16.png", "g03n2c08.png"):
+                raw = (cache_dir / sample_name).read_bytes()
+                e_r, wr, hr, br, lr, px_r = decode_buf(raw, bgra=False)
+                e_b, wb, hb, bb, lb, px_b = decode_buf(raw, bgra=True)
+                self.assertEqual((e_r, e_b, lr, lb), (0, 0, 0, 0))
+                self.assertEqual((wr, hr, br), (wb, hb, bb))
+                expected_bgra = bytearray(len(px_r))
+                expected_bgra[0::4] = px_r[2::4]
+                expected_bgra[1::4] = px_r[1::4]
+                expected_bgra[2::4] = px_r[0::4]
+                expected_bgra[3::4] = px_r[3::4]
+                self.assertEqual(px_b, bytes(expected_bgra), f"{sample_name}: BGRA8 channel order mismatch")
+
+            # 2c. CRC-correct synthetic chunk, ordering, and IDAT boundary fixtures.
+            sig = b"\x89PNG\r\n\x1a\n"
+
+            def mk_chunk(ctype: bytes, data: bytes) -> bytes:
+                crc = zlib.crc32(ctype + data) & 0xFFFFFFFF
+                return struct.pack(">I", len(data)) + ctype + data + struct.pack(">I", crc)
+
+            ihdr_1x1_rgba = mk_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+            ihdr_1x1_rgb = mk_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+            ihdr_1x1_idx1 = mk_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 1, 3, 0, 0, 0))
+            iend = mk_chunk(b"IEND", b"")
+            z_ok = zlib.compress(b"\x00\x11\x22\x33\x44")
+            z_rgb = zlib.compress(b"\x00\x11\x22\x33")
+            z_idx = zlib.compress(b"\x00\x00")
+
+            # Indexed PLTE with 3 entries for 1-bit depth (max 2) -> IM_IMAGE_INVALID (2)
+            bad_plte_over = sig + ihdr_1x1_idx1 + mk_chunk(b"PLTE", b"\x00" * 9) + mk_chunk(b"IDAT", z_idx) + iend
+            self.assertEqual(decode_buf(bad_plte_over)[0], 2)
+
+            # Truecolor PLTE after tRNS -> IM_IMAGE_INVALID (2)
+            bad_plte_order = (
+                sig + ihdr_1x1_rgb + mk_chunk(b"tRNS", struct.pack(">HHH", 1, 2, 3))
+                + mk_chunk(b"PLTE", b"\x01\x02\x03") + mk_chunk(b"IDAT", z_rgb) + iend
+            )
+            self.assertEqual(decode_buf(bad_plte_order)[0], 2)
+
+            # Non-ASCII chunk-type byte -> IM_IMAGE_INVALID (2)
+            bad_ctype = sig + ihdr_1x1_rgba + mk_chunk(b"tE\x01t", b"x") + mk_chunk(b"IDAT", z_ok) + iend
+            self.assertEqual(decode_buf(bad_ctype)[0], 2)
+
+            # Unknown critical chunk -> IM_IMAGE_UNSUPPORTED (4)
+            unk_crit = sig + ihdr_1x1_rgba + mk_chunk(b"AbCd", b"") + mk_chunk(b"IDAT", z_ok) + iend
+            self.assertEqual(decode_buf(unk_crit)[0], 4)
+
+            # Empty IDATs before, between (splitting Adler trailer), and after -> IM_IMAGE_OK (0)
+            split_empty = (
+                sig + ihdr_1x1_rgba
+                + mk_chunk(b"IDAT", b"")
+                + mk_chunk(b"IDAT", z_ok[:-2])
+                + mk_chunk(b"IDAT", b"")
+                + mk_chunk(b"IDAT", z_ok[-2:])
+                + mk_chunk(b"IDAT", b"")
+                + iend
+            )
+            e, w, h, _, leak, px = decode_buf(split_empty)
+            self.assertEqual((e, w, h, leak, px), (0, 1, 1, 0, b"\x11\x22\x33\x44"))
+
+            # Exact pixels followed by bad Adler-32 checksum -> IM_IMAGE_INVALID (2)
+            z_bad_adl = z_ok[:-1] + bytes([z_ok[-1] ^ 1])
+            self.assertEqual(decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_bad_adl) + iend)[0], 2)
+
+            # 1 filtered byte too few -> IM_IMAGE_INVALID (2)
+            z_short = zlib.compress(b"\x00\x11\x22\x33")
+            self.assertEqual(decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_short) + iend)[0], 2)
+
+            # 1 filtered byte too many -> IM_IMAGE_INVALID (2)
+            z_long = zlib.compress(b"\x00\x11\x22\x33\x44\x55")
+            self.assertEqual(decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_long) + iend)[0], 2)
+
+            # Trailing unused compressed byte in same IDAT -> IM_IMAGE_INVALID (2)
+            self.assertEqual(decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_ok + b"\x00") + iend)[0], 2)
+
+            # Trailing unused compressed byte in subsequent non-empty IDAT -> IM_IMAGE_INVALID (2)
+            self.assertEqual(
+                decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_ok) + mk_chunk(b"IDAT", b"\x00") + iend)[0], 2
+            )
+
+            # Invalid filter byte (5) -> IM_IMAGE_INVALID (2)
+            z_bad_filt = zlib.compress(b"\x05\x11\x22\x33\x44")
+            self.assertEqual(decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_bad_filt) + iend)[0], 2)
+
+            # Trailing byte after IEND -> IM_IMAGE_INVALID (2)
+            self.assertEqual(decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_ok) + iend + b"\x00")[0], 2)
+
+            # Non-contiguous IDAT -> IM_IMAGE_INVALID (2)
+            non_contig = (
+                sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_ok[:-2])
+                + mk_chunk(b"tEXt", b"k\x00v") + mk_chunk(b"IDAT", z_ok[-2:]) + iend
+            )
+            self.assertEqual(decode_buf(non_contig)[0], 2)
+        except Exception:
+            killed = True
+            proc.kill()
+            raise
+        finally:
+            if proc.stdin:
+                proc.stdin.close()
+            if proc.stdout:
+                proc.stdout.close()
+            err_text = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+            if proc.stderr:
+                proc.stderr.close()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+                raise
+            if not killed:
+                self.assertEqual(proc.returncode, 0, err_text)
 
 
 if __name__ == "__main__":
