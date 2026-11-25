@@ -484,39 +484,31 @@ static void add_anim_entries_captured(im_state_machine *sm, uint8_t group_index,
             };
             add_entry(sm, e);
         }
-        /* DragItemThemeAnimation multiplies target opacity by 0.65 (composing with any explicit
-           state Opacity target like ListViewItemDragThemeOpacity = 0.8 -> ~0.52). */
+        /* DragItemThemeAnimation composes its 0.65 opacity multiplier against the winning
+           settled Opacity in this group (scanned newest-first, matching sample_raw_value_no_bt)
+           and appends its own entry at the tail so setters, multiple animations, and storyboard
+           declaration order can never shadow it. */
         im_fixed base_end_op = cap.f2;
-        bool replaced_op = false;
-        for (uint32_t i = 0; i < sm->entry_count; i++) {
-            if (sm->entries[i].group_index == group_index &&
-                target_matches(sm->entries[i].target, anim->target_name) &&
-                str_eq(sm->entries[i].property, "Opacity")) {
+        for (uint32_t i = sm->entry_count; i > 0u; i--) {
+            const im_state_entry *prev = &sm->entries[i - 1u];
+            if (prev->group_index == group_index &&
+                target_matches(prev->target, anim->target_name) &&
+                str_eq(prev->property, "Opacity")) {
                 im_template_value end_v;
-                if (entry_eval_value(sm, &sm->entries[i], now_ms + sm->entries[i].duration_ms, &end_v)) {
+                if (entry_eval_value(sm, prev, now_ms + prev->duration_ms, &end_v)) {
                     base_end_op = im_template_value_to_fixed(&end_v, &sm->palette, base_end_op);
                 }
-                im_fixed comp_end = (im_fixed)(((int64_t)base_end_op * (int64_t)IM_DRAG_ITEM_OPACITY_MULT + (IM_ONE / 2)) >> 16);
-                sm->entries[i] = (im_state_entry){
-                    .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
-                    .snapped = sm->reduced_motion, .target = anim->target_name, .property = "Opacity",
-                    .anim = anim, .start_fixed = cap.f2, .end_fixed = comp_end,
-                    .start_ms = now_ms, .duration_ms = dur
-                };
-                replaced_op = true;
                 break;
             }
         }
-        if (!replaced_op) {
-            im_fixed end_op = (im_fixed)(((int64_t)cap.f2 * (int64_t)IM_DRAG_ITEM_OPACITY_MULT + (IM_ONE / 2)) >> 16);
-            im_state_entry op_e = {
-                .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
-                .snapped = sm->reduced_motion, .target = anim->target_name, .property = "Opacity",
-                .anim = anim, .start_fixed = cap.f2, .end_fixed = end_op,
-                .start_ms = now_ms, .duration_ms = dur
-            };
-            add_entry(sm, op_e);
-        }
+        im_fixed comp_end = (im_fixed)(((int64_t)base_end_op * (int64_t)IM_DRAG_ITEM_OPACITY_MULT + (IM_ONE / 2)) >> 16);
+        im_state_entry op_e = {
+            .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+            .snapped = sm->reduced_motion, .target = anim->target_name, .property = "Opacity",
+            .anim = anim, .start_fixed = cap.f2, .end_fixed = comp_end,
+            .start_ms = now_ms, .duration_ms = dur
+        };
+        add_entry(sm, op_e);
         return;
     }
 

@@ -1566,8 +1566,12 @@ static int test_visual_states_and_animation(void) {
         if (!(fo_mid > 0 && fo_mid < IM_ONE)) return 276;
         if (im_states_sample_fixed(&lv, "ContentBorder", "Opacity", 3667u, IM_ONE) != 0) return 276;
 
-        /* Custom storyboard with DragItemThemeAnimation declared BEFORE explicit Opacity=0.8 track:
-           settled opacity must still compose 0.8 * 0.65 (~0.52) regardless of storyboard order. */
+        /* Custom storyboard with a destination Opacity setter (0.9) PLUS DragItemThemeAnimation declared
+           BEFORE an explicit Opacity=0.8 track: settled opacity must compose the winning 0.8 * 0.65 (~0.52)
+           regardless of setters or storyboard declaration order. */
+        static const im_template_setter di_ord_setters[] = {
+            {"ContentBorder", "Opacity", {IM_TVAL_FIXED, 58982, 0, 0, 0, NULL, NULL}},
+        };
         static const im_template_anim di_ord_anims[] = {
             {IM_ANIM_DRAG_ITEM_THEME, "ContentBorder", NULL, 0, IM_DIR_NONE, false, false, false,
              {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
@@ -1578,11 +1582,11 @@ static int test_visual_states_and_animation(void) {
         };
         static const im_template_state di_ord_states[] = {
             {"Rest", 0, 0, 0, 0},
-            {"Drag", 0, 0, 0, 2},
+            {"Drag", 0, 1, 0, 2},
         };
         static const im_template_group di_ord_groups[] = {{"DragStates", 0, 2, 0, 0}};
         static const im_template di_ord_tpl = {"DragOrd", "Grid", 0, 0, 0, 0, 0, 1};
-        im_template_tables di_ord_tbls = {NULL, NULL, NULL, di_ord_groups, di_ord_states, NULL, di_ord_anims, NULL};
+        im_template_tables di_ord_tbls = {di_ord_setters, NULL, NULL, di_ord_groups, di_ord_states, NULL, di_ord_anims, NULL};
         im_state_machine dsm;
         im_states_init_custom(&dsm, &di_ord_tpl, &di_ord_tbls, &pal);
         im_states_go_to(&dsm, "Drag", 0u);
