@@ -62,8 +62,10 @@ typedef struct im_text_layout {
     im_allocator alloc;
     im_text_line *lines;
     uint32_t line_count;
+    uint32_t line_cap;
     im_text_glyph *glyphs;
     uint32_t glyph_count;
+    uint32_t glyph_cap;
     im_fixed width;
     im_fixed height;
 } im_text_layout;

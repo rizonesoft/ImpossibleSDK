@@ -261,8 +261,10 @@ bool im_text_layout_build(im_text_layout *layout, im_allocator alloc,
         layout->alloc = alloc;
         layout->lines = lvec.data;
         layout->line_count = lvec.count;
+        layout->line_cap = lvec.cap;
         layout->glyphs = NULL;
         layout->glyph_count = 0;
+        layout->glyph_cap = 0;
         layout->width = 0;
         layout->height = line_h;
         return true;
@@ -292,6 +294,7 @@ bool im_text_layout_build(im_text_layout *layout, im_allocator alloc,
     }
 
     /* Pass 2: decode codepoints and nominal glyph advances */
+    bool ok = true;
     off = 0;
     for (size_t i = 0; i < cp_count; ++i) {
         uint32_t cp = 0;
@@ -303,16 +306,18 @@ bool im_text_layout_build(im_text_layout *layout, im_allocator alloc,
         uint16_t gid = im_font_glyph_index(style->font, cp);
         items[i].glyph_id = gid;
         im_glyph_metrics gm;
-        if (im_font_glyph_metrics(style->font, gid, &gm)) {
-            items[i].nominal_adv = im_font_scale_units(style->font, (int32_t)gm.advance_width, style->font_size);
-        } else {
-            items[i].nominal_adv = 0;
+        if (!im_font_glyph_metrics(style->font, gid, &gm)) {
+            ok = false;
+            break;
         }
+        items[i].nominal_adv = im_font_scale_units(style->font, (int32_t)gm.advance_width, style->font_size);
         off += n;
     }
 
-    bool ok = (im_unicode_line_breaks(cps, cp_count, lbreaks, cp_count + 1u) == IM_UNICODE_OK &&
-               im_unicode_grapheme_breaks(cps, cp_count, gbreaks, cp_count + 1u) == IM_UNICODE_OK);
+    if (ok) {
+        ok = (im_unicode_line_breaks(cps, cp_count, lbreaks, cp_count + 1u) == IM_UNICODE_OK &&
+              im_unicode_grapheme_breaks(cps, cp_count, gbreaks, cp_count + 1u) == IM_UNICODE_OK);
+    }
 
     im_fixed cur_y = 0;
     uint32_t line_start = 0;
@@ -360,54 +365,45 @@ bool im_text_layout_build(im_text_layout *layout, im_allocator alloc,
 
         uint32_t p = line_start;
         while (ok && p < seg_end) {
-            /* Check if the entire remaining paragraph segment fits. */
-            im_fixed rem_vis = 0, rem_full = 0;
-            measure_range(items, p, seg_end, style, &rem_vis, &rem_full);
-            if (rem_vis <= style->max_width) {
-                uint32_t bs = items[p].byte_off;
-                uint32_t be = items[seg_end - 1u].byte_off + items[seg_end - 1u].byte_len;
-                ok = emit_line(&lvec, &gvec, items, p, seg_end, bs, be, style, line_h, baseline, cur_y);
-                cur_y = sat_add_fx(cur_y, line_h);
-                p = seg_end;
-                break;
-            }
-
-            /* Find the furthest UAX #14 break opportunity in (p, seg_end] whose visible width <= max_width. */
+            /* Incrementally advance forward from p (O(line_len), never rescanning the full remaining suffix). */
             uint32_t best_uax = 0;
             uint32_t first_uax = 0;
-            for (uint32_t cand = p + 1u; cand <= seg_end; ++cand) {
-                bool is_opp = (cand == seg_end) || (lbreaks[cand] != IM_BREAK_NONE);
-                if (!is_opp) continue;
-                if (first_uax == 0) first_uax = cand;
-                im_fixed vis_w = 0, full_w = 0;
-                measure_range(items, p, cand, style, &vis_w, &full_w);
-                if (vis_w <= style->max_width) {
-                    best_uax = cand;
+            uint32_t best_gr = 0;
+            uint32_t first_gr = 0;
+            int64_t full_w = 0;
+            int64_t last_vis_w = 0;
+            bool fits_all = true;
+
+            for (uint32_t idx = p; idx < seg_end; ++idx) {
+                int64_t adv = items[idx].nominal_adv;
+                if (style->kerning && idx > p) {
+                    int32_t kern = im_font_kerning(style->font, items[idx - 1u].glyph_id, items[idx].glyph_id);
+                    if (kern != 0) full_w += im_font_scale_units(style->font, kern, style->font_size);
+                }
+                full_w += adv;
+                if (!is_trailing_space_cp(items[idx].cp)) {
+                    last_vis_w = full_w;
+                }
+                uint32_t cand = idx + 1u;
+                bool is_uax = (cand == seg_end) || (lbreaks[cand] != IM_BREAK_NONE);
+                bool is_gr = (cand == seg_end) || (gbreaks[cand] != IM_BREAK_NONE);
+                if (is_uax && first_uax == 0) first_uax = cand;
+                if (is_gr && first_gr == 0) first_gr = cand;
+
+                if (last_vis_w <= style->max_width) {
+                    if (is_uax) best_uax = cand;
+                    if (is_gr) best_gr = cand;
                 } else {
-                    break;
+                    fits_all = false;
+                    if (first_uax != 0 && first_gr != 0) break;
                 }
             }
 
-            uint32_t chosen = best_uax;
+            uint32_t chosen = fits_all ? seg_end : best_uax;
             if (chosen == 0) {
                 if (style->wrap == IM_TEXT_WRAP_WHOLE_WORDS) {
                     chosen = first_uax ? first_uax : seg_end;
                 } else {
-                    /* Emergency break at UAX #29 grapheme cluster boundary with guaranteed progress >= 1 cluster. */
-                    uint32_t best_gr = 0;
-                    uint32_t first_gr = 0;
-                    for (uint32_t cand = p + 1u; cand <= seg_end; ++cand) {
-                        bool is_gr = (cand == seg_end) || (gbreaks[cand] != IM_BREAK_NONE);
-                        if (!is_gr) continue;
-                        if (first_gr == 0) first_gr = cand;
-                        im_fixed vis_w = 0, full_w = 0;
-                        measure_range(items, p, cand, style, &vis_w, &full_w);
-                        if (vis_w <= style->max_width) {
-                            best_gr = cand;
-                        } else {
-                            break;
-                        }
-                    }
                     chosen = best_gr ? best_gr : (first_gr ? first_gr : (p + 1u));
                 }
             }
@@ -470,8 +466,10 @@ bool im_text_layout_build(im_text_layout *layout, im_allocator alloc,
     layout->alloc = alloc;
     layout->lines = lvec.data;
     layout->line_count = lvec.count;
+    layout->line_cap = lvec.cap;
     layout->glyphs = gvec.data;
     layout->glyph_count = gvec.count;
+    layout->glyph_cap = gvec.cap;
     layout->width = max_line_w;
     layout->height = cur_y;
     return true;
@@ -480,8 +478,8 @@ bool im_text_layout_build(im_text_layout *layout, im_allocator alloc,
 void im_text_layout_destroy(im_text_layout *layout) {
     if (!layout) return;
     if (layout->alloc.free) {
-        if (layout->lines) layout->alloc.free(layout->alloc.ctx, layout->lines, (size_t)layout->line_count * sizeof(im_text_line));
-        if (layout->glyphs) layout->alloc.free(layout->alloc.ctx, layout->glyphs, (size_t)layout->glyph_count * sizeof(im_text_glyph));
+        if (layout->lines) layout->alloc.free(layout->alloc.ctx, layout->lines, (size_t)layout->line_cap * sizeof(im_text_line));
+        if (layout->glyphs) layout->alloc.free(layout->alloc.ctx, layout->glyphs, (size_t)layout->glyph_cap * sizeof(im_text_glyph));
     }
     zero_bytes(layout, sizeof(*layout));
 }

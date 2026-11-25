@@ -10,7 +10,7 @@ static void fuzz_free(void *ctx, void *p, size_t old_n) { (void)ctx; (void)old_n
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     im_font font;
-    uint32_t face = (size > 0) ? (uint32_t)(data[0] & 3u) : 0u;
+    uint32_t face = (size > 0) ? (uint32_t)(data[size - 1u] & 3u) : 0u;
     if (!im_font_init_face(&font, data, size, face)) {
         if (!im_font_init(&font, data, size)) return 0;
     }

@@ -768,12 +768,29 @@ bool im_font_glyph_metrics(const im_font *font, uint16_t glyph_id, im_glyph_metr
         }
         out->is_empty = false;
     } else {
-        /* For CFF, report font bbox conservatively unless outline is empty. */
-        out->x_min = font->metrics.x_min;
-        out->y_min = font->metrics.y_min;
-        out->x_max = font->metrics.x_max;
-        out->y_max = font->metrics.y_max;
-        out->is_empty = false;
+        /* For CFF, inspect whether the charstring contains only width+endchar (empty glyph such as space). */
+        size_t cbase = font->cff_off;
+        size_t cend = cbase + font->cff_len;
+        cff_index cs_idx;
+        size_t cs_start = 0, cs_len = 0;
+        bool empty = true;
+        if (cff_parse_index(d, sz, cbase, cend, cbase + font->cff_charstrings_off, &cs_idx) &&
+            cff_index_get(d, sz, &cs_idx, glyph_id, &cs_start, &cs_len)) {
+            for (size_t k = 0; k < cs_len; ++k) {
+                uint8_t b = d[cs_start + k];
+                if (b == 4u || b == 21u || b == 22u || b == 10u || b == 29u) {
+                    empty = false;
+                    break;
+                }
+            }
+        }
+        out->is_empty = empty;
+        if (!empty) {
+            out->x_min = font->metrics.x_min;
+            out->y_min = font->metrics.y_min;
+            out->x_max = font->metrics.x_max;
+            out->y_max = font->metrics.y_max;
+        }
     }
     return true;
 }

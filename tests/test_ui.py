@@ -4371,7 +4371,8 @@ class Drawing(unittest.TestCase):
         for fpath, expected_total, expected_empty in font_checks:
             r = subprocess.run([str(exe), "--all-glyphs", fpath], capture_output=True, text=True, stdin=subprocess.DEVNULL)
             self.assertEqual(r.returncode, 0, f"{fpath}: {r.stdout}{r.stderr}")
-            self.assertIn(f"total={expected_total} ok={expected_total} empty={expected_empty}", r.stdout)
+            expected_inked = expected_total - expected_empty
+            self.assertIn(f"total={expected_total} ok={expected_total} empty={expected_empty} inked={expected_inked}", r.stdout)
             self.assertIn("clip_ok=1 leaked=0", r.stdout)
 
         # 3. DirectWrite / WPF GlyphTypeface exact nominal advance width comparison (Segoe UI 14px & 13.5px, Cascadia 14px)
