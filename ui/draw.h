@@ -29,7 +29,7 @@ typedef struct im_surface {
    using WinUI's proportional corner clamping and Wang-formula Bezier flattening. */
 uint32_t im_shape_coverage(im_rect shape, im_radii radii, int x, int y);
 
-/* Fill a rounded rectangle with a premultiplied or straight 0xAARRGGBB color,
+/* Fill a rounded rectangle with a straight (non-premultiplied) 0xAARRGGBB color,
    honoring surface->layers clips, group opacity, and active offscreen layers. */
 void im_fill_argb(im_surface *surface, im_rect shape, im_radii radii, uint32_t argb);
 

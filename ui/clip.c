@@ -139,12 +139,12 @@ static uint32_t entry_coverage(const im_clip_entry *e, int x, int y) {
     return im_shape_coverage(e->rect, e->radii, x, y);
 }
 
-uint32_t im_clip_pixel_coverage(const im_clip_stack *stack, int x, int y) {
-    if (!stack || stack->count == 0) return IM_ONE;
-    const im_clip_entry *top = &stack->entries[stack->count - 1u];
+uint32_t im_clip_pixel_coverage_range(const im_clip_stack *stack, uint32_t from_idx, uint32_t to_idx, int x, int y) {
+    if (!stack || from_idx >= to_idx || to_idx > stack->count) return IM_ONE;
+    const im_clip_entry *top = &stack->entries[to_idx - 1u];
     if (x < top->int_left || x >= top->int_right || y < top->int_top || y >= top->int_bottom) return 0;
     uint32_t cov = IM_ONE;
-    for (uint32_t i = 0; i < stack->count; i++) {
+    for (uint32_t i = from_idx; i < to_idx; i++) {
         uint32_t c = entry_coverage(&stack->entries[i], x, y);
         if (c == 0) return 0;
         if (c != IM_ONE) {
@@ -153,4 +153,9 @@ uint32_t im_clip_pixel_coverage(const im_clip_stack *stack, int x, int y) {
         }
     }
     return cov;
+}
+
+uint32_t im_clip_pixel_coverage(const im_clip_stack *stack, int x, int y) {
+    if (!stack || stack->count == 0) return IM_ONE;
+    return im_clip_pixel_coverage_range(stack, 0u, stack->count, x, y);
 }

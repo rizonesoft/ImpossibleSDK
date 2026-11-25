@@ -185,6 +185,15 @@ def pack(root):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(root / name, target)
     packed = fingerprint(job / "repo", names)
+    shots_bin = root / "build/linux/control-shots.exe"
+    if (root / "build/linux/build.ninja").is_file() and shutil.which("cmake"):
+        _run_with_tree_kill(["cmake", "--build", str(root / "build/linux"), "--target", "control-shots"], cwd=root, timeout=300, check=True)
+    if not shots_bin.is_file():
+        shots_bin = root / "build/control-shots.exe"
+    if shots_bin.is_file():
+        dst_shots = job / "repo/build/control-shots.exe"
+        dst_shots.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(shots_bin, dst_shots)
     needs = read(HERE / "needs.json")
     with zipfile.ZipFile(fetch(needs["python"])) as archive:
         archive.extractall(job / "python")

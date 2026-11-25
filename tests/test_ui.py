@@ -2933,6 +2933,11 @@ class Drawing(unittest.TestCase):
             nbytes = dim * dim * 4
             scenes[sc] = raw[off:off + nbytes]
             off += nbytes
+        winui_scenes = {}
+        for sc, dim in scales:
+            nbytes = dim * dim * 4
+            winui_scenes[sc] = raw[off:off + nbytes]
+            off += nbytes
         self.assertEqual(off, len(raw))
 
         # 1. Rounded clip of oversized white fill matches committed WinUI probe-r8 at 100%, 150%, 200% (within probe limit 40).
@@ -2943,7 +2948,7 @@ class Drawing(unittest.TestCase):
             mine = clipped_probes[sc]
             real = ref_frames[fname]
             self.assertEqual(len(mine), len(real))
-            worst = max(abs(mine[i] - real[i]) for i in range(0, len(mine), 4) for c in range(3) if False) if False else 0
+            worst = 0
             for idx in range(0, len(mine), 4):
                 for c in range(3):
                     d = abs(mine[idx + c] - real[idx + c])

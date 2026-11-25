@@ -1,4 +1,4 @@
-<!-- page: group="Impossible UI" order=1 sources=ui/button.h,ui/draw.c,tests/test_ui.py,reference/App.xaml.cs,tests/reference/cases.json,tests/fixtures/control_shots.c,tools/winui/resources.py reviewed=2026-11-24 -->
+<!-- page: group="Impossible UI" order=1 sources=ui/button.h,ui/draw.c,tests/test_ui.py,reference/App.xaml.cs,tests/reference/cases.json,tests/fixtures/control_shots.c,tools/winui/resources.py reviewed=2026-11-25 -->
 # How a control is compared
 
 How do we know it looks like Windows 11? A small program draws the same control with real WinUI 3, and the tests compare the two pixel by pixel.

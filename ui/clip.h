@@ -45,5 +45,8 @@ void im_clip_pop(im_clip_stack *stack);
 /* Return the intersected integer pixel bounding box [left, right) x [top, bottom) of all active clips. */
 void im_clip_bounds(const im_clip_stack *stack, int *left, int *top, int *right, int *bottom);
 
+/* Return the combined clip coverage (0 to IM_ONE) for pixel (x, y) across stack entries [from_idx, to_idx). */
+uint32_t im_clip_pixel_coverage_range(const im_clip_stack *stack, uint32_t from_idx, uint32_t to_idx, int x, int y);
+
 /* Return the combined clip coverage (0 to IM_ONE) for pixel (x, y) across all active clips. */
 uint32_t im_clip_pixel_coverage(const im_clip_stack *stack, int x, int y);

@@ -63,37 +63,6 @@ static int32_t active_offscreen_index(const im_layer_ctx *ctx) {
     return -1;
 }
 
-/* Clip coverage for clip stack entries in [from_idx, to_idx). */
-static uint32_t clip_range_coverage(const im_clip_stack *stack, uint32_t from_idx, uint32_t to_idx, int x, int y) {
-    if (!stack || from_idx >= to_idx || to_idx > stack->count) return IM_ONE;
-    uint32_t cov = IM_ONE;
-    for (uint32_t i = from_idx; i < to_idx; i++) {
-        const im_clip_entry *e = &stack->entries[i];
-        if (x < e->int_left || x >= e->int_right || y < e->int_top || y >= e->int_bottom) return 0;
-        uint32_t c;
-        if (!e->is_rounded) {
-            int64_t px0 = (int64_t)x * IM_ONE, px1 = px0 + IM_ONE;
-            int64_t py0 = (int64_t)y * IM_ONE, py1 = py0 + IM_ONE;
-            int64_t x0 = px0 > e->rect.left ? px0 : e->rect.left;
-            int64_t x1 = px1 < e->rect.right ? px1 : e->rect.right;
-            int64_t y0 = py0 > e->rect.top ? py0 : e->rect.top;
-            int64_t y1 = py1 < e->rect.bottom ? py1 : e->rect.bottom;
-            if (x1 <= x0 || y1 <= y0) return 0;
-            uint64_t dx = (uint64_t)(x1 - x0);
-            uint64_t dy = (uint64_t)(y1 - y0);
-            c = (dx == IM_ONE && dy == IM_ONE) ? IM_ONE : (uint32_t)((dx * dy + IM_ONE / 2) >> 16);
-        } else {
-            c = im_shape_coverage(e->rect, e->radii, x, y);
-        }
-        if (c == 0) return 0;
-        if (c != IM_ONE) {
-            cov = (uint32_t)(((uint64_t)cov * c + IM_ONE / 2) >> 16);
-            if (cov == 0) return 0;
-        }
-    }
-    return cov;
-}
-
 bool im_layer_init(im_layer_ctx *ctx, im_surface *target, im_allocator alloc, size_t memory_limit) {
     if (!ctx || !target || !alloc.alloc || !alloc.realloc || !alloc.free) return false;
     if (!im_clip_init(&ctx->clips, alloc, target->width, target->height)) return false;
@@ -169,11 +138,10 @@ im_layer_result im_layer_push(im_layer_ctx *ctx, im_rect bounds, uint8_t opacity
     if (!ctx || !ctx->target || ctx->frame_count == UINT32_MAX) return IM_LAYER_ERR;
     if (!ensure_frame_cap(ctx, ctx->frame_count + 1u)) return IM_LAYER_ERR;
 
-    /* Intersect requested bounds with parent bounds and active clip stack BEFORE calculating buffer size. */
+    /* Intersect requested bounds with parent bounds (offscreen or fallback) and active clip stack BEFORE calculating buffer size. */
     int pl = 0, pt = 0, pr = ctx->target->width, pb = ctx->target->height;
-    int32_t parent_off = active_offscreen_index(ctx);
-    if (parent_off >= 0) {
-        const im_layer_frame *pf = &ctx->frames[parent_off];
+    if (ctx->frame_count > 0) {
+        const im_layer_frame *pf = &ctx->frames[ctx->frame_count - 1u];
         pl = pf->x;
         pt = pf->y;
         pr = pf->x + pf->width;
@@ -314,7 +282,7 @@ void im_layer_pop(im_layer_ctx *ctx) {
                 uint32_t sp = src_row[dx];
                 if (sp == 0) continue;
                 int tx = f.x + dx;
-                uint32_t clip_cov = clip_range_coverage(&ctx->clips, parent_clip_from, parent_clip_to, tx, ty);
+                uint32_t clip_cov = im_clip_pixel_coverage_range(&ctx->clips, parent_clip_from, parent_clip_to, tx, ty);
                 if (clip_cov == 0) continue;
                 uint32_t w = (uint32_t)(((uint64_t)eff_layer_op * clip_cov + IM_ONE / 2) >> 16);
                 if (w == 0) continue;
@@ -351,14 +319,16 @@ void im_layer_draw_bounds(const im_layer_ctx *ctx, int *left, int *top, int *rig
         *left = *top = *right = *bottom = 0;
         return;
     }
-    int32_t off = active_offscreen_index(ctx);
-    if (off >= 0 && ctx->frames[off].empty_bounds) {
-        *left = *top = *right = *bottom = 0;
-        return;
+    if (ctx->frame_count > 0) {
+        const im_layer_frame *top_f = &ctx->frames[ctx->frame_count - 1u];
+        if (top_f->empty_bounds || top_f->width <= 0 || top_f->height <= 0) {
+            *left = *top = *right = *bottom = 0;
+            return;
+        }
     }
     im_clip_bounds(&ctx->clips, left, top, right, bottom);
-    if (off >= 0) {
-        const im_layer_frame *f = &ctx->frames[off];
+    if (ctx->frame_count > 0) {
+        const im_layer_frame *f = &ctx->frames[ctx->frame_count - 1u];
         if (*left < f->x) *left = f->x;
         if (*top < f->y) *top = f->y;
         if (*right > f->x + f->width) *right = f->x + f->width;
@@ -370,11 +340,18 @@ void im_layer_draw_bounds(const im_layer_ctx *ctx, int *left, int *top, int *rig
 
 void im_layer_blend_pixel(im_layer_ctx *ctx, int x, int y, uint32_t argb, uint32_t coverage) {
     if (!ctx || !ctx->target || coverage == 0) return;
+    if (ctx->frame_count > 0) {
+        const im_layer_frame *top_f = &ctx->frames[ctx->frame_count - 1u];
+        if (top_f->empty_bounds || x < top_f->x || x >= top_f->x + top_f->width ||
+            y < top_f->y || y >= top_f->y + top_f->height) {
+            return;
+        }
+    }
     int32_t off = active_offscreen_index(ctx);
     if (off >= 0 && ctx->frames[off].empty_bounds) return;
 
     uint32_t clip_from = (off >= 0) ? ctx->frames[off].clip_base : 0u;
-    uint32_t clip_cov = clip_range_coverage(&ctx->clips, clip_from, ctx->clips.count, x, y);
+    uint32_t clip_cov = im_clip_pixel_coverage_range(&ctx->clips, clip_from, ctx->clips.count, x, y);
     if (clip_cov == 0) return;
     uint32_t eff_cov = (clip_cov == IM_ONE) ? coverage : (uint32_t)(((uint64_t)coverage * clip_cov + IM_ONE / 2) >> 16);
     if (eff_cov == 0) return;

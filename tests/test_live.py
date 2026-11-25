@@ -1271,9 +1271,24 @@ class LiveReference(unittest.TestCase):
         sys.path.insert(0, str(ROOT / "reference"))
         import run as ref_run
 
-        # Real WinUI rounded clip + 0.5 group opacity over two overlapping opaque children at 100%, 150%, 200%, 300%.
+        # Render the exact same rounded-clip + 0.5 group-opacity overlapping red+blue scene in SDK and WinUI
+        # at 100%, 150%, 200%, 300%, and compare EVERY pixel (straight/interior <= 2, rounded corners <= 40).
+        shots_exe = ROOT / "build" / "linux" / "control-shots.exe"
+        if not shots_exe.exists():
+            shots_exe = ROOT / "build" / "control-shots.exe"
+        self.assertTrue(shots_exe.exists(), f"missing control-shots.exe at {shots_exe}")
+        sdk_raw = subprocess.check_output([str(shots_exe), "--clip-shots"])
+        scale_defs = ((1.0, "s100", 64), (1.5, "s150", 96), (2.0, "s200", 128), (3.0, "s300", 192))
+        off = 2 * sum(dim * dim * 4 for _, _, dim in scale_defs)  # skip probe + overlap group-opacity frames
+        sdk_scenes = {}
+        for sc, tag, dim in scale_defs:
+            nbytes = dim * dim * 4
+            sdk_scenes[tag] = sdk_raw[off:off + nbytes]
+            off += nbytes
+        self.assertEqual(off, len(sdk_raw))
+
         cases = []
-        for sc, tag in ((1.0, "s100"), (1.5, "s150"), (2.0, "s200"), (3.0, "s300")):
+        for sc, tag, _ in scale_defs:
             cases.append({
                 "id": f"clip-opacity-{tag}",
                 "case_group": "clip",
@@ -1292,14 +1307,34 @@ class LiveReference(unittest.TestCase):
                 },
                 "children": [
                     {
-                        "id": "op-child",
-                        "control": "Border",
+                        "id": "op-group",
+                        "control": "Grid",
                         "properties": {
-                            "Width": 24, "Height": 24,
-                            "Opacity": 0.5,
+                            "Width": 32, "Height": 32,
                             "HorizontalAlignment": "Center", "VerticalAlignment": "Center",
-                            "Background": "#FF0000FF",
+                            "Opacity": 0.5,
                         },
+                        "children": [
+                            {
+                                "id": "red-half",
+                                "control": "Border",
+                                "properties": {
+                                    "Width": 16, "Height": 32,
+                                    "HorizontalAlignment": "Left", "VerticalAlignment": "Top",
+                                    "Background": "#FFFF0000",
+                                },
+                            },
+                            {
+                                "id": "blue-half",
+                                "control": "Border",
+                                "properties": {
+                                    "Width": 16, "Height": 32,
+                                    "Margin": [16, 0, 0, 0],
+                                    "HorizontalAlignment": "Left", "VerticalAlignment": "Top",
+                                    "Background": "#FF0000FF",
+                                },
+                            },
+                        ],
                     },
                 ],
             })
@@ -1309,13 +1344,31 @@ class LiveReference(unittest.TestCase):
             cf.write_text(json.dumps({"cases": cases}), encoding="utf-8")
             out_dir = Path(build_tmp) / "out"
             ref_run.run_reference(exe, out_dir, cases_path=cf, work_dir=build_tmp)
-            for sc, tag in ((1.0, "s100"), (1.5, "s150"), (2.0, "s200"), (3.0, "s300")):
-                dim = int(round(64 * sc))
-                buf = (out_dir / f"clip-opacity-{tag}.bgra").read_bytes()
-                # Outside clip (2,2) remains #202020; overlap center (32*sc, 32*sc) matches SDK group-opacity RGB (12, 24, 164) within 2.
-                self.assertEqual(buf[0:3], bytes([0x20, 0x20, 0x20]), tag)
-                cx, cy = int(round(32 * sc)), int(round(32 * sc))
-                b, g, r = buf[(cy * dim + cx) * 4:(cy * dim + cx) * 4 + 3]
-                self.assertLessEqual(abs(r - 12), 2, f"{tag} R={r}")
-                self.assertLessEqual(abs(g - 24), 2, f"{tag} G={g}")
-                self.assertLessEqual(abs(b - 164), 2, f"{tag} B={b}")
+            for sc, tag, dim in scale_defs:
+                winui = (out_dir / f"clip-opacity-{tag}.bgra").read_bytes()
+                sdk = sdk_scenes[tag]
+                self.assertEqual(len(winui), len(sdk), tag)
+                # Rounded clip corner at (12*sc, 12*sc) must stay frame background #202020 in both renders.
+                cx0, cy0 = int(round(12 * sc)), int(round(12 * sc))
+                self.assertEqual(winui[(cy0 * dim + cx0) * 4:(cy0 * dim + cx0) * 4 + 3], bytes([0x20, 0x20, 0x20]), tag)
+                self.assertEqual(sdk[(cy0 * dim + cx0) * 4:(cy0 * dim + cx0) * 4 + 3], bytes([0x20, 0x20, 0x20]), tag)
+                b0, b1 = int(round(12 * sc)), int(round(52 * sc))
+                cr = int(round(8 * sc)) + 1
+                worst_straight = 0
+                worst_corner = 0
+                for y in range(dim):
+                    for x in range(dim):
+                        in_corner = (
+                            (b0 - 1 <= x < b0 + cr or b1 - cr <= x <= b1)
+                            and (b0 - 1 <= y < b0 + cr or b1 - cr <= y <= b1)
+                        )
+                        idx = (y * dim + x) * 4
+                        d = max(abs(winui[idx + c] - sdk[idx + c]) for c in range(3))
+                        if in_corner:
+                            if d > worst_corner:
+                                worst_corner = d
+                        else:
+                            if d > worst_straight:
+                                worst_straight = d
+                self.assertLessEqual(worst_straight, 2, f"{tag} straight/group-opacity diff={worst_straight}")
+                self.assertLessEqual(worst_corner, 40, f"{tag} rounded-corner diff={worst_corner}")

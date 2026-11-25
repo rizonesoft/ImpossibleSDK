@@ -437,6 +437,104 @@ static int test_tree_and_layout(void) {
     if (im_layout_round(nine_half, 98304) != (im_fixed)((14LL * 65536LL * 65536LL + 49152) / 98304)) return 118;
     if (im_layout_round(nine_half, 131072) != nine_half) return 119;
     if (im_layout_round(nine_half, 196608) != (im_fixed)((29LL * 65536LL * 65536LL + 98304) / 196608)) return 120;
+    /* Strict floor(x + 0.5) at 200%: 16383 / 65536 * 2 = 0.49996948... < 0.5 -> must round to 0. */
+    if (im_layout_round(16383, 131072) != 0) return 121;
+
+    /* 6. Star track min/max water-filling: [min=60] + [max=10] in 100 DIP -> 90, 10; [min=80] + [max=30] -> 80, 20. */
+    ta.used = 0; ta.fail_on_call = 0;
+    if (!im_tree_init(&tree, alloc)) return 122;
+    im_node *sg = im_tree_create_node(&tree, IM_ELEM_GRID, "StarGrid");
+    im_node *sc0 = im_tree_create_node(&tree, IM_ELEM_BORDER, "SC0");
+    im_node *sc1 = im_tree_create_node(&tree, IM_ELEM_BORDER, "SC1");
+    if (!sg || !sc0 || !sc1) return 122;
+    im_node_set_grid_cell(sc0, 0, 0, 1, 1);
+    im_node_set_grid_cell(sc1, 0, 1, 1, 1);
+    im_tree_append_child(&tree, sg, sc0);
+    im_tree_append_child(&tree, sg, sc1);
+    im_grid_def star_c1[2] = {
+        {IM_GRID_STAR, IM_ONE, fxi(60), IM_FIXED_INF},
+        {IM_GRID_STAR, IM_ONE, 0, fxi(10)},
+    };
+    if (!im_tree_set_grid_cols(&tree, sg, star_c1, 2)) return 122;
+    tree.root = sg;
+    im_layout_run(&tree, sg, fxi(100), fxi(40), IM_ONE);
+    if ((sc0->absolute_rect.right - sc0->absolute_rect.left) != fxi(90) ||
+        (sc1->absolute_rect.right - sc1->absolute_rect.left) != fxi(10)) return 123;
+    im_grid_def star_c2[2] = {
+        {IM_GRID_STAR, IM_ONE, fxi(80), IM_FIXED_INF},
+        {IM_GRID_STAR, IM_ONE, 0, fxi(30)},
+    };
+    if (!im_tree_set_grid_cols(&tree, sg, star_c2, 2)) return 123;
+    im_layout_run(&tree, sg, fxi(100), fxi(40), IM_ONE);
+    if ((sc0->absolute_rect.right - sc0->absolute_rect.left) != fxi(80) ||
+        (sc1->absolute_rect.right - sc1->absolute_rect.left) != fxi(20)) return 124;
+
+    /* 7. Cycle rejection and unsigned grid span overflow clamp. */
+    if (im_tree_append_child(&tree, sc0, sg)) return 125;
+    im_node *sub = im_tree_create_node(&tree, IM_ELEM_BORDER, "Sub");
+    if (!sub || !im_tree_append_child(&tree, sc0, sub)) return 125;
+    if (im_tree_replace_child(&tree, sc0, 0, sg) != NULL) return 125;
+    im_node_set_grid_cell(sc1, 0, 1, 1, UINT32_MAX);
+    im_layout_run(&tree, sg, fxi(100), fxi(40), IM_ONE);
+    if ((sc1->absolute_rect.right - sc1->absolute_rect.left) != fxi(20)) return 126;
+
+    /* 8. Parent move propagates descendant absolute_rect even when child's local slot is unchanged. */
+    im_layout_arrange(&tree, sg, (im_rect){fxi(10), fxi(5), fxi(110), fxi(45)}, IM_ONE);
+    if (sc0->absolute_rect.left != fxi(10) || sc0->absolute_rect.top != fxi(5) ||
+        sub->absolute_rect.left != fxi(10) || sub->absolute_rect.top != fxi(5)) return 127;
+
+    /* 9. DPI scale change re-arranges even when logical final_rect is unchanged. */
+    im_node_set_margin(sub, (im_thickness){IM_ONE / 2, 0, 0, 0});
+    im_layout_run(&tree, sg, fxi(100), fxi(40), IM_ONE);
+    im_fixed x_100 = sub->absolute_rect.left;
+    im_layout_run(&tree, sg, fxi(100), fxi(40), 98304); /* 150% */
+    im_fixed x_150 = sub->absolute_rect.left;
+    if (x_100 != IM_ONE || x_150 == x_100) return 128;
+    im_tree_destroy(&tree);
+    if (ta.live_allocs != 0 || ta.live_bytes != 0) return 128;
+
+    /* 10. Detaching a template child clears external templated_parent (no dangling read after destroying Button). */
+    ta.used = 0;
+    if (!im_tree_init(&tree, alloc)) return 129;
+    im_node *dbtn = im_tree_instantiate_template(&tree, &pal, IM_TEMPLATE_BUTTON, "DetBtn");
+    if (!dbtn || dbtn->child_count != 1) return 129;
+    im_node *dcp = dbtn->children[0];
+    im_node_set_padding(dbtn, (im_thickness){fxi(20), fxi(4), fxi(20), fxi(4)});
+    if (!im_tree_remove_child(&tree, dbtn, dcp)) return 129;
+    if (dcp->templated_parent != NULL) return 175;
+    im_tree_destroy_subtree(&tree, dbtn);
+    im_thickness eff_after = im_node_effective_padding(dcp);
+    if (eff_after.left == fxi(20)) return 175;
+    im_tree_destroy_subtree(&tree, dcp);
+    if (ta.live_allocs != 0 || ta.live_bytes != 0) return 175;
+
+    /* 11. 17-column Grid transient alloc failure during measure & arrange does not cache failure; retry succeeds. */
+    ta.used = 0;
+    if (!im_tree_init(&tree, alloc)) return 176;
+    im_node *g17 = im_tree_create_node(&tree, IM_ELEM_GRID, "Grid17");
+    im_node *c17 = im_tree_create_node(&tree, IM_ELEM_BORDER, "Cell17");
+    if (!g17 || !c17) return 176;
+    im_grid_def cols17[17];
+    for (int i = 0; i < 17; i++) cols17[i] = (im_grid_def){IM_GRID_PIXEL, fxi(2), 0, IM_FIXED_INF};
+    if (!im_tree_set_grid_cols(&tree, g17, cols17, 17)) return 176;
+    im_node_set_grid_cell(c17, 0, 16, 1, 1);
+    im_tree_append_child(&tree, g17, c17);
+    tree.root = g17;
+    ta.fail_on_call = ta.alloc_calls + 1u;
+    im_size fail_m = im_layout_measure(&tree, g17, (im_size){fxi(100), fxi(20)}, IM_ONE);
+    ta.fail_on_call = 0;
+    if (fail_m.width != 0 || !g17->measure_dirty) return 177;
+    /* Retry with identical constraint and NO manual invalidation must produce 17 * 2 = 34! */
+    im_size ok_m = im_layout_measure(&tree, g17, (im_size){fxi(100), fxi(20)}, IM_ONE);
+    if (ok_m.width != fxi(34)) return 178;
+    ta.fail_on_call = ta.alloc_calls + 1u;
+    im_layout_arrange(&tree, g17, (im_rect){0, 0, fxi(100), fxi(20)}, IM_ONE);
+    ta.fail_on_call = 0;
+    if (!g17->arrange_dirty) return 179;
+    im_layout_arrange(&tree, g17, (im_rect){0, 0, fxi(100), fxi(20)}, IM_ONE);
+    if (c17->absolute_rect.left != fxi(32) || (c17->absolute_rect.right - c17->absolute_rect.left) != fxi(2)) return 180;
+    im_tree_destroy(&tree);
+    if (ta.live_allocs != 0 || ta.live_bytes != 0) return 180;
 
     return 0;
 }
@@ -477,15 +575,19 @@ static uint32_t prng_next(uint32_t *state) {
     return x;
 }
 
-static uint32_t ref_buf[42][16 * 16];
+static uint32_t ref_buf[76][16 * 16];
+static uint32_t ref_deepest[16 * 16];
 
 static void render_ref_recursive(const ref_op *ops, int depth, int max_depth, uint32_t *dst, bool dst_opaque, const im_rect *clips, const im_radii *clip_radii, int clip_count) {
-    if (depth >= max_depth) return;
+    if (depth >= max_depth) {
+        for (int i = 0; i < 16 * 16; i++) ref_deepest[i] = dst[i];
+        return;
+    }
     const ref_op *op = &ops[depth];
     if (op->kind == 0) {
         /* Push clip, draw rect, recurse, pop clip. */
-        im_rect next_clips[42];
-        im_radii next_radii[42];
+        im_rect next_clips[76];
+        im_radii next_radii[76];
         for (int i = 0; i < clip_count; i++) { next_clips[i] = clips[i]; next_radii[i] = clip_radii[i]; }
         next_clips[clip_count] = op->rect;
         next_radii[clip_count] = op->radii;
@@ -652,16 +754,18 @@ static int test_clips_and_layers(void) {
         if (rec.live_allocs != 0 || rec.live_bytes != 0) return 143;
     }
 
-    /* 3. im_draw_button through an offset layer (opacity 180) with a rounded clip crossing fill and stroke. */
+    /* 3. im_draw_button through an offset layer (opacity 180) with a rounded clip crossing BOTH fill and 1px stroke. */
     rec.used = 0;
     for (int i = 0; i < W * H; i++) pixels[i] = 0x00202020;
     surface.palette.theme = IM_DARK;
     if (!im_layer_init(&ctx, &surface, alloc, 256 * 1024)) return 144;
     if (im_layer_push(&ctx, box(12, 16, 52, 48), 180u, true, (im_radii){8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE, 8 * IM_ONE}) != IM_LAYER_OK) return 145;
-    im_draw_button(&surface, box(6, 12, 58, 52), IM_BUTTON, IM_REST);
+    im_draw_button(&surface, box(14, 18, 50, 46), IM_BUTTON, IM_REST);
     im_layer_pop(&ctx);
-    /* Pixels outside clip (8,20) and at rounded clip corner (12,16) must remain 0x00202020; interior (32,32) must change. */
+    /* Outside clip (8,20) and rounded clip corner (12,16) stay 0x00202020; interior fill (32,32) changes;
+       top 1px stroke (32,18) is inside the layer and MUST differ from both background and interior fill! */
     if (at(8, 20) != 0x00202020 || at(12, 16) != 0x00202020 || at(32, 32) == 0x00202020) return 146;
+    if (at(32, 18) == 0x00202020 || at(32, 18) == at(32, 32)) return 181;
     im_layer_destroy(&ctx);
     if (rec.live_allocs != 0 || rec.live_bytes != 0) return 147;
 
@@ -694,7 +798,25 @@ static int test_clips_and_layers(void) {
     im_layer_destroy(&ctx);
     if (rec.live_allocs != 0 || rec.live_bytes != 0) return 158;
 
-    /* 5. Injected allocation failure on clip-stack growth and layer buffer alloc + sibling + retry. */
+    /* 4b. Fallback layer with has_clip=false must still enforce its own bounds (and clamp nested child layers). */
+    rec.used = 0;
+    for (int i = 0; i < W * H; i++) pixels[i] = 0x00000000;
+    if (!im_layer_init(&ctx, &surface, alloc, 0u)) return 182;
+    if (im_layer_push(&ctx, box(1, 1, 3, 3), 255u, false, sq) != IM_LAYER_FALLBACK) return 182;
+    im_fill_argb(&surface, box(0, 0, 64, 64), sq, 0xFFFFFFFF);
+    if (at(0, 0) != 0x00000000 || at(1, 1) != 0x00FFFFFF || at(3, 3) != 0x00000000) return 183;
+    /* Nested layer inside fallback parent must also be clamped to [1,3)x[1,3). */
+    ctx.memory_limit = 256 * 1024;
+    if (im_layer_push(&ctx, box(0, 0, 6, 6), 255u, false, sq) != IM_LAYER_OK) return 184;
+    if (ctx.frames[ctx.frame_count - 1u].width != 2 || ctx.frames[ctx.frame_count - 1u].height != 2) return 184;
+    im_fill_argb(&surface, box(0, 0, 6, 6), sq, 0xFF00FF00);
+    im_layer_pop(&ctx);
+    im_layer_pop(&ctx);
+    if (at(0, 0) != 0x00000000 || at(1, 1) != 0x0000FF00 || at(3, 3) != 0x00000000) return 185;
+    im_layer_destroy(&ctx);
+    if (rec.live_allocs != 0 || rec.live_bytes != 0) return 185;
+
+    /* 5. Injected allocation failure on clip-stack growth, layer-frame growth (IM_LAYER_ERR), and layer buffer alloc + sibling + retry. */
     rec.used = 0;
     for (int i = 0; i < W * H; i++) pixels[i] = 0x00102030;
     if (!im_layer_init(&ctx, &surface, alloc, 256 * 1024)) return 159;
@@ -719,23 +841,37 @@ static int test_clips_and_layers(void) {
     if (!im_layer_push_clip_rect(&ctx, box(12, 12, 48, 48))) return 166;
     im_fill_argb(&surface, box(14, 14, 18, 18), sq, 0xFF0000FF);
     if (at(15, 15) != 0x000000FF) return 167;
+    /* Inject failure on layer-frame stack growth (push 8 layers to fill cap=8, fail on 9th -> IM_LAYER_ERR). */
+    for (int k = 0; k < 8; k++) {
+        if (im_layer_push(&ctx, box(14, 14, 24, 24), 255u, false, sq) != IM_LAYER_OK) return 186;
+    }
+    rec.fail_realloc_at = rec.realloc_calls + 1u;
+    if (im_layer_push(&ctx, box(14, 14, 24, 24), 255u, false, sq) != IM_LAYER_ERR) return 187;
+    rec.fail_realloc_at = 0;
+    if (ctx.frame_count != 8u) return 188;
+    /* Retry 9th layer push succeeds and unwinds cleanly. */
+    if (im_layer_push(&ctx, box(14, 14, 24, 24), 255u, false, sq) != IM_LAYER_OK) return 189;
+    im_fill_argb(&surface, box(16, 16, 20, 20), sq, 0xFF00FF00);
+    for (int k = 0; k < 9; k++) im_layer_pop(&ctx);
+    if (at(17, 17) != 0x0000FF00) return 189;
     im_layer_destroy(&ctx);
     if (rec.live_allocs != 0 || rec.live_bytes != 0) return 168;
 
-    /* 6. Depth-40 (> 32) interleaved clip-inside-layer and layer-inside-clip random tree vs plain reference renderer. */
+    /* 6. Depth-72 (36 nested layers > 32 AND 72 clips > 32) interleaved tree vs plain reference renderer,
+          verified BOTH at maximum active depth before unwinding AND after full unwinding. */
     static uint32_t actual_16[16 * 16];
     static uint32_t expected_16[16 * 16];
     for (int i = 0; i < 16 * 16; i++) actual_16[i] = expected_16[i] = 0x00182430;
     im_surface s16 = {actual_16, 16, 16, 16, {IM_DARK, {0}}, IM_ONE, NULL};
-    ref_op ops[40];
+    ref_op ops[72];
     uint32_t seed = 0xCAFEBABEu;
-    for (int d = 0; d < 40; d++) {
+    for (int d = 0; d < 72; d++) {
         ops[d].kind = (uint8_t)(d & 1);
-        int x0 = (int)(prng_next(&seed) % 6u);
-        int y0 = (int)(prng_next(&seed) % 6u);
-        int x1 = 10 + (int)(prng_next(&seed) % 6u);
-        int y1 = 10 + (int)(prng_next(&seed) % 6u);
-        int rad = (int)(prng_next(&seed) % 4u);
+        int x0 = (int)(prng_next(&seed) % 4u);
+        int y0 = (int)(prng_next(&seed) % 4u);
+        int x1 = 12 + (int)(prng_next(&seed) % 4u);
+        int y1 = 12 + (int)(prng_next(&seed) % 4u);
+        int rad = (int)(prng_next(&seed) % 3u);
         ops[d].rect = box(x0, y0, x1, y1);
         ops[d].radii = (im_radii){rad * IM_ONE, rad * IM_ONE, rad * IM_ONE, rad * IM_ONE};
         uint32_t a = 96u + (prng_next(&seed) % 160u);
@@ -743,13 +879,13 @@ static int test_clips_and_layers(void) {
         uint32_t g = prng_next(&seed) & 255u;
         uint32_t b = prng_next(&seed) & 255u;
         ops[d].color = (a << 24) | (r << 16) | (g << 8) | b;
-        ops[d].opacity = (uint8_t)(128u + (prng_next(&seed) % 128u));
+        ops[d].opacity = (uint8_t)(160u + (prng_next(&seed) % 96u));
     }
-    render_ref_recursive(ops, 0, 40, expected_16, true, NULL, NULL, 0);
+    render_ref_recursive(ops, 0, 72, expected_16, true, NULL, NULL, 0);
 
     rec.used = 0;
     if (!im_layer_init(&ctx, &s16, alloc, 512 * 1024)) return 169;
-    for (int d = 0; d < 40; d++) {
+    for (int d = 0; d < 72; d++) {
         if (ops[d].kind == 0) {
             if (!im_layer_push_clip_rounded(&ctx, ops[d].rect, ops[d].radii)) return 170;
             im_fill_argb(&s16, ops[d].rect, sq, ops[d].color);
@@ -758,7 +894,18 @@ static int test_clips_and_layers(void) {
             im_fill_argb(&s16, ops[d].rect, sq, ops[d].color);
         }
     }
-    for (int d = 39; d >= 0; d--) {
+    /* Verify > 32 active layer frames AND check innermost active layer buffer pixels BEFORE unwinding! */
+    if (ctx.frame_count != 36u || ctx.clips.count != 72u) return 190;
+    const im_layer_frame *deep = &ctx.frames[ctx.frame_count - 1u];
+    if (!deep->pixels || deep->width <= 0 || deep->height <= 0) return 191;
+    for (int dy = 0; dy < deep->height; dy++) {
+        for (int dx = 0; dx < deep->width; dx++) {
+            uint32_t got_px = deep->pixels[(size_t)dy * (size_t)deep->width + (size_t)dx];
+            uint32_t want_px = ref_deepest[(deep->y + dy) * 16 + (deep->x + dx)];
+            if (got_px != want_px) return 192;
+        }
+    }
+    for (int d = 71; d >= 0; d--) {
         if (ops[d].kind == 0) im_layer_pop_clip(&ctx);
         else im_layer_pop(&ctx);
     }

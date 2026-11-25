@@ -139,8 +139,36 @@ static bool ensure_child_capacity(im_tree *tree, im_node *parent, uint32_t neede
     return true;
 }
 
+static bool is_ancestor(const im_node *ancestor, const im_node *node) {
+    for (const im_node *cur = node; cur != NULL; cur = cur->parent) {
+        if (cur == ancestor) return true;
+    }
+    return false;
+}
+
+static bool is_in_subtree(const im_node *root, const im_node *target) {
+    if (!root || !target) return false;
+    if (root == target) return true;
+    for (uint32_t i = 0; i < root->child_count; i++) {
+        if (is_in_subtree(root->children[i], target)) return true;
+    }
+    return false;
+}
+
+static void detach_external_templated_parents(im_node *subtree_root, im_node *node) {
+    if (!node) return;
+    if (node->templated_parent && !is_in_subtree(subtree_root, node->templated_parent)) {
+        node->templated_parent = NULL;
+        im_tree_invalidate_measure(node);
+    }
+    for (uint32_t i = 0; i < node->child_count; i++) {
+        detach_external_templated_parents(subtree_root, node->children[i]);
+    }
+}
+
 bool im_tree_insert_child(im_tree *tree, im_node *parent, uint32_t index, im_node *child) {
     if (!tree || !parent || !child || child->parent != NULL || child == parent) return false;
+    if (is_ancestor(child, parent)) return false;
     if (index > parent->child_count) return false;
     if (parent->child_count == UINT32_MAX) return false;
     if (!ensure_child_capacity(tree, parent, parent->child_count + 1u)) return false;
@@ -169,6 +197,7 @@ bool im_tree_remove_child(im_tree *tree, im_node *parent, im_node *child) {
             }
             parent->child_count--;
             child->parent = NULL;
+            detach_external_templated_parents(child, child);
             im_tree_invalidate_measure(parent);
             return true;
         }
@@ -179,9 +208,11 @@ bool im_tree_remove_child(im_tree *tree, im_node *parent, im_node *child) {
 im_node *im_tree_replace_child(im_tree *tree, im_node *parent, uint32_t index, im_node *replacement) {
     (void)tree;
     if (!parent || !replacement || replacement->parent != NULL || replacement == parent) return NULL;
+    if (is_ancestor(replacement, parent)) return NULL;
     if (index >= parent->child_count) return NULL;
     im_node *old = parent->children[index];
     old->parent = NULL;
+    detach_external_templated_parents(old, old);
     parent->children[index] = replacement;
     replacement->parent = parent;
     im_tree_invalidate_measure(parent);

@@ -25,7 +25,7 @@ typedef struct im_layer_frame {
     bool is_fallback;
     bool has_clip;
     bool empty_bounds;
-    uint32_t clip_base;       /* Clip stack depth belonging to parent before this layer's own clips. */
+    uint32_t clip_base;       /* Inclusive clip stack depth after this layer's own optional clip (if has_clip). */
 } im_layer_frame;
 
 /* Clip and offscreen layer context attached to an im_surface via surface->layers. */

@@ -243,6 +243,16 @@ uint32_t im_shape_coverage(im_rect shape, im_radii radii, int x, int y) {
     int64_t px0 = (int64_t)x * IM_ONE, px1 = px0 + IM_ONE;
     int64_t py0 = (int64_t)y * IM_ONE, py1 = py0 + IM_ONE;
     if (px1 <= shape.left || px0 >= shape.right || py1 <= shape.top || py0 >= shape.bottom) return 0;
+    if (px0 >= shape.left && px1 <= shape.right && py0 >= shape.top && py1 <= shape.bottom) {
+        int64_t max_l = radii.top_left > radii.bottom_left ? radii.top_left : radii.bottom_left;
+        int64_t max_r = radii.top_right > radii.bottom_right ? radii.top_right : radii.bottom_right;
+        int64_t max_t = radii.top_left > radii.top_right ? radii.top_left : radii.top_right;
+        int64_t max_b = radii.bottom_left > radii.bottom_right ? radii.bottom_left : radii.bottom_right;
+        if ((px0 >= (int64_t)shape.left + max_l && px1 <= (int64_t)shape.right - max_r) ||
+            (py0 >= (int64_t)shape.top + max_t && py1 <= (int64_t)shape.bottom - max_b)) {
+            return IM_ONE;
+        }
+    }
     fitted_radii f = fit(shape, radii);
     int64_t covered = 0;
     for (int row = 0; row < ROWS; row++) {

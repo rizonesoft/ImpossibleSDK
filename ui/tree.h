@@ -153,7 +153,10 @@ typedef struct im_node {
     bool measured_inf_h;
     im_size last_avail;
     im_rect last_arrange_rect;
-    im_fixed last_scale;
+    im_rect last_parent_abs;
+    im_flow_dir last_parent_flow;
+    im_fixed last_measure_scale;
+    im_fixed last_arrange_scale;
     im_size desired_size;
     im_size unclipped_desired;
     im_rect layout_rect;

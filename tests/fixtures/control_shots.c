@@ -141,6 +141,30 @@ static int emit_clip_shots(HANDLE out) {
         im_layer_destroy(&ctx);
         if (!write_all(out, big, (size_t)w * (size_t)h * 4)) return 1;
     }
+
+    /* 3. WinUI-matched rounded-clip + 0.5 opacity scene (oversized left-red + right-blue halves clipped by r=8 Border)
+          at 100%, 150%, 200%, 300%, compared pixel-by-pixel against live WinUI in tests/test_live.py. */
+    for (int i = 0; i < 4; i++) {
+        int w = 64 * scales[i].num / scales[i].den;
+        int h = 64 * scales[i].num / scales[i].den;
+        im_fixed sc = (im_fixed)((int64_t)IM_ONE * scales[i].num / scales[i].den);
+        im_fixed rad = (im_fixed)(8LL * sc);
+        im_surface s = {big, w, h, w, {IM_DARK, {0}}, sc, NULL};
+        for (int p = 0; p < w * h; p++) big[p] = 0x00202020;
+        shot_arena_used = 0;
+        im_layer_ctx ctx;
+        if (!im_layer_init(&ctx, &s, alloc, sizeof(shot_arena))) return 1;
+        im_rect clip_r = {(im_fixed)(12LL * sc), (im_fixed)(12LL * sc), (im_fixed)(52LL * sc), (im_fixed)(52LL * sc)};
+        if (!im_layer_push_clip_rounded(&ctx, clip_r, (im_radii){rad, rad, rad, rad})) return 1;
+        im_fill_argb(&s, (im_rect){0, 0, w * IM_ONE, h * IM_ONE}, sq, 0xFF183048);
+        if (im_layer_push(&ctx, clip_r, 128u, false, sq) != IM_LAYER_OK) return 1;
+        im_fill_argb(&s, (im_rect){(im_fixed)(16LL * sc), (im_fixed)(16LL * sc), (im_fixed)(32LL * sc), (im_fixed)(48LL * sc)}, sq, 0xFFFF0000);
+        im_fill_argb(&s, (im_rect){(im_fixed)(32LL * sc), (im_fixed)(16LL * sc), (im_fixed)(48LL * sc), (im_fixed)(48LL * sc)}, sq, 0xFF0000FF);
+        im_layer_pop(&ctx);
+        im_layer_pop_clip(&ctx);
+        im_layer_destroy(&ctx);
+        if (!write_all(out, big, (size_t)w * (size_t)h * 4)) return 1;
+    }
     return 0;
 }
 

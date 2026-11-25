@@ -29,15 +29,7 @@ static im_fixed sub_nonneg(im_fixed a, im_fixed b) {
 static im_fixed min_fixed(im_fixed a, im_fixed b) { return a < b ? a : b; }
 static im_fixed max_fixed(im_fixed a, im_fixed b) { return a > b ? a : b; }
 
-static im_fixed round_if(im_fixed v, im_fixed scale, bool enabled) {
-    return enabled ? im_layout_round(v, scale) : v;
-}
-
-static im_thickness round_thickness_if(im_thickness t, im_fixed scale, bool enabled) {
-    return enabled ? im_layout_round_thickness(t, scale) : t;
-}
-
-im_fixed im_layout_round(im_fixed value, im_fixed scale) {
+static im_fixed round_internal(im_fixed value, im_fixed scale, bool allow_sum_lsb) {
     if (value == IM_FIXED_AUTO || value == IM_FIXED_INF) return value;
     if (scale <= 0) scale = IM_ONE;
     if (scale == IM_ONE) {
@@ -45,13 +37,29 @@ im_fixed im_layout_round(im_fixed value, im_fixed scale) {
         return clamp_i64_fixed(px * (int64_t)IM_ONE);
     }
     /* Match WinUI CUIElement::LayoutRoundHelper: XcpFloor(value * scale + 0.5) / scale.
-       Add 2*scale in 32.32 (<= 0.00003 px) to compensate for <=0.5 LSB truncation per term when 1/1.25 or 1/1.5 repeats in binary. */
+       Public im_layout_round passes allow_sum_lsb=false (strictly unbiased floor(x + 0.5)).
+       Internal layout passes allow 1 LSB compensation ONLY on non-power-of-two scales
+       (e.g. 125%, 150%, 300%) where summing 2-3 rounded 16.16 terms (each within 0.5 LSB)
+       can land 0.25-1.0 LSB below an exact k + 0.5 physical-pixel boundary. */
     int64_t scaled = (int64_t)value * (int64_t)scale;
-    int64_t px = floor_div_pow2(scaled + ((int64_t)1 << 31) + ((int64_t)scale << 1), 32);
+    int64_t bias = (allow_sum_lsb && (((uint32_t)scale & ((uint32_t)scale - 1u)) != 0u)) ? ((int64_t)scale << 1) : 0;
+    int64_t px = floor_div_pow2(scaled + ((int64_t)1 << 31) + bias, 32);
     int64_t num = px * ((int64_t)IM_ONE * (int64_t)IM_ONE);
     int64_t half = (int64_t)scale / 2;
     int64_t res = num >= 0 ? (num + half) / (int64_t)scale : -((-num + half) / (int64_t)scale);
     return clamp_i64_fixed(res);
+}
+
+static im_fixed round_if(im_fixed v, im_fixed scale, bool enabled) {
+    return enabled ? round_internal(v, scale, true) : v;
+}
+
+static im_thickness round_thickness_if(im_thickness t, im_fixed scale, bool enabled) {
+    return enabled ? im_layout_round_thickness(t, scale) : t;
+}
+
+im_fixed im_layout_round(im_fixed value, im_fixed scale) {
+    return round_internal(value, scale, false);
 }
 
 im_thickness im_layout_round_thickness(im_thickness t, im_fixed scale) {
@@ -71,9 +79,11 @@ static im_fixed round_half_if(im_fixed diff, im_fixed scale, bool enabled) {
         int64_t px = floor_div_pow2((int64_t)diff + (int64_t)IM_ONE, 17);
         return clamp_i64_fixed(px * (int64_t)IM_ONE);
     }
-    /* Compute floor((diff * scale) / 2 + 0.5) / scale without truncating diff / 2 first. */
+    /* Compute floor((diff * scale) / 2 + 0.5) / scale without truncating diff / 2 first.
+       On non-power-of-two scales, compensate up to 1 LSB from subtracting two rounded 16.16 terms. */
     int64_t scaled = (int64_t)diff * (int64_t)scale;
-    int64_t px = floor_div_pow2(scaled + ((int64_t)1 << 32) + ((int64_t)scale << 1), 33);
+    int64_t bias = (((uint32_t)scale & ((uint32_t)scale - 1u)) == 0u) ? 0 : ((int64_t)scale << 1);
+    int64_t px = floor_div_pow2(scaled + ((int64_t)1 << 32) + bias, 33);
     int64_t num = px * ((int64_t)IM_ONE * (int64_t)IM_ONE);
     int64_t half = (int64_t)scale / 2;
     int64_t res = num >= 0 ? (num + half) / (int64_t)scale : -((-num + half) / (int64_t)scale);
@@ -145,8 +155,9 @@ static uint32_t clamp_index(uint32_t idx, uint32_t count) {
 
 static uint32_t clamp_span(uint32_t idx, uint32_t span, uint32_t count) {
     if (count == 0) return 1u;
+    if (idx >= count) idx = count - 1u;
     if (span == 0) span = 1u;
-    if (idx + span > count) span = count - idx;
+    if (span > count - idx) span = count - idx;
     return span == 0 ? 1u : span;
 }
 
@@ -234,26 +245,49 @@ static void distribute_star_tracks(grid_track *tracks, uint32_t count, im_fixed 
         }
         if (weight_sum <= 0) break;
 
-        bool clamped = false;
+        /* Exact water-filling: compare sum of clamped provisional shares against rem.
+           If clamped_sum > rem, the true rate is lower so every min-clamped track is definitely at min_s.
+           If clamped_sum < rem, the true rate is higher so every max-clamped track is definitely at max_s. */
+        int64_t clamped_sum = 0;
+        bool any_below_min = false;
+        bool any_above_max = false;
         for (uint32_t i = 0; i < count; i++) {
             if (tracks[i].locked) continue;
             int64_t w = tracks[i].value > 0 ? (int64_t)tracks[i].value : (int64_t)IM_ONE;
             im_fixed share = clamp_i64_fixed(((int64_t)rem * w) / weight_sum);
             if (share < tracks[i].min_s) {
-                tracks[i].size = tracks[i].min_s;
-                tracks[i].locked = true;
-                rem = sub_nonneg(rem, tracks[i].size);
-                clamped = true;
-                break;
+                any_below_min = true;
+                clamped_sum += (int64_t)tracks[i].min_s;
             } else if (share > tracks[i].max_s) {
-                tracks[i].size = tracks[i].max_s;
-                tracks[i].locked = true;
-                rem = sub_nonneg(rem, tracks[i].size);
-                clamped = true;
-                break;
+                any_above_max = true;
+                clamped_sum += (int64_t)tracks[i].max_s;
+            } else {
+                clamped_sum += (int64_t)share;
             }
         }
-        if (!clamped) {
+
+        bool locked_any = false;
+        if (any_below_min || any_above_max) {
+            bool lock_mins = (clamped_sum >= (int64_t)rem) ? any_below_min : !any_above_max;
+            im_fixed iter_rem = rem;
+            for (uint32_t i = 0; i < count; i++) {
+                if (tracks[i].locked) continue;
+                int64_t w = tracks[i].value > 0 ? (int64_t)tracks[i].value : (int64_t)IM_ONE;
+                im_fixed share = clamp_i64_fixed(((int64_t)iter_rem * w) / weight_sum);
+                if (lock_mins && share < tracks[i].min_s) {
+                    tracks[i].size = tracks[i].min_s;
+                    tracks[i].locked = true;
+                    rem = sub_nonneg(rem, tracks[i].size);
+                    locked_any = true;
+                } else if (!lock_mins && share > tracks[i].max_s) {
+                    tracks[i].size = tracks[i].max_s;
+                    tracks[i].locked = true;
+                    rem = sub_nonneg(rem, tracks[i].size);
+                    locked_any = true;
+                }
+            }
+        }
+        if (!locked_any) {
             int64_t rem_weight = weight_sum;
             im_fixed rem_space = rem;
             for (uint32_t i = 0; i < count; i++) {
@@ -303,7 +337,7 @@ static void free_tracks(im_tree *tree, grid_track *buf, grid_track *stack_buf, u
     }
 }
 
-static im_size measure_grid(im_tree *tree, im_node *node, im_size avail, im_fixed scale, bool rounding) {
+static im_size measure_grid(im_tree *tree, im_node *node, im_size avail, im_fixed scale, bool rounding, bool *ok) {
     im_size inset_sz = combined_inset_size(node, scale, rounding);
     im_fixed inset_w = inset_sz.width;
     im_fixed inset_h = inset_sz.height;
@@ -321,6 +355,7 @@ static im_size measure_grid(im_tree *tree, im_node *node, im_size avail, im_fixe
     if (!rows || !cols) {
         free_tracks(tree, rows, r_stack, rcount);
         free_tracks(tree, cols, c_stack, ccount);
+        if (ok) *ok = false;
         return (im_size){inset_w, inset_h};
     }
 
@@ -479,7 +514,7 @@ static im_size measure_grid(im_tree *tree, im_node *node, im_size avail, im_fixe
     return (im_size){add_fixed(total_w, inset_w), add_fixed(total_h, inset_h)};
 }
 
-static void arrange_grid(im_tree *tree, im_node *node, im_size final_size, im_fixed scale, bool rounding) {
+static void arrange_grid(im_tree *tree, im_node *node, im_size final_size, im_fixed scale, bool rounding, bool *ok) {
     im_thickness inset = combined_inset(node, scale, rounding);
     im_fixed inset_w = add_fixed(inset.left, inset.right);
     im_fixed inset_h = add_fixed(inset.top, inset.bottom);
@@ -497,6 +532,7 @@ static void arrange_grid(im_tree *tree, im_node *node, im_size final_size, im_fi
     if (!rows || !cols) {
         free_tracks(tree, rows, r_stack, rcount);
         free_tracks(tree, cols, c_stack, ccount);
+        if (ok) *ok = false;
         return;
     }
 
@@ -712,10 +748,10 @@ static void arrange_single_box(im_tree *tree, im_node *node, im_size final_size,
     im_layout_arrange(tree, ch, (im_rect){ox, oy, add_fixed(ox, slot_w), add_fixed(oy, slot_h)}, scale);
 }
 
-static im_size measure_override(im_tree *tree, im_node *node, im_size avail, im_fixed scale, bool rounding) {
+static im_size measure_override(im_tree *tree, im_node *node, im_size avail, im_fixed scale, bool rounding, bool *ok) {
     switch (node->kind) {
     case IM_ELEM_GRID:
-        return measure_grid(tree, node, avail, scale, rounding);
+        return measure_grid(tree, node, avail, scale, rounding, ok);
     case IM_ELEM_STACK_PANEL:
     case IM_ELEM_ITEMS_STACK_PANEL:
         return measure_stack(tree, node, avail, scale, rounding);
@@ -734,10 +770,10 @@ static im_size measure_override(im_tree *tree, im_node *node, im_size avail, im_
     }
 }
 
-static void arrange_override(im_tree *tree, im_node *node, im_size final_size, im_fixed scale, bool rounding) {
+static void arrange_override(im_tree *tree, im_node *node, im_size final_size, im_fixed scale, bool rounding, bool *ok) {
     switch (node->kind) {
     case IM_ELEM_GRID:
-        arrange_grid(tree, node, final_size, scale, rounding);
+        arrange_grid(tree, node, final_size, scale, rounding, ok);
         break;
     case IM_ELEM_STACK_PANEL:
     case IM_ELEM_ITEMS_STACK_PANEL:
@@ -764,12 +800,12 @@ im_size im_layout_measure(im_tree *tree, im_node *node, im_size available, im_fi
     if (!node->measure_dirty && node->has_measured &&
         node->last_avail.width == available.width &&
         node->last_avail.height == available.height &&
-        node->last_scale == scale) {
+        node->last_measure_scale == scale) {
         return node->desired_size;
     }
 
     node->last_avail = available;
-    node->last_scale = scale;
+    node->last_measure_scale = scale;
 
     if (node->visibility == IM_VIS_COLLAPSED) {
         node->desired_size = (im_size){0, 0};
@@ -791,7 +827,8 @@ im_size im_layout_measure(im_tree *tree, im_node *node, im_size available, im_fi
     im_fixed child_w = max_fixed(mm.min_w, min_fixed(fw_w, mm.max_w));
     im_fixed child_h = max_fixed(mm.min_h, min_fixed(fw_h, mm.max_h));
 
-    im_size inner = measure_override(tree, node, (im_size){child_w, child_h}, scale, rounding);
+    bool ok = true;
+    im_size inner = measure_override(tree, node, (im_size){child_w, child_h}, scale, rounding, &ok);
 
     im_fixed unclipped_w = max_fixed(inner.width, mm.min_w);
     im_fixed unclipped_h = max_fixed(inner.height, mm.min_h);
@@ -810,8 +847,13 @@ im_size im_layout_measure(im_tree *tree, im_node *node, im_size available, im_fi
     des_h = round_if(max_fixed(0, des_h), scale, rounding);
 
     node->desired_size = (im_size){des_w, des_h};
-    node->measure_dirty = false;
-    node->has_measured = true;
+    if (ok) {
+        node->measure_dirty = false;
+        node->has_measured = true;
+    } else {
+        node->measure_dirty = true;
+        node->has_measured = false;
+    }
     return node->desired_size;
 }
 
@@ -819,21 +861,62 @@ static bool rect_eq(im_rect a, im_rect b) {
     return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
 }
 
+static void compute_absolute_rect(im_node *node) {
+    if (!node) return;
+    if (node->visibility == IM_VIS_COLLAPSED) {
+        node->absolute_rect = (im_rect){0, 0, 0, 0};
+        return;
+    }
+    im_fixed arrange_w = node->layout_rect.right - node->layout_rect.left;
+    im_fixed arrange_h = node->layout_rect.bottom - node->layout_rect.top;
+    if (!node->parent) {
+        node->absolute_rect = node->layout_rect;
+        node->last_parent_abs = (im_rect){0, 0, 0, 0};
+        node->last_parent_flow = IM_FLOW_LTR;
+    } else {
+        im_rect pabs = node->parent->absolute_rect;
+        im_flow_dir pflow = im_node_effective_flow_direction(node->parent);
+        im_fixed pw = pabs.right - pabs.left;
+        im_fixed abs_x = (pflow == IM_FLOW_RTL)
+            ? add_fixed(pabs.left, (pw - node->layout_rect.left - arrange_w))
+            : add_fixed(pabs.left, node->layout_rect.left);
+        im_fixed abs_y = add_fixed(pabs.top, node->layout_rect.top);
+        node->absolute_rect = (im_rect){abs_x, abs_y, add_fixed(abs_x, arrange_w), add_fixed(abs_y, arrange_h)};
+        node->last_parent_abs = pabs;
+        node->last_parent_flow = pflow;
+    }
+}
+
+static void propagate_absolute_rects(im_node *node) {
+    if (!node) return;
+    compute_absolute_rect(node);
+    for (uint32_t i = 0; i < node->child_count; i++) {
+        propagate_absolute_rects(node->children[i]);
+    }
+}
+
 void im_layout_arrange(im_tree *tree, im_node *node, im_rect final_rect, im_fixed scale) {
     if (!node) return;
     if (scale <= 0) scale = IM_ONE;
+    im_rect cur_pabs = node->parent ? node->parent->absolute_rect : (im_rect){0, 0, 0, 0};
+    im_flow_dir cur_pflow = node->parent ? im_node_effective_flow_direction(node->parent) : IM_FLOW_LTR;
     if (!node->arrange_dirty && node->has_arranged &&
         rect_eq(node->last_arrange_rect, final_rect) &&
-        node->last_scale == scale) {
+        node->last_arrange_scale == scale) {
+        if (!rect_eq(node->last_parent_abs, cur_pabs) || node->last_parent_flow != cur_pflow) {
+            propagate_absolute_rects(node);
+        }
         return;
     }
 
     node->last_arrange_rect = final_rect;
-    node->last_scale = scale;
+    node->last_arrange_scale = scale;
 
     if (node->visibility == IM_VIS_COLLAPSED) {
         node->layout_rect = (im_rect){0, 0, 0, 0};
         node->absolute_rect = (im_rect){0, 0, 0, 0};
+        node->last_parent_abs = cur_pabs;
+        node->last_parent_flow = cur_pflow;
         node->arrange_dirty = false;
         node->has_arranged = true;
         return;
@@ -884,22 +967,18 @@ void im_layout_arrange(im_tree *tree, im_node *node, im_rect final_rect, im_fixe
     node->layout_rect = (im_rect){lx, ly, add_fixed(lx, arrange_w), add_fixed(ly, arrange_h)};
 
     /* Compute root-relative absolute_rect (applying parent RTL mirroring when active). */
-    if (!node->parent) {
-        node->absolute_rect = node->layout_rect;
+    compute_absolute_rect(node);
+
+    bool ok = true;
+    arrange_override(tree, node, (im_size){arrange_w, arrange_h}, scale, rounding, &ok);
+
+    if (ok) {
+        node->arrange_dirty = false;
+        node->has_arranged = true;
     } else {
-        im_rect pabs = node->parent->absolute_rect;
-        im_fixed pw = pabs.right - pabs.left;
-        im_fixed abs_x = (im_node_effective_flow_direction(node->parent) == IM_FLOW_RTL)
-            ? add_fixed(pabs.left, (pw - lx - arrange_w))
-            : add_fixed(pabs.left, lx);
-        im_fixed abs_y = add_fixed(pabs.top, ly);
-        node->absolute_rect = (im_rect){abs_x, abs_y, add_fixed(abs_x, arrange_w), add_fixed(abs_y, arrange_h)};
+        node->arrange_dirty = true;
+        node->has_arranged = false;
     }
-
-    arrange_override(tree, node, (im_size){arrange_w, arrange_h}, scale, rounding);
-
-    node->arrange_dirty = false;
-    node->has_arranged = true;
 }
 
 void im_layout_run(im_tree *tree, im_node *root, im_fixed avail_w, im_fixed avail_h, im_fixed scale) {

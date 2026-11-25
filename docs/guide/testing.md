@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=4 sources=tools/prove.py,tools/build.py,tools/check_imports.py,tests/test_seed.py,tests/test_ui.py,tools/winvm/live.py reviewed=2026-11-24 -->
+<!-- page: group="Guide" order=4 sources=tools/prove.py,tools/build.py,tools/check_imports.py,tests/test_seed.py,tests/test_ui.py,tools/winvm/live.py reviewed=2026-11-25 -->
 # Testing on Windows
 
 How do you prove a program works? Build it in WSL or on Windows, and let Windows itself run the tests against the same files.
