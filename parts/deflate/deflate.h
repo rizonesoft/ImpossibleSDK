@@ -37,9 +37,10 @@ typedef struct im_deflate {
     uint32_t state;
     bool eof_latched;
 
-    /* Running wrapper checksum (Adler-32 for zlib, CRC-32 for gzip) and input byte count. */
+    /* Running wrapper checksum (Adler-32 for zlib, CRC-32 for gzip), input byte count, and chain visits. */
     uint32_t check;
     uint64_t total_in;
+    uint64_t chain_visits;
 
     /* Bit buffer (LSB-first) for streaming output emission. */
     uint64_t bitbuf;

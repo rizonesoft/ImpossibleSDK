@@ -596,7 +596,7 @@ static void insert_hash(im_deflate *st, uint32_t pos) {
     st->head[h] = (uint16_t)(pos + 1u);
 }
 
-static uint32_t find_best_match(const im_deflate *st, uint32_t pos, uint32_t chain_head_plus1,
+static uint32_t find_best_match(im_deflate *st, uint32_t pos, uint32_t chain_head_plus1,
                                 uint32_t prev_best_len, uint32_t *out_dist) {
     const effort_cfg *cfg = &k_effort[st->effort];
     uint32_t max_len = st->lookahead < IM_DEF_MAX_MATCH ? st->lookahead : IM_DEF_MAX_MATCH;
@@ -619,6 +619,7 @@ static uint32_t find_best_match(const im_deflate *st, uint32_t pos, uint32_t cha
 
     uint32_t cand_p1 = chain_head_plus1;
     while (cand_p1 > 0u && chain_limit > 0u) {
+        st->chain_visits++;
         uint32_t cand = cand_p1 - 1u;
         if (cand >= pos) break;
         uint32_t dist = pos - cand;
@@ -759,6 +760,7 @@ im_deflate_status im_deflate_init(im_deflate *st, im_deflate_format fmt, im_defl
     st->eof_latched = false;
     st->check = (fmt == IM_DEFLATE_ZLIB) ? im_adler32_init() : im_crc32_init();
     st->total_in = 0;
+    st->chain_visits = 0;
     st->bitbuf = 0;
     st->bitcnt = 0;
     st->strstart = 0;

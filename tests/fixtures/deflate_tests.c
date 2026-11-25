@@ -435,6 +435,26 @@ static void test_window_slide_and_boundary_determinism(void) {
     check(ok_pl && sm2, "wire-level token emits exact len=258 at slide-boundary 65274");
     check(ok_pl && sm3, "wire-level token emits exact len=258 at post-slide 65536");
 
+    /* Deterministic regression for Round 1 P2 #1 (32 KiB hash-chain cycle in BEST effort):
+       Two adjacent 32 KiB records where every 8th byte in the second record differs so 3-byte hashes
+       collide at exact dist == 32768 without hitting nice_len. Without the dist==32768 / monotonic
+       guard, BEST cycles max_chain=4096 times per position (> 10,000,000 visits); with the guard,
+       total chain_visits stays < 200,000. */
+    {
+        uint32_t r2 = 0x9E3779B9u;
+        for (size_t i = 0; i < 32768u; ++i) {
+            uint8_t b = (uint8_t)(xorshift32(&r2) & 0xFFu);
+            g_big_in[i] = b;
+            g_big_in[32768u + i] = ((i & 7u) == 7u) ? (uint8_t)(b ^ 0xFFu) : b;
+        }
+        size_t best_len = 0;
+        im_deflate_status rc_cyc = im_deflate_all(&g_def1, IM_DEFLATE_RAW, IM_DEFLATE_BEST,
+                                                  g_big_in, 65536u, g_big_out1, sizeof(g_big_out1), &best_len);
+        check(rc_cyc == IM_DEFLATE_OK && best_len > 0u, "BEST 64KiB 32K-collision input compresses cleanly");
+        check(g_def1.chain_visits < 200000ULL,
+              "BEST 32KiB hash-chain cycle regression: chain_visits < 200,000");
+    }
+
     for (int e = 0; e < 3; ++e) {
         size_t len1 = 0, len2 = 0, dec_len = 0;
         im_deflate_status rc = im_deflate_all(&g_def1, IM_DEFLATE_ZLIB, (im_deflate_effort)e,
