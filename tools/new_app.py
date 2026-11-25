@@ -68,7 +68,7 @@ AGENTS = """{goal}
 
 ## This repository
 
-- The repository lives in WSL, in `~/ImpossibleOS`, and is written there only. `python3 ../ImpossibleSDK/tools/prove.py .` builds the committed work and lets Windows run the tests against the same programs, on WSL's disk.
+- The repository lives in WSL, in `~/impossible`, and is written there only. `python3 ../ImpossibleSDK/tools/prove.py .` builds the committed work and lets Windows run the tests against the same programs, on WSL's disk.
 - Build and test: `python3 ../ImpossibleSDK/tools/app_build.py .`. It uses the SDK commit in `sdk.json`.
 - The engine calls no system function and uses no floating point, so Impossible OS can take it.
 - Never depend on Impossible OS. What is needed from it is declared in `app.json` under `needs`, as `{{"id": "<program>-<thing>", "what": "<one sentence>"}}` (small letters, digits and dashes; 4 to 120 characters), and never waited for: committed on main, it becomes a section of the OS roadmap. A Windows function is asked for by adding it to its tier in Impossible SDK's `abi/tiers.json`. A feature a second program could use belongs in Impossible SDK. The rules are in Impossible SDK's `docs/specs/2026-11-23-interface-and-apps-design.md`.

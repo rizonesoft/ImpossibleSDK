@@ -8,7 +8,7 @@ A small C kit and interface library for programs that run on Windows first and o
 
 ## This repository
 
-- The repository lives in WSL, in `~/ImpossibleOS`, and is written there only. `python3 tools/prove.py .` builds the committed work and lets Windows run the tests against the same programs, on WSL's disk.
+- The repository lives in WSL, in `~/impossible`, and is written there only. `python3 tools/prove.py .` builds the committed work and lets Windows run the tests against the same programs, on WSL's disk.
 - Build and test everything: `python3 tools/build.py`. It proves the work on this Windows machine.
 - `ui/` is portable: no operating system call, no floating point, no C library. `src/` is the Windows layer and may call only `abi/tiers.json`.
 - Values and behaviour come from the WinUI commit in `tools/winui/pin.json`, with the MIT notice kept. Never Microsoft fonts, icons, pictures, sounds or wording.
