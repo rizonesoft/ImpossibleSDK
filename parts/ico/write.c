@@ -59,7 +59,20 @@ static im_image_error encode_dib_payload(const im_ico_write_entry *e,
     uint32_t w = img->width;
     uint32_t h = img->height;
     /* When destination-invert pixels are present, write 24-bpp BGR + 1-bpp AND mask so Windows
-       uses the AND/XOR raster op (32-bpp ARGB ignores the AND mask when any alpha byte is non-zero). */
+       uses the AND/XOR raster op (32-bpp ARGB ignores the AND mask when any alpha byte is non-zero).
+       Partial alpha on any unmasked pixel cannot be represented alongside destination inversion. */
+    if (has_invert) {
+        size_t inv_row_chk = ((size_t)w + 7u) >> 3;
+        for (uint32_t y = 0; y < h; ++y) {
+            const uint8_t *sr = img->pixels + (size_t)y * (size_t)img->stride;
+            for (uint32_t x = 0; x < w; ++x) {
+                if (invert_mask_bit(e->invert_mask, inv_row_chk, x, y)) continue;
+                uint8_t r = 0u, g = 0u, b = 0u, a = 0u;
+                read_px(sr, x, img->format, &r, &g, &b, &a);
+                if (a > 0u && a < 255u) return IM_IMAGE_UNSUPPORTED;
+            }
+        }
+    }
     uint16_t bpp = has_invert ? 24u : 32u;
     size_t xor_row = (((size_t)w * (size_t)bpp + 31u) / 32u) * 4u;
     size_t xor_bytes = xor_row * (size_t)h;

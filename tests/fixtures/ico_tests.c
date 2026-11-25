@@ -210,8 +210,11 @@ static void expect_bad(const uint8_t *buf, size_t len, im_image_error want_err, 
     im_image img = { 1u, 1u, 4u, IM_PIXEL_RGBA8, (uint8_t *)1, 4u };
     uint8_t *inv = (uint8_t *)1;
     size_t inv_len = 77u;
-    im_image_error err = im_ico_decode_entry(buf, len, 0u, IM_PIXEL_BGRA8, NULL, &ia, &img, &inv, &inv_len, NULL);
+    im_ico_entry_info info;
+    info.width = 99u; info.height = 88u; info.offset = 77u; info.hotspot_x = 5u; info.hotspot_y = 6u;
+    im_image_error err = im_ico_decode_entry(buf, len, 0u, IM_PIXEL_BGRA8, NULL, &ia, &img, &inv, &inv_len, &info);
     check(err == want_err && img.pixels == NULL && img.width == 0u && inv == NULL && inv_len == 0u &&
+          info.width == 0u && info.height == 0u && info.offset == 0u && info.hotspot_x == 0u && info.hotspot_y == 0u &&
           tc.live == 0u && tc.mismatch_or_double_free == 0u, label);
 }
 
@@ -404,6 +407,28 @@ static void test_all_self(void) {
         im_ico_write_entry png_inv = { &img4, inv1, sizeof(inv1), 0u, 0u, IM_ICO_ENTRY_PNG };
         check(im_ico_encode(IM_ICO_TYPE_ICON, &png_inv, 1u, &ia, &out_p, &out_n) == IM_IMAGE_UNSUPPORTED &&
               tc.live == 0u, "im_ico_encode refuses PNG with invert_mask");
+
+        /* DIB entry combining an invert bit with a partial-alpha (a=200) unmasked pixel must refuse with UNSUPPORTED */
+        out_p = (uint8_t *)1; out_n = 77u;
+        im_ico_write_entry dib_inv_alpha = { &img4, inv1, sizeof(inv1), 0u, 0u, IM_ICO_ENTRY_DIB };
+        check(im_ico_encode(IM_ICO_TYPE_ICON, &dib_inv_alpha, 1u, &ia, &out_p, &out_n) == IM_IMAGE_UNSUPPORTED &&
+              out_p == NULL && out_n == 0u && tc.live == 0u && tc.mismatch_or_double_free == 0u,
+              "im_ico_encode refuses DIB combining invert_mask with partial alpha");
+
+        /* Transparent-destination straight-alpha source-over regression for im_ico_composite_onto */
+        {
+            uint8_t src_red[4] = { 255u, 0u, 0u, 128u };
+            im_image src_img = { 1u, 1u, 4u, IM_PIXEL_RGBA8, src_red, 4u };
+            uint8_t dst_trans[4] = { 0u, 0u, 0u, 0u };
+            im_ico_composite_onto(dst_trans, 4u, 1u, 1u, IM_PIXEL_RGBA8, &src_img, NULL, 0u);
+            check(dst_trans[0] == 255u && dst_trans[1] == 0u && dst_trans[2] == 0u && dst_trans[3] == 128u,
+                  "im_ico_composite_onto over transparent black preserves straight RGB and alpha");
+
+            uint8_t dst_semi[4] = { 0u, 200u, 0u, 128u };
+            im_ico_composite_onto(dst_semi, 4u, 1u, 1u, IM_PIXEL_RGBA8, &src_img, NULL, 0u);
+            check(dst_semi[0] == 170u && dst_semi[1] == 66u && dst_semi[2] == 0u && dst_semi[3] == 192u,
+                  "im_ico_composite_onto over translucent green computes exact Porter-Duff straight-alpha over");
+        }
 
         /* All-transparent colored source (RGBA 255,0,0,0) -> XOR RGB must be zeroed so has_invert_mask == false */
         uint8_t trans_px[4u * 4u * 4u];

@@ -5604,8 +5604,9 @@ elif cmd == "load_verify":
             for i_c, case in enumerate(lookup_cases):
                 sdk_c = sdk_choose_scaled(case["entries"], case["lw"], case["lh"], case["sc"], sbpp=32)
                 self.assertEqual(sdk_c, win_choices[i_c], f"chooser case {i_c} ({case['lw']}x{case['lh']}@{case['sc']}%): sdk={sdk_c} != win={win_choices[i_c]}")
-            # Also verify non-32 screen_bpp preference (8-bpp prefers 8-bpp over 32-bpp on same size).
+            # Also verify non-32 screen_bpp preference: exact 8-bpp match, and 16-bpp fallback prefers 8-bpp over 24-bpp.
             self.assertEqual(sdk_choose_scaled([(32, 32, 0, 1, 32), (32, 32, 0, 1, 8)], 32, 32, 100, sbpp=8), 1)
+            self.assertEqual(sdk_choose_scaled([(32, 32, 0, 1, 24), (32, 32, 0, 1, 8)], 32, 32, 100, sbpp=16), 1)
 
             # 6. Writer verification: multi-size ICO (distinct patterns per size, DIB + 256x256 opaque low-color PNG +
             #    256x256 translucent PNG with color-type-6 8-bit IHDR), multi-entry CUR with distinct hotspots,
@@ -5682,23 +5683,48 @@ elif cmd == "load_verify":
                         {"path": win_path(p_tr), "is_icon": True, "w": 16, "h": 16},
                     ],
                 })
-                # Check multi.ico 16, 32, 48, 256 opaque PNG, 256 trans PNG
-                for i_sz, (src_data, ent_i) in enumerate([(multi_ico, 0), (multi_ico, 1), (multi_ico, 2), (png_op_single, 0), (png_tr_single, 0)]):
+                def expected_bgra_over_bg(src_rgba: bytes, bg: tuple[int, int, int]) -> bytes:
+                    out = bytearray(len(src_rgba))
+                    for i in range(0, len(src_rgba), 4):
+                        sr, sg, sb, sa = src_rgba[i], src_rgba[i + 1], src_rgba[i + 2], src_rgba[i + 3]
+                        ia = 255 - sa
+                        out[i + 0] = (sb * sa + bg[2] * ia + 127) // 255
+                        out[i + 1] = (sg * sa + bg[1] * ia + 127) // 255
+                        out[i + 2] = (sr * sa + bg[0] * ia + 127) // 255
+                        out[i + 3] = 255
+                    return bytes(out)
+
+                # Check multi.ico 16, 32, 48, 256 opaque PNG, 256 trans PNG directly against original source RGBA pixels!
+                for i_sz, (src_data, ent_i, orig_rgba) in enumerate([
+                    (multi_ico, 0, ico_items[0][6]),
+                    (multi_ico, 1, ico_items[1][6]),
+                    (multi_ico, 2, ico_items[2][6]),
+                    (png_op_single, 0, ico_items[3][6]),
+                    (png_tr_single, 0, ico_items[4][6]),
+                ]):
                     self.assertTrue(w_verify[i_sz]["ok"])
                     self.assertEqual(w_verify[i_sz]["fIcon"], 1)
+                    exp_blk = expected_bgra_over_bg(orig_rgba, (0, 0, 0))
+                    exp_wht = expected_bgra_over_bg(orig_rgba, (255, 255, 255))
+                    assert_rendered_close(exp_blk, base64.b64decode(w_verify[i_sz]["black"]), f"written_ico[{i_sz}] win vs src black")
+                    assert_rendered_close(exp_wht, base64.b64decode(w_verify[i_sz]["white"]), f"written_ico[{i_sz}] win vs src white")
                     _, _, _, s_blk = sdk_composite(src_data, ent_i, (0, 0, 0))
                     _, _, _, s_wht = sdk_composite(src_data, ent_i, (255, 255, 255))
-                    assert_rendered_close(s_blk, base64.b64decode(w_verify[i_sz]["black"]), f"written_ico[{i_sz}] black")
-                    assert_rendered_close(s_wht, base64.b64decode(w_verify[i_sz]["white"]), f"written_ico[{i_sz}] white")
-                # Check multi.cur 16x16 (3,5) and 32x32 (15,27)
-                for idx_c, (exp_hx, exp_hy) in enumerate([(3, 5), (15, 27)]):
+                    assert_rendered_close(s_blk, exp_blk, f"written_ico[{i_sz}] sdk vs src black", max_diff=0)
+                    assert_rendered_close(s_wht, exp_wht, f"written_ico[{i_sz}] sdk vs src white", max_diff=0)
+                # Check multi.cur 16x16 (3,5) and 32x32 (15,27) directly against original source RGBA pixels!
+                for idx_c, (exp_hx, exp_hy, orig_rgba) in enumerate([(3, 5, cur_items[0][6]), (15, 27, cur_items[1][6])]):
                     vr = w_verify[5 + idx_c]
                     self.assertTrue(vr["ok"])
                     self.assertEqual((vr["fIcon"], vr["hx"], vr["hy"]), (0, exp_hx, exp_hy))
+                    exp_blk = expected_bgra_over_bg(orig_rgba, (0, 0, 0))
+                    exp_wht = expected_bgra_over_bg(orig_rgba, (255, 255, 255))
+                    assert_rendered_close(exp_blk, base64.b64decode(vr["black"]), f"written_cur[{idx_c}] win vs src black")
+                    assert_rendered_close(exp_wht, base64.b64decode(vr["white"]), f"written_cur[{idx_c}] win vs src white")
                     _, _, _, s_blk = sdk_composite(multi_cur, idx_c, (0, 0, 0))
                     _, _, _, s_wht = sdk_composite(multi_cur, idx_c, (255, 255, 255))
-                    assert_rendered_close(s_blk, base64.b64decode(vr["black"]), f"written_cur[{idx_c}] black")
-                    assert_rendered_close(s_wht, base64.b64decode(vr["white"]), f"written_cur[{idx_c}] white")
+                    assert_rendered_close(s_blk, exp_blk, f"written_cur[{idx_c}] sdk vs src black", max_diff=0)
+                    assert_rendered_close(s_wht, exp_wht, f"written_cur[{idx_c}] sdk vs src white", max_diff=0)
                 # Check all-transparent colored ICO leaves white background 100% untouched (no XOR leak!)
                 tr_vr = w_verify[7]
                 self.assertTrue(tr_vr["ok"])

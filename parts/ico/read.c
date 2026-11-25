@@ -47,10 +47,28 @@ static void write_px(uint8_t *dst, im_pixel_format fmt, uint8_t r, uint8_t g, ui
     }
 }
 
+static void zero_info(im_ico_entry_info *info) {
+    if (!info) return;
+    info->dir_width = 0u;
+    info->dir_height = 0u;
+    info->dir_color_count = 0u;
+    info->dir_planes = 0u;
+    info->dir_bit_count = 0u;
+    info->width = 0u;
+    info->height = 0u;
+    info->bit_count = 0u;
+    info->hotspot_x = 0u;
+    info->hotspot_y = 0u;
+    info->offset = 0u;
+    info->size = 0u;
+    info->is_png = false;
+    info->has_invert_mask = false;
+}
+
 /* In-place heapsort of entry spans by offset (ascending), O(N log N) with zero heap allocation. */
 typedef struct ico_span {
-    uint32_t start;
-    uint32_t end;
+    uint64_t start;
+    uint64_t end;
 } ico_span;
 
 static void span_sift_down(ico_span *a, uint32_t root, uint32_t end) {
@@ -97,8 +115,8 @@ static im_image_error validate_container(const uint8_t *data, size_t len,
         if ((uint64_t)offset < dir_end) return IM_IMAGE_INVALID;
         uint64_t end64 = (uint64_t)offset + (uint64_t)bytes_in_res;
         if (end64 < (uint64_t)offset || end64 > (uint64_t)len) return IM_IMAGE_TRUNCATED;
-        spans[i].start = offset;
-        spans[i].end = (uint32_t)end64;
+        spans[i].start = (uint64_t)offset;
+        spans[i].end = end64;
     }
 
     if (count > 1u) {
@@ -436,6 +454,7 @@ im_image_error im_ico_decode_entry(const uint8_t *data,
                                    size_t *out_invert_len,
                                    im_ico_entry_info *out_info) {
     zero_img(out_img);
+    zero_info(out_info);
     if (out_invert_mask) *out_invert_mask = NULL;
     if (out_invert_len) *out_invert_len = 0u;
 
@@ -529,6 +548,7 @@ void im_ico_composite_onto(uint8_t *dst_pixels,
             uint8_t dr_c = (dst_fmt == IM_PIXEL_BGRA8) ? dp[2] : dp[0];
             uint8_t dg_c = dp[1];
             uint8_t db_c = (dst_fmt == IM_PIXEL_BGRA8) ? dp[0] : dp[2];
+            uint8_t da_c = dp[3];
 
             bool is_inv = false;
             if (use_inv) {
@@ -536,16 +556,24 @@ void im_ico_composite_onto(uint8_t *dst_pixels,
             }
 
             if (is_inv) {
-                write_px(dp, dst_fmt, (uint8_t)(dr_c ^ sr_c), (uint8_t)(dg_c ^ sg_c), (uint8_t)(db_c ^ sb_c), 255u);
+                write_px(dp, dst_fmt, (uint8_t)(dr_c ^ sr_c), (uint8_t)(dg_c ^ sg_c), (uint8_t)(db_c ^ sb_c), da_c);
             } else if (sa_c == 255u) {
                 write_px(dp, dst_fmt, sr_c, sg_c, sb_c, 255u);
             } else if (sa_c > 0u) {
-                uint32_t a = (uint32_t)sa_c;
-                uint32_t ia = 255u - a;
-                uint8_t or_c = (uint8_t)((sr_c * a + dr_c * ia + 127u) / 255u);
-                uint8_t og_c = (uint8_t)((sg_c * a + dg_c * ia + 127u) / 255u);
-                uint8_t ob_c = (uint8_t)((sb_c * a + db_c * ia + 127u) / 255u);
-                write_px(dp, dst_fmt, or_c, og_c, ob_c, 255u);
+                uint32_t sa = (uint32_t)sa_c;
+                uint32_t da = (uint32_t)da_c;
+                uint32_t ia = 255u - sa;
+                uint32_t out_a_255 = sa * 255u + da * ia;
+                if (out_a_255 == 0u) {
+                    write_px(dp, dst_fmt, 0u, 0u, 0u, 0u);
+                } else {
+                    uint32_t half = out_a_255 / 2u;
+                    uint8_t or_c = (uint8_t)((sr_c * sa * 255u + dr_c * da * ia + half) / out_a_255);
+                    uint8_t og_c = (uint8_t)((sg_c * sa * 255u + dg_c * da * ia + half) / out_a_255);
+                    uint8_t ob_c = (uint8_t)((sb_c * sa * 255u + db_c * da * ia + half) / out_a_255);
+                    uint8_t oa_c = (uint8_t)((out_a_255 + 127u) / 255u);
+                    write_px(dp, dst_fmt, or_c, og_c, ob_c, oa_c);
+                }
             }
         }
     }
@@ -586,7 +614,9 @@ int32_t im_ico_choose_entry(const im_ico_entry_info *entries,
         uint64_t sdiff = dx + dy;
 
         uint32_t ebpp = entry_dir_bpp(&entries[i]);
-        uint64_t cdiff = (ebpp > want_bpp) ? ((uint64_t)(ebpp - want_bpp) * 2ULL) : ((uint64_t)(want_bpp - ebpp) * 2ULL);
+        /* Prefer entries at or below display depth (Microsoft LookupIconIdFromDirectoryEx criteria):
+           exceeding want_bpp incurs a steeper penalty than falling below it. */
+        uint64_t cdiff = (ebpp > want_bpp) ? ((uint64_t)(ebpp - want_bpp) * 4ULL + 1ULL) : ((uint64_t)(want_bpp - ebpp) * 2ULL);
         uint64_t score = sdiff + cdiff;
 
         if (score < best_score || (score == best_score && cdiff < best_color_diff)) {
