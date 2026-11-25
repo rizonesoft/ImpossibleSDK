@@ -867,6 +867,118 @@ static void test_shared_transform_and_input(void) {
         if (zp_full) alloc.free(alloc.ctx, zp_full, (size_t)(ZW * ZH) * sizeof(uint32_t));
     }
 
+    /* Regression 1: fractional parent clip across offscreen layer + child irect clip must apply
+       parent clip coverage ONCE (50% = ~128), never twice (25% = ~64). */
+    {
+        uint32_t lp_pix[16 * 4];
+        for (int i = 0; i < 16 * 4; i++) lp_pix[i] = 0x00000000u;
+        im_layer_ctx lp_ctx;
+        im_surface lp_surf = { lp_pix, 16, 4, 16, pal, IM_ONE, &lp_ctx, NULL };
+        im_layer_init(&lp_ctx, &lp_surf, alloc, 1024u * 1024u);
+        uint32_t white_px[1] = { 0xFFFFFFFFu };
+        im_picture white_pic = { white_px, 1, 1, 1 };
+
+        CHECK(im_layer_push_clip_rect(&lp_ctx, (im_rect){IM_ONE / 2, 0, FX(16), FX(4)}),
+              "push parent fractional clip x=0.5");
+        CHECK(im_layer_push(&lp_ctx, (im_rect){0, 0, FX(16), FX(4)}, 255u, false, (im_radii){0, 0, 0, 0}) == IM_LAYER_OK,
+              "open offscreen layer inside fractional parent clip");
+        CHECK(im_layer_push_clip_irect(&lp_ctx, 0, 0, 16, 4),
+              "push full-width child irect clip inside layer");
+        CHECK(im_picture_draw(&lp_surf, &white_pic, (im_rect){0, 0, FX(16), FX(4)}, IM_STRETCH_FILL),
+              "draw opaque picture inside child clip");
+        im_layer_pop_clip(&lp_ctx);
+        im_layer_pop(&lp_ctx);
+        im_layer_pop_clip(&lp_ctx);
+
+        int r0 = (int)((lp_pix[0] >> 16) & 0xFFu);
+        CHECK(r0 >= 126 && r0 <= 129,
+              "fractional parent clip x=0.5 + offscreen layer + child irect clip yields 50% (~128), not 25% (~64)");
+        im_layer_destroy(&lp_ctx);
+    }
+
+    /* Regression 2: 1x1 A8 glyph filling a 1x1-DIP node at 8x zoom ([8,16)x[8,16)) paints
+       bilinear edge pixel (6, 12); declaring paint_outset via im_draw_alpha_mask_outset ensures
+       repaint and detach invalidate (6, 12) and match full redraw byte-for-byte. */
+    {
+        enum { GW = 24, GH = 24 };
+        uint32_t gp_part[GW * GH], gp_full[GW * GH];
+        im_tree gt;
+        im_tree_init(&gt, alloc);
+        im_node *groot = im_tree_create_node(&gt, IM_ELEM_GRID, "groot");
+        im_node *gnode = im_tree_create_node(&gt, IM_ELEM_BORDER, "gnode");
+        gnode->use_layout_rounding = false;
+        gnode->h_align = IM_ALIGN_START;
+        gnode->v_align = IM_ALIGN_START;
+        gnode->margin = (im_thickness){FX(8), FX(8), 0, 0};
+        gnode->width = FX(1);
+        gnode->height = FX(1);
+        im_tree_append_child(&gt, groot, gnode);
+        im_layout_run(&gt, groot, FX(24), FX(24), IM_ONE);
+        im_transform g8 = im_transform_scale(FX(8), FX(8));
+        im_node_set_render_transform(gnode, &g8, 0, 0);
+        im_fixed gpad_x = 0, gpad_y = 0;
+        im_draw_alpha_mask_outset(FX(1), FX(1), 1, 1, &gpad_x, &gpad_y);
+        im_node_set_paint_outset(gnode, (im_thickness){gpad_x, gpad_y, gpad_x, gpad_y});
+
+        im_layer_ctx gl_part, gl_full;
+        im_surface gs_part = { gp_part, GW, GH, GW, pal, IM_ONE, &gl_part, NULL };
+        im_surface gs_full = { gp_full, GW, GH, GW, pal, IM_ONE, &gl_full, NULL };
+        im_layer_init(&gl_part, &gs_part, alloc, 1024u * 1024u);
+        im_layer_init(&gl_full, &gs_full, alloc, 1024u * 1024u);
+        im_dirty_list gd;
+        im_dirty_init(&gd, GW, GH);
+        uint8_t one_glyph[1] = { 255u };
+
+        /* Initial draw. */
+        im_dirty_collect_tree(&gd, &gt, groot, IM_ONE);
+        for (int i = 0; i < GW * GH; i++) gp_part[i] = 0x00000000u;
+        im_transform gtr;
+        CHECK(im_node_device_transform(gnode, IM_ONE, &gtr), "glyph node device transform");
+        gs_part.transform = &gtr;
+        im_draw_alpha_mask(&gs_part, (im_rect){0, 0, FX(1), FX(1)}, one_glyph, 1, 1, 1, 0xFF00FF00u);
+        gs_part.transform = NULL;
+        memcpy(gp_full, gp_part, sizeof(gp_part));
+        int g6 = (int)((gp_part[12 * GW + 6] >> 8) & 0xFFu);
+        CHECK(g6 >= 70 && g6 <= 85, "8x zoomed 1x1 glyph paints bilinear edge pixel (6, 12)");
+        im_dirty_clear(&gd);
+
+        /* Repaint with new color. */
+        im_tree_invalidate_paint(gnode);
+        im_dirty_collect_tree(&gd, &gt, groot, IM_ONE);
+        for (uint32_t i = 0; i < gd.count; i++) {
+            CHECK(im_dirty_push_clip(&gl_part, gd.rects[i]), "push glyph repaint clip");
+            im_fill_argb(&gs_part, (im_rect){0, 0, FX(GW), FX(GH)}, (im_radii){0, 0, 0, 0}, 0xFF000000u);
+            gs_part.transform = &gtr;
+            im_draw_alpha_mask(&gs_part, (im_rect){0, 0, FX(1), FX(1)}, one_glyph, 1, 1, 1, 0xFFFF0000u);
+            gs_part.transform = NULL;
+            im_layer_pop_clip(&gl_part);
+        }
+        for (int i = 0; i < GW * GH; i++) gp_full[i] = 0x00000000u;
+        gs_full.transform = &gtr;
+        im_draw_alpha_mask(&gs_full, (im_rect){0, 0, FX(1), FX(1)}, one_glyph, 1, 1, 1, 0xFFFF0000u);
+        gs_full.transform = NULL;
+        CHECK(bytes_eq(gp_part, gp_full, sizeof(gp_part)),
+              "partial redraw after repainting 8x zoomed 1x1 glyph equals full redraw including (6, 12)");
+        im_dirty_clear(&gd);
+
+        /* Detach glyph node: (6, 12) must return to background 0x00000000. */
+        im_tree_remove_child(&gt, groot, gnode);
+        im_dirty_collect_tree(&gd, &gt, groot, IM_ONE);
+        for (uint32_t i = 0; i < gd.count; i++) {
+            CHECK(im_dirty_push_clip(&gl_part, gd.rects[i]), "push glyph detach clip");
+            im_fill_argb(&gs_part, (im_rect){0, 0, FX(GW), FX(GH)}, (im_radii){0, 0, 0, 0}, 0xFF000000u);
+            im_layer_pop_clip(&gl_part);
+        }
+        for (int i = 0; i < GW * GH; i++) gp_full[i] = 0x00000000u;
+        CHECK(gp_part[12 * GW + 6] == 0x00000000u && bytes_eq(gp_part, gp_full, sizeof(gp_part)),
+              "partial redraw after detaching 8x zoomed 1x1 glyph restores (6, 12) and equals full redraw");
+
+        im_layer_destroy(&gl_part);
+        im_layer_destroy(&gl_full);
+        im_tree_destroy_subtree(&gt, gnode);
+        im_tree_destroy_subtree(&gt, groot);
+    }
+
     /* Q30 half-open boundary regression: 1-unit-wide node at 2x scale must hit at 2*IM_ONE - 1. */
     {
         im_node *tiny_n = im_tree_create_node(&tree, IM_ELEM_BORDER, "tiny");

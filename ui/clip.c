@@ -100,6 +100,10 @@ static bool push_clip_wide_impl(im_clip_stack *stack,
 
     im_clip_entry *e = &stack->entries[stack->count++];
     e->rect = rect;
+    e->own_left = l_fx;
+    e->own_top = t_fx;
+    e->own_right = r_fx;
+    e->own_bottom = b_fx;
     e->eff_left = eff_l;
     e->eff_top = eff_t;
     e->eff_right = eff_r;
@@ -160,10 +164,10 @@ uint32_t im_clip_pixel_coverage_range(const im_clip_stack *stack, uint32_t from_
     bool has_rounded = false;
     for (uint32_t i = from_idx; i < to_idx; i++) {
         const im_clip_entry *e = &stack->entries[i];
-        int64_t el = e->is_rounded ? (int64_t)e->rect.left : e->eff_left;
-        int64_t er = e->is_rounded ? (int64_t)e->rect.right : e->eff_right;
-        int64_t et = e->is_rounded ? (int64_t)e->rect.top : e->eff_top;
-        int64_t eb = e->is_rounded ? (int64_t)e->rect.bottom : e->eff_bottom;
+        int64_t el = e->own_left;
+        int64_t er = e->own_right;
+        int64_t et = e->own_top;
+        int64_t eb = e->own_bottom;
         if (el > ix0) ix0 = el;
         if (er < ix1) ix1 = er;
         if (et > iy0) iy0 = et;
@@ -186,10 +190,10 @@ uint32_t im_clip_pixel_coverage_range(const im_clip_stack *stack, uint32_t from_
         const im_clip_entry *e = &stack->entries[i];
         if (!e->is_rounded) {
             any_non_rounded = true;
-            if (e->eff_left > rx0) rx0 = e->eff_left;
-            if (e->eff_right < rx1) rx1 = e->eff_right;
-            if (e->eff_top > ry0) ry0 = e->eff_top;
-            if (e->eff_bottom < ry1) ry1 = e->eff_bottom;
+            if (e->own_left > rx0) rx0 = e->own_left;
+            if (e->own_right < rx1) rx1 = e->own_right;
+            if (e->own_top > ry0) ry0 = e->own_top;
+            if (e->own_bottom < ry1) ry1 = e->own_bottom;
         } else {
             uint32_t c = im_shape_coverage(e->rect, e->radii, x, y);
             if (c == 0) return 0;

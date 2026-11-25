@@ -306,6 +306,17 @@ void im_node_set_render_transform(im_node *node, const im_transform *transform, 
     mark_subtree_paint_dirty(node);
 }
 
+void im_node_set_paint_outset(im_node *node, im_thickness outset) {
+    if (!node) return;
+    if (outset.left < 0) outset.left = 0;
+    if (outset.top < 0) outset.top = 0;
+    if (outset.right < 0) outset.right = 0;
+    if (outset.bottom < 0) outset.bottom = 0;
+    if (thickness_eq(node->paint_outset, outset)) return;
+    node->paint_outset = outset;
+    node->paint_dirty = true;
+}
+
 void im_node_clear_render_transform(im_node *node) {
     if (!node) return;
     if (!node->has_render_transform) return;

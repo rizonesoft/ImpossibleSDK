@@ -179,16 +179,22 @@ static void collect_node_recursive(im_dirty_list *list, im_node *node, im_fixed 
     if (!node) return;
     bool visible = !ancestor_collapsed && node->visibility != IM_VIS_COLLAPSED;
     bool transformed = ancestor_transformed || node->has_render_transform;
-    if (transformed) {
+    bool has_outset = node->paint_outset.left > 0 || node->paint_outset.top > 0 ||
+                      node->paint_outset.right > 0 || node->paint_outset.bottom > 0;
+    if (transformed || has_outset) {
         int dl = 0, dt = 0, dr = 0, db = 0;
         bool cur_dev_nonempty = false;
         if (visible) {
             int64_t w_q30 = im_fixed_to_q30(node->absolute_rect.right) - im_fixed_to_q30(node->absolute_rect.left);
             int64_t h_q30 = im_fixed_to_q30(node->absolute_rect.bottom) - im_fixed_to_q30(node->absolute_rect.top);
+            int64_t l_q30 = -im_fixed_to_q30(node->paint_outset.left > 0 ? node->paint_outset.left : 0);
+            int64_t t_q30 = -im_fixed_to_q30(node->paint_outset.top > 0 ? node->paint_outset.top : 0);
+            int64_t r_q30 = w_q30 + im_fixed_to_q30(node->paint_outset.right > 0 ? node->paint_outset.right : 0);
+            int64_t b_q30 = h_q30 + im_fixed_to_q30(node->paint_outset.bottom > 0 ? node->paint_outset.bottom : 0);
             im_transform dev_tr;
             if (w_q30 > 0 && h_q30 > 0 &&
                 im_node_device_transform(node, scale, &dev_tr) &&
-                im_transform_viewport_bounds_q30(&dev_tr, 0, 0, w_q30, h_q30,
+                im_transform_viewport_bounds_q30(&dev_tr, l_q30, t_q30, r_q30, b_q30,
                                                  0, 0, list->width, list->height,
                                                  &dl, &dt, &dr, &db)) {
                 cur_dev_nonempty = true;

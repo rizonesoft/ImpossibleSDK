@@ -188,6 +188,7 @@ typedef struct im_node {
     im_rect prev_absolute_rect;
     bool had_prev_device_rect;
     int32_t prev_dev_left, prev_dev_top, prev_dev_right, prev_dev_bottom;
+    im_thickness paint_outset;
 
     /* Optional RenderTransform applied around (render_transform_origin_x * w, render_transform_origin_y * h). */
     bool has_render_transform;
@@ -248,6 +249,10 @@ void im_tree_invalidate_arrange(im_node *node);
 
 /* Mark node as needing a visual repaint (e.g. brush/color/state change without geometry change). */
 void im_tree_invalidate_paint(im_node *node);
+
+/* Set optional local-space visual paint outset (e.g. magnified glyph filter overhang, shadow, or stroke)
+   so dirty-rectangle collection invalidates pixels painted beyond node->absolute_rect; negative sides clamp to 0. */
+void im_node_set_paint_outset(im_node *node, im_thickness outset);
 
 /* Set or replace node's RenderTransform and normalized origin [0..IM_ONE]; marks node and subtree paint-dirty. */
 void im_node_set_render_transform(im_node *node, const im_transform *transform, im_fixed origin_x, im_fixed origin_y);

@@ -364,6 +364,21 @@ void im_stroke_argb(im_surface *surface, im_rect shape, im_radii radii, im_fixed
     shade_color(surface, shape, im_grow(radii, thickness / 2), &hole, im_grow(radii, -thickness / 2), (enum im_brush_id)0, true, argb);
 }
 
+void im_draw_alpha_mask_outset(im_fixed dst_w, im_fixed dst_h, int width, int height,
+                               im_fixed *out_pad_x, im_fixed *out_pad_y) {
+    im_fixed px = 0, py = 0;
+    if (dst_w > 0 && width > 0) {
+        int64_t p = ((int64_t)dst_w + 2LL * width - 1) / (2LL * width);
+        px = (p > INT32_MAX) ? INT32_MAX : (im_fixed)p;
+    }
+    if (dst_h > 0 && height > 0) {
+        int64_t p = ((int64_t)dst_h + 2LL * height - 1) / (2LL * height);
+        py = (p > INT32_MAX) ? INT32_MAX : (im_fixed)p;
+    }
+    if (out_pad_x) *out_pad_x = px;
+    if (out_pad_y) *out_pad_y = py;
+}
+
 void im_draw_alpha_mask(im_surface *surface, im_rect dst_rect, const uint8_t *alpha,
                         int width, int height, int stride_bytes, uint32_t argb) {
     if (!surface || !surface->pixels || !alpha || width <= 0 || height <= 0 || stride_bytes < width) return;

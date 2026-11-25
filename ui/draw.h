@@ -52,6 +52,12 @@ void im_stroke_argb(im_surface *surface, im_rect shape, im_radii radii, im_fixed
 void im_draw_alpha_mask(im_surface *surface, im_rect dst_rect, const uint8_t *alpha,
                         int width, int height, int stride_bytes, uint32_t argb);
 
+/* Compute the local-space half-source-texel filter outset (pad_x, pad_y) in 16.16 fixed point that
+   im_draw_alpha_mask can paint beyond dst_rect, so nodes hosting magnified masks can declare
+   im_node_set_paint_outset for exact dirty-rectangle invalidation. */
+void im_draw_alpha_mask_outset(im_fixed dst_w, im_fixed dst_h, int width, int height,
+                               im_fixed *out_pad_x, im_fixed *out_pad_y);
+
 /* The shape with every edge moved in by a distance. */
 im_rect im_inset(im_rect shape, im_fixed by);
 

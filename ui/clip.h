@@ -9,6 +9,10 @@
 /* One clip entry on an im_clip_stack (rectangular when all radii are 0). */
 typedef struct im_clip_entry {
     im_rect rect;
+    int64_t own_left;
+    int64_t own_top;
+    int64_t own_right;
+    int64_t own_bottom;
     int64_t eff_left;
     int64_t eff_top;
     int64_t eff_right;
