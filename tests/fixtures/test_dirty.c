@@ -751,11 +751,45 @@ static bool read_presented_pixels(HWND hwnd, int w, int h, uint32_t *out) {
     return blt_ok != 0;
 }
 
-static LRESULT send_msg_sync(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+static bool send_msg_sync(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     HMODULE u32 = LoadLibraryW(L"user32.dll");
-    if (!u32) return 0;
+    if (!u32) return false;
     fn_SendMessageW pSendMessageW = (fn_SendMessageW)(void *)GetProcAddress(u32, "SendMessageW");
-    return pSendMessageW ? pSendMessageW(hwnd, msg, wp, lp) : 0;
+    if (!pSendMessageW) return false;
+    (void)pSendMessageW(hwnd, msg, wp, lp);
+    return true;
+}
+
+/* Write a solid sentinel directly to the window DC without touching w->buffer,
+   so a real exposure restore can be distinguished from an unblitted stale gap. */
+static bool write_dc_sentinel(HWND hwnd, int left, int top, int right, int bottom, uint32_t rgb) {
+    int rw = right - left, rh = bottom - top;
+    if (!hwnd || rw <= 0 || rh <= 0) return false;
+    HMODULE u32 = LoadLibraryW(L"user32.dll");
+    HMODULE g32 = LoadLibraryW(L"gdi32.dll");
+    if (!u32 || !g32) return false;
+    fn_GetDC pGetDC = (fn_GetDC)(void *)GetProcAddress(u32, "GetDC");
+    fn_ReleaseDC pReleaseDC = (fn_ReleaseDC)(void *)GetProcAddress(u32, "ReleaseDC");
+    fn_GdiFlush pGdiFlush = (fn_GdiFlush)(void *)GetProcAddress(g32, "GdiFlush");
+    if (!pGetDC || !pReleaseDC || !pGdiFlush) return false;
+    uint32_t *buf = (uint32_t *)heap_alloc_zero((size_t)(rw * rh) * sizeof(uint32_t));
+    if (!buf) return false;
+    for (int i = 0; i < rw * rh; i++) buf[i] = rgb;
+    HDC hdc = pGetDC(hwnd);
+    if (!hdc) { heap_free_ptr(buf); return false; }
+    BITMAPINFO bi;
+    memset(&bi, 0, sizeof(bi));
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = rw;
+    bi.bmiHeader.biHeight = -rh;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    int rows = SetDIBitsToDevice(hdc, left, top, (DWORD)rw, (DWORD)rh, 0, 0, 0, (UINT)rh, buf, &bi, DIB_RGB_COLORS);
+    pGdiFlush();
+    pReleaseDC(hwnd, hdc);
+    heap_free_ptr(buf);
+    return rows == rh;
 }
 
 /* 4 & 5. Real Windows window tests: WM_MOUSEMOVE exact hover, disjoint rects + gap exposure,
@@ -771,7 +805,10 @@ typedef struct win_test_state {
     bool hover_exact_rect;
     bool hover_pixels_outside_untouched;
     bool disjoint_preserved;
+    bool disjoint_gap_sentinel_seen;
     bool disjoint_gap_screen_verified;
+    bool nested_send_ok;
+    bool nested_inner_ran;
     bool nested_outer_got_full;
     bool legacy_was_full;
     bool band_was_partial;
@@ -844,8 +881,17 @@ static void win_paint(im_window *w, im_canvas *c) {
             (c->pixels[10 * c->width + 10] == asym_pixel(10, 10)) &&
             (c->pixels[32 * c->width + 160] == asym_pixel(160, 32));
 
-        /* Phase 2: two disjoint controls PLUS simultaneous OS exposure in the gap between them. */
+        /* Phase 2: corrupt the presented DC gap with a magenta sentinel (without touching w->buffer),
+           verify the sentinel is visible on screen, then invalidate two disjoint controls PLUS the gap. */
         st->phase = 2;
+        if (write_dc_sentinel((HWND)w->native, 60, 40, 100, 70, 0x00FF00FFu)) {
+            int lw = c->width, lh = c->height;
+            uint32_t *chk = (uint32_t *)heap_alloc_zero((size_t)(lw * lh) * sizeof(uint32_t));
+            if (chk && read_presented_pixels((HWND)w->native, lw, lh, chk)) {
+                st->disjoint_gap_sentinel_seen = (chk[55 * lw + 80] == 0x00FF00FFu);
+            }
+            heap_free_ptr(chk);
+        }
         im_dirty_rect pair[2] = {{4, 4, 24, 24}, {180, 90, 210, 120}};
         im_window_invalidate_rects(w, pair, 2);
         RECT gap = {60, 40, 100, 70};
@@ -996,10 +1042,11 @@ static bool win_event(im_window *w, const im_event *e) {
     }
     if (st->phase == 3 && e->kind == IM_KEY_DOWN && e->key == 'N') {
         /* Synchronously invoke inner event that invalidates a small rect, then return true for full repaint. */
-        send_msg_sync((HWND)w->native, WM_MOUSEMOVE, 0, MAKELPARAM(50, 30));
+        st->nested_send_ok = send_msg_sync((HWND)w->native, WM_MOUSEMOVE, 0, MAKELPARAM(50, 30));
         return true;
     }
     if (st->phase == 3 && e->kind == IM_POINTER_MOVE) {
+        st->nested_inner_ran = true;
         im_window_invalidate(w, 20, 20, 40, 40);
         return true;
     }
@@ -1059,8 +1106,8 @@ static bool win_event(im_window *w, const im_event *e) {
         uint32_t new_tok = w->frame_token;
         st->waiting_replacement_tick = true;
         /* Deliver stale WM_TIMER synchronously for old_tok: must NOT call tick or cancel new_tok. */
-        send_msg_sync((HWND)w->native, WM_TIMER, (WPARAM)old_tok, 0);
-        st->stale_timer_ignored = (r1 && r2 && new_tok != old_tok &&
+        bool sent_stale = send_msg_sync((HWND)w->native, WM_TIMER, (WPARAM)old_tok, 0);
+        st->stale_timer_ignored = (r1 && r2 && sent_stale && new_tok != old_tok &&
             st->tick_count == before_ticks && w->frame_timer_active && w->frame_token == new_tok);
         return false;
     }
@@ -1125,10 +1172,10 @@ static void test_windows_partial_paint_and_lifecycle(void) {
           "WM_MOUSEMOVE hover produced exact button 1 dirty rect [20, 100) x [20, 52)");
     CHECK(st.hover_pixels_outside_untouched,
           "WM_MOUSEMOVE hover left pixels outside button 1 untouched");
-    CHECK(st.disjoint_preserved && st.disjoint_gap_screen_verified,
-          "disjoint rects preserved AND simultaneous gap exposure restored on presented DC");
-    CHECK(st.nested_outer_got_full,
-          "nested explicit damage inside inner event does not suppress outer full repaint");
+    CHECK(st.disjoint_preserved && st.disjoint_gap_sentinel_seen && st.disjoint_gap_screen_verified,
+          "disjoint rects preserved AND sentinel-corrupted gap exposure restored on presented DC");
+    CHECK(st.nested_send_ok && st.nested_inner_ran && st.nested_outer_got_full,
+          "nested explicit damage inside inner event runs and does not suppress outer full repaint");
     CHECK(st.legacy_was_full,
           "legacy event handler returning true without explicit damage gets full_redraw == true");
     CHECK(st.band_was_partial && st.band_screen_verified,
