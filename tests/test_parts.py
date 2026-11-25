@@ -1662,9 +1662,9 @@ class GifDecoder(unittest.TestCase):
                 frames = []
                 if err == 0:
                     for _ in range(fcnt):
-                        delay_ms, disp, left, top, fw, fh, stride, bsz = struct.unpack("<IIIIIIII", read_exact(32))
+                        delay_ms, disp, user_in, left, top, fw, fh, iw, ih, ifmt, stride, bsz = struct.unpack("<IIIIIIIIIIII", read_exact(48))
                         px = read_exact(bsz) if bsz > 0 else b""
-                        frames.append((delay_ms, disp, left, top, fw, fh, stride, bsz, px))
+                        frames.append((delay_ms, disp, bool(user_in), left, top, fw, fh, iw, ih, ifmt, stride, bsz, px))
                     (post_free,) = struct.unpack("<I", read_exact(4))
                     leak |= post_free
                 return err, w, h, fcnt, bool(has_loop), loop_cnt, leak, frames
@@ -1705,15 +1705,17 @@ class GifDecoder(unittest.TestCase):
                 self.assertEqual((eab, wab, hab, fcntb, hlb, lcb, lab), (0, wa, ha, fcnt, has_loop, loop_cnt, 0), name)
 
                 for idx, (exp_f, got_r, got_b) in enumerate(zip(meta["frames"], frames_r, frames_b)):
-                    delay_ms, disp, left, top, fw, fh, stride, bsz_f, fpx_r = got_r
+                    delay_ms, disp, user_in, left, top, fw, fh, iw, ih, ifmt_r, stride, bsz_f, fpx_r = got_r
                     self.assertEqual(
-                        (delay_ms, disp, left, top, fw, fh, stride, bsz_f),
-                        (exp_f["delay_ms"], exp_f["disposal"], exp_f["left"], exp_f["top"],
-                         exp_f["frame_width"], exp_f["frame_height"], exp_f["width"] * 4, exp_f["width"] * exp_f["height"] * 4),
-                        f"{name} frame {idx}: metadata mismatch",
+                        (delay_ms, disp, user_in, left, top, fw, fh, iw, ih, ifmt_r, stride, bsz_f),
+                        (exp_f["delay_ms"], exp_f["disposal"], exp_f["user_input"], exp_f["left"], exp_f["top"],
+                         exp_f["frame_width"], exp_f["frame_height"], exp_f["width"], exp_f["height"], 1,
+                         exp_f["width"] * 4, exp_f["width"] * exp_f["height"] * 4),
+                        f"{name} frame {idx}: metadata/image-fields mismatch",
                     )
                     self.assertEqual(hashlib.sha256(fpx_r).hexdigest(), exp_f["rgba8_sha256"], f"{name} frame {idx}: RGBA8 mismatch")
-                    self.assertEqual(got_b[8], swap_rb(fpx_r), f"{name} frame {idx}: BGRA8 mismatch")
+                    self.assertEqual((got_b[7], got_b[8], got_b[9]), (exp_f["width"], exp_f["height"], 0), f"{name} frame {idx}: BGRA8 image fields")
+                    self.assertEqual(got_b[12], swap_rb(fpx_r), f"{name} frame {idx}: BGRA8 mismatch")
 
                 bad_cnt, first_bad = check_prefixes(raw, label=f"prefixes:{name}")
                 self.assertEqual(bad_cnt, 0, f"{name}: {bad_cnt} bad prefixes (first={first_bad})")
@@ -1751,12 +1753,27 @@ class GifDecoder(unittest.TestCase):
             es, _, _, _, _, ls, pxs = decode_single(gif_1025, label="single:1025_ok")
             self.assertEqual((es, ls, pxs), (0, 0, b"\x12\x34\x56\xFF"))
 
-            # Cumulative byte budget: 3-frame 1x1 GIF = 12 bytes total. max_bytes=12 -> OK, max_bytes=11 -> TOO_LARGE (5),
-            # non-NULL limits with max_bytes=0 (0xFFFFFFFF sentinel) -> resolves to 16 MiB -> OK!
+            # Cumulative byte budget & explicit nonzero max_frames cap (asserting cleanup leak==0 on every refusal):
             gif_3 = hdr_1x1 + (one_frame_block * 3) + b"\x3B"
-            self.assertEqual(decode_anim(gif_3, max_bytes=12, label="anim:bytes_exact")[0], 0)
-            self.assertEqual(decode_anim(gif_3, max_bytes=11, label="anim:bytes_over")[0], 5)
-            self.assertEqual(decode_anim(gif_3, max_bytes=0xFFFFFFFF, label="anim:bytes_zero_default")[0], 0)
+            e_mf3, _, _, fc3, _, _, l_mf3, _ = decode_anim(gif_3, max_frames=3, label="anim:max_frames_exact_3")
+            self.assertEqual((e_mf3, fc3, l_mf3), (0, 3, 0))
+            e_mf2, _, _, _, _, _, l_mf2, _ = decode_anim(gif_3, max_frames=2, label="anim:max_frames_over_2")
+            self.assertEqual((e_mf2, l_mf2), (5, 0))
+
+            e_be, _, _, _, _, _, l_be, _ = decode_anim(gif_3, max_bytes=12, label="anim:bytes_exact")
+            self.assertEqual((e_be, l_be), (0, 0))
+            e_bo, _, _, _, _, _, l_bo, _ = decode_anim(gif_3, max_bytes=11, label="anim:bytes_over")
+            self.assertEqual((e_bo, l_bo), (5, 0))
+
+            # Non-NULL limits with max_bytes=0 (0xFFFFFFFF sentinel -> resolves to 16 MiB default):
+            # 1024x1024 canvas = 4 MiB per frame. 4 frames = 16 MiB (exact OK), 5 frames = 20 MiB (> 16 MiB -> TOO_LARGE, 0 leaks)!
+            hdr_big = b"GIF89a" + struct.pack("<HHBBB", 1024, 1024, 0x80, 0, 0) + b"\x12\x34\x56\x00\x00\x00"
+            gif_big4 = hdr_big + (one_frame_block * 4) + b"\x3B"
+            gif_big5 = hdr_big + (one_frame_block * 5) + b"\x3B"
+            e_b4, _, _, fc4, _, _, l_b4, _ = decode_anim(gif_big4, max_bytes=0xFFFFFFFF, label="anim:16mib_exact")
+            self.assertEqual((e_b4, fc4, l_b4), (0, 4, 0))
+            e_b5, _, _, _, _, _, l_b5, _ = decode_anim(gif_big5, max_bytes=0xFFFFFFFF, label="anim:16mib_over")
+            self.assertEqual((e_b5, l_b5), (5, 0))
         except Exception:
             killed = True
             reap_proc()

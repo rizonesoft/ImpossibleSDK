@@ -45,6 +45,7 @@ typedef struct gif_lzw {
 typedef struct gif_gce {
     bool valid;
     uint8_t disposal;
+    bool user_input;
     bool has_trans;
     uint8_t trans_index;
     uint32_t delay_ms;
@@ -133,7 +134,6 @@ static im_image_error decode_lzw_frame(const uint8_t *data, size_t len, size_t *
     uint32_t bitbuf = 0u;
     uint32_t bitcnt = 0u;
     uint8_t sb_rem = 0u;
-    bool hit_zero_sb = false;
 
     uint32_t total_pixels = (uint32_t)fw * (uint32_t)fh;
     uint32_t px_written = 0u;
@@ -148,18 +148,13 @@ static im_image_error decode_lzw_frame(const uint8_t *data, size_t len, size_t *
     }
 
     size_t stride = (size_t)screen_w * 4u;
-    bool saw_eoi = false;
 
     for (;;) {
         while (bitcnt < code_size) {
             if (sb_rem == 0u) {
-                if (hit_zero_sb) return IM_IMAGE_INVALID;
                 if (pos >= len) return IM_IMAGE_TRUNCATED;
                 sb_rem = data[pos++];
-                if (sb_rem == 0u) {
-                    hit_zero_sb = true;
-                    return IM_IMAGE_INVALID;
-                }
+                if (sb_rem == 0u) return IM_IMAGE_INVALID;
                 if (len - pos < (size_t)sb_rem) return IM_IMAGE_TRUNCATED;
             }
             bitbuf |= ((uint32_t)data[pos++] << bitcnt);
@@ -179,7 +174,6 @@ static im_image_error decode_lzw_frame(const uint8_t *data, size_t len, size_t *
             continue;
         }
         if (code == eoi_code) {
-            saw_eoi = true;
             break;
         }
 
@@ -214,12 +208,14 @@ static im_image_error decode_lzw_frame(const uint8_t *data, size_t len, size_t *
         if (px_written + sp > total_pixels) return IM_IMAGE_INVALID;
         while (sp > 0u) {
             uint8_t idx = lzw->stack[--sp];
-            if ((uint16_t)idx >= pal_count) return IM_IMAGE_INVALID;
+            if (pal && (uint16_t)idx >= pal_count) return IM_IMAGE_INVALID;
             if (canvas && !(has_trans && idx == trans_index)) {
                 uint32_t dy = (uint32_t)top + cur_y;
                 uint32_t dx = (uint32_t)left + cur_x;
-                const uint8_t *rgb = pal + (size_t)idx * 3u;
-                write_pixel(canvas + (size_t)dy * stride + (size_t)dx * 4u, fmt, rgb[0], rgb[1], rgb[2], 255u);
+                uint8_t r = pal ? pal[(size_t)idx * 3u + 0u] : idx;
+                uint8_t g = pal ? pal[(size_t)idx * 3u + 1u] : idx;
+                uint8_t b = pal ? pal[(size_t)idx * 3u + 2u] : idx;
+                write_pixel(canvas + (size_t)dy * stride + (size_t)dx * 4u, fmt, r, g, b, 255u);
             }
             px_written++;
             cur_x++;
@@ -238,14 +234,13 @@ static im_image_error decode_lzw_frame(const uint8_t *data, size_t len, size_t *
         }
     }
 
-    if (!saw_eoi || px_written != total_pixels) return IM_IMAGE_INVALID;
-
-    /* Consume any remaining bytes in the current sub-block and subsequent sub-blocks up to 0x00. */
-    pos += (size_t)sb_rem;
-    if (!hit_zero_sb) {
-        im_image_error serr = skip_subblocks(data, len, &pos);
-        if (serr != IM_IMAGE_OK) return serr;
-    }
+    if (px_written != total_pixels) return IM_IMAGE_INVALID;
+    /* Allow only residual bits in the last consumed byte; reject surplus bytes in the current
+       sub-block or any further non-empty sub-block before the 0x00 block terminator. */
+    if (sb_rem != 0u) return IM_IMAGE_INVALID;
+    if (pos >= len) return IM_IMAGE_TRUNCATED;
+    if (data[pos] != 0u) return IM_IMAGE_INVALID;
+    pos++;
 
     *pos_io = pos;
     return IM_IMAGE_OK;
@@ -257,6 +252,28 @@ static void clear_rect_transparent(uint8_t *canvas, uint32_t screen_w,
     size_t row_bytes = (size_t)fw * 4u;
     for (uint32_t y = 0u; y < (uint32_t)fh; y++) {
         gif_zero(canvas + (size_t)((uint32_t)top + y) * stride + (size_t)left * 4u, row_bytes);
+    }
+}
+
+static void save_rect(uint8_t *dst_rect, const uint8_t *canvas, uint32_t screen_w,
+                      uint16_t left, uint16_t top, uint16_t fw, uint16_t fh) {
+    size_t stride = (size_t)screen_w * 4u;
+    size_t row_bytes = (size_t)fw * 4u;
+    for (uint32_t y = 0u; y < (uint32_t)fh; y++) {
+        gif_copy(dst_rect + (size_t)y * row_bytes,
+                 canvas + (size_t)((uint32_t)top + y) * stride + (size_t)left * 4u,
+                 row_bytes);
+    }
+}
+
+static void restore_rect(uint8_t *canvas, const uint8_t *src_rect, uint32_t screen_w,
+                         uint16_t left, uint16_t top, uint16_t fw, uint16_t fh) {
+    size_t stride = (size_t)screen_w * 4u;
+    size_t row_bytes = (size_t)fw * 4u;
+    for (uint32_t y = 0u; y < (uint32_t)fh; y++) {
+        gif_copy(canvas + (size_t)((uint32_t)top + y) * stride + (size_t)left * 4u,
+                 src_rect + (size_t)y * row_bytes,
+                 row_bytes);
     }
 }
 
@@ -362,6 +379,7 @@ static im_image_error decode_core(const uint8_t *data, size_t len,
                 }
                 gce.valid = true;
                 gce.disposal = disp;
+                gce.user_input = (g_packed & 0x02u) != 0u;
                 gce.has_trans = (g_packed & 0x01u) != 0u;
                 gce.delay_ms = (uint32_t)rd_le16(data + pos + 2u) * 10u;
                 gce.trans_index = data[pos + 4u];
@@ -458,13 +476,12 @@ static im_image_error decode_core(const uint8_t *data, size_t len,
                 pal_count = lct_count;
                 pos += lct_bytes;
             }
-            if (!pal || pal_count == 0u) {
-                result = IM_IMAGE_INVALID;
-                goto fail;
-            }
+            /* If neither GCT nor LCT is present, pal remains NULL and decode_lzw_frame uses the
+               deterministic grayscale fallback palette (index i -> RGB(i, i, i)) per GIF89a §11. */
 
             bool interlaced = (i_packed & 0x40u) != 0u;
             uint8_t disp = gce.valid ? gce.disposal : 0u;
+            bool user_input = gce.valid ? gce.user_input : false;
             bool has_trans = gce.valid ? gce.has_trans : false;
             uint8_t trans_idx = gce.valid ? gce.trans_index : 0u;
             uint32_t delay_ms = gce.valid ? gce.delay_ms : 0u;
@@ -490,7 +507,7 @@ static im_image_error decode_core(const uint8_t *data, size_t len,
                             goto fail;
                         }
                     }
-                    gif_copy(prev_canvas, canvas, info.byte_size);
+                    save_rect(prev_canvas, canvas, info.width, left, top, fw, fh);
                 }
             }
 
@@ -532,6 +549,7 @@ static im_image_error decode_core(const uint8_t *data, size_t len,
                 fr->image.byte_size = info.byte_size;
                 fr->delay_ms = delay_ms;
                 fr->disposal = disp;
+                fr->user_input = user_input;
                 fr->left = left;
                 fr->top = top;
                 fr->frame_width = fw;
@@ -540,7 +558,7 @@ static im_image_error decode_core(const uint8_t *data, size_t len,
                 if (disp == 2u) {
                     clear_rect_transparent(canvas, info.width, left, top, fw, fh);
                 } else if (disp == 3u) {
-                    gif_copy(canvas, prev_canvas, info.byte_size);
+                    restore_rect(canvas, prev_canvas, info.width, left, top, fw, fh);
                 }
             } else if (frame_index == 0u) {
                 frame0_pixels = canvas;
@@ -559,7 +577,8 @@ static im_image_error decode_core(const uint8_t *data, size_t len,
         goto fail;
     }
     if (frame_index == 0u) {
-        result = IM_IMAGE_INVALID;
+        /* Valid GIF89a §11 palette-only stream with no image frames has no returnable picture. */
+        result = IM_IMAGE_UNSUPPORTED;
         goto fail;
     }
 

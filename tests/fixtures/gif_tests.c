@@ -164,12 +164,34 @@ static void run_unit_tests(void) {
         check(im_gif_decode(one, sizeof(one), IM_PIXEL_RGBA8, NULL, &alloc, &img) == IM_IMAGE_NO_MEMORY, "single OOM -> NO_MEMORY");
         check(image_is_zero(&img) && tr.live_blocks == 0u && tr.live_bytes == 0u && tr.mismatch_frees == 0u, "single OOM 0 leaks");
     }
-    for (int ord = 0; ord < 4; ord++) {
-        tr.alloc_calls = 0u;
-        tr.fail_on_ordinal = ord;
+    /* Sweep ALL allocation ordinals on a 5-frame disposal-3 GIF (covers lzw, canvas, prev_canvas,
+       frame-array initial + growth realloc at frame 4, and per-frame pixel allocations). */
+    uint8_t five[13 + 6 + 5 * (8 + 15) + 1];
+    size_t fp = 0u;
+    static const uint8_t five_hdr[19] = {
+        'G','I','F','8','9','a', 1u, 0u, 1u, 0u, 0x80u, 0u, 0u,
+        0x12u, 0x34u, 0x56u, 0xAAu, 0xBBu, 0xCCu
+    };
+    for (size_t i = 0; i < 19u; i++) five[fp++] = five_hdr[i];
+    for (int f = 0; f < 5; f++) {
+        static const uint8_t gce_d3[8] = {0x21u, 0xF9u, 4u, 0x0Cu, 1u, 0u, 0u, 0u}; /* disposal=3 */
+        static const uint8_t img_1x1[15] = {0x2Cu, 0u, 0u, 0u, 0u, 1u, 0u, 1u, 0u, 0u, 2u, 2u, 0x44u, 0x01u, 0u};
+        for (size_t i = 0; i < 8u; i++) five[fp++] = gce_d3[i];
+        for (size_t i = 0; i < 15u; i++) five[fp++] = img_1x1[i];
+    }
+    five[fp++] = 0x3Bu;
+
+    tr.alloc_calls = 0u; tr.fail_on_ordinal = -1; tr.mismatch_frees = 0u; tr.rec_count = 0u;
+    check(im_gif_decode_anim(five, fp, IM_PIXEL_RGBA8, NULL, 0u, &alloc, &anim) == IM_IMAGE_OK, "5-frame d3 baseline OK");
+    size_t total_allocs = tr.alloc_calls;
+    im_gif_anim_free(&alloc, &anim);
+    check(total_allocs >= 9u && tr.live_blocks == 0u && tr.live_bytes == 0u && tr.mismatch_frees == 0u, "5-frame d3 baseline clean");
+    for (size_t ord = 0u; ord < total_allocs; ord++) {
+        tr.alloc_calls = 0u; tr.fail_on_ordinal = (int)ord;
+        tr.live_blocks = 0u; tr.live_bytes = 0u; tr.mismatch_frees = 0u; tr.rec_count = 0u;
         anim.frame_count = 77u;
-        check(im_gif_decode_anim(one, sizeof(one), IM_PIXEL_RGBA8, NULL, 0u, &alloc, &anim) == IM_IMAGE_NO_MEMORY, "anim OOM -> NO_MEMORY");
-        check(anim_is_zero(&anim) && tr.live_blocks == 0u && tr.live_bytes == 0u && tr.mismatch_frees == 0u, "anim OOM 0 leaks");
+        check(im_gif_decode_anim(five, fp, IM_PIXEL_RGBA8, NULL, 0u, &alloc, &anim) == IM_IMAGE_NO_MEMORY, "5-frame OOM -> NO_MEMORY");
+        check(anim_is_zero(&anim) && tr.live_blocks == 0u && tr.live_bytes == 0u && tr.mismatch_frees == 0u, "5-frame OOM 0 leaks & exact sizes");
     }
     tr.fail_on_ordinal = -1;
 
@@ -284,10 +306,11 @@ static void run_batch(void) {
                 write_exact(hout, resp, sizeof(resp));
                 for (uint32_t i = 0u; i < anim.frame_count; i++) {
                     const im_gif_frame *fr = &anim.frames[i];
-                    uint32_t fhdr[8] = {
-                        fr->delay_ms, (uint32_t)fr->disposal,
+                    uint32_t fhdr[12] = {
+                        fr->delay_ms, (uint32_t)fr->disposal, fr->user_input ? 1u : 0u,
                         (uint32_t)fr->left, (uint32_t)fr->top,
                         (uint32_t)fr->frame_width, (uint32_t)fr->frame_height,
+                        fr->image.width, fr->image.height, (uint32_t)fr->image.format,
                         fr->image.stride, (uint32_t)fr->image.byte_size
                     };
                     write_exact(hout, fhdr, sizeof(fhdr));

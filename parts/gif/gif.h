@@ -44,6 +44,8 @@ typedef struct im_gif_frame {
     uint32_t delay_ms;
     /* Encoded GCE disposal method (0=unspecified, 1=keep, 2=clear to transparent, 3=restore previous). */
     uint8_t disposal;
+    /* True when the GCE user-input flag (bit 1) is set for this frame. */
+    bool user_input;
     /* Sub-rectangle left coordinate within the logical screen. */
     uint16_t left;
     /* Sub-rectangle top coordinate within the logical screen. */
@@ -84,11 +86,14 @@ im_image_error im_gif_probe(const uint8_t *data, size_t len,
    IM_PIXEL_BGRA8 or IM_PIXEL_RGBA8). All subsequent frames and the 0x3B trailer are decoded and
    validated in-place without retaining frames 1..N-1 so damaged or truncated streams never expose
    a partial picture. Plain Text Extensions (0x21 0x01) are not rendered into pixels but consume
-   any pending Graphic Control Extension per GIF89a §§23, 25. The initial canvas and disposal 2
-   sub-rectangle clears use transparent black (0, 0, 0, 0). Passing NULL for limits applies SDK
-   defaults. On entry, *out_image is overwritten; on any error all allocations are freed and
-   *out_image is zero-initialized. On IM_IMAGE_OK, only out_image->pixels remains live and the
-   caller frees it via alloc->free(alloc->ctx, out_image->pixels, out_image->byte_size). */
+   any pending Graphic Control Extension per GIF89a §§23, 25. Frames with neither a global nor a
+   local color table use a deterministic grayscale fallback palette (index i -> RGB(i, i, i)) per
+   GIF89a §11; valid palette-only streams with zero image frames return IM_IMAGE_UNSUPPORTED.
+   The initial canvas and disposal 2 sub-rectangle clears use transparent black (0, 0, 0, 0).
+   Passing NULL for limits applies SDK defaults. On entry, *out_image is overwritten; on any error
+   all allocations are freed and *out_image is zero-initialized. On IM_IMAGE_OK, only
+   out_image->pixels remains live and the caller frees it via
+   alloc->free(alloc->ctx, out_image->pixels, out_image->byte_size). */
 im_image_error im_gif_decode(const uint8_t *data, size_t len,
                              im_pixel_format format,
                              const im_image_limits *limits,
