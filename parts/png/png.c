@@ -534,12 +534,9 @@ im_image_error im_png_decode(const uint8_t *data, size_t len,
                 ctx.pass = 0;
                 advance_pass(&ctx);
             }
-            if (clen == 0u) {
-                /* Empty IDAT chunks are valid before, between, or after non-empty IDAT chunks. */
-            } else if (zlib_done) {
-                /* Trailing compressed data in a subsequent non-empty IDAT after zlib completion. */
-                result = IM_IMAGE_INVALID;
-                goto fail;
+            if (clen == 0u || zlib_done) {
+                /* Empty IDATs and unused trailing bytes in consecutive CRC-verified IDATs after
+                   zlib completion are ignored per PNG §11.2.3. */
             } else {
                 size_t in_pos = 0u;
                 while (true) {
@@ -579,10 +576,7 @@ im_image_error im_png_decode(const uint8_t *data, size_t len,
 
                     if (st == IM_INFLATE_OK) {
                         zlib_done = true;
-                        if (in_pos < (size_t)clen) {
-                            result = IM_IMAGE_INVALID;
-                            goto fail;
-                        }
+                        /* Unused trailing bytes in this CRC-verified IDAT are ignored per PNG §11.2.3. */
                         break;
                     } else if (st == IM_INFLATE_NEED_INPUT) {
                         if (in_pos == (size_t)clen) break;

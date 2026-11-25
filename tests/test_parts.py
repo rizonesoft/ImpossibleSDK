@@ -1151,13 +1151,15 @@ class PngDecoder(unittest.TestCase):
             z_long = zlib.compress(b"\x00\x11\x22\x33\x44\x55")
             self.assertEqual(decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_long) + iend)[0], 2)
 
-            # Trailing unused compressed byte in same IDAT -> IM_IMAGE_INVALID (2)
-            self.assertEqual(decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_ok + b"\x00") + iend)[0], 2)
+            # Trailing unused compressed padding in same IDAT -> ignored per PNG §11.2.3 -> IM_IMAGE_OK (0) with exact pixels
+            e, w, h, _, leak, px = decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_ok + b"\x00\xAA") + iend, label="idat:pad_same")
+            self.assertEqual((e, w, h, leak, px), (0, 1, 1, 0, b"\x11\x22\x33\x44"))
 
-            # Trailing unused compressed byte in subsequent non-empty IDAT -> IM_IMAGE_INVALID (2)
-            self.assertEqual(
-                decode_buf(sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_ok) + mk_chunk(b"IDAT", b"\x00") + iend)[0], 2
+            # Trailing unused compressed padding in subsequent CRC-verified IDAT -> ignored per PNG §11.2.3 -> IM_IMAGE_OK (0)
+            e, w, h, _, leak, px = decode_buf(
+                sig + ihdr_1x1_rgba + mk_chunk(b"IDAT", z_ok) + mk_chunk(b"IDAT", b"\x00\xBB") + iend, label="idat:pad_next"
             )
+            self.assertEqual((e, w, h, leak, px), (0, 1, 1, 0, b"\x11\x22\x33\x44"))
 
             # Invalid filter byte (5) -> IM_IMAGE_INVALID (2)
             z_bad_filt = zlib.compress(b"\x05\x11\x22\x33\x44")
