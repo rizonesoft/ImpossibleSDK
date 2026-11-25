@@ -9,7 +9,10 @@
 /* One clip entry on an im_clip_stack (rectangular when all radii are 0). */
 typedef struct im_clip_entry {
     im_rect rect;
-    im_rect eff_rect;
+    int64_t eff_left;
+    int64_t eff_top;
+    int64_t eff_right;
+    int64_t eff_bottom;
     im_radii radii;
     bool is_rounded;
     int int_left;

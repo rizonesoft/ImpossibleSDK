@@ -2952,57 +2952,69 @@ class Drawing(unittest.TestCase):
         self.assertIn("IM_ELEM_STACK_PANEL", c_text)
         self.assertIn('"Horizontal"', c_text)
         self.assertIn('"Spacing"', c_text)
-        cache_path = BUILD / "CMakeCache.txt"
-        if cache_path.is_file():
-            cc = None
-            for line in cache_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        cc = None
+        for comp_cmake in sorted((BUILD / "CMakeFiles").glob("*/CMakeCCompiler.cmake")):
+            for line in comp_cmake.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith('set(CMAKE_C_COMPILER "') and line.endswith('")'):
+                    cand = line[len('set(CMAKE_C_COMPILER "'):-2]
+                    if Path(cand).is_file():
+                        cc = cand
+                        break
+            if cc:
+                break
+        if cc is None and (BUILD / "CMakeCache.txt").is_file():
+            for line in (BUILD / "CMakeCache.txt").read_text(encoding="utf-8", errors="ignore").splitlines():
                 if line.startswith("CMAKE_C_COMPILER:FILEPATH="):
-                    cc = line.split("=", 1)[1].strip()
-                    break
-            if cc and Path(cc).is_file():
-                with tempfile.TemporaryDirectory() as tmp:
-                    tp = Path(tmp)
-                    (tp / "tpl_stack.h").write_text(h_text, encoding="utf-8")
-                    (tp / "tpl_stack.c").write_text(
-                        c_text.replace("const im_template im_templates[", "static const im_template test_templates[")
-                              .replace("const im_template_setter im_template_setters[]", "static const im_template_setter test_setters[]")
-                              .replace("const im_template_element im_template_elements[]", "static const im_template_element test_elements[]")
-                              .replace("const im_template_prop im_template_props[]", "static const im_template_prop test_props[]")
-                              .replace("const im_template_group im_template_groups[]", "static const im_template_group test_groups[]")
-                              .replace("const im_template_state im_template_states[]", "static const im_template_state test_states[]")
-                              .replace("const im_template_transition im_template_transitions[]", "static const im_template_transition test_transitions[]")
-                              .replace("const im_template_anim im_template_anims[]", "static const im_template_anim test_anims[]")
-                              .replace("const im_template_keyframe im_template_keyframes[]", "static const im_template_keyframe test_keyframes[]"),
-                        encoding="utf-8",
-                    )
-                    (tp / "main.c").write_text(
-                        '#include <stdint.h>\n#include <stddef.h>\n#include "tree.h"\n#include "layout.h"\n'
-                        '#include "tpl_stack.c"\n'
-                        'static uint8_t mem[65536]; static size_t used = 0;\n'
-                        'static void *al(void *c, size_t n){(void)c; n=(n+7u)&~7u; if(used+n>sizeof(mem))return NULL; void *p=&mem[used]; used+=n; return p;}\n'
-                        'static void *rl(void *c, void *p, size_t o, size_t n){void *q=al(c,n); if(!q)return NULL; if(p){for(size_t i=0;i<(o<n?o:n);i++)((uint8_t*)q)[i]=((uint8_t*)p)[i];} return q;}\n'
-                        'static void fr(void *c, void *p, size_t n){(void)c;(void)p;(void)n;}\n'
-                        'int main(void){\n'
-                        '  im_tree t; im_palette pal={IM_DARK,{0}}; im_allocator a={al,rl,fr,NULL};\n'
-                        '  if(!im_tree_init(&t,a)) return 1;\n'
-                        '  im_node *r=im_tree_instantiate_custom_template(&t,&pal,&test_templates[0],test_setters,test_elements,test_props,"H");\n'
-                        '  if(!r) return 2;\n'
-                        '  t.root=r; im_layout_run(&t,r,100*IM_ONE,40*IM_ONE,IM_ONE);\n'
-                        '  im_node *b=im_tree_find_by_name(r,"TplB");\n'
-                        '  if(!b || b->absolute_rect.left!=28*IM_ONE || (b->absolute_rect.right-b->absolute_rect.left)!=30*IM_ONE) return 3;\n'
-                        '  im_tree_destroy(&t); return 0;\n'
-                        '}\n',
-                        encoding="utf-8",
-                    )
-                    exe = tp / "stack_tpl_test.exe"
-                    subprocess.run(
-                        [cc, "-std=gnu23", "-I", str(ROOT / "ui"), str(tp / "main.c"),
-                         str(ROOT / "ui/tree.c"), str(ROOT / "ui/layout.c"), str(ROOT / "ui/theme.c"),
-                         "-o", str(exe)],
-                        check=True, capture_output=True, text=True, timeout=60,
-                    )
-                    res = subprocess.run([str(exe)], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
-                    self.assertEqual(res.returncode, 0, f"compiled StackPanel template failed rc={res.returncode}")
+                    cand = line.split("=", 1)[1].strip()
+                    if Path(cand).is_file():
+                        cc = cand
+                        break
+        self.assertIsNotNone(cc, f"C compiler not found in {BUILD}")
+        with tempfile.TemporaryDirectory() as tmp:
+            tp = Path(tmp)
+            (tp / "tpl_stack.h").write_text(h_text, encoding="utf-8")
+            (tp / "tpl_stack.c").write_text(
+                c_text.replace("const im_template im_templates[IM_TEMPLATE_COUNT]", "static const im_template test_templates[]")
+                      .replace("const im_template_setter im_template_setters[]", "static const im_template_setter test_setters[]")
+                      .replace("const im_template_element im_template_elements[]", "static const im_template_element test_elements[]")
+                      .replace("const im_template_prop im_template_props[]", "static const im_template_prop test_props[]")
+                      .replace("const im_template_group im_template_groups[]", "static const im_template_group test_groups[]")
+                      .replace("const im_template_state im_template_states[]", "static const im_template_state test_states[]")
+                      .replace("const im_template_transition im_template_transitions[]", "static const im_template_transition test_transitions[]")
+                      .replace("const im_template_anim im_template_anims[]", "static const im_template_anim test_anims[]")
+                      .replace("const im_template_keyframe im_template_keyframes[]", "static const im_template_keyframe test_keyframes[]"),
+                encoding="utf-8",
+            )
+            (tp / "main.c").write_text(
+                '#include <stdint.h>\n#include <stddef.h>\n#include "tree.h"\n#include "layout.h"\n'
+                '#include "tpl_stack.c"\n'
+                'static uint8_t mem[65536]; static size_t used = 0;\n'
+                'static void *al(void *c, size_t n){(void)c; n=(n+7u)&~7u; if(used+n>sizeof(mem))return NULL; void *p=&mem[used]; used+=n; return p;}\n'
+                'static void *rl(void *c, void *p, size_t o, size_t n){void *q=al(c,n); if(!q)return NULL; if(p){for(size_t i=0;i<(o<n?o:n);i++)((uint8_t*)q)[i]=((uint8_t*)p)[i];} return q;}\n'
+                'static void fr(void *c, void *p, size_t n){(void)c;(void)p;(void)n;}\n'
+                'int main(void){\n'
+                '  im_tree t; im_palette pal={IM_DARK,{0}}; im_allocator a={al,rl,fr,NULL};\n'
+                '  if(!im_tree_init(&t,a)) return 1;\n'
+                '  im_node *r=im_tree_instantiate_custom_template(&t,&pal,&test_templates[0],test_setters,test_elements,test_props,"H");\n'
+                '  if(!r) return 2;\n'
+                '  t.root=r; im_layout_run(&t,r,100*IM_ONE,40*IM_ONE,IM_ONE);\n'
+                '  im_node *b=im_tree_find_by_name(r,"TplB");\n'
+                '  if(!b || b->absolute_rect.left!=28*IM_ONE || (b->absolute_rect.right-b->absolute_rect.left)!=30*IM_ONE) return 3;\n'
+                '  im_tree_destroy(&t); return 0;\n'
+                '}\n',
+                encoding="utf-8",
+            )
+            exe = tp / "stack_tpl_test.exe"
+            comp_res = subprocess.run(
+                [cc, "-std=gnu23", "-I", str(ROOT / "ui"), str(tp / "main.c"),
+                 str(ROOT / "ui/tree.c"), str(ROOT / "ui/layout.c"), str(ROOT / "ui/theme.c"),
+                 str(ROOT / "ui/theme_data.c"), str(ROOT / "ui/template_data.c"),
+                 "-o", str(exe)],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(comp_res.returncode, 0, f"compile failed: {comp_res.stderr}")
+            res = subprocess.run([str(exe)], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+            self.assertEqual(res.returncode, 0, f"compiled StackPanel template failed rc={res.returncode}")
 
     def test_rounded_clips_and_group_opacity_100_to_300(self):
         sys.path.insert(0, str(ROOT / "reference"))

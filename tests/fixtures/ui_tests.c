@@ -625,6 +625,26 @@ static int test_tree_and_layout(void) {
     im_tree_destroy(&tree);
     if (ta.live_allocs != 0 || ta.live_bytes != 0) return 202;
 
+    /* 15. Fractional Grid MinWidth (two 0.25-DIP columns at 125% = 0.625 px total -> 3rd column at 1 px, not 0). */
+    ta.used = 0; ta.fail_on_call = 0;
+    if (!im_tree_init(&tree, alloc)) return 206;
+    im_node *fg = im_tree_create_node(&tree, IM_ELEM_GRID, "FracGrid");
+    im_node *fc2 = im_tree_create_node(&tree, IM_ELEM_BORDER, "FracC2");
+    if (!fg || !fc2) return 206;
+    im_grid_def fcols[3] = {
+        {IM_GRID_PIXEL, 0, IM_ONE / 4, IM_FIXED_INF},
+        {IM_GRID_PIXEL, 0, IM_ONE / 4, IM_FIXED_INF},
+        {IM_GRID_STAR, IM_ONE, 0, IM_FIXED_INF},
+    };
+    if (!im_tree_set_grid_cols(&tree, fg, fcols, 3)) return 206;
+    im_node_set_grid_cell(fc2, 0, 2, 1, 1);
+    im_tree_append_child(&tree, fg, fc2);
+    tree.root = fg;
+    im_layout_run(&tree, fg, fxi(20), fxi(10), 81920); /* 125% */
+    if (fc2->absolute_rect.left != im_layout_round(IM_ONE / 2, 81920)) return 207;
+    im_tree_destroy(&tree);
+    if (ta.live_allocs != 0 || ta.live_bytes != 0) return 207;
+
     return 0;
 }
 
@@ -819,6 +839,12 @@ static int test_clips_and_layers(void) {
     if (at(0, 0) != 0x00102030) return 205;
     im_layer_pop_clip(&ctx);
     im_layer_pop_clip(&ctx);
+    /* Wide surface boundary (>= 32768 px): 1x1 clip at origin must not overflow signed 16.16. */
+    im_clip_stack wide_clips;
+    if (!im_clip_init(&wide_clips, alloc, 32768, 32768)) return 208;
+    if (!im_clip_push_rect(&wide_clips, box(0, 0, 1, 1))) return 208;
+    if (im_clip_pixel_coverage(&wide_clips, 0, 0) != IM_ONE) return 209;
+    im_clip_destroy(&wide_clips);
     /* Post-pop sibling draws outside former clip. */
     im_fill_argb(&surface, box(2, 2, 6, 6), sq, 0xFF0000FF);
     if (at(3, 3) != 0x000000FF) return 136;

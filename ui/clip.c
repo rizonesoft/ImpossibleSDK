@@ -57,33 +57,37 @@ static bool push_clip_impl(im_clip_stack *stack, im_rect rect, im_radii radii, b
     if (!stack || stack->count == UINT32_MAX) return false;
     if (!ensure_clip_cap(stack, stack->count + 1u)) return false;
 
-    im_rect prev_eff = {0, 0, (im_fixed)((int64_t)stack->surface_w * IM_ONE), (im_fixed)((int64_t)stack->surface_h * IM_ONE)};
+    int64_t prev_l = 0, prev_t = 0;
+    int64_t prev_r = (int64_t)stack->surface_w * IM_ONE;
+    int64_t prev_b = (int64_t)stack->surface_h * IM_ONE;
     int pl = 0, pt = 0, pr = stack->surface_w, pb = stack->surface_h;
     if (stack->count > 0) {
         const im_clip_entry *prev = &stack->entries[stack->count - 1u];
-        prev_eff = prev->eff_rect;
+        prev_l = prev->eff_left;
+        prev_t = prev->eff_top;
+        prev_r = prev->eff_right;
+        prev_b = prev->eff_bottom;
         pl = prev->int_left;
         pt = prev->int_top;
         pr = prev->int_right;
         pb = prev->int_bottom;
     }
 
-    im_rect eff;
-    eff.left = rect.left > prev_eff.left ? rect.left : prev_eff.left;
-    eff.top = rect.top > prev_eff.top ? rect.top : prev_eff.top;
-    eff.right = rect.right < prev_eff.right ? rect.right : prev_eff.right;
-    eff.bottom = rect.bottom < prev_eff.bottom ? rect.bottom : prev_eff.bottom;
+    int64_t eff_l = (int64_t)rect.left > prev_l ? (int64_t)rect.left : prev_l;
+    int64_t eff_t = (int64_t)rect.top > prev_t ? (int64_t)rect.top : prev_t;
+    int64_t eff_r = (int64_t)rect.right < prev_r ? (int64_t)rect.right : prev_r;
+    int64_t eff_b = (int64_t)rect.bottom < prev_b ? (int64_t)rect.bottom : prev_b;
 
     int cl, ct, cr, cb;
-    if (eff.left >= eff.right || eff.top >= eff.bottom) {
-        eff.right = eff.left;
-        eff.bottom = eff.top;
+    if (eff_l >= eff_r || eff_t >= eff_b) {
+        eff_r = eff_l;
+        eff_b = eff_t;
         cl = pr; ct = pb; cr = pr; cb = pb;
     } else {
-        cl = floor_px(eff.left, stack->surface_w);
-        ct = floor_px(eff.top, stack->surface_h);
-        cr = ceil_px(eff.right, stack->surface_w);
-        cb = ceil_px(eff.bottom, stack->surface_h);
+        cl = floor_px(eff_l, stack->surface_w);
+        ct = floor_px(eff_t, stack->surface_h);
+        cr = ceil_px(eff_r, stack->surface_w);
+        cb = ceil_px(eff_b, stack->surface_h);
         if (cl < pl) cl = pl;
         if (ct < pt) ct = pt;
         if (cr > pr) cr = pr;
@@ -94,7 +98,10 @@ static bool push_clip_impl(im_clip_stack *stack, im_rect rect, im_radii radii, b
 
     im_clip_entry *e = &stack->entries[stack->count++];
     e->rect = rect;
-    e->eff_rect = eff;
+    e->eff_left = eff_l;
+    e->eff_top = eff_t;
+    e->eff_right = eff_r;
+    e->eff_bottom = eff_b;
     e->radii = radii;
     e->is_rounded = is_rounded && (radii.top_left > 0 || radii.top_right > 0 || radii.bottom_right > 0 || radii.bottom_left > 0);
     e->int_left = cl;

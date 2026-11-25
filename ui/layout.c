@@ -85,7 +85,9 @@ static int64_t scaled_px_32_32(im_fixed v, im_fixed scale, bool already_rounded)
     int64_t scaled = (int64_t)v * (int64_t)scale;
     if (!already_rounded) return scaled;
     int64_t px = floor_div_pow2(scaled + ((int64_t)1 << 31), 32);
-    return px << 32;
+    int64_t snapped = px << 32;
+    int64_t err = scaled >= snapped ? (scaled - snapped) : (snapped - scaled);
+    return (err <= (int64_t)scale) ? snapped : scaled;
 }
 
 static im_fixed round_from_32_32(int64_t scaled_sum, im_fixed scale) {
