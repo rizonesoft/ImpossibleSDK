@@ -247,7 +247,17 @@ static void test_boundaries_and_oom(void) {
         check(im_png_encode(&img_noisy, NULL, &pa, &p1, &n1) == IM_IMAGE_OK && n1 > 12000u,
               "OOM baseline 64x64 noisy png_encode OK (>12 KiB IDAT exercises multi-growth)");
         png_allocs = tc.total_allocs;
-        if (p1) pa.free(pa.ctx, p1, n1);
+        if (p1) {
+            im_image dec = {0};
+            im_image_error de = im_png_decode(p1, n1, IM_PIXEL_RGBA8, NULL, &pa, &dec);
+            bool eq = (de == IM_IMAGE_OK && dec.width == 64u && dec.height == 64u && dec.byte_size == sizeof(noisy64));
+            for (size_t i = 0; eq && i < sizeof(noisy64); ++i) {
+                if (dec.pixels[i] != noisy64[i]) eq = false;
+            }
+            check(eq, "OOM baseline 64x64 noisy PNG decodes pixel-for-pixel identical after OUT_FULL retries");
+            if (dec.pixels) pa.free(pa.ctx, dec.pixels, dec.byte_size);
+            pa.free(pa.ctx, p1, n1);
+        }
         check(tc.live == 0u && tc.mismatch_or_double_free == 0u, "OOM baseline exact-size free OK");
     }
     check(png_allocs >= 9u, "64x64 noisy png_encode performs >= 9 tracked allocations (including IDAT growth)");
@@ -336,18 +346,41 @@ static int run_batch(void) {
     return 0;
 }
 
-static bool arg_contains(const wchar_t *cmd, const wchar_t *needle) {
-    if (!cmd || !needle) return false;
-    for (size_t i = 0; cmd[i]; ++i) {
+static bool has_cli_arg(const wchar_t *cmd, const wchar_t *want) {
+    if (!cmd || !want) return false;
+    const wchar_t *p = cmd;
+    while (*p == L' ' || *p == L'\t') ++p;
+    /* Skip executable name (argv[0]), handling double-quoted paths. */
+    if (*p == L'"') {
+        ++p;
+        while (*p && *p != L'"') ++p;
+        if (*p == L'"') ++p;
+    } else {
+        while (*p && *p != L' ' && *p != L'\t') ++p;
+    }
+    while (*p) {
+        while (*p == L' ' || *p == L'\t') ++p;
+        if (!*p) break;
+        const wchar_t *start = p;
+        bool quoted = (*p == L'"');
+        if (quoted) {
+            ++p;
+            start = p;
+            while (*p && *p != L'"') ++p;
+        } else {
+            while (*p && *p != L' ' && *p != L'\t') ++p;
+        }
+        size_t len = (size_t)(p - start);
+        if (quoted && *p == L'"') ++p;
         size_t j = 0;
-        while (needle[j] && cmd[i + j] == needle[j]) ++j;
-        if (!needle[j]) return true;
+        while (j < len && want[j] && start[j] == want[j]) ++j;
+        if (j == len && want[j] == L'\0') return true;
     }
     return false;
 }
 
 int im_main(void) {
-    if (arg_contains(GetCommandLineW(), L"--batch")) {
+    if (has_cli_arg(GetCommandLineW(), L"--batch")) {
         return run_batch();
     }
     test_boundaries_and_oom();

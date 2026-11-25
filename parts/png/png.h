@@ -5,7 +5,7 @@
 #include "deflate.h"
 #include "image.h"
 
-/* Caller-supplied memory allocator for PNG decoding (both callbacks required). */
+/* Caller-supplied memory allocator for PNG decoding and encoding (both callbacks required). */
 typedef struct im_png_alloc {
     /* Allocate size bytes, returning NULL on failure. */
     void *(*alloc)(void *ctx, size_t size);

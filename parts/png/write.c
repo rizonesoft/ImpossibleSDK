@@ -333,21 +333,23 @@ im_image_error im_png_encode(const im_image *img,
         return IM_IMAGE_BAD_ARG;
     }
 
-    pal_state *ps = (pal_state *)alloc->alloc(alloc->ctx, sizeof(pal_state));
-    if (!ps) return IM_IMAGE_NO_MEMORY;
-    pal_init(ps);
-    for (uint32_t y = 0; y < img->height; ++y) {
-        const uint8_t *row = img->pixels + (size_t)y * (size_t)img->stride;
-        for (uint32_t x = 0; x < img->width; ++x) {
-            pal_add(ps, read_pixel_rgba(row, x, img->format));
-        }
-    }
-
     uint32_t trns_len = 0u;
-    if (!ps->overflowed) pal_sort_and_rehash(ps, &trns_len);
-
     uint8_t color_type = 6u;
     uint8_t bit_depth = 8u;
+    pal_state *ps = NULL;
+
+    if (mode != IM_PNG_WRITE_RGBA) {
+        ps = (pal_state *)alloc->alloc(alloc->ctx, sizeof(pal_state));
+        if (!ps) return IM_IMAGE_NO_MEMORY;
+        pal_init(ps);
+        for (uint32_t y = 0; y < img->height; ++y) {
+            const uint8_t *row = img->pixels + (size_t)y * (size_t)img->stride;
+            for (uint32_t x = 0; x < img->width; ++x) {
+                pal_add(ps, read_pixel_rgba(row, x, img->format));
+            }
+        }
+        if (!ps->overflowed) pal_sort_and_rehash(ps, &trns_len);
+    }
 
     if (mode == IM_PNG_WRITE_GRAY) {
         if (!ps->all_gray || !ps->all_opaque) {
@@ -423,7 +425,7 @@ im_image_error im_png_encode(const im_image *img,
 
     uint64_t row_bytes_64 = row_bytes_for(img->width, color_type, bit_depth);
     if (row_bytes_64 == 0u || row_bytes_64 > (uint64_t)(SIZE_MAX - 1u)) {
-        alloc->free(alloc->ctx, ps, sizeof(pal_state));
+        if (ps) alloc->free(alloc->ctx, ps, sizeof(pal_state));
         return IM_IMAGE_TOO_LARGE;
     }
     size_t row_bytes = (size_t)row_bytes_64;
@@ -545,6 +547,6 @@ cleanup:
     if (prev_row) alloc->free(alloc->ctx, prev_row, row_bytes);
     if (cur_row) alloc->free(alloc->ctx, cur_row, row_bytes);
     if (def) alloc->free(alloc->ctx, def, sizeof(im_deflate));
-    alloc->free(alloc->ctx, ps, sizeof(pal_state));
+    if (ps) alloc->free(alloc->ctx, ps, sizeof(pal_state));
     return err;
 }

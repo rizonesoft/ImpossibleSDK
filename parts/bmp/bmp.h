@@ -1,11 +1,11 @@
-/* Impossible SDK: portable freestanding BMP decoder (OS/2 1.x/2.x and Windows V3/V4/V5). No floats, no OS calls. */
+/* Impossible SDK: portable freestanding BMP decoder and encoder (OS/2 1.x/2.x and Windows V3/V4/V5). No floats, no OS calls. */
 #pragma once
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "image.h"
 
-/* Caller-supplied memory allocator for BMP decoding (both callbacks required). */
+/* Caller-supplied memory allocator for BMP decoding and encoding (both callbacks required). */
 typedef struct im_bmp_alloc {
     /* Allocate size bytes, returning NULL on failure. */
     void *(*alloc)(void *ctx, size_t size);

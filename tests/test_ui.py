@@ -4808,7 +4808,7 @@ class PngAndBmpWriters(unittest.TestCase):
 
             # 2. All 5 PNG color types (0, 2, 3 including 1-bit odd-width, 4, 6) + exact chunks + min-SAD + Pillow + Windows WIC.
             import PIL
-            self.assertTrue(bool(getattr(PIL, "__version__", "")), "Pillow reference version missing")
+            self.assertEqual(getattr(PIL, "__version__", ""), "13.0.0", "Pinned Pillow 13.0.0 reference required")
             w_t, h_t = 32, 24
             def mk_rgba_wh(w_in, h_in, fn):
                 buf = bytearray()
