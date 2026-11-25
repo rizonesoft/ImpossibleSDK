@@ -1,7 +1,8 @@
-/* Impossible SDK: portable freestanding PNG decoder (RFC 2083 / ISO 15948). No floats, no OS calls. */
+/* Impossible SDK: portable freestanding PNG decoder and encoder (RFC 2083 / ISO 15948). No floats, no OS calls. */
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+#include "deflate.h"
 #include "image.h"
 
 /* Caller-supplied memory allocator for PNG decoding (both callbacks required). */
@@ -51,3 +52,39 @@ im_image_error im_png_decode(const uint8_t *data, size_t len,
                              const im_image_limits *limits,
                              const im_png_alloc *alloc,
                              im_image *out_image);
+
+/* Color-type selection mode for im_png_encode. */
+typedef enum im_png_write_mode {
+    /* Losslessly select the smallest representation among Gray (0), RGB (2), Indexed (3), Gray+Alpha (4), and RGBA (6). */
+    IM_PNG_WRITE_AUTO = 0,
+    /* Force Grayscale (color type 0; 1/2/4/8-bit); refuses non-gray or translucent pixels with IM_IMAGE_INVALID. */
+    IM_PNG_WRITE_GRAY = 1,
+    /* Force Truecolor RGB (color type 2; 8-bit); refuses translucent pixels with IM_IMAGE_INVALID. */
+    IM_PNG_WRITE_RGB = 2,
+    /* Force Indexed palette (color type 3; 1/2/4/8-bit with minimal PLTE and optional trimmed tRNS); refuses >256 colors. */
+    IM_PNG_WRITE_INDEXED = 3,
+    /* Force Grayscale+Alpha (color type 4; 8-bit); refuses non-gray pixels with IM_IMAGE_INVALID. */
+    IM_PNG_WRITE_GRAY_ALPHA = 4,
+    /* Force Truecolor+Alpha RGBA (color type 6; 8-bit). */
+    IM_PNG_WRITE_RGBA = 5
+} im_png_write_mode;
+
+/* Options for im_png_encode (passing NULL selects IM_PNG_WRITE_AUTO and IM_DEFLATE_BALANCED). */
+typedef struct im_png_write_options {
+    /* Color-type selection mode. */
+    im_png_write_mode mode;
+    /* DEFLATE compression effort for IDAT payload. */
+    im_deflate_effort effort;
+} im_png_write_options;
+
+/* Losslessly encode img (IM_PIXEL_BGRA8 or IM_PIXEL_RGBA8) into a minimal PNG containing only
+   IHDR, optional PLTE/tRNS, IDAT (with per-row minimum-SAD filtering across all 5 PNG filters),
+   and IEND, with zero ancillary metadata. Each non-NULL output pointer is cleared independently on
+   entry. On IM_IMAGE_OK, *out_data points to a buffer allocated with exact size *out_len, which
+   the caller frees via alloc->free(alloc->ctx, *out_data, *out_len). On any non-OK return, all
+   temporary allocations are freed with their exact sizes. */
+im_image_error im_png_encode(const im_image *img,
+                             const im_png_write_options *opts,
+                             const im_png_alloc *alloc,
+                             uint8_t **out_data,
+                             size_t *out_len);

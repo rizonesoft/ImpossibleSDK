@@ -247,6 +247,7 @@ The SSH transport, signing in and channels, written here first. The SSH program 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 
 ## 10. PNG and BMP writers
+> **Started:** 2026-11-25T17:10Z
 
 Pictures saved without loss and without hidden facts.
 
@@ -259,11 +260,11 @@ Pictures saved without loss and without hidden facts.
 1. Write `parts/png/write.c` with its first item. Done when: the first item below passes.
 2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
 
-- [ ] Write PNG at every colour type with the best filter per row in `parts/png/write.c`. Done when: files read equal in our decoder, the reference and Windows. Cheaper substitute: one colour type.
-- [ ] Choose palette or grey when it loses nothing in `parts/png/write.c`. Done when: 200 pictures are no larger than the reference encoder's by more than 3 percent. Cheaper substitute: always 32 bit.
-- [ ] Write only the needed chunks in `parts/png/write.c`. Done when: the file holds no time, name or program. Cheaper substitute: all chunks.
-- [ ] Write BMP with and without transparency in `parts/bmp/write.c`. Done when: Windows shows both right. Cheaper substitute: 24 bit.
-- [ ] Commit: `parts: PNG and BMP writers`
+- [x] Write PNG at every colour type with the best filter per row in `parts/png/write.c`. Done when: files read equal in our decoder, the reference and Windows. Cheaper substitute: one colour type.
+- [x] Choose palette or grey when it loses nothing in `parts/png/write.c`. Done when: 200 pictures are no larger than the reference encoder's by more than 3 percent. Cheaper substitute: always 32 bit.
+- [x] Write only the needed chunks in `parts/png/write.c`. Done when: the file holds no time, name or program. Cheaper substitute: all chunks.
+- [x] Write BMP with and without transparency in `parts/bmp/write.c`. Done when: Windows shows both right. Cheaper substitute: 24 bit.
+- [x] Commit: `parts: PNG and BMP writers`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 

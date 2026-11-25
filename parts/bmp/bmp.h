@@ -54,3 +54,24 @@ im_image_error im_bmp_decode(const uint8_t *data, size_t len,
                              const im_image_limits *limits,
                              const im_bmp_alloc *alloc,
                              im_image *out_image);
+
+/* Pixel encoding mode for im_bmp_encode. */
+typedef enum im_bmp_write_mode {
+    /* Write 24-bpp BI_RGB when all pixels are opaque, or 32-bpp V5 BI_BITFIELDS when any pixel has alpha < 255. */
+    IM_BMP_WRITE_AUTO = 0,
+    /* Force 24-bpp BI_RGB (40-byte BITMAPINFOHEADER); refuses translucent pixels with IM_IMAGE_INVALID. */
+    IM_BMP_WRITE_24 = 1,
+    /* Force 32-bpp V5 BI_BITFIELDS (124-byte BITMAPV5HEADER with explicit BGRA masks for Windows WIC alpha preservation). */
+    IM_BMP_WRITE_32 = 2
+} im_bmp_write_mode;
+
+/* Losslessly encode img (IM_PIXEL_BGRA8 or IM_PIXEL_RGBA8) into a standard bottom-up Windows BMP
+   with zero ancillary metadata. Each non-NULL output pointer is cleared independently on entry.
+   On IM_IMAGE_OK, *out_data points to a buffer allocated with exact size *out_len, which the caller
+   frees via alloc->free(alloc->ctx, *out_data, *out_len). On any non-OK return, no allocation
+   remains live. */
+im_image_error im_bmp_encode(const im_image *img,
+                             im_bmp_write_mode mode,
+                             const im_bmp_alloc *alloc,
+                             uint8_t **out_data,
+                             size_t *out_len);

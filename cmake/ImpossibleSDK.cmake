@@ -34,12 +34,14 @@ endif()
 if(NOT TARGET ImpossibleParts)
     add_library(ImpossibleParts STATIC
         "${IMPOSSIBLE_SDK_DIR}/parts/bmp/bmp.c"
+        "${IMPOSSIBLE_SDK_DIR}/parts/bmp/write.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/checksum/checksum.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/deflate/deflate.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/gif/gif.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/image/image.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/inflate/inflate.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/png/png.c"
+        "${IMPOSSIBLE_SDK_DIR}/parts/png/write.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/unicode/unicode.c"
         "${IMPOSSIBLE_SDK_DIR}/parts/unicode/unicode_data.c")
     target_include_directories(ImpossibleParts PUBLIC

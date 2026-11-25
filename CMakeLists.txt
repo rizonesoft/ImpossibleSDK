@@ -24,6 +24,7 @@ impossible_add_program(deflate-tests CONSOLE TIER 0 SOURCES tests/fixtures/defla
 impossible_add_program(gif-tests CONSOLE TIER 0 SOURCES tests/fixtures/gif_tests.c)
 impossible_add_program(inflate-tests CONSOLE TIER 0 SOURCES tests/fixtures/inflate_tests.c)
 impossible_add_program(png-tests CONSOLE TIER 0 SOURCES tests/fixtures/png_tests.c)
+impossible_add_program(write-tests CONSOLE TIER 0 SOURCES tests/fixtures/write_tests.c)
 impossible_add_program(unicode-tests CONSOLE TIER 0 SOURCES tests/fixtures/unicode_tests.c)
 
 impossible_add_program(control-shots CONSOLE TIER 0 SOURCES tests/fixtures/control_shots.c)

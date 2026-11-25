@@ -56,4 +56,4 @@ What the program says about itself: its name, label and version, its tier, the f
 
 ## What is different from an ordinary C program?
 
-There is no C runtime: no `printf`, no `malloc`, no `main`. Use [base.h](site:api-base.html), [text.h](site:api-text.html), [file.h](site:api-file.html), and any portable part header exported by `ImpossibleParts` (such as `deflate.h` and `inflate.h`). The compiler may still call `memcpy`, `memmove`, `memset` and `memcmp`; the kit has them, and builds every translation unit with function and data sections so `--gc-sections` drops unused SDK helpers.
+There is no C runtime: no `printf`, no `malloc`, no `main`. Use [base.h](site:api-base.html), [text.h](site:api-text.html), [file.h](site:api-file.html), and any portable part header exported by `ImpossibleParts` (such as `deflate.h`, `inflate.h`, `png.h`, and `bmp.h`). The compiler may still call `memcpy`, `memmove`, `memset` and `memcmp`; the kit has them, and builds every translation unit with function and data sections so `--gc-sections` drops unused SDK helpers.

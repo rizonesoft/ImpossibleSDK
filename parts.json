@@ -51,7 +51,8 @@
         "image"
       ],
       "sources": [
-        "parts/bmp/bmp.c"
+        "parts/bmp/bmp.c",
+        "parts/bmp/write.c"
       ]
     },
     {
@@ -98,10 +99,12 @@
       "depends": [
         "image",
         "inflate",
+        "deflate",
         "checksum"
       ],
       "sources": [
-        "parts/png/png.c"
+        "parts/png/png.c",
+        "parts/png/write.c"
       ]
     },
     {
