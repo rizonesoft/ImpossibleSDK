@@ -314,6 +314,16 @@ static void test_transformed_drawing(void) {
     CHECK(wide_px >= 125 && wide_px <= 131,
           "wide magnified A8 mask (padded right=36000 > 32767) clips in Q30 and renders pixel (0,0) ~128/255");
 
+    /* Extreme wide A8 mask [0, 16384) x [0, 1) with 16384x horizontal scale (padded right = 402,653,184 > 2^28):
+       __int128 forward bounds clipping keeps visible pixel (0,0) at ~128/255 without overflow drop. */
+    memset(sing_buf, 0, (size_t)(S * S) * sizeof(uint32_t));
+    im_transform mag16k = im_transform_scale(FX(16384), IM_ONE);
+    im_surface s_huge = {sing_buf, S, S, S, pal, IM_ONE, NULL, &mag16k};
+    im_draw_alpha_mask(&s_huge, (im_rect){0, 0, FX(16384), IM_ONE}, one_px, 1, 1, 1, 0xFFFFFFFFu);
+    int huge_px = (int)(sing_buf[0] & 255u);
+    CHECK(huge_px >= 125 && huge_px <= 131,
+          "extreme magnified A8 mask (padded right=402M > IM_TR_MAX_COEFF) clips in __int128 and renders (0,0) ~128/255");
+
     /* 30-degree rotated gradient STROKE: compare two stroke points at the SAME device Y (y=32)
        so a device-space gradient (same device Y => identical color) cannot pass! */
     const int GS = 64;
