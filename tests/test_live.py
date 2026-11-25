@@ -1517,3 +1517,128 @@ class LiveReference(unittest.TestCase):
                     if d > worst:
                         worst = d
                 self.assertLessEqual(worst, 2, f"{cid} worst pixel diff={worst} > 2")
+
+    def test_live_remaining_panels_match_sdk(self):
+        sys.path.insert(0, str(ROOT / "reference"))
+        import run as ref_run
+
+        cases = [
+            {
+                "id": "panel-canvas-ltr",
+                "case_group": "panel",
+                "control": "Canvas",
+                "theme": "Dark",
+                "scale": 1.0,
+                "width": 120,
+                "height": 80,
+                "properties": {"Name": "CvRoot", "Width": 100, "Height": 60},
+                "children": [
+                    {"id": "cv-a", "control": "Border", "properties": {"Name": "A", "Canvas.Left": 10, "Canvas.Top": 8, "Width": 20, "Height": 12}},
+                    {"id": "cv-b", "control": "Border", "properties": {"Name": "B", "Canvas.Left": 40, "Canvas.Top": 24, "Width": 30, "Height": 16}},
+                ],
+            },
+            {
+                "id": "panel-canvas-rtl",
+                "case_group": "panel",
+                "control": "Canvas",
+                "theme": "Dark",
+                "scale": 1.0,
+                "flow_direction": "RightToLeft",
+                "width": 120,
+                "height": 80,
+                "properties": {"Name": "CvRtl", "Width": 100, "Height": 60},
+                "children": [
+                    {"id": "cvr-a", "control": "Border", "properties": {"Name": "A", "Canvas.Left": 10, "Canvas.Top": 8, "Width": 20, "Height": 12}},
+                ],
+            },
+            {
+                "id": "panel-viewbox-uniform",
+                "case_group": "panel",
+                "control": "Viewbox",
+                "theme": "Dark",
+                "scale": 1.0,
+                "width": 120,
+                "height": 80,
+                "properties": {"Name": "VbRoot", "Width": 80, "Height": 60, "Stretch": "Uniform"},
+                "children": [
+                    {"id": "vb-ch", "control": "Border", "properties": {"Name": "Ch", "Width": 20, "Height": 10}},
+                ],
+            },
+            {
+                "id": "panel-relative-ltr",
+                "case_group": "panel",
+                "control": "RelativePanel",
+                "theme": "Dark",
+                "scale": 1.0,
+                "width": 140,
+                "height": 90,
+                "properties": {"Name": "RpRoot", "Width": 120, "Height": 80, "Padding": [4, 5, 4, 5], "BorderThickness": [2, 3, 2, 3]},
+                "children": [
+                    {"id": "rp-a", "control": "Border", "properties": {"Name": "Alpha", "Width": 30, "Height": 20, "RelativePanel.RightOf": "Beta", "RelativePanel.AlignTopWith": "Beta"}},
+                    {"id": "rp-b", "control": "Border", "properties": {"Name": "Beta", "Width": 25, "Height": 15, "RelativePanel.AlignLeftWithPanel": True, "RelativePanel.AlignTopWithPanel": True}},
+                ],
+            },
+            {
+                "id": "panel-vswg-spans",
+                "case_group": "panel",
+                "control": "VariableSizedWrapGrid",
+                "theme": "Dark",
+                "scale": 1.0,
+                "width": 140,
+                "height": 90,
+                "properties": {"Name": "VgRoot", "Width": 100, "Height": 60, "Orientation": "Horizontal", "ItemWidth": 20, "ItemHeight": 15, "MaximumRowsOrColumns": 4},
+                "children": [
+                    {"id": "vg-0", "control": "Border", "properties": {"Name": "C0", "VariableSizedWrapGrid.RowSpan": 2, "VariableSizedWrapGrid.ColumnSpan": 2}},
+                    {"id": "vg-1", "control": "Border", "properties": {"Name": "C1", "VariableSizedWrapGrid.RowSpan": 1, "VariableSizedWrapGrid.ColumnSpan": 1}},
+                ],
+            },
+        ]
+
+        def find_named(node, name):
+            if node.get("name") == name:
+                return node
+            for ch in node.get("children", []):
+                hit = find_named(ch, name)
+                if hit is not None:
+                    return hit
+            return None
+
+        with tempfile.TemporaryDirectory(dir=ref_run.host_temp_root(), prefix="impossible-live-panels-") as build_tmp:
+            exe = ref_run.build_reference(build_tmp)
+            cf = Path(build_tmp) / "panel_cases.json"
+            cf.write_text(json.dumps({"cases": cases}), encoding="utf-8")
+            out_dir = Path(build_tmp) / "out"
+            ref_run.run_reference(exe, out_dir, cases_path=cf, work_dir=build_tmp)
+
+            # Verify Canvas LTR + RTL mirror
+            cv_ltr = json.loads((out_dir / "panel-canvas-ltr.layout.json").read_text(encoding="utf-8"))
+            a_ltr = find_named(cv_ltr, "A")["rect"]
+            b_ltr = find_named(cv_ltr, "B")["rect"]
+            r_ltr = find_named(cv_ltr, "CvRoot")["rect"]
+            self.assertAlmostEqual(a_ltr["x"] - r_ltr["x"], 10.0, delta=1.0)
+            self.assertAlmostEqual(b_ltr["x"] - r_ltr["x"], 40.0, delta=1.0)
+            cv_rtl = json.loads((out_dir / "panel-canvas-rtl.layout.json").read_text(encoding="utf-8"))
+            a_rtl = find_named(cv_rtl, "A")["rect"]
+            r_rtl = find_named(cv_rtl, "CvRtl")["rect"]
+            self.assertAlmostEqual(a_rtl["x"] - r_rtl["x"], 70.0, delta=1.0)
+
+            # Verify Viewbox Uniform 20x10 inside 80x60 scales child to 80x40
+            vb_doc = json.loads((out_dir / "panel-viewbox-uniform.layout.json").read_text(encoding="utf-8"))
+            vb_ch = find_named(vb_doc, "Ch")["rect"]
+            self.assertAlmostEqual(vb_ch["width"], 80.0, delta=1.0)
+            self.assertAlmostEqual(vb_ch["height"], 40.0, delta=1.0)
+
+            # Verify RelativePanel forward RightOf + border/padding chrome (6, 8) -> Beta at 6, Alpha at 31
+            rp_doc = json.loads((out_dir / "panel-relative-ltr.layout.json").read_text(encoding="utf-8"))
+            rp_r = find_named(rp_doc, "RpRoot")["rect"]
+            rp_b = find_named(rp_doc, "Beta")["rect"]
+            rp_a = find_named(rp_doc, "Alpha")["rect"]
+            self.assertAlmostEqual(rp_b["x"] - rp_r["x"], 6.0, delta=1.0)
+            self.assertAlmostEqual(rp_a["x"] - rp_r["x"], 31.0, delta=1.0)
+
+            # Verify VariableSizedWrapGrid 2x2 span puts C1 at x=40, y=0
+            vg_doc = json.loads((out_dir / "panel-vswg-spans.layout.json").read_text(encoding="utf-8"))
+            vg_r = find_named(vg_doc, "VgRoot")["rect"]
+            vg_1 = find_named(vg_doc, "C1")["rect"]
+            self.assertAlmostEqual(vg_1["x"] - vg_r["x"], 40.0, delta=1.0)
+            self.assertAlmostEqual(vg_1["y"] - vg_r["y"], 0.0, delta=1.0)

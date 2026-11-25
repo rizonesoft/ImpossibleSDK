@@ -37,6 +37,7 @@ COVERED = (
     "tests/frames.py",
     "tests/layout_cases.py",
     "tests/fixtures/layout_reference.json",
+    "tests/fixtures/layout_dump.c",
     "tests/fixtures/control_shots.c",
     "tools/winui/check_package.py",
     "tools/winui/pin.json",
@@ -49,9 +50,15 @@ COVERED = (
     "ui/gradient.h",
     "ui/layer.c",
     "ui/layer.h",
+    "ui/layout.c",
+    "ui/layout.h",
+    "ui/panels.c",
+    "ui/panels.h",
     "ui/path.c",
     "ui/path.h",
     "ui/template_data.c",
+    "ui/tree.c",
+    "ui/tree.h",
 )
 TRY = "build/live-try.json"
 CACHE = Path.home() / ".cache/impossible-sdk/winvm"

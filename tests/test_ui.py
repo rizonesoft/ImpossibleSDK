@@ -1275,6 +1275,13 @@ class TemplateCompiler(unittest.TestCase):
             "BrushTransition": "using:Microsoft.UI.Xaml",
             "Panel": "using:Microsoft.UI.Xaml.Controls",
             "Grid": "using:Microsoft.UI.Xaml.Controls",
+            "Canvas": "using:Microsoft.UI.Xaml.Controls",
+            "Viewbox": "using:Microsoft.UI.Xaml.Controls",
+            "UniformGrid": "using:Microsoft.UI.Xaml.Controls",
+            "WrapPanel": "using:Microsoft.UI.Xaml.Controls",
+            "RelativePanel": "using:Microsoft.UI.Xaml.Controls",
+            "VariableSizedWrapGrid": "using:Microsoft.UI.Xaml.Controls",
+            "ItemsWrapGrid": "using:Microsoft.UI.Xaml.Controls",
             "Border": "using:Microsoft.UI.Xaml.Controls",
             "ContentPresenter": "using:Microsoft.UI.Xaml.Controls",
             "TextBlock": "using:Microsoft.UI.Xaml.Controls",
@@ -3043,7 +3050,8 @@ class Drawing(unittest.TestCase):
             exe = tp / "stack_tpl_test.exe"
             comp_res = subprocess.run(
                 [cc, "-std=gnu23", "-I", str(ROOT / "ui"), str(tp / "main.c"),
-                 str(ROOT / "ui/tree.c"), str(ROOT / "ui/layout.c"), str(ROOT / "ui/theme.c"),
+                 str(ROOT / "ui/tree.c"), str(ROOT / "ui/layout.c"), str(ROOT / "ui/panels.c"),
+                 str(ROOT / "ui/transform.c"), str(ROOT / "ui/theme.c"),
                  str(ROOT / "ui/theme_data.c"), str(ROOT / "ui/template_data.c"),
                  "-o", str(exe)],
                 capture_output=True, text=True, timeout=60,
@@ -3873,6 +3881,165 @@ class Drawing(unittest.TestCase):
                 self.assertEqual(c_res.returncode, 0, c_res.stdout + c_res.stderr)
                 r_res = subprocess.run([str(exe_p)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
                 self.assertEqual(r_res.returncode, 0, f"e2e compiled Path driver exited {r_res.returncode}")
+
+    def test_remaining_panels_oracles_and_rtl(self):
+        exe = BUILD / "test-panels.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("test_panels: ALL PASSED", res.stdout)
+
+        def layout_round(val_fx, scale_fx):
+            if scale_fx == 65536:
+                return ((val_fx + 32768) >> 16) * 65536
+            px = (val_fx * scale_fx + (1 << 31)) >> 32
+            num = px * 65536 * 65536
+            half = scale_fx // 2
+            return (num + half) // scale_fx if num >= 0 else -((-num + half) // scale_fx)
+
+        # 1. Independent UniformGrid 5-scale oracle (2x3, FirstColumn=1, RowSpacing=4, ColSpacing=6, Pad=2, 120x60).
+        ugrid_scales = 0
+        for line in res.stdout.splitlines():
+            if line.startswith("UGRID "):
+                toks = [int(x) for x in line.split()[1:]]
+                sc = toks[0]
+                ugrid_scales += 1
+                pad = 2 * 65536
+                inner_w = 120 * 65536 - 2 * pad
+                inner_h = 60 * 65536 - 2 * pad
+                cell_w = (inner_w - 2 * 6 * 65536) // 3
+                cell_h = (inner_h - 4 * 65536) // 2
+                for k in range(6):
+                    gl, gt, gr, gb = toks[1 + 4 * k: 5 + 4 * k]
+                    slot = 1 + k
+                    if slot >= 6:
+                        self.assertEqual((gl, gt, gr, gb), (0, 0, 0, 0))
+                    else:
+                        r, c = divmod(slot, 3)
+                        ex = layout_round(pad + c * (cell_w + 6 * 65536), sc)
+                        ey = layout_round(pad + r * (cell_h + 4 * 65536), sc)
+                        ew = layout_round(cell_w, sc)
+                        eh = layout_round(cell_h, sc)
+                        self.assertEqual((gl, gt, gr - gl, gb - gt), (ex, ey, ew, eh), f"UGRID sc={sc} k={k}")
+        self.assertEqual(ugrid_scales, 5)
+
+        # 2. Independent WrapPanel oracle for ALL 200 random children (Horizontal, ItemSpacing=4, LineSpacing=6, Pad=(5,3,5,3), W=180).
+        wrap_items = []
+        for line in res.stdout.splitlines():
+            if line.startswith("WRAP200 "):
+                toks = [int(x) for x in line.split()[1:]]
+                wrap_items.append(toks)
+        self.assertEqual(len(wrap_items), 200)
+        pad_l, pad_t, pad_r = 5 * 65536, 3 * 65536, 5 * 65536
+        sp_u, sp_v, max_u = 4 * 65536, 6 * 65536, 180 * 65536
+        pos_u, pos_v, row_v = pad_l, pad_t, 0
+        row_items = []
+        expected_wrap = {}
+        for idx, vis, w, h, gl, gt, gr, gb in wrap_items:
+            if vis != 0:
+                expected_wrap[idx] = (0, 0, 0, 0)
+                continue
+            if row_items and pos_u + w + pad_r > max_u:
+                au = pad_l
+                for ridx, rw in row_items:
+                    expected_wrap[ridx] = (au, pos_v, au + rw, pos_v + row_v)
+                    au += rw + sp_u
+                pos_u = pad_l
+                pos_v += row_v + sp_v
+                row_v = 0
+                row_items = []
+            if h > row_v:
+                row_v = h
+            row_items.append((idx, w))
+            pos_u += w + sp_u
+        if row_items:
+            au = pad_l
+            for ridx, rw in row_items:
+                expected_wrap[ridx] = (au, pos_v, au + rw, pos_v + row_v)
+                au += rw + sp_u
+        for idx, vis, w, h, gl, gt, gr, gb in wrap_items:
+            ex_l, ex_t, ex_r, ex_b = expected_wrap[idx]
+            if vis != 0:
+                self.assertEqual((gl, gt, gr, gb), (0, 0, 0, 0))
+            else:
+                # Child has Alignment=Start so its arranged width/height is its desired (w, h) inside the row slot.
+                self.assertEqual((gl, gt, gr - gl, gb - gt), (ex_l, ex_t, w, h), f"WRAP200 idx={idx}")
+
+        # 3. Independent VariableSizedWrapGrid occupancy-map oracle for ALL 200 random span lists.
+        vswg_count = 0
+        for line in res.stdout.splitlines():
+            if line.startswith("VSWG200 "):
+                left_s, right_s = line.split(" : ")
+                lt = [int(x) for x in left_s.split()[1:]]
+                rt = [int(x) for x in right_s.split()]
+                _li, ori, max_rc, cnt = lt[0], lt[1], lt[2], lt[3]
+                spans = [(lt[4 + 2 * k], lt[5 + 2 * k]) for k in range(cnt)]
+                horiz = (ori == 1)
+                iw, ih = 20 * 65536, 15 * 65536
+                items_per_line = min(200 // (20 if horiz else 15), max_rc)
+                occ = set()
+                cur_line, cur_item = 0, 0
+                for k, (rs, cs) in enumerate(spans):
+                    rs = rs if rs > 0 else 1
+                    cs = cs if cs > 0 else 1
+                    ispan = min(cs if horiz else rs, items_per_line)
+                    lspan = rs if horiz else cs
+                    while True:
+                        if cur_item + ispan > items_per_line:
+                            cur_line += 1
+                            cur_item = 0
+                            continue
+                        if all((cur_line + dl, cur_item + di) not in occ for dl in range(lspan) for di in range(ispan)):
+                            break
+                        cur_item += 1
+                    for dl in range(lspan):
+                        for di in range(ispan):
+                            occ.add((cur_line + dl, cur_item + di))
+                    col = cur_item if horiz else cur_line
+                    row = cur_line if horiz else cur_item
+                    cw = (ispan if horiz else lspan) * iw
+                    ch = (lspan if horiz else ispan) * ih
+                    ex = (col * iw, row * ih, col * iw + cw, row * ih + ch)
+                    got = tuple(rt[4 * k: 4 * k + 4])
+                    self.assertEqual(got, ex, f"VSWG200 list={_li} k={k}")
+                    cur_item += ispan
+                vswg_count += 1
+        self.assertEqual(vswg_count, 200)
+
+        # 4. Template compiler accepts all new panel elements and attached properties cleanly.
+        sys.path.insert(0, str(ROOT / "tools" / "winui"))
+        import templates as tpl_mod
+        panel_xaml = (
+            '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+            ' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">\n'
+            '  <Style x:Key="PanelStyle" TargetType="Button">\n'
+            '    <Setter Property="Template">\n'
+            '      <Setter.Value>\n'
+            '        <ControlTemplate TargetType="Button">\n'
+            '          <RelativePanel Padding="4">\n'
+            '            <Canvas x:Name="C" Width="40" Height="20" RelativePanel.AlignLeftWithPanel="True">\n'
+            '              <Border Canvas.Left="5" Canvas.Top="6" Canvas.ZIndex="3" Width="10" Height="10" />\n'
+            '            </Canvas>\n'
+            '            <Viewbox Stretch="Uniform" StretchDirection="DownOnly" RelativePanel.RightOf="C">\n'
+            '              <UniformGrid Rows="2" Columns="2" FirstColumn="1" />\n'
+            '            </Viewbox>\n'
+            '            <WrapPanel Orientation="Horizontal" ItemSpacing="4" LineSpacing="6" ItemsStretch="Last" />\n'
+            '            <VariableSizedWrapGrid ItemWidth="20" ItemHeight="15" MaximumRowsOrColumns="3">\n'
+            '              <Border VariableSizedWrapGrid.RowSpan="2" VariableSizedWrapGrid.ColumnSpan="2" />\n'
+            '            </VariableSizedWrapGrid>\n'
+            '            <ItemsWrapGrid ItemWidth="20" ItemHeight="20" GroupPadding="4" />\n'
+            '          </RelativePanel>\n'
+            '        </ControlTemplate>\n'
+            '      </Setter.Value>\n'
+            '    </Setter>\n'
+            '  </Style>\n'
+            '</ResourceDictionary>\n'
+        )
+        doc = tpl_mod.parse_xaml(panel_xaml, "panels_tpl.xaml")
+        comp = tpl_mod.Compiler()
+        comp.compile_style(doc.children[0], enum_id="IM_TPL_PANELS")
+        tpl_mod.verify_fully_consumed(doc.children[0])
+        self.assertGreaterEqual(len(comp.elements), 9)
 
 
 if __name__ == "__main__":

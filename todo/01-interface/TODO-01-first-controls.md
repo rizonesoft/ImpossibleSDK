@@ -446,6 +446,8 @@ The entrance, pop-in, add, delete, reposition, reorder, content and drill transi
 
 ## 16. Remaining panels
 
+> **Started:** 2026-11-25T09:03Z
+
 Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid and the ItemsStackPanel and ItemsWrapGrid sizes that lists need.
 
 **Phase:** 1
@@ -454,9 +456,9 @@ Canvas, WrapPanel, RelativePanel, VariableSizedWrapGrid, Viewbox, UniformGrid an
 
 **Build order:**
 
-1. Add an independent populated-child reference geometry oracle for `UniformGrid` and `WrapPanel` (controls absent from the pinned Windows App SDK package) and prove width-reflow onto a new row and distinct grid cell rectangles. Done when: populated `UniformGrid` and `WrapPanel` reference dumps match expected multi-row and distinct-cell geometry.
-2. Write `ui/panels.c` with its first item. Done when: the first item below passes.
-3. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+1. Add an independent populated-child reference geometry oracle for `UniformGrid` (using pinned `UniformGrid.xaml` padding + standard CommunityToolkit/WinUI auto rows/cols, `FirstColumn` limits, overflow beyond explicit cells, and `RowSpacing`/`ColumnSpacing`) and `WrapPanel` (exact port of pinned `controls/dev/WrapPanel/WrapPanel.cpp`: `ItemSpacing`, `LineSpacing`, `Padding`, `Orientation`, `ItemsStretch::None|Last`, collapsed-final-child handling, and narrower-arrange reflow), and prove width-reflow onto a new row and distinct grid cell rectangles at all five scales (`100/125/150/200/300%`). Done when: populated `UniformGrid` and `WrapPanel` reference dumps match expected multi-row and distinct-cell geometry.
+2. Extend `ui/template.h`, `ui/tree.{h,c}`, `ui/layout.{h,c}`, `ui/input.c`, `ui/dirty.c`, `ui/panels.{h,c}`, `parts.json`, `tools/winui/templates.py`, and `tools/winvm/live.py` (`COVERED` including `ui/panels.{h,c}`, `ui/layout.{h,c}`, `ui/tree.{h,c}`, `tests/fixtures/layout_dump.c`) with explicit mutation setters for every new panel/attached property, stable `Canvas.ZIndex` paint order and reverse hit order, single-child `Viewbox` with distinct `viewbox_transform` preserving child `RenderTransform` and device damage, name-based `RelativePanel` resolution with distinct missing-target vs cycle diagnostics and arrange suppression on failure, `VariableSizedWrapGrid` occupancy-map spans with auto first-item sizing and checked OOM retry, `ItemsStackPanel` variable containers + group headers + `GroupPadding`, `ItemsWrapGrid`, and RTL mirroring across all 8 panels. Done when: `ui/panels.c` compiles freestanding in `parts.json` and passes all layout/hit/damage/OOM/cycle/RTL tests.
+3. Extend `reference/App.xaml.cs` (Viewbox single child, RelativePanel sibling-name attached properties, dimensional scale conversion), `tests/fixtures/test_panels.c`, `tests/test_ui.py` (including `ui/panels.c` in the standalone `test_five_scale_panel_layout_matches_winui_oracle` link list), and `tests/test_live.py` (5-scale live WinUI panel dumps for `Canvas`, `Viewbox`, `RelativePanel`, `VariableSizedWrapGrid`, and RTL mirrors, preserving `native-1x` vs `scaled-inputs`). Done when: `tools/build.py`, `tools/winvm/live.py --check`, `tools/check_parts.py`, and `tools/site/build.py --check` exit 0 and checks fail on planted faults.
 
 - [ ] Port Canvas, Viewbox and UniformGrid layout to `ui/panels.c`. Done when: rectangles equal those dumped by `reference/` at five scales. Cheaper substitute: fixed offsets.
 - [ ] Port `controls/dev/WrapPanel` to `ui/panels.c`. Done when: the dumped rectangles of 200 random children are equal. Cheaper substitute: one row.

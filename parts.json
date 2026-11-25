@@ -16,6 +16,7 @@
         "ui/input.c",
         "ui/layer.c",
         "ui/layout.c",
+        "ui/panels.c",
         "ui/path.c",
         "ui/picture.c",
         "ui/states.c",

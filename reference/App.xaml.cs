@@ -473,11 +473,63 @@ public partial class App : Application
         {
             if (el is Panel panel)
             {
+                var relPending = new List<(FrameworkElement child, string prop, string targetName)>();
                 foreach (var childSpec in spec.Children)
                 {
                     if (string.IsNullOrEmpty(childSpec.Id)) childSpec.Id = $"{caseId}.child";
-                    panel.Children.Add(CreateElement(childSpec, scaleFactor, pendingStates, isChild: true));
+                    var childEl = CreateElement(childSpec, scaleFactor, pendingStates, isChild: true);
+                    panel.Children.Add(childEl);
+                    if (panel is RelativePanel && childSpec.Properties != null)
+                    {
+                        foreach (var kv in childSpec.Properties)
+                        {
+                            if (kv.Key.StartsWith("RelativePanel.", StringComparison.Ordinal) &&
+                                !kv.Key.EndsWith("WithPanel", StringComparison.Ordinal) &&
+                                kv.Value.ValueKind == JsonValueKind.String)
+                            {
+                                relPending.Add((childEl, kv.Key, kv.Value.GetString() ?? ""));
+                            }
+                        }
+                    }
                 }
+                if (panel is RelativePanel && relPending.Count > 0)
+                {
+                    var byName = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
+                    foreach (var c in panel.Children)
+                    {
+                        if (c is FrameworkElement fe && !string.IsNullOrEmpty(fe.Name))
+                        {
+                            byName[fe.Name] = fe;
+                        }
+                    }
+                    foreach (var (childEl, rprop, tname) in relPending)
+                    {
+                        if (!byName.TryGetValue(tname, out var target))
+                        {
+                            throw new InvalidOperationException($"{caseId}.{rprop}: unknown sibling '{tname}'");
+                        }
+                        switch (rprop)
+                        {
+                            case "RelativePanel.LeftOf": RelativePanel.SetLeftOf(childEl, target); break;
+                            case "RelativePanel.Above": RelativePanel.SetAbove(childEl, target); break;
+                            case "RelativePanel.RightOf": RelativePanel.SetRightOf(childEl, target); break;
+                            case "RelativePanel.Below": RelativePanel.SetBelow(childEl, target); break;
+                            case "RelativePanel.AlignLeftWith": RelativePanel.SetAlignLeftWith(childEl, target); break;
+                            case "RelativePanel.AlignTopWith": RelativePanel.SetAlignTopWith(childEl, target); break;
+                            case "RelativePanel.AlignRightWith": RelativePanel.SetAlignRightWith(childEl, target); break;
+                            case "RelativePanel.AlignBottomWith": RelativePanel.SetAlignBottomWith(childEl, target); break;
+                            case "RelativePanel.AlignHorizontalCenterWith": RelativePanel.SetAlignHorizontalCenterWith(childEl, target); break;
+                            case "RelativePanel.AlignVerticalCenterWith": RelativePanel.SetAlignVerticalCenterWith(childEl, target); break;
+                            default: throw new InvalidOperationException($"{caseId}.{rprop}: unsupported RelativePanel relation");
+                        }
+                    }
+                }
+            }
+            else if (el is Viewbox vb && spec.Children.Count == 1)
+            {
+                var childSpec = spec.Children[0];
+                if (string.IsNullOrEmpty(childSpec.Id)) childSpec.Id = $"{caseId}.child";
+                vb.Child = CreateElement(childSpec, scaleFactor, pendingStates, isChild: true);
             }
             else if (el is ContentControl cc && spec.Children.Count == 1)
             {
@@ -774,6 +826,36 @@ public partial class App : Application
             case "VariableSizedWrapGrid.ColumnSpan":
                 VariableSizedWrapGrid.SetColumnSpan(el, val.GetInt32());
                 break;
+            case "RelativePanel.AlignLeftWithPanel":
+                RelativePanel.SetAlignLeftWithPanel(el, val.GetBoolean());
+                break;
+            case "RelativePanel.AlignTopWithPanel":
+                RelativePanel.SetAlignTopWithPanel(el, val.GetBoolean());
+                break;
+            case "RelativePanel.AlignRightWithPanel":
+                RelativePanel.SetAlignRightWithPanel(el, val.GetBoolean());
+                break;
+            case "RelativePanel.AlignBottomWithPanel":
+                RelativePanel.SetAlignBottomWithPanel(el, val.GetBoolean());
+                break;
+            case "RelativePanel.AlignHorizontalCenterWithPanel":
+                RelativePanel.SetAlignHorizontalCenterWithPanel(el, val.GetBoolean());
+                break;
+            case "RelativePanel.AlignVerticalCenterWithPanel":
+                RelativePanel.SetAlignVerticalCenterWithPanel(el, val.GetBoolean());
+                break;
+            case "RelativePanel.LeftOf":
+            case "RelativePanel.Above":
+            case "RelativePanel.RightOf":
+            case "RelativePanel.Below":
+            case "RelativePanel.AlignLeftWith":
+            case "RelativePanel.AlignTopWith":
+            case "RelativePanel.AlignRightWith":
+            case "RelativePanel.AlignBottomWith":
+            case "RelativePanel.AlignHorizontalCenterWith":
+            case "RelativePanel.AlignVerticalCenterWith":
+                /* Resolved by parent RelativePanel after all siblings are instantiated. */
+                break;
             default:
             {
                 var propInfo = el.GetType().GetProperty(prop);
@@ -788,11 +870,23 @@ public partial class App : Application
                     converted = null;
                 }
                 else if (pt == typeof(int)) converted = val.GetInt32();
-                else if (pt == typeof(double)) converted = val.GetDouble();
+                else if (pt == typeof(double))
+                {
+                    double dv = val.GetDouble();
+                    if (prop is "ItemWidth" or "ItemHeight" or "RowSpacing" or "ColumnSpacing" or "Spacing")
+                    {
+                        dv *= scaleFactor;
+                    }
+                    converted = dv;
+                }
                 else if (pt == typeof(bool)) converted = val.GetBoolean();
                 else if (pt == typeof(string) || pt == typeof(object)) converted = val.ValueKind == JsonValueKind.String ? val.GetString() : val.ToString();
                 else if (pt.IsEnum) converted = Enum.Parse(pt, val.GetString() ?? "", ignoreCase: false);
-                else if (pt == typeof(Thickness)) converted = ParseThickness(caseId, prop, val);
+                else if (pt == typeof(Thickness))
+                {
+                    var th = ParseThickness(caseId, prop, val);
+                    converted = (scaleFactor == 1.0) ? th : new Thickness(th.Left * scaleFactor, th.Top * scaleFactor, th.Right * scaleFactor, th.Bottom * scaleFactor);
+                }
                 else if (pt == typeof(CornerRadius)) converted = ParseCornerRadius(caseId, prop, val);
                 else if (pt == typeof(Brush)) converted = ParseBrush(caseId, prop, val);
                 else if (pt == typeof(FontFamily)) converted = new FontFamily(val.GetString() ?? "");

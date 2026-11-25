@@ -1,5 +1,6 @@
 /* Impossible UI: WinUI-compatible layout rounding, measure and arrange. Portable. */
 #include "layout.h"
+#include "panels.h"
 
 /* Portable floor(x / 2^shift) toward -infinity for signed 64-bit integers. */
 static int64_t floor_div_pow2(int64_t x, int shift) {
@@ -841,8 +842,16 @@ static im_size measure_override(im_tree *tree, im_node *node, im_size avail, im_
     case IM_ELEM_GRID:
         return measure_grid(tree, node, avail, scale, rounding, ok);
     case IM_ELEM_STACK_PANEL:
-    case IM_ELEM_ITEMS_STACK_PANEL:
         return measure_stack(tree, node, avail, scale, rounding);
+    case IM_ELEM_CANVAS:
+    case IM_ELEM_VIEWBOX:
+    case IM_ELEM_UNIFORM_GRID:
+    case IM_ELEM_WRAP_PANEL:
+    case IM_ELEM_RELATIVE_PANEL:
+    case IM_ELEM_VARIABLE_SIZED_WRAP_GRID:
+    case IM_ELEM_ITEMS_WRAP_GRID:
+    case IM_ELEM_ITEMS_STACK_PANEL:
+        return im_panels_measure_override(tree, node, avail, scale, rounding, ok);
     case IM_ELEM_BORDER:
     case IM_ELEM_CONTENT_PRESENTER:
         return measure_single_box(tree, node, avail, scale, rounding);
@@ -873,8 +882,17 @@ static void arrange_override(im_tree *tree, im_node *node, im_size final_size, i
         arrange_grid(tree, node, final_size, scale, rounding, ok);
         break;
     case IM_ELEM_STACK_PANEL:
-    case IM_ELEM_ITEMS_STACK_PANEL:
         arrange_stack(tree, node, final_size, scale, rounding);
+        break;
+    case IM_ELEM_CANVAS:
+    case IM_ELEM_VIEWBOX:
+    case IM_ELEM_UNIFORM_GRID:
+    case IM_ELEM_WRAP_PANEL:
+    case IM_ELEM_RELATIVE_PANEL:
+    case IM_ELEM_VARIABLE_SIZED_WRAP_GRID:
+    case IM_ELEM_ITEMS_WRAP_GRID:
+    case IM_ELEM_ITEMS_STACK_PANEL:
+        im_panels_arrange_override(tree, node, final_size, scale, rounding, ok);
         break;
     case IM_ELEM_BORDER:
         arrange_single_box(tree, node, final_size, scale, rounding, false);
@@ -1088,8 +1106,27 @@ void im_layout_arrange(im_tree *tree, im_node *node, im_rect final_rect, im_fixe
     }
 }
 
+im_layout_error im_layout_last_error(const im_tree *tree, const char **out_name) {
+    if (!tree) {
+        if (out_name) *out_name = "";
+        return IM_LAYOUT_OK;
+    }
+    if (out_name) *out_name = tree->layout_error_name;
+    return tree->layout_error;
+}
+
+void im_layout_clear_error(im_tree *tree) {
+    if (!tree) return;
+    tree->layout_error = IM_LAYOUT_OK;
+    tree->layout_error_name[0] = '\0';
+}
+
 void im_layout_run(im_tree *tree, im_node *root, im_fixed avail_w, im_fixed avail_h, im_fixed scale) {
     if (!root) return;
+    if (tree) im_layout_clear_error(tree);
     im_layout_measure(tree, root, (im_size){avail_w, avail_h}, scale);
+    if ((tree && tree->layout_error != IM_LAYOUT_OK) || root->measure_dirty) {
+        return;
+    }
     im_layout_arrange(tree, root, (im_rect){0, 0, avail_w, avail_h}, scale);
 }

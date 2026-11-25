@@ -61,6 +61,13 @@ ELEMENT_KINDS = {
     "EntranceThemeTransition": "IM_ELEM_ENTRANCE_THEME_TRANSITION",
     "StackPanel": "IM_ELEM_STACK_PANEL",
     "Path": "IM_ELEM_PATH",
+    "Canvas": "IM_ELEM_CANVAS",
+    "Viewbox": "IM_ELEM_VIEWBOX",
+    "UniformGrid": "IM_ELEM_UNIFORM_GRID",
+    "WrapPanel": "IM_ELEM_WRAP_PANEL",
+    "RelativePanel": "IM_ELEM_RELATIVE_PANEL",
+    "VariableSizedWrapGrid": "IM_ELEM_VARIABLE_SIZED_WRAP_GRID",
+    "ItemsWrapGrid": "IM_ELEM_ITEMS_WRAP_GRID",
 }
 
 # Property-element wrapper tags accepted inside element subtrees.
@@ -144,6 +151,14 @@ ATTACHED_PROPS = {
     "AutomationProperties.LocalizedLandmarkType", "AutomationProperties.Name",
     "AutomationProperties.PositionInSet", "AutomationProperties.SizeOfSet",
     "Canvas.Left", "Canvas.Top", "Canvas.ZIndex",
+    "RelativePanel.LeftOf", "RelativePanel.Above", "RelativePanel.RightOf", "RelativePanel.Below",
+    "RelativePanel.AlignLeftWith", "RelativePanel.AlignTopWith",
+    "RelativePanel.AlignRightWith", "RelativePanel.AlignBottomWith",
+    "RelativePanel.AlignHorizontalCenterWith", "RelativePanel.AlignVerticalCenterWith",
+    "RelativePanel.AlignLeftWithPanel", "RelativePanel.AlignTopWithPanel",
+    "RelativePanel.AlignRightWithPanel", "RelativePanel.AlignBottomWithPanel",
+    "RelativePanel.AlignHorizontalCenterWithPanel", "RelativePanel.AlignVerticalCenterWithPanel",
+    "VariableSizedWrapGrid.RowSpan", "VariableSizedWrapGrid.ColumnSpan",
     "Control.IsTemplateFocusTarget", "Control.IsTemplateKeyTipTarget",
     "Grid.Column", "Grid.ColumnSpan", "Grid.Row", "Grid.RowSpan",
     "ScrollViewer.BringIntoViewOnFocusChange", "ScrollViewer.CanContentRenderOutsideBounds",
@@ -327,6 +342,19 @@ ELEMENT_OWN_PROPS = {
         "AreStickyGroupHeadersEnabled", "CacheLength", "GroupHeaderPlacement",
         "GroupPadding", "ItemsUpdatingScrollMode", "Orientation",
     },
+    "Canvas": PANEL_PROPS,
+    "Viewbox": COMMON_UI_PROPS | {"Stretch", "StretchDirection"},
+    "UniformGrid": PANEL_PROPS | {"Rows", "Columns", "FirstColumn", "RowSpacing", "ColumnSpacing", "Padding", "BorderThickness"},
+    "WrapPanel": PANEL_PROPS | {"Orientation", "ItemSpacing", "LineSpacing", "ItemsStretch", "Padding", "BorderThickness"},
+    "RelativePanel": PANEL_PROPS | {"Padding", "BorderThickness"},
+    "VariableSizedWrapGrid": PANEL_PROPS | {
+        "Orientation", "ItemWidth", "ItemHeight", "MaximumRowsOrColumns",
+        "HorizontalChildrenAlignment", "VerticalChildrenAlignment", "Padding", "BorderThickness",
+    },
+    "ItemsWrapGrid": PANEL_PROPS | {
+        "Orientation", "ItemWidth", "ItemHeight", "MaximumRowsOrColumns",
+        "GroupPadding", "AreStickyGroupHeadersEnabled", "CacheLength", "GroupHeaderPlacement",
+    },
     "ItemsPresenter": {"Footer", "FooterTemplate", "FooterTransitions", "Header", "HeaderTemplate", "HeaderTransitions", "Padding"},
     "RowDefinition": {"Height", "MinHeight", "MaxHeight"},
     "ColumnDefinition": {"Width", "MinWidth", "MaxWidth"},
@@ -359,6 +387,13 @@ ELEMENT_TYPES = {
     "FontIcon": {"FontIcon", "IconElement", "FrameworkElement", "UIElement"},
     "ListViewItemPresenter": {"ListViewItemPresenter", "ContentPresenter", "FrameworkElement", "UIElement"},
     "ItemsStackPanel": {"ItemsStackPanel", "Panel", "FrameworkElement", "UIElement"},
+    "Canvas": {"Canvas", "Panel", "FrameworkElement", "UIElement"},
+    "Viewbox": {"Viewbox", "FrameworkElement", "UIElement"},
+    "UniformGrid": {"UniformGrid", "Panel", "FrameworkElement", "UIElement"},
+    "WrapPanel": {"WrapPanel", "Panel", "FrameworkElement", "UIElement"},
+    "RelativePanel": {"RelativePanel", "Panel", "FrameworkElement", "UIElement"},
+    "VariableSizedWrapGrid": {"VariableSizedWrapGrid", "Panel", "FrameworkElement", "UIElement"},
+    "ItemsWrapGrid": {"ItemsWrapGrid", "Panel", "FrameworkElement", "UIElement"},
     "ItemsPresenter": {"ItemsPresenter", "FrameworkElement", "UIElement"},
     "RowDefinition": {"RowDefinition"},
     "ColumnDefinition": {"ColumnDefinition"},
@@ -713,6 +748,13 @@ OWNER_NAMESPACE = {
     "BrushTransition": "using:Microsoft.UI.Xaml",
     "Panel": "using:Microsoft.UI.Xaml.Controls",
     "Grid": "using:Microsoft.UI.Xaml.Controls",
+    "Canvas": "using:Microsoft.UI.Xaml.Controls",
+    "Viewbox": "using:Microsoft.UI.Xaml.Controls",
+    "UniformGrid": "using:Microsoft.UI.Xaml.Controls",
+    "WrapPanel": "using:Microsoft.UI.Xaml.Controls",
+    "RelativePanel": "using:Microsoft.UI.Xaml.Controls",
+    "VariableSizedWrapGrid": "using:Microsoft.UI.Xaml.Controls",
+    "ItemsWrapGrid": "using:Microsoft.UI.Xaml.Controls",
     "Border": "using:Microsoft.UI.Xaml.Controls",
     "ContentPresenter": "using:Microsoft.UI.Xaml.Controls",
     "TextBlock": "using:Microsoft.UI.Xaml.Controls",
@@ -1329,7 +1371,7 @@ class Compiler:
             return {"kind": "IM_TVAL_POINT", "a": parse_fixed(parts[0], file, line), "b": parse_fixed(parts[1], file, line), "c": 0, "d": 0, "text": None, "fallback": None}
 
         # Numeric quads (Thickness, CornerRadius, Rect)
-        if prop_name in ("Margin", "Padding", "BorderThickness", "CornerRadius", "Rect", "FocusVisualMargin", "FocusVisualPrimaryThickness", "FocusVisualSecondaryThickness"):
+        if prop_name in ("Margin", "Padding", "GroupPadding", "BorderThickness", "CornerRadius", "Rect", "FocusVisualMargin", "FocusVisualPrimaryThickness", "FocusVisualSecondaryThickness"):
             parts = [p for p in re.split(r"[,\s]+", text) if p]
             if all(re.fullmatch(r"-?\d+(?:\.\d+)?", p) for p in parts):
                 vals = [parse_fixed(p, file, line) for p in parts]
@@ -1357,7 +1399,11 @@ class Compiler:
                 raise TemplateError(f"{file}:{line}: invalid hex color {text!r} for {prop_name!r}")
             return {"kind": "IM_TVAL_COLOR", "a": argb, "b": argb, "c": argb, "d": -1, "text": text, "fallback": None}
 
-        if re.fullmatch(r"-?\d+", text) and prop_name in ("Grid.Row", "Grid.Column", "Grid.RowSpan", "Grid.ColumnSpan", "Canvas.ZIndex"):
+        if re.fullmatch(r"-?\d+", text) and prop_name in (
+            "Grid.Row", "Grid.Column", "Grid.RowSpan", "Grid.ColumnSpan", "Canvas.ZIndex",
+            "Rows", "Columns", "FirstColumn", "MaximumRowsOrColumns",
+            "VariableSizedWrapGrid.RowSpan", "VariableSizedWrapGrid.ColumnSpan",
+        ):
             return {"kind": "IM_TVAL_INT", "a": int(text), "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}
 
         if re.fullmatch(r"-?\d+(?:\.\d+)?", text):

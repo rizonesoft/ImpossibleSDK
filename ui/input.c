@@ -35,6 +35,16 @@ static bool node_logical_transform(const im_node *node, im_transform *out) {
     acc = tmp;
 
     for (const im_node *anc = node->parent; anc != NULL; anc = anc->parent) {
+        if (anc->has_viewbox_transform) {
+            /* Viewbox scales its child subtree around the Viewbox's own top-left corner,
+               independently of both the child's and the Viewbox's RenderTransform. */
+            im_transform vt1 = im_transform_translate(-anc->absolute_rect.left, -anc->absolute_rect.top);
+            im_transform vt2 = im_transform_translate(anc->absolute_rect.left, anc->absolute_rect.top);
+            im_transform vm1, vm2;
+            if (!im_transform_multiply(&acc, &vt1, &vm1)) return false;
+            if (!im_transform_multiply(&vm1, &anc->viewbox_transform, &vm2)) return false;
+            if (!im_transform_multiply(&vm2, &vt2, &acc)) return false;
+        }
         if (!anc->has_render_transform) continue;
         int64_t aw = (int64_t)anc->absolute_rect.right - anc->absolute_rect.left;
         int64_t ah = (int64_t)anc->absolute_rect.bottom - anc->absolute_rect.top;
@@ -137,10 +147,34 @@ static im_node *hit_test_recursive(im_node *node, im_fixed scale,
     if (!im_node_device_transform(node, scale, &dev_tr)) return NULL;
     if (!im_transform_invert(&dev_tr, &inv)) return NULL;
 
-    /* Front-to-back: visit children in reverse paint order first (even if child extends outside parent). */
-    for (uint32_t i = node->child_count; i > 0u; i--) {
-        im_node *hit = hit_test_recursive(node->children[i - 1u], scale, dev_x, dev_y, out_local_x, out_local_y);
-        if (hit) return hit;
+    /* Front-to-back: visit children in reverse paint order first (even if child extends outside parent).
+       For Canvas, reverse stable Canvas.ZIndex order (highest Z first, higher insertion index first on ties). */
+    if (node->kind == IM_ELEM_CANVAS && node->child_count > 1u) {
+        int32_t prev_z = INT32_MAX;
+        uint32_t prev_idx = UINT32_MAX;
+        bool has_prev = false;
+        for (uint32_t visited = 0u; visited < node->child_count; visited++) {
+            uint32_t best = UINT32_MAX;
+            for (uint32_t i = node->child_count; i > 0u; i--) {
+                uint32_t idx = i - 1u;
+                int32_t zi = node->children[idx]->canvas_z;
+                if (has_prev && (zi > prev_z || (zi == prev_z && idx >= prev_idx))) continue;
+                if (best == UINT32_MAX || zi > node->children[best]->canvas_z) {
+                    best = idx;
+                }
+            }
+            if (best == UINT32_MAX) break;
+            im_node *hit = hit_test_recursive(node->children[best], scale, dev_x, dev_y, out_local_x, out_local_y);
+            if (hit) return hit;
+            prev_z = node->children[best]->canvas_z;
+            prev_idx = best;
+            has_prev = true;
+        }
+    } else {
+        for (uint32_t i = node->child_count; i > 0u; i--) {
+            im_node *hit = hit_test_recursive(node->children[i - 1u], scale, dev_x, dev_y, out_local_x, out_local_y);
+            if (hit) return hit;
+        }
     }
 
     int64_t lqx = 0, lqy = 0;

@@ -108,9 +108,16 @@ im_node *im_tree_create_node(im_tree *tree, im_element_kind kind, const char *na
     node->base_opacity = IM_ONE;
     node->flow_direction = IM_FLOW_LTR;
     node->use_layout_rounding = true;
-    node->orientation = IM_ORIENT_VERTICAL;
+    node->orientation = (kind == IM_ELEM_WRAP_PANEL) ? IM_ORIENT_HORIZONTAL : IM_ORIENT_VERTICAL;
     node->grid_row_span = 1;
     node->grid_col_span = 1;
+    node->viewbox_stretch = IM_STRETCH_UNIFORM;
+    node->viewbox_stretch_dir = IM_STRETCH_DIR_BOTH;
+    node->item_width = IM_FIXED_AUTO;
+    node->item_height = IM_FIXED_AUTO;
+    node->max_rows_or_cols = -1;
+    node->vswg_row_span = 1;
+    node->vswg_col_span = 1;
     /* Pinned WinUI DependencyProperty.cpp:151 sets Shape.StrokeThickness default to 1.0. */
     node->path_stroke_thickness = IM_ONE;
     node->measure_dirty = true;
@@ -207,6 +214,7 @@ static void detach_external_templated_parents(im_node *subtree_root, im_node *no
 
 bool im_tree_insert_child(im_tree *tree, im_node *parent, uint32_t index, im_node *child) {
     if (!tree || !parent || !child || child->parent != NULL || child == parent) return false;
+    if (parent->kind == IM_ELEM_VIEWBOX && parent->child_count >= 1u) return false;
     if (is_ancestor(child, parent)) return false;
     if (index > parent->child_count) return false;
     if (parent->child_count == UINT32_MAX) return false;
@@ -237,6 +245,10 @@ bool im_tree_remove_child(im_tree *tree, im_node *parent, im_node *child) {
             parent->child_count--;
             child->parent = NULL;
             detach_external_templated_parents(child, child);
+            if (parent->kind == IM_ELEM_VIEWBOX) {
+                parent->has_viewbox_transform = false;
+                im_tree_invalidate_paint(parent);
+            }
             im_tree_invalidate_measure(parent);
             return true;
         }
@@ -703,6 +715,146 @@ void im_node_set_grid_cell(im_node *node, uint32_t row, uint32_t col, uint32_t r
     im_tree_invalidate_measure(node);
 }
 
+void im_node_set_canvas_pos(im_node *node, im_fixed left, im_fixed top) {
+    if (!node) return;
+    if (node->canvas_left == left && node->canvas_top == top) return;
+    node->canvas_left = left;
+    node->canvas_top = top;
+    im_tree_invalidate_arrange(node->parent ? node->parent : node);
+    im_tree_invalidate_paint(node);
+}
+
+void im_node_set_canvas_z(im_node *node, int32_t z_index) {
+    if (!node) return;
+    if (node->canvas_z == z_index) return;
+    node->canvas_z = z_index;
+    im_tree_invalidate_paint(node->parent ? node->parent : node);
+    im_tree_invalidate_paint(node);
+}
+
+uint32_t im_node_paint_order(const im_node *parent, im_node **out_children, uint32_t cap) {
+    if (!parent) return 0u;
+    uint32_t n = parent->child_count;
+    if (!out_children || cap == 0u) return n;
+    uint32_t out_n = (n < cap) ? n : cap;
+    if (parent->kind != IM_ELEM_CANVAS || n <= 1u) {
+        for (uint32_t i = 0; i < out_n; i++) out_children[i] = parent->children[i];
+        return n;
+    }
+    /* Stable ascending sort by canvas_z (ties preserve insertion index). */
+    if (out_n == n) {
+        for (uint32_t i = 0; i < n; i++) {
+            im_node *cur = parent->children[i];
+            uint32_t j = i;
+            while (j > 0u && out_children[j - 1u]->canvas_z > cur->canvas_z) {
+                out_children[j] = out_children[j - 1u];
+                j--;
+            }
+            out_children[j] = cur;
+        }
+    } else {
+        /* Selection of lowest out_n elements in stable Z-order without heap allocation. */
+        int32_t prev_z = INT32_MIN;
+        uint32_t prev_idx = 0u;
+        bool has_prev = false;
+        for (uint32_t k = 0; k < out_n; k++) {
+            uint32_t best = UINT32_MAX;
+            for (uint32_t i = 0; i < n; i++) {
+                int32_t zi = parent->children[i]->canvas_z;
+                if (has_prev && (zi < prev_z || (zi == prev_z && i <= prev_idx))) continue;
+                if (best == UINT32_MAX || zi < parent->children[best]->canvas_z) best = i;
+            }
+            if (best == UINT32_MAX) break;
+            out_children[k] = parent->children[best];
+            prev_z = parent->children[best]->canvas_z;
+            prev_idx = best;
+            has_prev = true;
+        }
+    }
+    return n;
+}
+
+void im_node_set_viewbox_stretch(im_node *node, im_stretch stretch, im_stretch_dir dir) {
+    if (!node) return;
+    if (node->viewbox_stretch == stretch && node->viewbox_stretch_dir == dir) return;
+    node->viewbox_stretch = stretch;
+    node->viewbox_stretch_dir = dir;
+    im_tree_invalidate_measure(node);
+    im_tree_invalidate_paint(node);
+}
+
+void im_node_set_uniform_grid(im_node *node, uint32_t rows, uint32_t cols, uint32_t first_col) {
+    if (!node) return;
+    if (node->uniform_rows == rows && node->uniform_cols == cols && node->uniform_first_col == first_col) return;
+    node->uniform_rows = rows;
+    node->uniform_cols = cols;
+    node->uniform_first_col = first_col;
+    im_tree_invalidate_measure(node);
+}
+
+void im_node_set_wrap_panel(im_node *node, im_orientation orientation, im_fixed item_spacing,
+                            im_fixed line_spacing, im_wrap_stretch stretch) {
+    if (!node) return;
+    if (node->orientation == orientation && node->item_spacing == item_spacing &&
+        node->line_spacing == line_spacing && node->wrap_stretch == stretch) return;
+    node->orientation = orientation;
+    node->item_spacing = item_spacing;
+    node->line_spacing = line_spacing;
+    node->wrap_stretch = stretch;
+    im_tree_invalidate_measure(node);
+}
+
+void im_node_set_relative_target(im_node *node, im_rel_slot slot, const char *target_name) {
+    if (!node || (uint32_t)slot >= (uint32_t)IM_REL_COUNT) return;
+    if (str_eq(node->rel_target[slot], target_name)) return;
+    node->rel_target[slot] = target_name;
+    im_tree_invalidate_measure(node->parent ? node->parent : node);
+}
+
+void im_node_set_relative_panel_flags(im_node *node, uint32_t flags) {
+    if (!node) return;
+    if (node->rel_panel_flags == flags) return;
+    node->rel_panel_flags = flags;
+    im_tree_invalidate_measure(node->parent ? node->parent : node);
+}
+
+void im_node_set_wrap_grid(im_node *node, im_orientation orientation, im_fixed item_width,
+                           im_fixed item_height, int32_t max_rows_or_cols) {
+    if (!node) return;
+    if (node->orientation == orientation && node->item_width == item_width &&
+        node->item_height == item_height && node->max_rows_or_cols == max_rows_or_cols) return;
+    node->orientation = orientation;
+    node->item_width = item_width;
+    node->item_height = item_height;
+    node->max_rows_or_cols = max_rows_or_cols;
+    im_tree_invalidate_measure(node);
+}
+
+void im_node_set_vswg_span(im_node *node, int32_t row_span, int32_t col_span) {
+    if (!node) return;
+    if (node->vswg_row_span == row_span && node->vswg_col_span == col_span) return;
+    node->vswg_row_span = row_span;
+    node->vswg_col_span = col_span;
+    im_tree_invalidate_measure(node->parent ? node->parent : node);
+}
+
+void im_node_set_group_padding(im_node *node, im_thickness group_padding) {
+    if (!node) return;
+    if (node->group_padding.left == group_padding.left &&
+        node->group_padding.top == group_padding.top &&
+        node->group_padding.right == group_padding.right &&
+        node->group_padding.bottom == group_padding.bottom) return;
+    node->group_padding = group_padding;
+    im_tree_invalidate_measure(node);
+}
+
+void im_node_set_group_header(im_node *node, bool is_group_header) {
+    if (!node) return;
+    if (node->is_group_header == is_group_header) return;
+    node->is_group_header = is_group_header;
+    im_tree_invalidate_measure(node->parent ? node->parent : node);
+}
+
 im_thickness im_node_effective_padding(const im_node *node) {
     if (!node) return (im_thickness){0, 0, 0, 0};
     if ((node->local_mask & IM_PBIT_PADDING) == 0 && (node->bind_mask & IM_PBIT_PADDING) && node->templated_parent) {
@@ -905,10 +1057,12 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
         node->opacity = fx;
         node->base_opacity = fx;
     } else if (str_eq(prop, "Stretch") && v->kind == IM_TVAL_ENUM_STR) {
-        if (str_eq(v->text, "Fill")) node->path_stretch = 1;
-        else if (str_eq(v->text, "Uniform")) node->path_stretch = 2;
-        else if (str_eq(v->text, "UniformToFill")) node->path_stretch = 3;
-        else node->path_stretch = 0;
+        int st_val = 0;
+        if (str_eq(v->text, "Fill")) st_val = 1;
+        else if (str_eq(v->text, "Uniform")) st_val = 2;
+        else if (str_eq(v->text, "UniformToFill")) st_val = 3;
+        node->path_stretch = st_val;
+        if (node->kind == IM_ELEM_VIEWBOX) node->viewbox_stretch = (im_stretch)st_val;
     } else if (str_eq(prop, "StrokeThickness") && resolve_fixed_val(palette, v, &fx)) {
         node->path_stroke_thickness = fx;
     } else if (str_eq(prop, "StrokeStartLineCap") && v->kind == IM_TVAL_ENUM_STR) {
@@ -944,6 +1098,72 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
         node->path_icon_id = (im_icon_id)v->a;
         node->intrinsic_width = (v->a == IM_ICON_CHECKMARK) ? (16 * IM_ONE) : (10 * IM_ONE);
         node->intrinsic_height = (v->a == IM_ICON_CHECKMARK) ? (16 * IM_ONE) : (10 * IM_ONE);
+    } else if (str_eq(prop, "Canvas.Left") && resolve_fixed_val(palette, v, &fx)) {
+        node->canvas_left = fx;
+    } else if (str_eq(prop, "Canvas.Top") && resolve_fixed_val(palette, v, &fx)) {
+        node->canvas_top = fx;
+    } else if (str_eq(prop, "Canvas.ZIndex") && v->kind == IM_TVAL_INT) {
+        node->canvas_z = v->a;
+    } else if (str_eq(prop, "StretchDirection") && v->kind == IM_TVAL_ENUM_STR) {
+        if (str_eq(v->text, "UpOnly")) node->viewbox_stretch_dir = IM_STRETCH_DIR_UP_ONLY;
+        else if (str_eq(v->text, "DownOnly")) node->viewbox_stretch_dir = IM_STRETCH_DIR_DOWN_ONLY;
+        else node->viewbox_stretch_dir = IM_STRETCH_DIR_BOTH;
+    } else if (str_eq(prop, "Rows") && v->kind == IM_TVAL_INT && v->a >= 0) {
+        node->uniform_rows = (uint32_t)v->a;
+    } else if (str_eq(prop, "Columns") && v->kind == IM_TVAL_INT && v->a >= 0) {
+        node->uniform_cols = (uint32_t)v->a;
+    } else if (str_eq(prop, "FirstColumn") && v->kind == IM_TVAL_INT && v->a >= 0) {
+        node->uniform_first_col = (uint32_t)v->a;
+    } else if (str_eq(prop, "ItemSpacing") && resolve_fixed_val(palette, v, &fx)) {
+        node->item_spacing = fx;
+    } else if (str_eq(prop, "LineSpacing") && resolve_fixed_val(palette, v, &fx)) {
+        node->line_spacing = fx;
+    } else if (str_eq(prop, "ItemsStretch") && v->kind == IM_TVAL_ENUM_STR) {
+        node->wrap_stretch = str_eq(v->text, "Last") ? IM_WRAP_STRETCH_LAST : IM_WRAP_STRETCH_NONE;
+    } else if (str_eq(prop, "ItemWidth") && resolve_fixed_val(palette, v, &fx)) {
+        node->item_width = fx;
+    } else if (str_eq(prop, "ItemHeight") && resolve_fixed_val(palette, v, &fx)) {
+        node->item_height = fx;
+    } else if (str_eq(prop, "MaximumRowsOrColumns") && v->kind == IM_TVAL_INT) {
+        node->max_rows_or_cols = v->a;
+    } else if (str_eq(prop, "VariableSizedWrapGrid.RowSpan") && v->kind == IM_TVAL_INT) {
+        node->vswg_row_span = v->a;
+    } else if (str_eq(prop, "VariableSizedWrapGrid.ColumnSpan") && v->kind == IM_TVAL_INT) {
+        node->vswg_col_span = v->a;
+    } else if (str_eq(prop, "GroupPadding") && resolve_thickness_val(palette, v, &th)) {
+        node->group_padding = th;
+    } else if (str_eq(prop, "RelativePanel.LeftOf") && v->kind == IM_TVAL_ENUM_STR) {
+        node->rel_target[IM_REL_LEFT_OF] = v->text;
+    } else if (str_eq(prop, "RelativePanel.Above") && v->kind == IM_TVAL_ENUM_STR) {
+        node->rel_target[IM_REL_ABOVE] = v->text;
+    } else if (str_eq(prop, "RelativePanel.RightOf") && v->kind == IM_TVAL_ENUM_STR) {
+        node->rel_target[IM_REL_RIGHT_OF] = v->text;
+    } else if (str_eq(prop, "RelativePanel.Below") && v->kind == IM_TVAL_ENUM_STR) {
+        node->rel_target[IM_REL_BELOW] = v->text;
+    } else if (str_eq(prop, "RelativePanel.AlignLeftWith") && v->kind == IM_TVAL_ENUM_STR) {
+        node->rel_target[IM_REL_ALIGN_LEFT] = v->text;
+    } else if (str_eq(prop, "RelativePanel.AlignTopWith") && v->kind == IM_TVAL_ENUM_STR) {
+        node->rel_target[IM_REL_ALIGN_TOP] = v->text;
+    } else if (str_eq(prop, "RelativePanel.AlignRightWith") && v->kind == IM_TVAL_ENUM_STR) {
+        node->rel_target[IM_REL_ALIGN_RIGHT] = v->text;
+    } else if (str_eq(prop, "RelativePanel.AlignBottomWith") && v->kind == IM_TVAL_ENUM_STR) {
+        node->rel_target[IM_REL_ALIGN_BOTTOM] = v->text;
+    } else if (str_eq(prop, "RelativePanel.AlignHorizontalCenterWith") && v->kind == IM_TVAL_ENUM_STR) {
+        node->rel_target[IM_REL_ALIGN_HCENTER] = v->text;
+    } else if (str_eq(prop, "RelativePanel.AlignVerticalCenterWith") && v->kind == IM_TVAL_ENUM_STR) {
+        node->rel_target[IM_REL_ALIGN_VCENTER] = v->text;
+    } else if (str_eq(prop, "RelativePanel.AlignLeftWithPanel") && v->kind == IM_TVAL_BOOL && v->a) {
+        node->rel_panel_flags |= IM_REL_PANEL_LEFT;
+    } else if (str_eq(prop, "RelativePanel.AlignTopWithPanel") && v->kind == IM_TVAL_BOOL && v->a) {
+        node->rel_panel_flags |= IM_REL_PANEL_TOP;
+    } else if (str_eq(prop, "RelativePanel.AlignRightWithPanel") && v->kind == IM_TVAL_BOOL && v->a) {
+        node->rel_panel_flags |= IM_REL_PANEL_RIGHT;
+    } else if (str_eq(prop, "RelativePanel.AlignBottomWithPanel") && v->kind == IM_TVAL_BOOL && v->a) {
+        node->rel_panel_flags |= IM_REL_PANEL_BOTTOM;
+    } else if (str_eq(prop, "RelativePanel.AlignHorizontalCenterWithPanel") && v->kind == IM_TVAL_BOOL && v->a) {
+        node->rel_panel_flags |= IM_REL_PANEL_HCENTER;
+    } else if (str_eq(prop, "RelativePanel.AlignVerticalCenterWithPanel") && v->kind == IM_TVAL_BOOL && v->a) {
+        node->rel_panel_flags |= IM_REL_PANEL_VCENTER;
     }
 }
 

@@ -55,11 +55,66 @@ typedef enum im_visibility {
     IM_VIS_COLLAPSED
 } im_visibility;
 
-/* Orientation of a StackPanel. */
+/* Orientation of a StackPanel, WrapPanel, or WrapGrid. */
 typedef enum im_orientation {
     IM_ORIENT_VERTICAL = 0,
     IM_ORIENT_HORIZONTAL
 } im_orientation;
+
+/* Stretch mode matching WinUI Stretch (Viewbox and Path). */
+typedef enum im_stretch {
+    IM_STRETCH_NONE = 0,
+    IM_STRETCH_FILL = 1,
+    IM_STRETCH_UNIFORM = 2,
+    IM_STRETCH_UNIFORM_TO_FILL = 3
+} im_stretch;
+
+/* StretchDirection matching WinUI StretchDirection (Viewbox). */
+typedef enum im_stretch_dir {
+    IM_STRETCH_DIR_BOTH = 0,
+    IM_STRETCH_DIR_UP_ONLY = 1,
+    IM_STRETCH_DIR_DOWN_ONLY = 2
+} im_stretch_dir;
+
+/* WrapPanel ItemsStretch matching pinned WinUI WrapPanelItemsStretch. */
+typedef enum im_wrap_stretch {
+    IM_WRAP_STRETCH_NONE = 0,
+    IM_WRAP_STRETCH_LAST = 1
+} im_wrap_stretch;
+
+/* Sibling-relative constraint slots on RelativePanel children (name-resolved at layout time). */
+typedef enum im_rel_slot {
+    IM_REL_LEFT_OF = 0,
+    IM_REL_ABOVE = 1,
+    IM_REL_RIGHT_OF = 2,
+    IM_REL_BELOW = 3,
+    IM_REL_ALIGN_LEFT = 4,
+    IM_REL_ALIGN_TOP = 5,
+    IM_REL_ALIGN_RIGHT = 6,
+    IM_REL_ALIGN_BOTTOM = 7,
+    IM_REL_ALIGN_HCENTER = 8,
+    IM_REL_ALIGN_VCENTER = 9,
+    IM_REL_COUNT = 10
+} im_rel_slot;
+
+/* Bitmask flags for RelativePanel panel-edge alignment attached properties. */
+typedef enum im_rel_panel_flags {
+    IM_REL_PANEL_NONE = 0u,
+    IM_REL_PANEL_LEFT = 1u << 0,
+    IM_REL_PANEL_TOP = 1u << 1,
+    IM_REL_PANEL_RIGHT = 1u << 2,
+    IM_REL_PANEL_BOTTOM = 1u << 3,
+    IM_REL_PANEL_HCENTER = 1u << 4,
+    IM_REL_PANEL_VCENTER = 1u << 5
+} im_rel_panel_flags;
+
+/* Layout failure code reported on im_tree (e.g. RelativePanel cycle or missing sibling, VSWG OOM). */
+typedef enum im_layout_error {
+    IM_LAYOUT_OK = 0,
+    IM_LAYOUT_ERR_CYCLE = 1,
+    IM_LAYOUT_ERR_MISSING_TARGET = 2,
+    IM_LAYOUT_ERR_OOM = 3
+} im_layout_error;
 
 /* Flow direction controlling horizontal layout mirroring. */
 typedef enum im_flow_dir {
@@ -223,12 +278,48 @@ typedef struct im_node {
     uint32_t path_applied_a;
     uint32_t path_applied_b;
     uint8_t path_applied_c;
+
+    /* Canvas attached properties. */
+    im_fixed canvas_left;
+    im_fixed canvas_top;
+    int32_t canvas_z;
+
+    /* Viewbox properties and distinct Viewbox scaling transform (never overwrites child render_transform). */
+    im_stretch viewbox_stretch;
+    im_stretch_dir viewbox_stretch_dir;
+    bool has_viewbox_transform;
+    im_transform viewbox_transform;
+
+    /* UniformGrid properties (reuses row_spacing, col_spacing, padding, border_thickness). */
+    uint32_t uniform_rows;
+    uint32_t uniform_cols;
+    uint32_t uniform_first_col;
+
+    /* WrapPanel properties (reuses orientation, padding, border_thickness). */
+    im_fixed item_spacing;
+    im_fixed line_spacing;
+    im_wrap_stretch wrap_stretch;
+
+    /* RelativePanel attached properties (name-based so sibling remove/replace/destroy never dangles). */
+    const char *rel_target[IM_REL_COUNT];
+    uint32_t rel_panel_flags;
+
+    /* VariableSizedWrapGrid, ItemsWrapGrid, and ItemsStackPanel properties. */
+    im_fixed item_width;
+    im_fixed item_height;
+    int32_t max_rows_or_cols;
+    im_align h_children_align;
+    im_align v_children_align;
+    int32_t vswg_row_span;
+    int32_t vswg_col_span;
+    im_thickness group_padding;
+    bool is_group_header;
 } im_node;
 
 /* Maximum number of detached/destroyed subtree bounds buffered before overflowing to a full repaint. */
 #define IM_TREE_PENDING_DAMAGE_CAP 32
 
-/* Element tree owning the allocator, root pointer, and detached-subtree damage queue. */
+/* Element tree owning the allocator, root pointer, detached-subtree damage queue, and layout diagnostics. */
 typedef struct im_tree {
     im_allocator alloc;
     im_node *root;
@@ -238,6 +329,8 @@ typedef struct im_tree {
     int32_t pending_dev_damage[IM_TREE_PENDING_DAMAGE_CAP][4];
     uint32_t pending_dev_damage_count;
     bool pending_damage_overflow;
+    im_layout_error layout_error;
+    char layout_error_name[128];
 } im_tree;
 
 /* Initialise an empty element tree with a caller-supplied allocator. Returns false if invalid. */
@@ -342,6 +435,45 @@ void im_node_set_grid_spacing(im_node *node, im_fixed row_spacing, im_fixed col_
 
 /* Set Grid.Row, Grid.Column, Grid.RowSpan, Grid.ColumnSpan attached properties. Invalidates measure on change. */
 void im_node_set_grid_cell(im_node *node, uint32_t row, uint32_t col, uint32_t row_span, uint32_t col_span);
+
+/* Set Canvas.Left and Canvas.Top attached properties. Invalidates parent arrange and paint on change. */
+void im_node_set_canvas_pos(im_node *node, im_fixed left, im_fixed top);
+
+/* Set Canvas.ZIndex attached property. Invalidates parent and node paint on change. */
+void im_node_set_canvas_z(im_node *node, int32_t z_index);
+
+/* Fill out_children (up to cap) with parent's children in stable back-to-front paint order
+   (sorted ascending by canvas_z preserving insertion order on IM_ELEM_CANVAS). Returns child count. */
+uint32_t im_node_paint_order(const im_node *parent, im_node **out_children, uint32_t cap);
+
+/* Set Viewbox Stretch and StretchDirection. Invalidates measure, arrange, and paint on change. */
+void im_node_set_viewbox_stretch(im_node *node, im_stretch stretch, im_stretch_dir dir);
+
+/* Set UniformGrid Rows, Columns, and FirstColumn (0 = auto rows/cols). Invalidates measure on change. */
+void im_node_set_uniform_grid(im_node *node, uint32_t rows, uint32_t cols, uint32_t first_col);
+
+/* Set WrapPanel Orientation, ItemSpacing, LineSpacing, and ItemsStretch. Invalidates measure on change. */
+void im_node_set_wrap_panel(im_node *node, im_orientation orientation, im_fixed item_spacing,
+                            im_fixed line_spacing, im_wrap_stretch stretch);
+
+/* Set or clear one RelativePanel sibling constraint by sibling name (NULL clears). Invalidates parent measure. */
+void im_node_set_relative_target(im_node *node, im_rel_slot slot, const char *target_name);
+
+/* Set RelativePanel panel-edge alignment bitmask (IM_REL_PANEL_*). Invalidates parent measure on change. */
+void im_node_set_relative_panel_flags(im_node *node, uint32_t flags);
+
+/* Set VariableSizedWrapGrid / ItemsWrapGrid orientation, item size, and MaximumRowsOrColumns. Invalidates measure. */
+void im_node_set_wrap_grid(im_node *node, im_orientation orientation, im_fixed item_width,
+                           im_fixed item_height, int32_t max_rows_or_cols);
+
+/* Set VariableSizedWrapGrid.RowSpan and ColumnSpan attached properties. Invalidates parent measure on change. */
+void im_node_set_vswg_span(im_node *node, int32_t row_span, int32_t col_span);
+
+/* Set ItemsStackPanel / ItemsWrapGrid GroupPadding. Invalidates measure on change. */
+void im_node_set_group_padding(im_node *node, im_thickness group_padding);
+
+/* Mark a child inside ItemsStackPanel / ItemsWrapGrid as a group header container. Invalidates parent measure. */
+void im_node_set_group_header(im_node *node, bool is_group_header);
 
 /* Apply or clear a visual-state presentation override for Width without losing the local value. */
 void im_node_set_state_width(im_node *node, bool active, im_fixed width);
