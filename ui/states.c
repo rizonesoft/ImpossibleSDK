@@ -379,18 +379,23 @@ static const im_template_transition *select_transition(const im_state_machine *s
 
 static bool add_entry(im_state_machine *sm, im_state_entry entry) {
     if (!sm) return false;
-    /* Replace any shadowed entry in the same group/target/property/phase so repeated setters
-       or DragItem composition never waste capacity or get dropped at IM_MAX_STATE_ENTRIES. */
-    for (uint32_t i = 0; i < sm->entry_count; i++) {
-        if (sm->entries[i].group_index == entry.group_index &&
-            sm->entries[i].from_transition == entry.from_transition &&
-            str_eq(sm->entries[i].target, entry.target) &&
-            prop_matches(sm->entries[i].property, entry.property)) {
-            for (uint32_t j = i + 1u; j < sm->entry_count; j++) {
-                sm->entries[j - 1u] = sm->entries[j];
+    /* Replace a shadowed entry in the same group/target/property/phase ONLY when the new entry
+       provides a value immediately at t = 0 (preserve earlier setters before delayed discrete keyframes). */
+    bool immediate = !(entry.kind == IM_SENTRY_ANIM && entry.anim &&
+        entry.anim->kind == IM_ANIM_OBJECT_KEYFRAMES && sm->tables.keyframes &&
+        entry.anim->kf_count > 0u && sm->tables.keyframes[entry.anim->kf_start].key_time_ms > 0u);
+    if (immediate) {
+        for (uint32_t i = 0; i < sm->entry_count; i++) {
+            if (sm->entries[i].group_index == entry.group_index &&
+                sm->entries[i].from_transition == entry.from_transition &&
+                str_eq(sm->entries[i].target, entry.target) &&
+                prop_matches(sm->entries[i].property, entry.property)) {
+                for (uint32_t j = i + 1u; j < sm->entry_count; j++) {
+                    sm->entries[j - 1u] = sm->entries[j];
+                }
+                sm->entries[sm->entry_count - 1u] = entry;
+                return true;
             }
-            sm->entries[sm->entry_count - 1u] = entry;
-            return true;
         }
     }
     if (sm->entry_count >= IM_MAX_STATE_ENTRIES) return false;
@@ -507,6 +512,7 @@ static void add_anim_entries_captured(im_state_machine *sm, uint8_t group_index,
         bool found_dest_op = false;
         for (uint32_t i = sm->entry_count; i > 0u; i--) {
             const im_state_entry *prev = &sm->entries[i - 1u];
+            if (prev->from_transition && !entry_is_active(sm, prev, now_ms)) continue;
             if (target_matches(prev->target, anim->target_name) &&
                 str_eq(prev->property, "Opacity")) {
                 im_template_value end_v;

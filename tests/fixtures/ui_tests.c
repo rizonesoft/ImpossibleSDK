@@ -1626,6 +1626,70 @@ static int test_visual_states_and_animation(void) {
         }
         im_states_go_to(&dsm, "Drag", 0u);
         if (im_states_sample_fixed(&dsm, "ContentBorder", "Opacity", 240u, 0) != want_drag_op) return 276;
+
+        /* Expired transition in Group A must NOT supply DragItem's multiplier base in Group B. */
+        static const im_template_anim exp_anims[] = {
+            {IM_ANIM_DOUBLE, "ContentBorder", "Opacity", 100, IM_DIR_NONE, false, false, true,
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
+             {IM_TVAL_THEME_VALUE, IM_VALUE_ListViewItemDragThemeOpacity, 0, 0, 0, NULL, NULL}, 0, 0},
+            {IM_ANIM_DRAG_ITEM_THEME, "ContentBorder", NULL, 0, IM_DIR_NONE, false, false, false,
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, 0, 0},
+        };
+        static const im_template_transition exp_trans[] = {
+            {"A0", "A1", 100, 0, 1},
+        };
+        static const im_template_state exp_states[] = {
+            {"A0", 0, 0, 0, 0},
+            {"A1", 0, 0, 0, 0},
+            {"B0", 0, 0, 0, 0},
+            {"B1", 0, 0, 1, 1},
+        };
+        static const im_template_group exp_groups[] = {
+            {"GA", 0, 2, 0, 1},
+            {"GB", 2, 2, 0, 0},
+        };
+        static const im_template exp_tpl = {"ExpTrans", "Grid", 0, 0, 0, 0, 0, 2};
+        im_template_tables exp_tbls = {NULL, NULL, NULL, exp_groups, exp_states, exp_trans, exp_anims, NULL};
+        im_state_machine esm;
+        im_states_init_custom(&esm, &exp_tpl, &exp_tbls, &pal);
+        im_states_go_to(&esm, "A0", 0u);
+        im_states_go_to(&esm, "A1", 10u);   /* 100 ms transition expires at 110 ms */
+        im_states_go_to(&esm, "B1", 200u);  /* DragItem in GB after GA's transition expired */
+        if (im_states_sample_fixed(&esm, "ContentBorder", "Opacity", 440u, 0) != IM_DRAG_ITEM_OPACITY_MULT) return 276;
+
+        /* Destination setter Visibility=Collapsed + delayed discrete Visible keyframe at 333 ms:
+           setter MUST remain active before 333 ms and switch to Visible at 333 ms. */
+        static const im_template_prop del_props[] = {
+            {"Visibility", {IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Visible", NULL}},
+        };
+        static const im_template_element del_elems[] = {
+            {IM_ELEM_BORDER, "Box", -1, 0, 1},
+        };
+        static const im_template_setter del_setters[] = {
+            {"Box", "Visibility", {IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Collapsed", NULL}},
+        };
+        static const im_template_keyframe del_kfs[] = {
+            {IM_KF_DISCRETE, 333, {IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Visible", NULL}, {0, 0, 0, 0}},
+        };
+        static const im_template_anim del_anims[] = {
+            {IM_ANIM_OBJECT_KEYFRAMES, "Box", "Visibility", 0, IM_DIR_NONE, false, false, false,
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, 0, 1},
+        };
+        static const im_template_state del_states[] = {
+            {"S0", 0, 0, 0, 0},
+            {"S1", 0, 1, 0, 1},
+        };
+        static const im_template_group del_groups[] = {{"G", 0, 2, 0, 0}};
+        static const im_template del_tpl = {"DelKf", "Grid", 0, 0, 0, 1, 0, 1};
+        im_template_tables del_tbls = {del_setters, del_elems, del_props, del_groups, del_states, NULL, del_anims, del_kfs};
+        im_state_machine dlsm;
+        im_states_init_custom(&dlsm, &del_tpl, &del_tbls, &pal);
+        im_states_go_to(&dlsm, "S1", 100u);
+        im_template_value dlv;
+        if (!im_states_sample_value(&dlsm, "Box", "Visibility", 432u, &dlv) || !str_eq(dlv.text, "Collapsed")) return 276;
+        if (!im_states_sample_value(&dlsm, "Box", "Visibility", 433u, &dlv) || !str_eq(dlv.text, "Visible")) return 276;
     }
 
     /* 9. im_states_apply_to_tree connects layout-affecting visual states to im_tree without losing local values. */
