@@ -166,7 +166,7 @@ Sections: 35 | Checklist items: 184
 
 | Status | Reference   | Deliverable                            | Needs                         | Items |
 | ------ | ----------- | -------------------------------------- | ----------------------------- | ----- |
-| [ ]    | D02 T01 §2  | Inflate and checksums                  | none                          | 5     |
+| [x]    | D02 T01 §2  | Inflate and checksums                  | none                          | 5     |
 | [ ]    | D02 T01 §3  | PNG decoder                            | none                          | 5     |
 | [ ]    | D02 T01 §4  | JPEG decoder                           | none                          | 5     |
 | [ ]    | D02 T01 §5  | BMP decoder                            | none                          | 5     |
@@ -244,6 +244,6 @@ Sections: 2 | Checklist items: 6
 | [ ]    | D01 T01 §20 | Native 150% DPI fractional layout | windows-host, display-session, operator | 3     |
 | [ ]    | D08 T01 §13 | First public release              | operator                                | 3     |
 
-Progress: 12/189 verified sections, 23 ready to run now.
+Progress: 13/189 verified sections, 25 ready to run now.
 
-Checklist: 63/1547 items completed (includes Commit items).
+Checklist: 68/1547 items completed (includes Commit items).

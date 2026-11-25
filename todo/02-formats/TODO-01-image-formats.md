@@ -33,7 +33,7 @@ title: "TODO-01 -- Image Formats"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Part layout and image type | -- | [x] |
-| 2 | §2 | Inflate and checksums | §1 | [ ] |
+| 2 | §2 | Inflate and checksums | §1 | [x] |
 | 3 | §3 | PNG decoder | §2 | [ ] |
 | 4 | §4 | JPEG decoder | §1 | [ ] |
 | 5 | §5 | BMP decoder | §1 | [ ] |
@@ -85,13 +85,16 @@ Deflate data sits inside PNG, so it comes first. Own code, because the OS part m
 1. Write `parts/inflate/inflate.c`. Done when: zlib's own test vectors pass.
 2. Write CRC-32 and Adler-32 in `parts/checksum/`, the only place they are written. Done when: both equal Python's `zlib`.
 
-- [ ] Inflate stored, fixed and dynamic blocks into a bounded buffer in `parts/inflate/inflate.c`. Done when: 10,000 random inputs from Python's `zlib` at every level round trip. Cheaper substitute: dynamic blocks only.
-- [ ] Take input and give output in any pieces in `parts/inflate/inflate.c`. Done when: input cut at every byte, inside a block too, gives equal output with one fixed window of memory. Cheaper substitute: whole buffers.
-- [ ] Stop at a caller's output limit in `parts/inflate/inflate.c`. Done when: a 1 GB bomb is refused after the limit without allocating more. Cheaper substitute: trusting the stated size.
-- [ ] Fuzz `parts/inflate/inflate.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
-- [ ] Commit: `parts: inflate and checksums`
+- [x] Inflate stored, fixed and dynamic blocks into a bounded buffer in `parts/inflate/inflate.c`. Done when: 10,000 random inputs from Python's `zlib` at every level round trip. Cheaper substitute: dynamic blocks only.
+- [x] Take input and give output in any pieces in `parts/inflate/inflate.c`. Done when: input cut at every byte, inside a block too, gives equal output with one fixed window of memory. Cheaper substitute: whole buffers.
+- [x] Stop at a caller's output limit in `parts/inflate/inflate.c`. Done when: a 1 GB bomb is refused after the limit without allocating more. Cheaper substitute: trusting the stated size.
+- [x] Fuzz `parts/inflate/inflate.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
+- [x] Commit: `parts: inflate and checksums`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the bomb test fails without the limit.
+
+> **Verified:** 2026-11-25 | §2 | 61b2d572ed74fcf6b795eb34f1fa647a6adf78aa
+> **Review:** `docs/reviews/d02-t01-s2.json`
 
 ## 3. PNG decoder
 
