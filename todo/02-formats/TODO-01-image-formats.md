@@ -36,7 +36,7 @@ title: "TODO-01 -- Image Formats"
 | 2 | §2 | Inflate and checksums | §1 | [x] |
 | 3 | §3 | PNG decoder | §2 | [x] |
 | 4 | §4 | JPEG decoder | §1 | [ ] |
-| 5 | §5 | BMP decoder | §1 | [ ] |
+| 5 | §5 | BMP decoder | §1 | [x] |
 | 6 | §6 | GIF decoder | §1 | [ ] |
 | 7 | §7 | WebP lossless decoder | §1 | [ ] |
 | 8 | §8 | WebP lossy decoder and alpha | §7 | [ ] |
@@ -158,13 +158,16 @@ All header versions, 1 to 32 bits, RLE4, RLE8 and bit fields. The decoder takes 
 1. Write `parts/bmp/bmp.c` with `bmp.h`. Done when: every accepted file of the corpus decodes to the same pixels as the pinned reference and every refused file returns its named error.
 2. Add `tests/fixtures/bmp_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
-- [ ] Parse the header of BMP in `parts/bmp/bmp.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
-- [ ] Decode every variant the specification requires in `parts/bmp/bmp.c`. Done when: all of the bmpsuite good files decode to the reference pixels. Cheaper substitute: the common variant only.
-- [ ] Return a named error for truncated and damaged data with no partial picture in `parts/bmp/bmp.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
-- [ ] Fuzz `parts/bmp/bmp.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
-- [ ] Commit: `formats: BMP decoder`
+- [x] Parse the header of BMP in `parts/bmp/bmp.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
+- [x] Decode every variant the specification requires in `parts/bmp/bmp.c`. Done when: all of the bmpsuite good files decode to the reference pixels. Cheaper substitute: the common variant only.
+- [x] Return a named error for truncated and damaged data with no partial picture in `parts/bmp/bmp.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
+- [x] Fuzz `parts/bmp/bmp.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
+- [x] Commit: `formats: BMP decoder`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when the decoder is reverted.
+
+> **Verified:** 2026-11-25 | §5 | 5bd9b67c9fa95406f15d5b221bd6ab10a75ab6fb
+> **Review:** `docs/reviews/d02-t01-s5.json`
 
 ## 6. GIF decoder
 
