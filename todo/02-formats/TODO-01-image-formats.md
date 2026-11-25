@@ -37,7 +37,7 @@ title: "TODO-01 -- Image Formats"
 | 3 | §3 | PNG decoder | §2 | [x] |
 | 4 | §4 | JPEG decoder | §1 | [ ] |
 | 5 | §5 | BMP decoder | §1 | [x] |
-| 6 | §6 | GIF decoder | §1 | [ ] |
+| 6 | §6 | GIF decoder | §1 | [x] |
 | 7 | §7 | WebP lossless decoder | §1 | [ ] |
 | 8 | §8 | WebP lossy decoder and alpha | §7 | [ ] |
 | 9 | §9 | Animated WebP and GIF playback | §6, §8 | [ ] |
@@ -184,13 +184,16 @@ Animation, local palettes, transparency and disposal. The decoder takes bytes an
 1. Write `parts/gif/gif.c` with `gif.h`. Done when: every valid file of the corpus decodes to the same pixels as the pinned reference and every invalid file returns its named error.
 2. Add `tests/fixtures/gif_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
-- [ ] Parse the header of GIF in `parts/gif/gif.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
-- [ ] Decode every variant the specification requires in `parts/gif/gif.c`. Done when: every frame of the pinned corpus equals the reference frames. Cheaper substitute: the common variant only.
-- [ ] Return a named error for truncated and damaged data with no partial picture in `parts/gif/gif.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
-- [ ] Fuzz `parts/gif/gif.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
-- [ ] Commit: `formats: GIF decoder`
+- [x] Parse the header of GIF in `parts/gif/gif.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
+- [x] Decode every variant the specification requires in `parts/gif/gif.c`. Done when: every frame of the pinned corpus equals the reference frames. Cheaper substitute: the common variant only.
+- [x] Return a named error for truncated and damaged data with no partial picture in `parts/gif/gif.c`. Done when: every prefix of every corpus file is refused or decodes to the whole picture. Cheaper substitute: a half picture.
+- [x] Fuzz `parts/gif/gif.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
+- [x] Commit: `formats: GIF decoder`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when the decoder is reverted.
+
+> **Verified:** 2026-11-25 | §6 | fa815085dd0c12ba03bc9d379bf323ac60e88160
+> **Review:** `docs/reviews/d02-t01-s6.json`
 
 ## 7. WebP lossless decoder
 
