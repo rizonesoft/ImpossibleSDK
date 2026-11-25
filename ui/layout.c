@@ -385,9 +385,7 @@ static im_size measure_grid(im_tree *tree, im_node *node, im_size avail, im_fixe
     for (uint32_t i = 0; i < node->child_count; i++) {
         im_node *ch = node->children[i];
         if (ch->visibility == IM_VIS_COLLAPSED) {
-            ch->desired_size = (im_size){0, 0};
-            ch->unclipped_desired = (im_size){0, 0};
-            ch->measure_dirty = false;
+            (void)im_layout_measure(tree, ch, (im_size){0, 0}, scale);
             continue;
         }
         uint32_t r = clamp_index(ch->grid_row, rcount);
@@ -685,9 +683,7 @@ static im_size measure_stack(im_tree *tree, im_node *node, im_size avail, im_fix
     for (uint32_t i = 0; i < node->child_count; i++) {
         im_node *ch = node->children[i];
         if (ch->visibility == IM_VIS_COLLAPSED) {
-            ch->desired_size = (im_size){0, 0};
-            ch->unclipped_desired = (im_size){0, 0};
-            ch->measure_dirty = false;
+            (void)im_layout_measure(tree, ch, (im_size){0, 0}, scale);
             continue;
         }
         im_size d = im_layout_measure(tree, ch, child_avail, scale);
@@ -779,9 +775,7 @@ static im_size measure_single_box(im_tree *tree, im_node *node, im_size avail, i
     im_size child_d = {0, 0};
     if (node->child_count > 0) {
         if (node->children[0]->visibility == IM_VIS_COLLAPSED) {
-            node->children[0]->desired_size = (im_size){0, 0};
-            node->children[0]->unclipped_desired = (im_size){0, 0};
-            node->children[0]->measure_dirty = false;
+            (void)im_layout_measure(tree, node->children[0], (im_size){0, 0}, scale);
         } else {
             child_d = im_layout_measure(tree, node->children[0], (im_size){inner_w, inner_h}, scale);
         }
@@ -854,8 +848,12 @@ static im_size measure_override(im_tree *tree, im_node *node, im_size avail, im_
         return measure_single_box(tree, node, avail, scale, rounding);
     case IM_ELEM_BUTTON:
     default:
-        if (node->child_count > 0 && node->children[0]->visibility != IM_VIS_COLLAPSED) {
-            return im_layout_measure(tree, node->children[0], avail, scale);
+        if (node->child_count > 0) {
+            if (node->children[0]->visibility == IM_VIS_COLLAPSED) {
+                (void)im_layout_measure(tree, node->children[0], (im_size){0, 0}, scale);
+            } else {
+                return im_layout_measure(tree, node->children[0], avail, scale);
+            }
         }
         return (im_size){
             round_if(max_fixed(0, node->intrinsic_width), scale, rounding),

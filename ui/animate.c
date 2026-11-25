@@ -13,8 +13,10 @@ static im_fixed clamp_unit(im_fixed v) {
     return v;
 }
 
-im_fixed im_spline_eval_ratio(im_fixed x1, im_fixed y1, im_fixed x2, im_fixed y2, uint32_t num, uint32_t den) {
-    if (den == 0u || num >= den) return IM_ONE;
+/* Solve B_x(u) = num / den in Q30 [0, 2^30] and return B_y(u) in Q30 without rounding to 16.16 first. */
+static int64_t spline_eval_q30(im_fixed x1, im_fixed y1, im_fixed x2, im_fixed y2, uint32_t num, uint32_t den) {
+    const int64_t q30 = 1LL << 30;
+    if (den == 0u || num >= den) return q30;
     if (num == 0u) return 0;
 
     im_fixed cx1 = clamp_unit(x1);
@@ -22,20 +24,17 @@ im_fixed im_spline_eval_ratio(im_fixed x1, im_fixed y1, im_fixed x2, im_fixed y2
 
     /* Fast path for exact linear identity spline. */
     if (cx1 == y1 && cx2 == y2) {
-        return (im_fixed)((((uint64_t)num << 16) + (den / 2u)) / den);
+        return (int64_t)((((uint64_t)num << 30) + ((uint64_t)den >> 1)) / (uint64_t)den);
     }
 
-    /* Represent target x in Q30 [0, 2^30] without pre-quantizing num/den to 16.16. */
-    const uint64_t q30 = 1ULL << 30;
     uint64_t target = (((uint64_t)num << 30) + ((uint64_t)den >> 1)) / (uint64_t)den;
-    if (target >= q30) return IM_ONE;
+    if (target >= (uint64_t)q30) return q30;
 
-    /* Monotonic 30-step bisection solving B_x(u) = target in Q30. */
     uint64_t lo = 0;
-    uint64_t hi = q30;
+    uint64_t hi = (uint64_t)q30;
     for (int i = 0; i < 30; i++) {
         uint64_t u = (lo + hi) >> 1;
-        uint64_t om = q30 - u;
+        uint64_t om = (uint64_t)q30 - u;
         uint64_t u2 = (u * u) >> 30;
         uint64_t u3 = (u2 * u) >> 30;
         uint64_t om2 = (om * om) >> 30;
@@ -52,7 +51,7 @@ im_fixed im_spline_eval_ratio(im_fixed x1, im_fixed y1, im_fixed x2, im_fixed y2
     }
 
     uint64_t u = (lo + hi) >> 1;
-    uint64_t om = q30 - u;
+    uint64_t om = (uint64_t)q30 - u;
     uint64_t u2 = (u * u) >> 30;
     uint64_t u3 = (u2 * u) >> 30;
     uint64_t om2 = (om * om) >> 30;
@@ -60,9 +59,29 @@ im_fixed im_spline_eval_ratio(im_fixed x1, im_fixed y1, im_fixed x2, im_fixed y2
     int64_t c2 = (int64_t)(3ULL * ((om * u2) >> 30));
     int64_t t1 = c1 * (int64_t)y1;
     int64_t t2 = c2 * (int64_t)y2;
-    int64_t by_q30 = (t1 >= 0 ? (t1 + 32768) / 65536 : (t1 - 32768) / 65536)
-                   + (t2 >= 0 ? (t2 + 32768) / 65536 : (t2 - 32768) / 65536)
-                   + (int64_t)u3;
+    return (t1 >= 0 ? (t1 + 32768) / 65536 : (t1 - 32768) / 65536)
+         + (t2 >= 0 ? (t2 + 32768) / 65536 : (t2 - 32768) / 65536)
+         + (int64_t)u3;
+}
+
+static im_fixed lerp_fixed_q30(im_fixed from, im_fixed to, int64_t progress_q30) {
+    const int64_t q30 = 1LL << 30;
+    if (progress_q30 <= 0) return from;
+    if (progress_q30 >= q30) return to;
+    int64_t delta = (int64_t)to - (int64_t)from;
+    bool neg = delta < 0;
+    uint64_t mag = neg ? (uint64_t)(-delta) : (uint64_t)delta;
+    uint64_t pq = (uint64_t)progress_q30;
+    /* Split mag * pq / 2^30 cleanly so full int32_t span cannot overflow uint64_t. */
+    uint64_t hi_part = (mag >> 16) * pq;
+    uint64_t lo_part = (mag & 0xFFFFULL) * pq;
+    uint64_t total_shifted = (hi_part >> 14) + ((((hi_part & 0x3FFFULL) << 16) + lo_part + (1ULL << 29)) >> 30);
+    int64_t step = neg ? -(int64_t)total_shifted : (int64_t)total_shifted;
+    return (im_fixed)((int64_t)from + step);
+}
+
+im_fixed im_spline_eval_ratio(im_fixed x1, im_fixed y1, im_fixed x2, im_fixed y2, uint32_t num, uint32_t den) {
+    int64_t by_q30 = spline_eval_q30(x1, y1, x2, y2, num, den);
     if (by_q30 >= 0) {
         return (im_fixed)((by_q30 + (1LL << 13)) >> 14);
     }
@@ -79,19 +98,24 @@ im_fixed im_lerp_fixed_ratio(im_fixed from, im_fixed to, uint32_t num, uint32_t 
     if (den == 0u || num >= den) return to;
     if (num == 0u) return from;
     int64_t delta = (int64_t)to - (int64_t)from;
-    int64_t prod = delta * (int64_t)num;
-    int64_t half = (int64_t)(den >> 1);
-    int64_t step = prod >= 0 ? (prod + half) / (int64_t)den : (prod - half) / (int64_t)den;
+    bool neg = delta < 0;
+    uint64_t mag = neg ? (uint64_t)(-delta) : (uint64_t)delta;
+    uint64_t n = (uint64_t)num;
+    uint64_t d = (uint64_t)den;
+    while (n > 0u && mag > (UINT64_MAX - d) / n) {
+        n >>= 1;
+        d >>= 1;
+        if (d == 0u) return to;
+    }
+    uint64_t step_u = (mag * n + (d >> 1)) / d;
+    int64_t step = neg ? -(int64_t)step_u : (int64_t)step_u;
     return (im_fixed)((int64_t)from + step);
 }
 
 im_fixed im_lerp_fixed(im_fixed from, im_fixed to, im_fixed progress) {
     if (progress <= 0) return from;
     if (progress >= IM_ONE) return to;
-    int64_t delta = (int64_t)to - (int64_t)from;
-    int64_t prod = delta * (int64_t)progress;
-    int64_t step = prod >= 0 ? (prod + (IM_ONE / 2)) >> 16 : -((-prod + (IM_ONE / 2)) >> 16);
-    return (im_fixed)((int64_t)from + step);
+    return im_lerp_fixed_ratio(from, to, (uint32_t)progress, (uint32_t)IM_ONE);
 }
 
 static uint32_t lerp_chan_ratio(uint32_t c0, uint32_t c1, uint32_t num, uint32_t den) {
@@ -145,7 +169,7 @@ im_fixed im_template_value_to_fixed(const im_template_value *val, const im_palet
             return im_value(palette, (enum im_value_id)val->a)[0];
         }
     }
-    if (val->kind == IM_TVAL_INT) return (im_fixed)((int64_t)val->a << 16);
+    if (val->kind == IM_TVAL_INT) return (im_fixed)((int64_t)val->a * (int64_t)IM_ONE);
     return fallback;
 }
 
@@ -212,8 +236,8 @@ im_fixed im_anim_eval_fixed(const im_template_anim *anim, const im_template_keyf
                     return prev_val;
                 }
                 if (kf->kind == IM_KF_SPLINE_DOUBLE) {
-                    im_fixed p = im_spline_eval_ratio(kf->spline[0], kf->spline[1], kf->spline[2], kf->spline[3], seg_el, seg_dur);
-                    return im_lerp_fixed(prev_val, kf_val, p);
+                    int64_t pq = spline_eval_q30(kf->spline[0], kf->spline[1], kf->spline[2], kf->spline[3], seg_el, seg_dur);
+                    return lerp_fixed_q30(prev_val, kf_val, pq);
                 }
                 return im_lerp_fixed_ratio(prev_val, kf_val, seg_el, seg_dur);
             }
@@ -225,8 +249,8 @@ im_fixed im_anim_eval_fixed(const im_template_anim *anim, const im_template_keyf
     case IM_ANIM_REPOSITION_THEME: {
         uint32_t dur = im_anim_duration_ms(anim, keyframes);
         if (reduced_motion || dur == 0u || elapsed >= dur) return 0;
-        im_fixed p = im_spline_eval_ratio(IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2, elapsed, dur);
-        return im_lerp_fixed(start_val, 0, p);
+        int64_t pq = spline_eval_q30(IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2, elapsed, dur);
+        return lerp_fixed_q30(start_val, 0, pq);
     }
     case IM_ANIM_FADE_IN_THEME: {
         uint32_t dur = im_anim_duration_ms(anim, keyframes);
@@ -243,20 +267,20 @@ im_fixed im_anim_eval_fixed(const im_template_anim *anim, const im_template_keyf
         im_fixed mag = anim->has_to ? im_template_value_to_fixed(&anim->to_val, palette, 0) : 0;
         im_fixed to = (anim->direction == IM_DIR_LEFT || anim->direction == IM_DIR_TOP) ? -mag : mag;
         if (reduced_motion || dur == 0u || elapsed >= dur) return to;
-        im_fixed p = im_spline_eval_ratio(IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2, elapsed, dur);
-        return im_lerp_fixed(start_val, to, p);
+        int64_t pq = spline_eval_q30(IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2, elapsed, dur);
+        return lerp_fixed_q30(start_val, to, pq);
     }
     case IM_ANIM_DRAG_ITEM_THEME: {
         uint32_t dur = im_anim_duration_ms(anim, keyframes);
         if (reduced_motion || dur == 0u || elapsed >= dur) return IM_DRAG_ITEM_SCALE;
-        im_fixed p = im_spline_eval_ratio(IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2, elapsed, dur);
-        return im_lerp_fixed(start_val, IM_DRAG_ITEM_SCALE, p);
+        int64_t pq = spline_eval_q30(IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2, elapsed, dur);
+        return lerp_fixed_q30(start_val, IM_DRAG_ITEM_SCALE, pq);
     }
     case IM_ANIM_DROP_TARGET_THEME: {
         uint32_t dur = im_anim_duration_ms(anim, keyframes);
-        if (reduced_motion || dur == 0u || elapsed >= dur) return IM_ONE;
-        im_fixed p = im_spline_eval_ratio(IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2, elapsed, dur);
-        return im_lerp_fixed(start_val, IM_ONE, p);
+        if (reduced_motion || dur == 0u || elapsed >= dur) return IM_DROP_TARGET_SCALE;
+        int64_t pq = spline_eval_q30(IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2, elapsed, dur);
+        return lerp_fixed_q30(start_val, IM_DROP_TARGET_SCALE, pq);
     }
     case IM_ANIM_OBJECT_KEYFRAMES:
     case IM_ANIM_COLOR_KEYFRAMES:
@@ -313,9 +337,10 @@ bool im_anim_eval_object(const im_template_anim *anim, const im_template_keyfram
     return found;
 }
 
-void im_brush_transition_init(im_brush_transition *bt, enum im_brush_id initial_brush, uint32_t initial_argb, uint32_t duration_ms) {
+void im_brush_transition_init(im_brush_transition *bt, bool is_solid_color, enum im_brush_id initial_brush, uint32_t initial_argb, uint32_t duration_ms) {
     if (!bt) return;
     bt->active = false;
+    bt->is_solid_color = is_solid_color;
     bt->target_brush = initial_brush;
     bt->from_argb = initial_argb;
     bt->to_argb = initial_argb;
@@ -323,9 +348,10 @@ void im_brush_transition_init(im_brush_transition *bt, enum im_brush_id initial_
     bt->duration_ms = duration_ms;
 }
 
-void im_brush_transition_set(im_brush_transition *bt, enum im_brush_id new_brush, uint32_t new_argb, uint32_t now_ms, bool reduced_motion) {
+void im_brush_transition_set(im_brush_transition *bt, bool is_solid_color, enum im_brush_id new_brush, uint32_t new_argb, uint32_t now_ms, bool reduced_motion) {
     if (!bt) return;
     uint32_t current_argb = im_brush_transition_sample(bt, now_ms, reduced_motion);
+    bt->is_solid_color = is_solid_color;
     bt->target_brush = new_brush;
     bt->from_argb = current_argb;
     bt->to_argb = new_argb;

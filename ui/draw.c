@@ -288,3 +288,9 @@ void im_stroke(im_surface *surface, im_rect shape, im_radii radii, im_fixed thic
     im_rect hole = im_inset(shape, thickness);
     shade_color(surface, shape, im_grow(radii, thickness / 2), &hole, im_grow(radii, -thickness / 2), brush, false, 0);
 }
+
+void im_stroke_argb(im_surface *surface, im_rect shape, im_radii radii, im_fixed thickness, uint32_t argb) {
+    if (thickness <= 0) return;
+    im_rect hole = im_inset(shape, thickness);
+    shade_color(surface, shape, im_grow(radii, thickness / 2), &hole, im_grow(radii, -thickness / 2), (enum im_brush_id)0, true, argb);
+}

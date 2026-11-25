@@ -1183,18 +1183,74 @@ static int test_visual_states_and_animation(void) {
         if (!im_states_sample_brush(&sm, "ContentPresenter", "BorderBrush", 100u, &bb_id, NULL, &bb_trans)) return 230;
         if (bb_trans || bb_id != IM_BRUSH_ButtonBorderBrushPointerOver) return 231;
 
-        /* Interrupt mid-flight at 140 ms (PointerOver -> Pressed) WITHOUT any intervening draw. */
+        /* Interrupt mid-flight at 140 ms (PointerOver -> Pressed) WITHOUT any intervening draw,
+           plus Accent Button RGB channel check at 21 ms and 62 ms using distinct RGB endpoints. */
         im_state_machine asm_;
         im_states_init(&asm_, IM_TEMPLATE_BUTTON_ACCENT, &pal);
         im_states_go_to(&asm_, "Normal", 0u);
-        im_states_go_to(&asm_, "PointerOver", 100u);
-        uint32_t pre_int = im_states_sample_color(&asm_, "ContentPresenter", "Background", 140u, 0u);
-        im_states_go_to(&asm_, "Pressed", 140u);
-        uint32_t post_int = im_states_sample_color(&asm_, "ContentPresenter", "Background", 140u, 0u);
+        im_states_go_to(&asm_, "Disabled", 100u);
+        uint32_t acc_norm = im_brush_over(&pal, IM_BRUSH_AccentButtonBackground, 0, IM_ONE, IM_ONE);
+        uint32_t acc_dis = im_brush_over(&pal, IM_BRUSH_AccentButtonBackgroundDisabled, 0, IM_ONE, IM_ONE);
+        uint32_t acc_21 = im_states_sample_color(&asm_, "ContentPresenter", "Background", 121u, 0u);
+        uint32_t acc_62 = im_states_sample_color(&asm_, "ContentPresenter", "Background", 162u, 0u);
+        if (acc_21 != im_lerp_argb_ratio(acc_norm, acc_dis, 21u, 83u)) return 231;
+        if (acc_62 != im_lerp_argb_ratio(acc_norm, acc_dis, 62u, 83u)) return 231;
+        /* Ensure R, G, B channels genuinely differ between endpoints and both interior samples. */
+        if (((acc_21 >> 16) & 255u) == ((acc_62 >> 16) & 255u) &&
+            ((acc_21 >> 8) & 255u) == ((acc_62 >> 8) & 255u) &&
+            (acc_21 & 255u) == (acc_62 & 255u)) return 231;
+
+        im_states_go_to(&asm_, "Normal", 300u);
+        im_states_go_to(&asm_, "Disabled", 400u);
+        uint32_t pre_int = im_states_sample_color(&asm_, "ContentPresenter", "Background", 440u, 0u);
+        im_states_go_to(&asm_, "Pressed", 440u);
+        uint32_t post_int = im_states_sample_color(&asm_, "ContentPresenter", "Background", 440u, 0u);
         if (pre_int != post_int) return 232;
-        uint32_t settled = im_states_sample_color(&asm_, "ContentPresenter", "Background", 223u, 0u);
+        uint32_t settled = im_states_sample_color(&asm_, "ContentPresenter", "Background", 523u, 0u);
         uint32_t want_pressed = im_brush_over(&pal, IM_BRUSH_AccentButtonBackgroundPressed, 0, IM_ONE, IM_ONE);
         if (settled != want_pressed) return 233;
+
+        /* Literal IM_TVAL_COLOR Button fill + border + BrushTransition must draw the literal ARGB (not brush 0). */
+        static const im_template_setter lit_setters[] = {
+            {NULL, "Background", {IM_TVAL_COLOR, (int32_t)0xFF102030u, (int32_t)0xFF102030u, (int32_t)0xFF102030u, -1, NULL, NULL}},
+            {NULL, "BackgroundSizing", {IM_TVAL_ENUM_STR, 0, 0, 0, 0, "InnerBorderEdge", NULL}},
+            {NULL, "BorderBrush", {IM_TVAL_COLOR, (int32_t)0xFFAA5500u, (int32_t)0xFFAA5500u, (int32_t)0xFFAA5500u, -1, NULL, NULL}},
+        };
+        static const im_template_prop lit_props[] = {
+            {"Background", {IM_TVAL_TEMPLATE_BINDING, 0, 0, 0, 0, "Background", NULL}},
+            {"BorderBrush", {IM_TVAL_TEMPLATE_BINDING, 0, 0, 0, 0, "BorderBrush", NULL}},
+            {"Duration", {IM_TVAL_DURATION_MS, 83, 0, 0, 0, NULL, NULL}},
+        };
+        static const im_template_element lit_elems[] = {
+            {IM_ELEM_CONTENT_PRESENTER, "ContentPresenter", -1, 0, 2},
+            {IM_ELEM_BRUSH_TRANSITION, NULL, 0, 2, 1},
+        };
+        static const im_template_keyframe lit_kfs[] = {
+            {IM_KF_DISCRETE, 0, {IM_TVAL_COLOR, (int32_t)0xFF506070u, (int32_t)0xFF506070u, (int32_t)0xFF506070u, -1, NULL, NULL}, {0, 0, 0, 0}},
+        };
+        static const im_template_anim lit_anims[] = {
+            {IM_ANIM_OBJECT_KEYFRAMES, "ContentPresenter", "Background", 0, IM_DIR_NONE, false, false, false,
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, 0, 1},
+        };
+        static const im_template_state lit_states[] = {
+            {"Normal", 0, 0, 0, 0},
+            {"PointerOver", 0, 0, 0, 1},
+        };
+        static const im_template_group lit_groups[] = {{"CommonStates", 0, 2, 0, 0}};
+        static const im_template lit_tpl = {"LitBtn", "Button", 0, 3, 0, 2, 0, 1};
+        im_template_tables lit_tbls = {lit_setters, lit_elems, lit_props, lit_groups, lit_states, NULL, lit_anims, lit_kfs};
+        im_state_machine lsm;
+        im_states_init_custom(&lsm, &lit_tpl, &lit_tbls, &pal);
+        im_states_go_to(&lsm, "Normal", 0u);
+        for (int i = 0; i < W * H; i++) pixels[i] = 0x00000000u;
+        im_states_draw_button(&lsm, &surface, box(4, 16, 60, 48), 0u);
+        if (at(32, 32) != 0x00102030u || at(32, 16) != 0x00AA5500u) return 233;
+        im_states_go_to(&lsm, "PointerOver", 100u);
+        if (!im_states_is_animating(&lsm, 140u)) return 233;
+        for (int i = 0; i < W * H; i++) pixels[i] = 0x00000000u;
+        im_states_draw_button(&lsm, &surface, box(4, 16, 60, 48), 183u);
+        if (at(32, 32) != 0x00506070u || at(32, 16) != 0x00AA5500u) return 233;
     }
 
     /* 4. Unsigned 32-bit wrap-safe clock, late clamp, descending track, and IM_CONTRAST color evaluation. */
@@ -1214,13 +1270,25 @@ static int test_visual_states_and_animation(void) {
         if (im_anim_eval_fixed(&desc_anim, desc_kfs, &pal, 0, 0xFFFFFFF0u, 0x00000022u, false) != 60 * IM_ONE) return 236;
         /* Late sample clamps to 20 * IM_ONE. */
         if (im_anim_eval_fixed(&desc_anim, desc_kfs, &pal, 0, 10u, 500u, false) != 20 * IM_ONE) return 237;
-        /* IM_TVAL_COLOR with IM_CONTRAST slot 11. */
-        im_template_keyframe col_kf = {IM_KF_LINEAR_COLOR, 100,
-            {IM_TVAL_COLOR, (int32_t)0xFF000000u, (int32_t)0xFFFFFFFFu, 0, 11, NULL, NULL}, {0, 0, 0, 0}};
+        /* IM_TVAL_COLOR multi-key + IM_TVAL_BRUSH + IM_CONTRAST slot 11 + overflow-safe lerp + negative IM_TVAL_INT. */
+        pal.slot[IM_SLOT_ACCENT_COLOR_LIGHT_2] = 0xFF60CDFFu;
+        im_template_keyframe col_kfs[2] = {
+            {IM_KF_LINEAR_COLOR, 50, {IM_TVAL_COLOR, (int32_t)0xFF102030u, (int32_t)0xFFFFFFFFu, 0, 11, NULL, NULL}, {0, 0, 0, 0}},
+            {IM_KF_LINEAR_COLOR, 100, {IM_TVAL_BRUSH, IM_BRUSH_AccentButtonBackground, 0, 0, 0, NULL, NULL}, {0, 0, 0, 0}},
+        };
         im_template_anim col_anim = {IM_ANIM_COLOR_KEYFRAMES, "X", "C", 0, IM_DIR_NONE, false, false, false,
             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
-            {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, 0, 1};
-        if (im_anim_eval_color(&col_anim, &col_kf, &pal, 0xFF000000u, 0u, 100u, false) != 0xFF112233u) return 238;
+            {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, 0, 2};
+        uint32_t mid1 = im_anim_eval_color(&col_anim, col_kfs, &pal, 0xFF000000u, 0u, 25u, false);
+        if (mid1 != im_lerp_argb_ratio(0xFF000000u, 0xFF112233u, 25u, 50u)) return 238;
+        if (im_anim_eval_color(&col_anim, col_kfs, &pal, 0xFF000000u, 0u, 50u, false) != 0xFF112233u) return 238;
+        uint32_t brush_c = im_brush_over(&pal, IM_BRUSH_AccentButtonBackground, 0, IM_ONE, IM_ONE);
+        uint32_t mid2 = im_anim_eval_color(&col_anim, col_kfs, &pal, 0xFF000000u, 0u, 75u, false);
+        if (mid2 != im_lerp_argb_ratio(0xFF112233u, brush_c, 25u, 50u)) return 238;
+        if (im_anim_eval_color(&col_anim, col_kfs, &pal, 0xFF000000u, 0u, 100u, false) != brush_c) return 238;
+        im_template_value neg_int = {IM_TVAL_INT, -3, 0, 0, 0, NULL, NULL};
+        if (im_template_value_to_fixed(&neg_int, &pal, 0) != -3 * IM_ONE) return 238;
+        if (im_lerp_fixed_ratio(INT32_MIN / 2, INT32_MAX / 2, 0x40000000u, 0x80000000u) != 0) return 238;
     }
 
     /* 5. ToggleSwitch composed knob position (Off->On, On->Off, Dragging->On, unbound default 0) + 2D Reposition X/Y. */
@@ -1300,11 +1368,16 @@ static int test_visual_states_and_animation(void) {
         im_fixed rx_mid = im_states_sample_fixed(&rsm, "Box", "RepositionX", 200u, 99);
         im_fixed ry_mid = im_states_sample_fixed(&rsm, "Box", "RepositionY", 200u, 99);
         if (!(rx_mid > 0 && rx_mid < 12 * IM_ONE) || !(ry_mid < 0 && ry_mid > -16 * IM_ONE)) return 249;
-        /* Reduced motion snaps BOTH X and Y immediately to 0. */
-        im_states_set_reduced_motion(&rsm, true, 200u);
-        if (im_states_is_animating(&rsm, 200u)) return 250;
-        if (im_states_sample_fixed(&rsm, "Box", "RepositionX", 200u, 99) != 0 ||
-            im_states_sample_fixed(&rsm, "Box", "RepositionY", 200u, 99) != 0) return 251;
+        /* Natural endpoint at 100 + 367 = 467 ms reaches 0 on both axes without reduced_motion. */
+        if (im_states_sample_fixed(&rsm, "Box", "RepositionX", 467u, 99) != 0 ||
+            im_states_sample_fixed(&rsm, "Box", "RepositionY", 467u, 99) != 0) return 249;
+        /* Restart and verify reduced_motion snaps BOTH X and Y immediately to 0. */
+        im_states_go_to(&rsm, "A", 500u);
+        im_states_go_to(&rsm, "B", 600u);
+        im_states_set_reduced_motion(&rsm, true, 650u);
+        if (im_states_is_animating(&rsm, 650u)) return 250;
+        if (im_states_sample_fixed(&rsm, "Box", "RepositionX", 650u, 99) != 0 ||
+            im_states_sample_fixed(&rsm, "Box", "RepositionY", 650u, 99) != 0) return 251;
     }
 
     /* 6. Wildcard scoring ((NULL,B) beats (A,NULL)), case-insensitive matching, and last-default (NULL,NULL) retention. */
@@ -1418,30 +1491,55 @@ static int test_visual_states_and_animation(void) {
         if (!im_states_sample_value(&lv, "PlaceholderRect", "Visibility", 910u, &vis) ||
             !str_eq(vis.text, "Collapsed")) return 269;
 
-        /* ReorderHintStates: Bottom (+Y), Top (-Y), Left (-X), Right (+X), and 200 ms generated return to NoReorderHint. */
+        /* ReorderHintStates: Bottom (+Y), Top (-Y), Left (-X), Right (+X), mid-flight reversal, and 200 ms generated return. */
         im_fixed hint_off = im_value(&pal, IM_VALUE_ListViewItemReorderHintThemeOffset)[0];
         im_states_go_to(&lv, "BottomReorderHint", 1000u);
-        if (im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1167u, 0) != hint_off) return 270;
-        im_states_go_to(&lv, "TopReorderHint", 1200u);
-        if (im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1367u, 0) != -hint_off) return 271;
-        im_states_go_to(&lv, "NoReorderHint", 1500u);
-        im_fixed ret_mid_y = im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1600u, 99);
-        im_fixed ret_end_y = im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1700u, 99);
-        if (!(ret_mid_y < 0 && ret_mid_y > -hint_off) || ret_end_y != 0) return 272;
+        im_fixed bot_mid = im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1100u, 0);
+        if (!(bot_mid > 0 && bot_mid < hint_off)) return 270;
+        /* Mid-flight reversal at 1100 ms: TopReorderHint must start from bot_mid (NOT 0!). */
+        im_states_go_to(&lv, "TopReorderHint", 1100u);
+        if (im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1100u, 0) != bot_mid) return 270;
+        if (im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1300u, 0) != -hint_off) return 271;
+        /* Horizontal Left (-X) and Right (+X) reorder hints with interior check at 100 ms. */
+        im_states_go_to(&lv, "LeftReorderHint", 1350u);
+        im_fixed left_mid = im_states_sample_fixed(&lv, "ContentBorder", "DragOverX", 1450u, 0);
+        if (!(left_mid < 0 && left_mid > -hint_off)) return 271;
+        if (im_states_sample_fixed(&lv, "ContentBorder", "DragOverX", 1550u, 0) != -hint_off) return 271;
+        im_states_go_to(&lv, "RightReorderHint", 1600u);
+        if (im_states_sample_fixed(&lv, "ContentBorder", "DragOverX", 1800u, 0) != hint_off) return 271;
+        im_states_go_to(&lv, "NoReorderHint", 1900u);
+        im_fixed ret_mid_x = im_states_sample_fixed(&lv, "ContentBorder", "DragOverX", 2000u, 0);
+        im_fixed ret_end_x = im_states_sample_fixed(&lv, "ContentBorder", "DragOverX", 2100u, 0);
+        if (!(ret_mid_x > 0 && ret_mid_x < hint_off) || ret_end_x != 0) return 272;
 
-        /* DragStates: MultipleDraggingPrimary (DragItem + FadeIn), ReorderedPlaceholder (FadeOut), DragOver (DropTarget),
-           and 200 ms generated return to NotDragging. */
-        im_states_go_to(&lv, "MultipleDraggingPrimary", 2000u);
-        if (im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 2167u, 0) != IM_DRAG_ITEM_SCALE) return 273;
-        if (im_states_sample_fixed(&lv, "MultiArrangeOverlayText", "Opacity", 2167u, 0) != IM_ONE) return 274;
-        im_states_go_to(&lv, "NotDragging", 2500u);
-        im_fixed nd_mid = im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 2600u, 0);
-        im_fixed nd_end = im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 2700u, 0);
-        if (!(nd_mid > IM_DRAG_ITEM_SCALE && nd_mid < IM_ONE) || nd_end != IM_ONE) return 275;
-        im_states_go_to(&lv, "ReorderedPlaceholder", 3000u);
-        if (im_states_sample_fixed(&lv, "ContentBorder", "Opacity", 3167u, IM_ONE) != 0) return 276;
-        im_states_go_to(&lv, "DragOver", 3200u);
-        if (im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 3367u, 0) != IM_ONE) return 277;
+        /* DragStates: pinned DragItem (1.05 scale, 240 ms), FadeIn interior (83 ms), DropTarget (0.95 scale, 240 ms),
+           FadeOut interior (83 ms), mid-flight DragItem->DragOver continuity, and Disabled + NotDragging non-masking! */
+        im_states_go_to(&lv, "MultipleDraggingPrimary", 2200u);
+        im_fixed fi_mid = im_states_sample_fixed(&lv, "MultiArrangeOverlayText", "Opacity", 2283u, 0);
+        if (!(fi_mid > 0 && fi_mid < IM_ONE)) return 274;
+        if (im_states_sample_fixed(&lv, "MultiArrangeOverlayText", "Opacity", 2367u, 0) != IM_ONE) return 274;
+        im_fixed di_mid = im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 2320u, 0);
+        if (!(di_mid > IM_ONE && di_mid < IM_DRAG_ITEM_SCALE)) return 273;
+        if (im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 2440u, 0) != IM_DRAG_ITEM_SCALE) return 273;
+        /* Mid-flight DragItem -> DragOver (DropTarget 0.95): must start from settled 1.05, not 1.0. */
+        im_states_go_to(&lv, "DragOver", 2500u);
+        if (im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 2500u, 0) != IM_DRAG_ITEM_SCALE) return 277;
+        if (im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 2740u, 0) != IM_DROP_TARGET_SCALE) return 277;
+        /* Disabled active while DragStates returns to NotDragging: completed generated return MUST NOT mask Disabled! */
+        im_states_go_to(&lv, "Disabled", 2800u);
+        im_states_go_to(&lv, "MultipleDraggingPrimary", 2810u);
+        im_states_go_to(&lv, "NotDragging", 3100u);
+        im_fixed nd_mid = im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 3200u, IM_ONE);
+        im_fixed nd_end = im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 3300u, IM_ONE);
+        if (!(nd_mid > IM_ONE && nd_mid < IM_DRAG_ITEM_SCALE) || nd_end != IM_ONE) return 275;
+        if (im_states_sample_fixed(&lv, "ContentBorder", "Opacity", 3300u, IM_ONE) !=
+            im_value(&pal, IM_VALUE_ListViewItemDisabledThemeOpacity)[0]) return 275;
+        im_states_go_to(&lv, "Enabled", 3400u);
+        /* FadeOut interior tick at 83 ms and endpoint at 167 ms. */
+        im_states_go_to(&lv, "ReorderedPlaceholder", 3500u);
+        im_fixed fo_mid = im_states_sample_fixed(&lv, "ContentBorder", "Opacity", 3583u, IM_ONE);
+        if (!(fo_mid > 0 && fo_mid < IM_ONE)) return 276;
+        if (im_states_sample_fixed(&lv, "ContentBorder", "Opacity", 3667u, IM_ONE) != 0) return 276;
     }
 
     /* 9. im_states_apply_to_tree connects layout-affecting visual states to im_tree without losing local values. */
@@ -1501,6 +1599,28 @@ static int test_visual_states_and_animation(void) {
         if (ms_sq->visibility != IM_VIS_COLLAPSED || ms_sq->desired_size.width != 0) return 295;
         im_tree_destroy(&tree);
         if (rec.live_allocs != 0 || rec.live_bytes != 0) return 296;
+
+        /* Verify TextBox BorderElement BorderThickness reaches im_node_effective_border_thickness on Focused and restores on Normal. */
+        rec.used = 0;
+        if (!im_tree_init(&tree, alloc)) return 297;
+        im_node *tb_root = im_tree_instantiate_template(&tree, &pal, IM_TEMPLATE_TEXT_BOX, "TB");
+        if (!tb_root) return 297;
+        tree.root = tb_root;
+        im_node *tb_border = im_tree_find_by_name(tb_root, "BorderElement");
+        if (!tb_border) return 297;
+        im_thickness base_bt = im_node_effective_border_thickness(tb_border);
+        im_states_init(&sm, IM_TEMPLATE_TEXT_BOX, &pal);
+        im_states_go_to(&sm, "Focused", 0u);
+        im_states_apply_to_tree(&sm, tb_root, 0u);
+        im_thickness foc_bt = im_node_effective_border_thickness(tb_border);
+        const im_fixed *want_foc = im_value(&pal, IM_VALUE_TextControlBorderThemeThicknessFocused);
+        if (foc_bt.bottom != want_foc[3] || foc_bt.bottom == base_bt.bottom) return 298;
+        im_states_go_to(&sm, "Normal", 10u);
+        im_states_apply_to_tree(&sm, tb_root, 10u);
+        im_thickness rest_bt = im_node_effective_border_thickness(tb_border);
+        if (rest_bt.bottom != base_bt.bottom) return 299;
+        im_tree_destroy(&tree);
+        if (rec.live_allocs != 0 || rec.live_bytes != 0) return 299;
     }
 
     /* 10. Reduced motion: snap on entry, snap mid-flight, and re-enable for subsequent transitions. */

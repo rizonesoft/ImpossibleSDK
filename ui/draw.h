@@ -42,6 +42,9 @@ void im_fill(im_surface *surface, im_rect shape, im_radii radii, enum im_brush_i
    more outside, half less inside. A gradient runs over the outer shape. */
 void im_stroke(im_surface *surface, im_rect shape, im_radii radii, im_fixed thickness, enum im_brush_id brush);
 
+/* Stroke a rounded rectangle with a straight (non-premultiplied) 0xAARRGGBB color. */
+void im_stroke_argb(im_surface *surface, im_rect shape, im_radii radii, im_fixed thickness, uint32_t argb);
+
 /* The shape with every edge moved in by a distance. */
 im_rect im_inset(im_rect shape, im_fixed by);
 

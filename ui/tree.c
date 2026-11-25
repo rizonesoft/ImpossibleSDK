@@ -633,6 +633,9 @@ im_thickness im_node_effective_padding(const im_node *node) {
 
 im_thickness im_node_effective_border_thickness(const im_node *node) {
     if (!node) return (im_thickness){0, 0, 0, 0};
+    if (node->state_mask & IM_SBIT_BORDER_THICKNESS) {
+        return node->border_thickness;
+    }
     if ((node->local_mask & IM_PBIT_BORDER_THICKNESS) == 0 &&
         (node->bind_mask & IM_PBIT_BORDER_THICKNESS) && node->templated_parent) {
         return im_node_effective_border_thickness(node->templated_parent);

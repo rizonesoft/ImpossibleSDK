@@ -49,7 +49,7 @@ Initialize an `im_state_machine` with `im_states_init` for any compiled WinUI co
 | Call | What it does |
 | --- | --- |
 | [`im_fill`](site:api-draw.html#im_fill) | Fills a rounded shape with a brush, fitting adjacent radii proportionally along each edge |
-| [`im_stroke`](site:api-draw.html#im_stroke) | Draws the line between a shape and the same shape moved in |
+| [`im_stroke`](site:api-draw.html#im_stroke) | Draws the line between a shape and the same shape moved in (`im_stroke_argb` takes a straight ARGB colour) |
 | [`im_inset`](site:api-draw.html#im_inset) | Moves a shape's edges in |
 | [`im_value`](site:api-theme.html#im_value) | A number of the theme, such as a corner radius |
 
