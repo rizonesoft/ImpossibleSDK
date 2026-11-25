@@ -2,25 +2,6 @@
 #include "picture.h"
 #include "layer.h"
 
-static int64_t sdiv128_i64(__int128 num, int64_t den) {
-    if (den == 0) return 0;
-    bool neg = false;
-    unsigned __int128 un, ud;
-    if (num < 0) { un = (unsigned __int128)(-(num + 1)) + 1u; neg = !neg; } else { un = (unsigned __int128)num; }
-    if (den < 0) { ud = (unsigned __int128)(-(den + 1)) + 1u; neg = !neg; } else { ud = (unsigned __int128)den; }
-    unsigned __int128 q = 0;
-    if (un <= UINT64_MAX && ud <= UINT64_MAX) {
-        q = (uint64_t)un / (uint64_t)ud;
-    } else {
-        unsigned __int128 r = 0;
-        for (int i = 127; i >= 0; i--) {
-            r = (r << 1) | ((un >> i) & 1u);
-            if (r >= ud) { r -= ud; q |= ((unsigned __int128)1 << i); }
-        }
-    }
-    return neg ? -(int64_t)q : (int64_t)q;
-}
-
 static bool picture_valid(const im_picture *pic) {
     return pic && pic->pixels && pic->width > 0 && pic->height > 0 && pic->stride_pixels >= pic->width;
 }
@@ -31,6 +12,7 @@ static uint32_t blend_premul_opaque(uint32_t dst_rgb, uint32_t premul_argb) {
     uint32_t sg = (premul_argb >> 8) & 255u;
     uint32_t sb = premul_argb & 255u;
     if (sa == 0 && sr == 0 && sg == 0 && sb == 0) return dst_rgb;
+    if (sa == 255u) return (sr << 16) | (sg << 8) | sb;
     uint32_t inv_a = 255u - sa;
     uint32_t dr = (dst_rgb >> 16) & 255u;
     uint32_t dg = (dst_rgb >> 8) & 255u;
@@ -47,10 +29,10 @@ static uint32_t blend_premul_opaque(uint32_t dst_rgb, uint32_t premul_argb) {
 /* Sample premultiplied 0xAARRGGBB at Q16 coordinates (u_fx, v_fx) clamped to [min_x..max_x] x [min_y..max_y]. */
 static uint32_t sample_bilinear_clamped(const im_picture *pic, int64_t u_fx, int64_t v_fx,
                                         int32_t min_x, int32_t max_x, int32_t min_y, int32_t max_y) {
-    int64_t lo_x = (int64_t)min_x << 16;
-    int64_t hi_x = (int64_t)max_x << 16;
-    int64_t lo_y = (int64_t)min_y << 16;
-    int64_t hi_y = (int64_t)max_y << 16;
+    int64_t lo_x = (int64_t)min_x * IM_ONE;
+    int64_t hi_x = (int64_t)max_x * IM_ONE;
+    int64_t lo_y = (int64_t)min_y * IM_ONE;
+    int64_t hi_y = (int64_t)max_y * IM_ONE;
     if (u_fx < lo_x) u_fx = lo_x;
     if (u_fx > hi_x) u_fx = hi_x;
     if (v_fx < lo_y) v_fx = lo_y;
@@ -65,13 +47,12 @@ static uint32_t sample_bilinear_clamped(const im_picture *pic, int64_t u_fx, int
 
     uint32_t fx = (uint32_t)(u_fx & 0xFFFF);
     uint32_t fy = (uint32_t)(v_fx & 0xFFFF);
-    uint32_t wx0 = (uint32_t)IM_ONE - fx;
-    uint32_t wx1 = fx;
-    uint32_t wy0 = (uint32_t)IM_ONE - fy;
-    uint32_t wy1 = fy;
-
     const uint32_t *row0 = pic->pixels + (size_t)y0 * (size_t)pic->stride_pixels;
+    if (fx == 0u && fy == 0u) return row0[x0];
+
     const uint32_t *row1 = pic->pixels + (size_t)y1 * (size_t)pic->stride_pixels;
+    uint32_t wx0 = (uint32_t)IM_ONE - fx, wx1 = fx;
+    uint32_t wy0 = (uint32_t)IM_ONE - fy, wy1 = fy;
     uint32_t p00 = row0[x0], p10 = row0[x1];
     uint32_t p01 = row1[x0], p11 = row1[x1];
 
@@ -86,20 +67,15 @@ static uint32_t sample_bilinear_clamped(const im_picture *pic, int64_t u_fx, int
     return out;
 }
 
-static void put_premul_pixel(im_surface *surface, int x, int y, uint32_t premul_argb) {
-    if (surface->layers) {
-        im_layer_blend_premul_pixel(surface->layers, x, y, premul_argb, IM_ONE);
-    } else {
-        uint32_t *dp = surface->pixels + (size_t)y * (size_t)surface->stride + (size_t)x;
-        *dp = blend_premul_opaque(*dp, premul_argb);
-    }
-}
-
-static bool draw_subrect(im_surface *surface, const im_picture *pic,
-                         im_rect clip_rect, im_rect map_rect,
-                         int32_t src_l, int32_t src_t, int32_t src_r, int32_t src_b) {
+/* Draw source sub-rect [src_l..src_r) x [src_t..src_b) mapped onto wide Q30 map rect
+   [map_l_q30, map_l_q30 + map_w_q30) x [map_t_q30, map_t_q30 + map_h_q30), clipped to clip_rect.
+   Uses precomputed linear stepping (O(1) additions per pixel, zero per-pixel 128-bit divisions). */
+static bool draw_subrect_q30(im_surface *surface, const im_picture *pic,
+                             im_rect clip_rect,
+                             int64_t map_l_q30, int64_t map_t_q30, int64_t map_w_q30, int64_t map_h_q30,
+                             int32_t src_l, int32_t src_t, int32_t src_r, int32_t src_b) {
     if (clip_rect.left >= clip_rect.right || clip_rect.top >= clip_rect.bottom) return true;
-    if (map_rect.left >= map_rect.right || map_rect.top >= map_rect.bottom) return true;
+    if (map_w_q30 <= 0 || map_h_q30 <= 0) return true;
     if (src_l >= src_r || src_t >= src_b) return true;
 
     int bound_l = 0, bound_t = 0, bound_r = surface->width, bound_b = surface->height;
@@ -126,39 +102,60 @@ static bool draw_subrect(im_surface *surface, const im_picture *pic,
     if (fb > bound_b) fb = bound_b;
     if (fl >= fr || ft >= fb) return true;
 
-    int64_t map_w = (int64_t)map_rect.right - map_rect.left;
-    int64_t map_h = (int64_t)map_rect.bottom - map_rect.top;
     int64_t src_w = (int64_t)(src_r - src_l);
     int64_t src_h = (int64_t)(src_b - src_t);
     int64_t clip_l_q30 = im_fixed_to_q30(clip_rect.left);
     int64_t clip_t_q30 = im_fixed_to_q30(clip_rect.top);
     int64_t clip_r_q30 = im_fixed_to_q30(clip_rect.right);
     int64_t clip_b_q30 = im_fixed_to_q30(clip_rect.bottom);
-    int64_t map_l_q30 = im_fixed_to_q30(map_rect.left);
-    int64_t map_t_q30 = im_fixed_to_q30(map_rect.top);
-    int64_t map_w_q30 = map_w << (IM_TR_SHIFT - 16);
-    int64_t map_h_q30 = map_h << (IM_TR_SHIFT - 16);
 
+    /* Linear step vectors in Q30 for both local coordinates and source UV coordinates. */
+    int64_t m11 = has_tr ? inv.m11 : IM_TR_ONE;
+    int64_t m12 = has_tr ? inv.m12 : 0;
+    int64_t m21 = has_tr ? inv.m21 : 0;
+    int64_t m22 = has_tr ? inv.m22 : IM_TR_ONE;
+
+    int64_t du_dx_q30 = im_sdiv128_i64((__int128)m11 * (src_w * IM_TR_ONE), map_w_q30);
+    int64_t dv_dx_q30 = im_sdiv128_i64((__int128)m12 * (src_h * IM_TR_ONE), map_h_q30);
+    int64_t du_dy_q30 = im_sdiv128_i64((__int128)m21 * (src_w * IM_TR_ONE), map_w_q30);
+    int64_t dv_dy_q30 = im_sdiv128_i64((__int128)m22 * (src_h * IM_TR_ONE), map_h_q30);
+
+    int64_t start_px = fl * IM_TR_ONE + (IM_TR_ONE >> 1);
+    int64_t start_py = ft * IM_TR_ONE + (IM_TR_ONE >> 1);
+    int64_t row_lx = start_px, row_ly = start_py;
+    if (has_tr) {
+        if (!im_transform_point_q30(&inv, start_px, start_py, &row_lx, &row_ly)) return false;
+    }
+
+    int64_t row_u_q30 = (int64_t)src_l * IM_TR_ONE +
+        im_sdiv128_i64((__int128)(row_lx - map_l_q30) * (src_w * IM_TR_ONE), map_w_q30) - (IM_TR_ONE >> 1);
+    int64_t row_v_q30 = (int64_t)src_t * IM_TR_ONE +
+        im_sdiv128_i64((__int128)(row_ly - map_t_q30) * (src_h * IM_TR_ONE), map_h_q30) - (IM_TR_ONE >> 1);
+
+    const int q30_to_16 = IM_TR_SHIFT - 16;
     for (int y = (int)ft; y < (int)fb; y++) {
-        int64_t py_q30 = ((int64_t)y << IM_TR_SHIFT) + (IM_TR_ONE >> 1);
+        int64_t lx = row_lx, ly = row_ly;
+        int64_t u_q30 = row_u_q30, v_q30 = row_v_q30;
+        uint32_t *line = surface->pixels + (size_t)y * (size_t)surface->stride;
         for (int x = (int)fl; x < (int)fr; x++) {
-            int64_t px_q30 = ((int64_t)x << IM_TR_SHIFT) + (IM_TR_ONE >> 1);
-            int64_t lx_q30 = px_q30, ly_q30 = py_q30;
-            if (has_tr) {
-                if (!im_transform_point_q30(&inv, px_q30, py_q30, &lx_q30, &ly_q30)) continue;
+            if (lx >= clip_l_q30 && lx < clip_r_q30 && ly >= clip_t_q30 && ly < clip_b_q30) {
+                uint32_t sample = sample_bilinear_clamped(pic, u_q30 >> q30_to_16, v_q30 >> q30_to_16,
+                                                          src_l, src_r - 1, src_t, src_b - 1);
+                if (surface->layers) {
+                    im_layer_blend_premul_pixel(surface->layers, x, y, sample, IM_ONE);
+                } else {
+                    line[x] = blend_premul_opaque(line[x], sample);
+                }
             }
-            if (lx_q30 < clip_l_q30 || lx_q30 >= clip_r_q30 ||
-                ly_q30 < clip_t_q30 || ly_q30 >= clip_b_q30) {
-                continue;
-            }
-            /* Half-pixel center mapping: u = src_l + (lx - map_l) * src_w / map_w - 0.5 */
-            __int128 rel_x = (__int128)(lx_q30 - map_l_q30) * (src_w << 16);
-            __int128 rel_y = (__int128)(ly_q30 - map_t_q30) * (src_h << 16);
-            int64_t u_fx = ((int64_t)src_l << 16) + sdiv128_i64(rel_x, map_w_q30) - (IM_ONE / 2);
-            int64_t v_fx = ((int64_t)src_t << 16) + sdiv128_i64(rel_y, map_h_q30) - (IM_ONE / 2);
-            uint32_t sample = sample_bilinear_clamped(pic, u_fx, v_fx, src_l, src_r - 1, src_t, src_b - 1);
-            put_premul_pixel(surface, x, y, sample);
+            lx += m11;
+            ly += m12;
+            u_q30 += du_dx_q30;
+            v_q30 += dv_dx_q30;
         }
+        row_lx += m21;
+        row_ly += m22;
+        row_u_q30 += du_dy_q30;
+        row_v_q30 += dv_dy_q30;
     }
     return true;
 }
@@ -190,54 +187,64 @@ bool im_picture_draw(im_surface *surface, const im_picture *pic, im_rect dst_rec
     if (!surface || !surface->pixels || !picture_valid(pic)) return false;
     if (dst_rect.left >= dst_rect.right || dst_rect.top >= dst_rect.bottom) return false;
 
-    int64_t dw = (int64_t)dst_rect.right - dst_rect.left;
-    int64_t dh = (int64_t)dst_rect.bottom - dst_rect.top;
+    int64_t dl_q30 = im_fixed_to_q30(dst_rect.left);
+    int64_t dt_q30 = im_fixed_to_q30(dst_rect.top);
+    int64_t dw_q30 = im_fixed_to_q30(dst_rect.right) - dl_q30;
+    int64_t dh_q30 = im_fixed_to_q30(dst_rect.bottom) - dt_q30;
     int64_t sw = (int64_t)pic->width;
     int64_t sh = (int64_t)pic->height;
-    int64_t scale = surface->scale > 0 ? (int64_t)surface->scale : (int64_t)IM_ONE;
+    /* When surface->transform is set (e.g. im_node_device_transform), dst_rect is in logical units
+       and the transform already applies DPI scaling; avoid double-scaling IM_STRETCH_NONE. */
+    int64_t unit_q30 = (surface->transform != NULL)
+        ? IM_TR_ONE
+        : im_fixed_to_q30(surface->scale > 0 ? surface->scale : IM_ONE);
 
-    int64_t map_w = dw, map_h = dh;
+    int64_t map_w_q30 = dw_q30, map_h_q30 = dh_q30;
     if (stretch == IM_STRETCH_NONE) {
-        map_w = sw * scale;
-        map_h = sh * scale;
+        map_w_q30 = sw * unit_q30;
+        map_h_q30 = sh * unit_q30;
     } else if (stretch == IM_STRETCH_UNIFORM) {
-        /* Compare dw / sw vs dh / sh via cross-multiplication dw * sh vs dh * sw. */
-        if ((__int128)dw * sh <= (__int128)dh * sw) {
-            map_w = dw;
-            map_h = sdiv128_i64((__int128)dw * sh + (sw / 2), sw);
+        if ((__int128)dw_q30 * sh <= (__int128)dh_q30 * sw) {
+            map_w_q30 = dw_q30;
+            map_h_q30 = im_sdiv128_i64((__int128)dw_q30 * sh + (sw / 2), sw);
         } else {
-            map_h = dh;
-            map_w = sdiv128_i64((__int128)dh * sw + (sh / 2), sh);
+            map_h_q30 = dh_q30;
+            map_w_q30 = im_sdiv128_i64((__int128)dh_q30 * sw + (sh / 2), sh);
         }
     } else if (stretch == IM_STRETCH_UNIFORM_TO_FILL) {
-        if ((__int128)dw * sh >= (__int128)dh * sw) {
-            map_w = dw;
-            map_h = sdiv128_i64((__int128)dw * sh + (sw / 2), sw);
+        if ((__int128)dw_q30 * sh >= (__int128)dh_q30 * sw) {
+            map_w_q30 = dw_q30;
+            map_h_q30 = im_sdiv128_i64((__int128)dw_q30 * sh + (sw / 2), sw);
         } else {
-            map_h = dh;
-            map_w = sdiv128_i64((__int128)dh * sw + (sh / 2), sh);
+            map_h_q30 = dh_q30;
+            map_w_q30 = im_sdiv128_i64((__int128)dh_q30 * sw + (sh / 2), sh);
         }
     }
 
-    int64_t ml = (int64_t)dst_rect.left + (dw - map_w) / 2;
-    int64_t mt = (int64_t)dst_rect.top + (dh - map_h) / 2;
-    int64_t mr = ml + map_w;
-    int64_t mb = mt + map_h;
+    int64_t ml_q30 = dl_q30 + (dw_q30 - map_w_q30) / 2;
+    int64_t mt_q30 = dt_q30 + (dh_q30 - map_h_q30) / 2;
+    int64_t mr_q30 = ml_q30 + map_w_q30;
+    int64_t mb_q30 = mt_q30 + map_h_q30;
 
-    int64_t cl = ml > dst_rect.left ? ml : dst_rect.left;
-    int64_t ct = mt > dst_rect.top ? mt : dst_rect.top;
-    int64_t cr = mr < dst_rect.right ? mr : dst_rect.right;
-    int64_t cb = mb < dst_rect.bottom ? mb : dst_rect.bottom;
-    if (cl < INT32_MIN || ct < INT32_MIN || cr > INT32_MAX || cb > INT32_MAX) return false;
-    if (ml < INT32_MIN || mt < INT32_MIN || mr > INT32_MAX || mb > INT32_MAX) return false;
+    int64_t cl_q30 = ml_q30 > dl_q30 ? ml_q30 : dl_q30;
+    int64_t ct_q30 = mt_q30 > dt_q30 ? mt_q30 : dt_q30;
+    int64_t cr_q30 = mr_q30 < (dl_q30 + dw_q30) ? mr_q30 : (dl_q30 + dw_q30);
+    int64_t cb_q30 = mb_q30 < (dt_q30 + dh_q30) ? mb_q30 : (dt_q30 + dh_q30);
+    if (cl_q30 >= cr_q30 || ct_q30 >= cb_q30) return true;
 
-    im_rect clip_rect = {(im_fixed)cl, (im_fixed)ct, (im_fixed)cr, (im_fixed)cb};
-    im_rect map_rect = {(im_fixed)ml, (im_fixed)mt, (im_fixed)mr, (im_fixed)mb};
-    return draw_subrect(surface, pic, clip_rect, map_rect, 0, 0, pic->width, pic->height);
+    const int q30_to_16 = IM_TR_SHIFT - 16;
+    im_rect clip_rect = {
+        (im_fixed)(cl_q30 >> q30_to_16),
+        (im_fixed)(ct_q30 >> q30_to_16),
+        (im_fixed)((cr_q30 + ((1LL << q30_to_16) - 1)) >> q30_to_16),
+        (im_fixed)((cb_q30 + ((1LL << q30_to_16) - 1)) >> q30_to_16)
+    };
+    return draw_subrect_q30(surface, pic, clip_rect, ml_q30, mt_q30, map_w_q30, map_h_q30,
+                            0, 0, pic->width, pic->height);
 }
 
 static int64_t round_scale_px(int32_t src_px, int64_t scale_fx) {
-    return (((int64_t)src_px * scale_fx + (IM_ONE / 2)) >> 16) << 16;
+    return (((int64_t)src_px * scale_fx + (IM_ONE / 2)) >> 16) * (int64_t)IM_ONE;
 }
 
 bool im_picture_draw_nine_slice(im_surface *surface, const im_picture *pic, im_rect dst_rect, im_nine_slice slice) {
@@ -260,7 +267,10 @@ bool im_picture_draw_nine_slice(im_surface *surface, const im_picture *pic, im_r
         sb = pic->height - st;
     }
 
-    int64_t scale = surface->scale > 0 ? (int64_t)surface->scale : (int64_t)IM_ONE;
+    /* Avoid double-scaling corners when surface->transform already maps logical coords to device DPI. */
+    int64_t scale = (surface->transform != NULL)
+        ? (int64_t)IM_ONE
+        : (surface->scale > 0 ? (int64_t)surface->scale : (int64_t)IM_ONE);
     int64_t dw = (int64_t)dst_rect.right - dst_rect.left;
     int64_t dh = (int64_t)dst_rect.bottom - dst_rect.top;
 
@@ -271,12 +281,12 @@ bool im_picture_draw_nine_slice(im_surface *surface, const im_picture *pic, im_r
 
     if (dl + dr > dw && (dl + dr) > 0) {
         int64_t sum = dl + dr;
-        dl = sdiv128_i64((__int128)dl * dw, sum);
+        dl = im_sdiv128_i64((__int128)dl * dw, sum);
         dr = dw - dl;
     }
     if (dt + db > dh && (dt + db) > 0) {
         int64_t sum = dt + db;
-        dt = sdiv128_i64((__int128)dt * dh, sum);
+        dt = im_sdiv128_i64((__int128)dt * dh, sum);
         db = dh - dt;
     }
 
@@ -298,7 +308,12 @@ bool im_picture_draw_nine_slice(im_surface *surface, const im_picture *pic, im_r
     for (int gy = 0; gy < 3; gy++) {
         for (int gx = 0; gx < 3; gx++) {
             im_rect cell = {dx[gx], dy[gy], dx[gx + 1], dy[gy + 1]};
-            if (!draw_subrect(surface, pic, cell, cell, sx[gx], sy[gy], sx[gx + 1], sy[gy + 1])) {
+            int64_t ml = im_fixed_to_q30(cell.left);
+            int64_t mt = im_fixed_to_q30(cell.top);
+            int64_t mw = im_fixed_to_q30(cell.right) - ml;
+            int64_t mh = im_fixed_to_q30(cell.bottom) - mt;
+            if (!draw_subrect_q30(surface, pic, cell, ml, mt, mw, mh,
+                                  sx[gx], sy[gy], sx[gx + 1], sy[gy + 1])) {
                 return false;
             }
         }

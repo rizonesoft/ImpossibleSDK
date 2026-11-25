@@ -369,25 +369,6 @@ void im_stroke_argb(im_surface *surface, im_rect shape, im_radii radii, im_fixed
     shade_color(surface, shape, im_grow(radii, thickness / 2), &hole, im_grow(radii, -thickness / 2), (enum im_brush_id)0, true, argb);
 }
 
-static int64_t sdiv128_i64(__int128 num, int64_t den) {
-    if (den == 0) return 0;
-    bool neg = false;
-    unsigned __int128 un, ud;
-    if (num < 0) { un = (unsigned __int128)(-(num + 1)) + 1u; neg = !neg; } else { un = (unsigned __int128)num; }
-    if (den < 0) { ud = (unsigned __int128)(-(den + 1)) + 1u; neg = !neg; } else { ud = (unsigned __int128)den; }
-    unsigned __int128 q = 0;
-    if (un <= UINT64_MAX && ud <= UINT64_MAX) {
-        q = (uint64_t)un / (uint64_t)ud;
-    } else {
-        unsigned __int128 r = 0;
-        for (int i = 127; i >= 0; i--) {
-            r = (r << 1) | ((un >> i) & 1u);
-            if (r >= ud) { r -= ud; q |= ((unsigned __int128)1 << i); }
-        }
-    }
-    return neg ? -(int64_t)q : (int64_t)q;
-}
-
 void im_draw_alpha_mask(im_surface *surface, im_rect dst_rect, const uint8_t *alpha,
                         int width, int height, int stride_bytes, uint32_t argb) {
     if (!surface || !surface->pixels || !alpha || width <= 0 || height <= 0 || stride_bytes < width) return;
@@ -408,10 +389,12 @@ void im_draw_alpha_mask(im_surface *surface, im_rect dst_rect, const uint8_t *al
         if (!im_transform_rect_bounds(surface->transform, dst_rect, &dev_bounds)) return;
     }
 
-    int from = pixel(dev_bounds.left, surface->width);
-    int to = pixel((int64_t)dev_bounds.right + IM_ONE - 1, surface->width);
-    int top = pixel(dev_bounds.top, surface->height);
-    int bottom = pixel((int64_t)dev_bounds.bottom + IM_ONE - 1, surface->height);
+    /* Expand device bounds by 1 pixel on each side so zero-padded bilinear outer edges
+       (e.g. half-pixel translated glyphs) always render full edge antialiasing. */
+    int from = pixel((int64_t)dev_bounds.left - IM_ONE, surface->width);
+    int to = pixel((int64_t)dev_bounds.right + 2 * IM_ONE - 1, surface->width);
+    int top = pixel((int64_t)dev_bounds.top - IM_ONE, surface->height);
+    int bottom = pixel((int64_t)dev_bounds.bottom + 2 * IM_ONE - 1, surface->height);
     if (from < bound_l) from = bound_l;
     if (to > bound_r) to = bound_r;
     if (top < bound_t) top = bound_t;
@@ -420,47 +403,56 @@ void im_draw_alpha_mask(im_surface *surface, im_rect dst_rect, const uint8_t *al
 
     int64_t dl_q30 = im_fixed_to_q30(dst_rect.left);
     int64_t dt_q30 = im_fixed_to_q30(dst_rect.top);
-    int64_t dr_q30 = im_fixed_to_q30(dst_rect.right);
-    int64_t db_q30 = im_fixed_to_q30(dst_rect.bottom);
-    int64_t dw_q30 = dr_q30 - dl_q30;
-    int64_t dh_q30 = db_q30 - dt_q30;
+    int64_t dw_q30 = im_fixed_to_q30(dst_rect.right) - dl_q30;
+    int64_t dh_q30 = im_fixed_to_q30(dst_rect.bottom) - dt_q30;
+    if (dw_q30 <= 0 || dh_q30 <= 0) return;
+
+    /* Precompute linear UV stepping per pixel in Q16 (eliminating per-pixel 128-bit division). */
+    int64_t m11 = has_tr ? inv.m11 : IM_TR_ONE;
+    int64_t m12 = has_tr ? inv.m12 : 0;
+    int64_t m21 = has_tr ? inv.m21 : 0;
+    int64_t m22 = has_tr ? inv.m22 : IM_TR_ONE;
+    int64_t du_dx_q30 = im_sdiv128_i64((__int128)m11 * ((int64_t)width * IM_TR_ONE), dw_q30);
+    int64_t dv_dx_q30 = im_sdiv128_i64((__int128)m12 * ((int64_t)height * IM_TR_ONE), dh_q30);
+    int64_t du_dy_q30 = im_sdiv128_i64((__int128)m21 * ((int64_t)width * IM_TR_ONE), dw_q30);
+    int64_t dv_dy_q30 = im_sdiv128_i64((__int128)m22 * ((int64_t)height * IM_TR_ONE), dh_q30);
+
+    int64_t start_px = (int64_t)from * IM_TR_ONE + (IM_TR_ONE >> 1);
+    int64_t start_py = (int64_t)top * IM_TR_ONE + (IM_TR_ONE >> 1);
+    int64_t slx = start_px, sly = start_py;
+    if (has_tr) {
+        if (!im_transform_point_q30(&inv, start_px, start_py, &slx, &sly)) return;
+    }
+    int64_t row_u_q30 = im_sdiv128_i64((__int128)(slx - dl_q30) * ((int64_t)width * IM_TR_ONE), dw_q30) - (IM_TR_ONE >> 1);
+    int64_t row_v_q30 = im_sdiv128_i64((__int128)(sly - dt_q30) * ((int64_t)height * IM_TR_ONE), dh_q30) - (IM_TR_ONE >> 1);
 
     for (int y = top; y < bottom; y++) {
-        int64_t py_q30 = ((int64_t)y << IM_TR_SHIFT) + (IM_TR_ONE >> 1);
+        int64_t u_q30 = row_u_q30;
+        int64_t v_q30 = row_v_q30;
         uint32_t *line = surface->pixels + (size_t)y * (size_t)surface->stride;
         for (int x = from; x < to; x++) {
-            int64_t px_q30 = ((int64_t)x << IM_TR_SHIFT) + (IM_TR_ONE >> 1);
-            int64_t lx_q30 = px_q30, ly_q30 = py_q30;
-            if (has_tr) {
-                if (!im_transform_point_q30(&inv, px_q30, py_q30, &lx_q30, &ly_q30)) continue;
-            }
-            if (lx_q30 < dl_q30 || lx_q30 >= dr_q30 || ly_q30 < dt_q30 || ly_q30 >= db_q30) continue;
+            int64_t u_fx = u_q30 >> (IM_TR_SHIFT - 16);
+            int64_t v_fx = v_q30 >> (IM_TR_SHIFT - 16);
+            u_q30 += du_dx_q30;
+            v_q30 += dv_dx_q30;
 
-            __int128 rel_x = (__int128)(lx_q30 - dl_q30) * ((int64_t)width << 16);
-            __int128 rel_y = (__int128)(ly_q30 - dt_q30) * ((int64_t)height << 16);
-            int64_t u_fx = sdiv128_i64(rel_x, dw_q30) - (IM_ONE / 2);
-            int64_t v_fx = sdiv128_i64(rel_y, dh_q30) - (IM_ONE / 2);
+            int x0 = (int)(u_fx >= 0 ? (u_fx >> 16) : -(((-u_fx) + IM_ONE - 1) >> 16));
+            int y0 = (int)(v_fx >= 0 ? (v_fx >> 16) : -(((-v_fx) + IM_ONE - 1) >> 16));
+            if (x0 + 1 < 0 || x0 >= width || y0 + 1 < 0 || y0 >= height) continue;
 
-            int64_t hi_x = (int64_t)(width - 1) << 16;
-            int64_t hi_y = (int64_t)(height - 1) << 16;
-            if (u_fx < 0) u_fx = 0;
-            if (u_fx > hi_x) u_fx = hi_x;
-            if (v_fx < 0) v_fx = 0;
-            if (v_fx > hi_y) v_fx = hi_y;
-
-            int x0 = (int)(u_fx >> 16);
-            int y0 = (int)(v_fx >> 16);
-            int x1 = x0 + 1 < width ? x0 + 1 : width - 1;
-            int y1 = y0 + 1 < height ? y0 + 1 : height - 1;
-            uint32_t fx = (uint32_t)(u_fx & 0xFFFF);
-            uint32_t fy = (uint32_t)(v_fx & 0xFFFF);
+            uint32_t fx = (uint32_t)(u_fx - (int64_t)x0 * IM_ONE);
+            uint32_t fy = (uint32_t)(v_fx - (int64_t)y0 * IM_ONE);
             uint32_t wx0 = (uint32_t)IM_ONE - fx, wx1 = fx;
             uint32_t wy0 = (uint32_t)IM_ONE - fy, wy1 = fy;
 
-            const uint8_t *r0 = alpha + (size_t)y0 * (size_t)stride_bytes;
-            const uint8_t *r1 = alpha + (size_t)y1 * (size_t)stride_bytes;
-            uint64_t t_a = (uint64_t)r0[x0] * wx0 + (uint64_t)r0[x1] * wx1;
-            uint64_t b_a = (uint64_t)r1[x0] * wx0 + (uint64_t)r1[x1] * wx1;
+            /* Zero-padded taps outside [0, width-1] x [0, height-1] preserve fractional outer-edge coverage. */
+            uint32_t a00 = (x0 >= 0 && x0 < width && y0 >= 0 && y0 < height) ? alpha[(size_t)y0 * (size_t)stride_bytes + (size_t)x0] : 0u;
+            uint32_t a10 = (x0 + 1 >= 0 && x0 + 1 < width && y0 >= 0 && y0 < height) ? alpha[(size_t)y0 * (size_t)stride_bytes + (size_t)(x0 + 1)] : 0u;
+            uint32_t a01 = (x0 >= 0 && x0 < width && y0 + 1 >= 0 && y0 + 1 < height) ? alpha[(size_t)(y0 + 1) * (size_t)stride_bytes + (size_t)x0] : 0u;
+            uint32_t a11 = (x0 + 1 >= 0 && x0 + 1 < width && y0 + 1 >= 0 && y0 + 1 < height) ? alpha[(size_t)(y0 + 1) * (size_t)stride_bytes + (size_t)(x0 + 1)] : 0u;
+
+            uint64_t t_a = (uint64_t)a00 * wx0 + (uint64_t)a10 * wx1;
+            uint64_t b_a = (uint64_t)a01 * wx0 + (uint64_t)a11 * wx1;
             uint32_t mask_a = (uint32_t)((t_a * wy0 + b_a * wy1 + ((uint64_t)1 << 31)) >> 32);
             if (mask_a == 0u) continue;
             uint32_t cov = (mask_a == 255u) ? (uint32_t)IM_ONE : (mask_a * (uint32_t)IM_ONE + 127u) / 255u;
@@ -470,5 +462,7 @@ void im_draw_alpha_mask(im_surface *surface, im_rect dst_rect, const uint8_t *al
                 line[x] = blend(line[x], argb, cov);
             }
         }
+        row_u_q30 += du_dy_q30;
+        row_v_q30 += dv_dy_q30;
     }
 }

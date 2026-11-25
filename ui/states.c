@@ -969,6 +969,46 @@ void im_states_apply_to_tree(const im_state_machine *sm, im_node *root, uint32_t
             im_node_set_state_border_thickness(root, false, (im_thickness){0, 0, 0, 0});
         }
     }
+    if (root->render_transform_name) {
+        const char *tn = root->render_transform_name;
+        im_transform tr = im_transform_identity();
+        bool changed = false;
+        if (root->render_transform_kind == IM_ELEM_TRANSLATE_TRANSFORM) {
+            im_fixed tx = im_states_sample_fixed(sm, tn, "X", now_ms, 0);
+            im_fixed ty = im_states_sample_fixed(sm, tn, "Y", now_ms, 0);
+            if (tx != 0 || ty != 0) {
+                tr = im_transform_translate(tx, ty);
+                changed = true;
+            }
+        } else if (root->render_transform_kind == IM_ELEM_SCALE_TRANSFORM) {
+            im_fixed sx = im_states_sample_fixed(sm, tn, "ScaleX", now_ms, IM_ONE);
+            im_fixed sy = im_states_sample_fixed(sm, tn, "ScaleY", now_ms, IM_ONE);
+            im_fixed cx = im_states_sample_fixed(sm, tn, "CenterX", now_ms, 0);
+            im_fixed cy = im_states_sample_fixed(sm, tn, "CenterY", now_ms, 0);
+            if (sx != IM_ONE || sy != IM_ONE) {
+                tr = im_transform_scale_at(sx, sy, cx, cy);
+                changed = true;
+            }
+        } else if (root->render_transform_kind == IM_ELEM_COMPOSITE_TRANSFORM) {
+            im_fixed cx = im_states_sample_fixed(sm, tn, "CenterX", now_ms, 0);
+            im_fixed cy = im_states_sample_fixed(sm, tn, "CenterY", now_ms, 0);
+            im_fixed sx = im_states_sample_fixed(sm, tn, "ScaleX", now_ms, IM_ONE);
+            im_fixed sy = im_states_sample_fixed(sm, tn, "ScaleY", now_ms, IM_ONE);
+            im_fixed skx = im_states_sample_fixed(sm, tn, "SkewX", now_ms, 0);
+            im_fixed sky = im_states_sample_fixed(sm, tn, "SkewY", now_ms, 0);
+            im_fixed rot = im_states_sample_fixed(sm, tn, "Rotation", now_ms, 0);
+            im_fixed tx = im_states_sample_fixed(sm, tn, "TranslateX", now_ms, 0);
+            im_fixed ty = im_states_sample_fixed(sm, tn, "TranslateY", now_ms, 0);
+            if (sx != IM_ONE || sy != IM_ONE || skx != 0 || sky != 0 || rot != 0 || tx != 0 || ty != 0) {
+                changed = im_transform_composite(cx, cy, sx, sy, skx, sky, rot, tx, ty, &tr);
+            }
+        }
+        if (changed) {
+            im_node_set_render_transform(root, &tr, root->render_transform_origin_x, root->render_transform_origin_y);
+        } else if (root->has_render_transform) {
+            im_node_clear_render_transform(root);
+        }
+    }
     for (uint32_t i = 0; i < root->child_count; i++) {
         im_states_apply_to_tree(sm, root->children[i], now_ms);
     }

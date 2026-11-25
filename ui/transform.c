@@ -21,8 +21,8 @@ static const uint32_t SIN_TABLE_Q30[91] = {
     1073741824u
 };
 
-/* pi / 180 in Q30 fixed point: round((pi / 180) * 2^30). */
-#define IM_DEG_TO_RAD_Q30 18740330LL
+/* pi / 180 in Q40 fixed point: round((pi / 180) * 2^40) = 19190098069. */
+#define IM_DEG_TO_RAD_Q40 19190098069LL
 
 static bool coeff_in_range(__int128 v) {
     return v >= -((__int128)IM_TR_MAX_COEFF) && v <= ((__int128)IM_TR_MAX_COEFF);
@@ -48,6 +48,16 @@ static unsigned __int128 udiv128(unsigned __int128 num, unsigned __int128 den) {
     return q;
 }
 
+int64_t im_sdiv128_i64(__int128 num, int64_t den) {
+    if (den == 0) return 0;
+    bool neg = false;
+    unsigned __int128 un, ud;
+    if (num < 0) { un = (unsigned __int128)(-(num + 1)) + 1u; neg = !neg; } else { un = (unsigned __int128)num; }
+    if (den < 0) { ud = (unsigned __int128)(-(den + 1)) + 1u; neg = !neg; } else { ud = (unsigned __int128)den; }
+    unsigned __int128 q = udiv128(un, ud);
+    return neg ? -(int64_t)q : (int64_t)q;
+}
+
 static __int128 round_div_128(__int128 num, __int128 den) {
     bool neg = false;
     unsigned __int128 un, ud;
@@ -58,25 +68,22 @@ static __int128 round_div_128(__int128 num, __int128 den) {
 }
 
 static int64_t sin_first_quadrant(int64_t deg_fx) {
-    /* deg_fx is in [0, 90 * IM_ONE]. Round to nearest integer degree k in [0..90]
-       so residual |d| <= 0.5 deg (<= 0.008727 rad), where Taylor sin(d)=d-d^3/6,
-       cos(d)=1-d^2/2 is exact to all 30 bits of Q30. */
     int64_t k = (deg_fx + (IM_ONE / 2)) >> 16;
     if (k < 0) k = 0;
     if (k > 90) k = 90;
-    int64_t rem_fx = deg_fx - (k << 16);
+    int64_t rem_fx = deg_fx - (k * (int64_t)IM_ONE);
     int64_t s0 = (int64_t)SIN_TABLE_Q30[k];
     int64_t c0 = (int64_t)SIN_TABLE_Q30[90 - k];
     if (rem_fx == 0) return s0;
 
-    /* Convert rem_fx (16.16 deg) to radians in Q30: (rem_fx * DEG_TO_RAD_Q30) >> 16. */
-    int64_t d = (int64_t)round_shift_right_128((__int128)rem_fx * IM_DEG_TO_RAD_Q30, 16);
-    int64_t d2 = (int64_t)round_shift_right_128((__int128)d * d, IM_TR_SHIFT);
-    int64_t d3 = (int64_t)round_shift_right_128((__int128)d2 * d, IM_TR_SHIFT);
-    int64_t sin_d = d - (d3 / 6);
-    int64_t cos_d = IM_TR_ONE - (d2 >> 1);
+    /* Keep 4 extra guard bits (Q34) on d so intermediate rounding never stacks above 1 Q30 LSB. */
+    int64_t d_q34 = (int64_t)round_shift_right_128((__int128)rem_fx * IM_DEG_TO_RAD_Q40, 22);
+    int64_t d2_q34 = (int64_t)round_shift_right_128((__int128)d_q34 * d_q34, 34);
+    int64_t d3_q34 = (int64_t)round_shift_right_128((__int128)d2_q34 * d_q34, 34);
+    int64_t sin_d_q34 = d_q34 - (d3_q34 / 6);
+    int64_t cos_d_q34 = ((int64_t)1 << 34) - ((d2_q34 + 1) >> 1);
 
-    __int128 res = round_shift_right_128((__int128)s0 * cos_d + (__int128)c0 * sin_d, IM_TR_SHIFT);
+    __int128 res = round_shift_right_128((__int128)s0 * cos_d_q34 + (__int128)c0 * sin_d_q34, 34);
     if (res > IM_TR_ONE) res = IM_TR_ONE;
     if (res < -IM_TR_ONE) res = -IM_TR_ONE;
     return (int64_t)res;
@@ -113,7 +120,7 @@ bool im_tan_deg(im_fixed angle_deg, int64_t *out_q30) {
     int64_t s = im_sin_deg(angle_deg);
     int64_t c = im_cos_deg(angle_deg);
     if (c == 0) return false;
-    __int128 q = round_div_128((__int128)s << IM_TR_SHIFT, (__int128)c);
+    __int128 q = round_div_128((__int128)s * IM_TR_ONE, (__int128)c);
     if (!coeff_in_range(q)) return false;
     *out_q30 = (int64_t)q;
     return true;
@@ -200,10 +207,12 @@ bool im_transform_composite(im_fixed center_x, im_fixed center_y,
     im_transform skew;
     if (!im_transform_skew(skew_x_deg, skew_y_deg, &skew)) return false;
 
-    im_transform cur = im_transform_translate(-center_x, -center_y);
+    int64_t qcx = im_fixed_to_q30(center_x);
+    int64_t qcy = im_fixed_to_q30(center_y);
+    im_transform cur = {IM_TR_ONE, 0, 0, IM_TR_ONE, -qcx, -qcy};
     im_transform sc = im_transform_scale(scale_x, scale_y);
     im_transform rot = im_transform_rotate(rotation_deg);
-    im_transform back = im_transform_translate(center_x, center_y);
+    im_transform back = {IM_TR_ONE, 0, 0, IM_TR_ONE, qcx, qcy};
     im_transform tr = im_transform_translate(translate_x, translate_y);
 
     im_transform tmp;
@@ -227,11 +236,12 @@ bool im_transform_invert(const im_transform *t, im_transform *out) {
     if (det == 0) return false;
 
     /* m_inv = adj(m) * 2^60 / det (result in Q30).
-       Each |m_ij| <= 2^46 so |m_ij| << 60 <= 2^106 < 2^127: never overflows __int128. */
-    __int128 im11 = round_div_128((__int128)t->m22 << (2 * IM_TR_SHIFT), det);
-    __int128 im12 = round_div_128(-((__int128)t->m12 << (2 * IM_TR_SHIFT)), det);
-    __int128 im21 = round_div_128(-((__int128)t->m21 << (2 * IM_TR_SHIFT)), det);
-    __int128 im22 = round_div_128((__int128)t->m11 << (2 * IM_TR_SHIFT), det);
+       Each |m_ij| <= 2^58 so |m_ij| * 2^60 <= 2^118 < 2^127: never overflows __int128. */
+    const __int128 q60 = (__int128)1 << (2 * IM_TR_SHIFT);
+    __int128 im11 = round_div_128((__int128)t->m22 * q60, det);
+    __int128 im12 = round_div_128(-((__int128)t->m12 * q60), det);
+    __int128 im21 = round_div_128(-((__int128)t->m21 * q60), det);
+    __int128 im22 = round_div_128((__int128)t->m11 * q60, det);
     if (!coeff_in_range(im11) || !coeff_in_range(im12) ||
         !coeff_in_range(im21) || !coeff_in_range(im22)) {
         return false;

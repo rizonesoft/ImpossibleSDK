@@ -192,6 +192,8 @@ typedef struct im_node {
     im_transform render_transform;
     im_fixed render_transform_origin_x;
     im_fixed render_transform_origin_y;
+    const char *render_transform_name;
+    im_element_kind render_transform_kind;
 } im_node;
 
 /* Maximum number of detached/destroyed subtree bounds buffered before overflowing to a full repaint. */

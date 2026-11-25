@@ -3278,7 +3278,9 @@ class Drawing(unittest.TestCase):
         self.assertIn("ALL PASSED", res.stdout)
 
         rot30_seen = False
+        sin_count = 0
         tr_count = 0
+        hit_count = 0
         pic_modes = {}
         for line in res.stdout.splitlines():
             parts = line.split()
@@ -3291,6 +3293,33 @@ class Drawing(unittest.TestCase):
                 self.assertLessEqual(abs(gx - wx), 1.0 / 256.0, f"ROT30 x: got={gx} want={wx}")
                 self.assertLessEqual(abs(gy - wy), 1.0 / 256.0, f"ROT30 y: got={gy} want={wy}")
                 rot30_seen = True
+            elif parts[0] == "SIN":
+                deg_fx, got_q30 = int(parts[1]), int(parts[2])
+                exact_q30 = math.sin(math.radians(deg_fx / 65536.0)) * (1 << 30)
+                self.assertLess(abs(got_q30 - exact_q30), 2.0, f"SIN({deg_fx}/65536): got={got_q30} want={exact_q30}")
+                sin_count += 1
+            elif parts[0] == "HIT":
+                rot, sc, tx, ty, px, py, got_hit, got_lx, got_ly = [int(v) for v in parts[1:]]
+                rot_d = rot / 65536.0
+                sc_d = sc / 65536.0
+                tx_d, ty_d = tx / 65536.0, ty / 65536.0
+                # Independent double-precision inverse of ht_box (40x30 at (20,15), origin 0.5,0.5, scale 1.5):
+                # device -> logical (/1.5) -> subtract (20,15) -> subtract (20,15) origin -> inverse(scale->rot->trans) -> +origin
+                dx = (px / 65536.0) / 1.5 - 20.0 - 20.0 - tx_d
+                dy = (py / 65536.0) / 1.5 - 15.0 - 15.0 - ty_d
+                rad = math.radians(-rot_d)
+                c, s = math.cos(rad), math.sin(rad)
+                lx = (dx * c - dy * s) / sc_d + 20.0
+                ly = (dx * s + dy * c) / sc_d + 15.0
+                # Skip points within 1e-4 of exact boundary to avoid float vs Q30 tie ambiguity.
+                near_edge = min(abs(lx), abs(lx - 40.0), abs(ly), abs(ly - 30.0)) < 1e-3
+                if not near_edge:
+                    want_hit = 1 if (0.0 <= lx < 40.0 and 0.0 <= ly < 30.0) else 0
+                    self.assertEqual(got_hit, want_hit, f"HIT#{hit_count}: got={got_hit} want={want_hit} local=({lx},{ly})")
+                    if want_hit:
+                        self.assertLessEqual(abs(got_lx / 65536.0 - lx), 1.0 / 256.0)
+                        self.assertLessEqual(abs(got_ly / 65536.0 - ly), 1.0 / 256.0)
+                hit_count += 1
             elif parts[0] == "TR":
                 vals = [int(v) / 65536.0 for v in parts[1:]]
                 cx, cy, sx, sy, skx, sky, rot, tx, ty, px, py, gx, gy = vals
@@ -3311,7 +3340,9 @@ class Drawing(unittest.TestCase):
                 pic_modes[mode] = [int(h, 16) for h in parts[2:]]
 
         self.assertTrue(rot30_seen, "ROT30 oracle line missing")
+        self.assertEqual(sin_count, 6, "expected 6 SIN precision oracle lines")
         self.assertEqual(tr_count, 1000, "expected 1000 TR oracle lines")
+        self.assertEqual(hit_count, 1000, "expected 1000 HIT oracle lines")
         self.assertEqual(sorted(pic_modes.keys()), [0, 1, 2, 3], "expected all 4 picture stretch modes")
 
         # Independent double-precision bilinear premultiplied oracle for the 6x4 translucent image at 150% DPI.

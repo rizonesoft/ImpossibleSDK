@@ -848,6 +848,9 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
         node->grid_row_span = (uint32_t)v->a;
     } else if (str_eq(prop, "Grid.ColumnSpan") && v->kind == IM_TVAL_INT && v->a >= 1) {
         node->grid_col_span = (uint32_t)v->a;
+    } else if (str_eq(prop, "RenderTransformOrigin") && v->kind == IM_TVAL_POINT) {
+        node->render_transform_origin_x = (im_fixed)v->a;
+        node->render_transform_origin_y = (im_fixed)v->b;
     }
 }
 
@@ -981,6 +984,15 @@ im_node *im_tree_instantiate_custom_template(
                 } else {
                     ok = append_grid_def(tree, &parent_node->cols, &parent_node->col_count, def);
                 }
+            }
+            continue;
+        }
+        if (el->kind == IM_ELEM_TRANSLATE_TRANSFORM ||
+            el->kind == IM_ELEM_SCALE_TRANSFORM ||
+            el->kind == IM_ELEM_COMPOSITE_TRANSFORM) {
+            if (parent_node) {
+                parent_node->render_transform_name = el->name;
+                parent_node->render_transform_kind = el->kind;
             }
             continue;
         }

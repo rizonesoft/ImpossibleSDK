@@ -8,8 +8,9 @@
 #define IM_TR_SHIFT 30
 #define IM_TR_ONE ((int64_t)1 << IM_TR_SHIFT)
 
-/* Maximum representable magnitude for any im_transform coefficient (leaves headroom for 128-bit math). */
-#define IM_TR_MAX_COEFF ((int64_t)1 << 46)
+/* Maximum representable magnitude for any im_transform coefficient (leaves headroom for 128-bit math).
+   2^58 in Q30 supports +/- 268,435,456 logical units (while 2^58 * 2^60 = 2^118 < 2^127). */
+#define IM_TR_MAX_COEFF ((int64_t)1 << 58)
 
 /* 2D affine matrix in row-vector (WinUI/Direct2D) convention:
    x' = x * m11 + y * m21 + dx
@@ -24,10 +25,13 @@ typedef struct im_transform {
     int64_t dy;
 } im_transform;
 
-/* Convert a 16.16 im_fixed value to Q30 fixed point. */
+/* Convert a 16.16 im_fixed value to Q30 fixed point without undefined signed left shifts. */
 static inline int64_t im_fixed_to_q30(im_fixed v) {
-    return (int64_t)v << (IM_TR_SHIFT - 16);
+    return (int64_t)v * ((int64_t)1 << (IM_TR_SHIFT - 16));
 }
+
+/* Signed 128-bit by 64-bit integer division helper (freestanding, no __divti3/__udivti3). */
+int64_t im_sdiv128_i64(__int128 num, int64_t den);
 
 /* Sine of angle_deg (16.16 degrees) in Q30 fixed point ([-IM_TR_ONE, IM_TR_ONE]). */
 int64_t im_sin_deg(im_fixed angle_deg);

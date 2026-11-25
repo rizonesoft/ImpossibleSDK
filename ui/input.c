@@ -20,15 +20,9 @@ static bool node_local_render_transform(const im_node *node, im_transform *out) 
 
 static bool node_logical_transform(const im_node *node, im_transform *out) {
     if (!node || !out) return false;
-    /* Build ancestor chain from node up to root (max depth arbitrary via iterative reverse walk?
-       Use iterative chain with stack buffer of 64; fall back to recursion if deeper). */
-    const im_node *chain[64];
-    int depth = 0;
     for (const im_node *cur = node; cur != NULL; cur = cur->parent) {
         if (cur->visibility == IM_VIS_COLLAPSED) return false;
-        if (depth < 64) chain[depth++] = cur;
     }
-    if (depth == 0) return false;
 
     /* Start at node-local coordinates (0, 0) -> apply node's render_transform around node origin ->
        translate to root-space absolute_rect -> for each ancestor (child-to-root), apply ancestor's
@@ -107,13 +101,17 @@ static im_node *hit_test_recursive(im_node *node, im_fixed scale,
         if (hit) return hit;
     }
 
-    im_fixed lx = 0, ly = 0;
-    if (!im_transform_point(&inv, dev_x, dev_y, &lx, &ly)) return NULL;
-    int64_t w = (int64_t)node->absolute_rect.right - node->absolute_rect.left;
-    int64_t h = (int64_t)node->absolute_rect.bottom - node->absolute_rect.top;
-    if (w > 0 && h > 0 && lx >= 0 && lx < w && ly >= 0 && ly < h) {
-        if (out_local_x) *out_local_x = lx;
-        if (out_local_y) *out_local_y = ly;
+    int64_t lqx = 0, lqy = 0;
+    if (!im_transform_point_q30(&inv, im_fixed_to_q30(dev_x), im_fixed_to_q30(dev_y), &lqx, &lqy)) return NULL;
+    int64_t w_q30 = im_fixed_to_q30(node->absolute_rect.right) - im_fixed_to_q30(node->absolute_rect.left);
+    int64_t h_q30 = im_fixed_to_q30(node->absolute_rect.bottom) - im_fixed_to_q30(node->absolute_rect.top);
+    if (w_q30 > 0 && h_q30 > 0 && lqx >= 0 && lqx < w_q30 && lqy >= 0 && lqy < h_q30) {
+        if (out_local_x || out_local_y) {
+            im_fixed lx = 0, ly = 0;
+            if (!im_transform_point(&inv, dev_x, dev_y, &lx, &ly)) return NULL;
+            if (out_local_x) *out_local_x = lx;
+            if (out_local_y) *out_local_y = ly;
+        }
         return node;
     }
     return NULL;
