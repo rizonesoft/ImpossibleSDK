@@ -1339,6 +1339,13 @@ class TemplateCompiler(unittest.TestCase):
             "ContentThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
             "ReorderThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
             "EntranceThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+            "PopupThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+            "RepositionThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+            "NavigationThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+            "NavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
+            "DrillInNavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
+            "SlideNavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
+            "SuppressNavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
             "AutomationProperties": "using:Microsoft.UI.Xaml.Automation",
         }
         self.assertEqual(tpl_mod.OWNER_NAMESPACE, expected_owner_ns)

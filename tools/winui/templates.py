@@ -819,6 +819,7 @@ OWNER_NAMESPACE = {
     "PopupThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
     "RepositionThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
     "NavigationThemeTransition": "using:Microsoft.UI.Xaml.Media.Animation",
+    "NavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
     "DrillInNavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
     "SlideNavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
     "SuppressNavigationTransitionInfo": "using:Microsoft.UI.Xaml.Media.Animation",
