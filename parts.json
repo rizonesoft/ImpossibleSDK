@@ -5,11 +5,13 @@
       "folder": "ui",
       "depends": [],
       "sources": [
+        "ui/animate.c",
         "ui/button.c",
         "ui/clip.c",
         "ui/draw.c",
         "ui/layer.c",
         "ui/layout.c",
+        "ui/states.c",
         "ui/template_data.c",
         "ui/theme.c",
         "ui/theme_data.c",

@@ -90,6 +90,17 @@ typedef enum im_prop_bit {
     IM_PBIT_FLOW_DIR = 1u << 4
 } im_prop_bit;
 
+/* Bitmask of layout-affecting properties currently overridden by a visual state. */
+typedef enum im_state_prop_bit {
+    IM_SBIT_WIDTH = 1u << 0,
+    IM_SBIT_HEIGHT = 1u << 1,
+    IM_SBIT_MARGIN = 1u << 2,
+    IM_SBIT_VISIBILITY = 1u << 3,
+    IM_SBIT_H_ALIGN = 1u << 4,
+    IM_SBIT_V_ALIGN = 1u << 5,
+    IM_SBIT_BORDER_THICKNESS = 1u << 6
+} im_state_prop_bit;
+
 /* One element in the portable UI tree. */
 typedef struct im_node {
     im_element_kind kind;
@@ -127,6 +138,16 @@ typedef struct im_node {
     /* Property override and TemplateBinding masks. */
     uint32_t local_mask;
     uint32_t bind_mask;
+
+    /* Visual-state presentation overrides and saved underlying local values. */
+    uint32_t state_mask;
+    im_fixed base_width;
+    im_fixed base_height;
+    im_thickness base_margin;
+    im_visibility base_visibility;
+    im_align base_h_align;
+    im_align base_v_align;
+    im_thickness base_border_thickness;
 
     /* StackPanel properties. */
     im_orientation orientation;
@@ -259,6 +280,27 @@ void im_node_set_grid_spacing(im_node *node, im_fixed row_spacing, im_fixed col_
 
 /* Set Grid.Row, Grid.Column, Grid.RowSpan, Grid.ColumnSpan attached properties. Invalidates measure on change. */
 void im_node_set_grid_cell(im_node *node, uint32_t row, uint32_t col, uint32_t row_span, uint32_t col_span);
+
+/* Apply or clear a visual-state presentation override for Width without losing the local value. */
+void im_node_set_state_width(im_node *node, bool active, im_fixed width);
+
+/* Apply or clear a visual-state presentation override for Height without losing the local value. */
+void im_node_set_state_height(im_node *node, bool active, im_fixed height);
+
+/* Apply or clear a visual-state presentation override for Margin without losing the local value. */
+void im_node_set_state_margin(im_node *node, bool active, im_thickness margin);
+
+/* Apply or clear a visual-state presentation override for Visibility without losing the local value. */
+void im_node_set_state_visibility(im_node *node, bool active, im_visibility visibility);
+
+/* Apply or clear a visual-state presentation override for HorizontalAlignment without losing the local value. */
+void im_node_set_state_h_align(im_node *node, bool active, im_align align);
+
+/* Apply or clear a visual-state presentation override for VerticalAlignment without losing the local value. */
+void im_node_set_state_v_align(im_node *node, bool active, im_align align);
+
+/* Apply or clear a visual-state presentation override for BorderThickness without losing the local value. */
+void im_node_set_state_border_thickness(im_node *node, bool active, im_thickness thickness);
 
 /* Resolve effective Padding on node (following TemplateBinding when active). */
 im_thickness im_node_effective_padding(const im_node *node);

@@ -3175,5 +3175,94 @@ class Drawing(unittest.TestCase):
                 self.assertLessEqual(corner, limit, name)
 
 
+class VisualStatesAndAnimationTest(unittest.TestCase):
+    """Verify fixed-point cubic Bezier splines and track evaluation against exact double-precision math."""
+
+    @staticmethod
+    def _exact_bezier(x1: float, y1: float, x2: float, y2: float, t: float) -> float:
+        if t <= 0.0:
+            return 0.0
+        if t >= 1.0:
+            return 1.0
+        lo, hi = 0.0, 1.0
+        for _ in range(80):
+            u = 0.5 * (lo + hi)
+            om = 1.0 - u
+            bx = 3.0 * om * om * u * x1 + 3.0 * om * u * u * x2 + u * u * u
+            if bx < t:
+                lo = u
+            else:
+                hi = u
+        u = 0.5 * (lo + hi)
+        om = 1.0 - u
+        return 3.0 * om * om * u * y1 + 3.0 * om * u * u * y2 + u * u * u
+
+    def test_spline_and_track_match_exact_double_precision_bezier(self):
+        cc = None
+        for comp_cmake in sorted((BUILD / "CMakeFiles").glob("*/CMakeCCompiler.cmake")):
+            for line in comp_cmake.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith('set(CMAKE_C_COMPILER "') and line.endswith('")'):
+                    cand = line[len('set(CMAKE_C_COMPILER "'):-2]
+                    if Path(cand).is_file():
+                        cc = cand
+                        break
+            if cc:
+                break
+        self.assertIsNotNone(cc, "C compiler must be discovered from CMakeFiles/*/CMakeCCompiler.cmake")
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "spline_probe.c"
+            exe = Path(tmp) / "spline_probe.exe"
+            src.write_text(
+                '#include <stdio.h>\n'
+                '#include "animate.h"\n'
+                'int main(void) {\n'
+                '    im_palette pal = {IM_DARK, {0}};\n'
+                '    /* ToggleSwitch 83 ms spline {0,0,0,1} from 12 to 14 */\n'
+                '    im_template_keyframe kf = {IM_KF_SPLINE_DOUBLE, 83, {IM_TVAL_FIXED, 14 * IM_ONE, 0, 0, 0, NULL, NULL}, {0, 0, 0, 65536}};\n'
+                '    im_template_anim an = {IM_ANIM_DOUBLE_KEYFRAMES, "K", "W", 0, IM_DIR_NONE, false, false, false,\n'
+                '        {IM_TVAL_NONE,0,0,0,0,NULL,NULL},{IM_TVAL_NONE,0,0,0,0,NULL,NULL},{IM_TVAL_NONE,0,0,0,0,NULL,NULL}, 0, 1};\n'
+                '    uint32_t ts83[] = {0, 1, 2, 5, 10, 17, 21, 33, 41, 55, 62, 75, 82, 83};\n'
+                '    for (size_t i = 0; i < sizeof(ts83)/sizeof(ts83[0]); i++) {\n'
+                '        im_fixed s = im_spline_eval_ratio(0, 0, 0, 65536, ts83[i], 83);\n'
+                '        im_fixed v = im_anim_eval_fixed(&an, &kf, &pal, 12 * IM_ONE, 1000u, 1000u + ts83[i], false);\n'
+                '        printf("S83 %u %d %d\\n", ts83[i], s, v);\n'
+                '    }\n'
+                '    /* PVL 367 ms Reposition spline (0.1, 0.9, 0.2, 1.0) */\n'
+                '    uint32_t ts367[] = {0, 1, 16, 33, 66, 100, 150, 200, 250, 300, 350, 367};\n'
+                '    for (size_t i = 0; i < sizeof(ts367)/sizeof(ts367[0]); i++) {\n'
+                '        im_fixed s = im_spline_eval_ratio(IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2, ts367[i], 367);\n'
+                '        printf("PVL %u %d\\n", ts367[i], s);\n'
+                '    }\n'
+                '    return 0;\n'
+                '}\n',
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [cc, "-std=c11", f"-I{ROOT / 'ui'}", str(src), str(ROOT / "ui/animate.c"),
+                 str(ROOT / "ui/theme.c"), str(ROOT / "ui/theme_data.c"), "-o", str(exe)],
+                check=True, capture_output=True, text=True, timeout=60,
+            )
+            out = subprocess.run([str(exe)], check=True, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30).stdout
+            s83_count = pvl_count = 0
+            for line in out.strip().splitlines():
+                parts = line.split()
+                if parts[0] == "S83":
+                    t_ms, got_s, got_v = int(parts[1]), int(parts[2]), int(parts[3])
+                    exact_p = self._exact_bezier(0.0, 0.0, 0.0, 1.0, t_ms / 83.0)
+                    want_s = round(exact_p * 65536.0)
+                    want_v = round((12.0 + 2.0 * exact_p) * 65536.0)
+                    self.assertLessEqual(abs(got_s - want_s), 1, f"S83 spline at {t_ms} ms: got={got_s} want={want_s}")
+                    self.assertLessEqual(abs(got_v - want_v), 2, f"S83 track at {t_ms} ms: got={got_v} want={want_v}")
+                    s83_count += 1
+                elif parts[0] == "PVL":
+                    t_ms, got_s = int(parts[1]), int(parts[2])
+                    exact_p = self._exact_bezier(6554 / 65536.0, 58982 / 65536.0, 13107 / 65536.0, 1.0, t_ms / 367.0)
+                    want_s = round(exact_p * 65536.0)
+                    self.assertLessEqual(abs(got_s - want_s), 1, f"PVL spline at {t_ms} ms: got={got_s} want={want_s}")
+                    pvl_count += 1
+            self.assertEqual(s83_count, 14)
+            self.assertEqual(pvl_count, 12)
+
+
 if __name__ == "__main__":
     unittest.main()

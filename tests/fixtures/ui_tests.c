@@ -1,8 +1,10 @@
 /* Exits 0, or with the number of the first check that failed. */
 #include <impossible/base.h>
+#include "animate.h"
 #include "button.h"
 #include "layer.h"
 #include "layout.h"
+#include "states.h"
 #include "template.h"
 
 enum { W = 64, H = 64 };
@@ -1047,6 +1049,486 @@ static int test_clips_and_layers(void) {
     return 0;
 }
 
+static int test_visual_states_and_animation(void) {
+    /* 1. Settled 24-frame Button parity: im_states_draw_button == im_draw_button byte-for-byte. */
+    const im_template_id btn_tpls[3] = {IM_TEMPLATE_BUTTON, IM_TEMPLATE_BUTTON_ACCENT, IM_TEMPLATE_BUTTON_SUBTLE};
+    const im_button_style btn_styles[3] = {IM_BUTTON, IM_BUTTON_ACCENT, IM_BUTTON_SUBTLE};
+    const char *btn_state_names[4] = {"Normal", "PointerOver", "Pressed", "Disabled"};
+    const im_button_state btn_enums[4] = {IM_REST, IM_HOVER, IM_PRESSED, IM_DISABLED};
+    const im_theme themes[2] = {IM_DARK, IM_LIGHT};
+    uint32_t ref_pixels[W * H];
+
+    for (int ti = 0; ti < 2; ti++) {
+        im_palette pal = {themes[ti], {0}};
+        pal.slot[IM_SLOT_ACCENT] = 0xFF0078D4u;
+        pal.slot[IM_SLOT_ACCENT_COLOR_LIGHT_1] = 0xFF429CE3u;
+        pal.slot[IM_SLOT_ACCENT_COLOR_LIGHT_2] = 0xFF60CDFFu;
+        pal.slot[IM_SLOT_ACCENT_COLOR_LIGHT_3] = 0xFF99EBFFu;
+        pal.slot[IM_SLOT_ACCENT_COLOR_DARK_1] = 0xFF005A9Eu;
+        pal.slot[IM_SLOT_ACCENT_COLOR_DARK_2] = 0xFF004578u;
+        pal.slot[IM_SLOT_ACCENT_COLOR_DARK_3] = 0xFF003056u;
+        surface.palette = pal;
+        surface.scale = IM_ONE;
+
+        for (int si = 0; si < 3; si++) {
+            im_state_machine sm;
+            im_states_init(&sm, btn_tpls[si], &pal);
+            for (int st = 0; st < 4; st++) {
+                uint32_t t0 = (uint32_t)(st * 200u);
+                im_states_go_to(&sm, btn_state_names[st], t0);
+                /* Reference frame from im_draw_button. */
+                for (int i = 0; i < W * H; i++) pixels[i] = 0x00202020u;
+                im_draw_button(&surface, box(4, 16, 60, 48), btn_styles[si], btn_enums[st]);
+                for (int i = 0; i < W * H; i++) ref_pixels[i] = pixels[i];
+
+                /* State-machine frame on settled tick (t0 + 83). */
+                for (int i = 0; i < W * H; i++) pixels[i] = 0x00202020u;
+                im_states_draw_button(&sm, &surface, box(4, 16, 60, 48), t0 + 83u);
+                for (int i = 0; i < W * H; i++) {
+                    if (pixels[i] != ref_pixels[i]) return 220;
+                }
+            }
+            /* Also verify Foreground and AnimatedIcon.State setters on Standard/Subtle buttons. */
+            if (si == 0 || si == 2) {
+                im_states_go_to(&sm, "PointerOver", 1000u);
+                im_template_value icon_st, fg_val;
+                if (!im_states_sample_value(&sm, "ContentPresenter", "AnimatedIcon.State", 1000u, &icon_st) ||
+                    icon_st.kind != IM_TVAL_ENUM_STR || !str_eq(icon_st.text, "PointerOver")) return 221;
+                if (!im_states_sample_value(&sm, "ContentPresenter", "Foreground", 1000u, &fg_val) ||
+                    fg_val.kind != IM_TVAL_BRUSH) return 222;
+                im_states_go_to(&sm, "Pressed", 1100u);
+                if (!im_states_sample_value(&sm, "ContentPresenter", "AnimatedIcon.State", 1100u, &icon_st) ||
+                    !str_eq(icon_st.text, "Pressed")) return 223;
+            }
+        }
+    }
+
+    /* 2. Custom-template brush mutation proves im_states_draw_button reads compiled tables (not im_draw_button). */
+    {
+        im_palette pal = {IM_DARK, {0}};
+        pal.slot[IM_SLOT_ACCENT_COLOR_LIGHT_2] = 0xFF60CDFFu;
+        surface.palette = pal;
+        static const im_template_setter custom_setters[] = {
+            {NULL, "Background", {IM_TVAL_BRUSH, IM_BRUSH_ButtonBackground, 0, 0, 0, NULL, NULL}},
+            {NULL, "BackgroundSizing", {IM_TVAL_ENUM_STR, 0, 0, 0, 0, "InnerBorderEdge", NULL}},
+            {NULL, "BorderBrush", {IM_TVAL_BRUSH, IM_BRUSH_ButtonBorderBrush, 0, 0, 0, NULL, NULL}},
+        };
+        static const im_template_prop custom_props[] = {
+            {"Background", {IM_TVAL_TEMPLATE_BINDING, 0, 0, 0, 0, "Background", NULL}},
+            {"BorderBrush", {IM_TVAL_TEMPLATE_BINDING, 0, 0, 0, 0, "BorderBrush", NULL}},
+        };
+        static const im_template_element custom_elems[] = {
+            {IM_ELEM_CONTENT_PRESENTER, "ContentPresenter", -1, 0, 2},
+        };
+        static const im_template_keyframe custom_kfs[] = {
+            {IM_KF_DISCRETE, 0, {IM_TVAL_BRUSH, IM_BRUSH_AccentButtonBackground, 0, 0, 0, NULL, NULL}, {0, 0, 0, 0}},
+        };
+        static const im_template_anim custom_anims[] = {
+            {IM_ANIM_OBJECT_KEYFRAMES, "ContentPresenter", "Background", 0, IM_DIR_NONE, false, false, false,
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, 0, 1},
+        };
+        static const im_template_state custom_states[] = {
+            {"Normal", 0, 0, 0, 0},
+            {"PointerOver", 0, 0, 0, 1},
+        };
+        static const im_template_group custom_groups[] = {
+            {"CommonStates", 0, 2, 0, 0},
+        };
+        static const im_template custom_tpl = {"CustomBtn", "Button", 0, 3, 0, 1, 0, 1};
+        im_template_tables tbls = {custom_setters, custom_elems, custom_props, custom_groups, custom_states, NULL, custom_anims, custom_kfs};
+        im_state_machine csm;
+        im_states_init_custom(&csm, &custom_tpl, &tbls, &pal);
+        im_states_go_to(&csm, "PointerOver", 0u);
+        for (int i = 0; i < W * H; i++) pixels[i] = 0x00202020u;
+        im_states_draw_button(&csm, &surface, box(4, 16, 60, 48), 0u);
+        if (at(32, 32) != 0x0060CDFFu) return 224;
+    }
+
+    /* 3. Standard Dark Button 83 ms ARGB BrushTransition (alpha-only 0x0FFFFFFF -> 0x15FFFFFF) + composited center pixel,
+          plus Accent Button RGB transition, immediate BorderBrush switch, and mid-flight interruption at 40 ms without draw. */
+    {
+        im_palette pal = {IM_DARK, {0}};
+        pal.slot[IM_SLOT_ACCENT_COLOR_LIGHT_2] = 0xFF60CDFFu;
+        pal.slot[IM_SLOT_ACCENT_COLOR_LIGHT_1] = 0xFF429CE3u;
+        surface.palette = pal;
+
+        im_state_machine sm;
+        im_states_init(&sm, IM_TEMPLATE_BUTTON, &pal);
+        im_states_go_to(&sm, "Normal", 0u);
+        uint32_t c0 = im_states_sample_color(&sm, "ContentPresenter", "Background", 0u, 0u);
+        if ((c0 >> 24) != 0x0Fu) return 225;
+
+        im_states_go_to(&sm, "PointerOver", 100u);
+        if (!im_states_is_animating(&sm, 121u)) return 226;
+        uint32_t c21 = im_states_sample_color(&sm, "ContentPresenter", "Background", 121u, 0u);
+        uint32_t c62 = im_states_sample_color(&sm, "ContentPresenter", "Background", 162u, 0u);
+        uint32_t c83 = im_states_sample_color(&sm, "ContentPresenter", "Background", 183u, 0u);
+        if ((c21 >> 24) != 0x11u || (c62 >> 24) != 0x13u || (c83 >> 24) != 0x15u) return 227;
+        if (im_states_is_animating(&sm, 183u)) return 228;
+
+        /* Verify composited center pixel on 0x00202020 changes strictly from 100 -> 121 -> 162 -> 183. */
+        uint32_t px_at[4];
+        const uint32_t ts[4] = {100u, 121u, 162u, 183u};
+        for (int k = 0; k < 4; k++) {
+            for (int i = 0; i < W * H; i++) pixels[i] = 0x00202020u;
+            im_states_draw_button(&sm, &surface, box(4, 16, 60, 48), ts[k]);
+            px_at[k] = at(32, 32) & 0xFFu;
+        }
+        if (!(px_at[0] < px_at[1] && px_at[1] < px_at[2] && px_at[2] < px_at[3])) return 229;
+
+        /* BorderBrush must switch immediately at t = 0 (not animated). */
+        enum im_brush_id bb_id = (enum im_brush_id)0;
+        bool bb_trans = true;
+        if (!im_states_sample_brush(&sm, "ContentPresenter", "BorderBrush", 100u, &bb_id, NULL, &bb_trans)) return 230;
+        if (bb_trans || bb_id != IM_BRUSH_ButtonBorderBrushPointerOver) return 231;
+
+        /* Interrupt mid-flight at 140 ms (PointerOver -> Pressed) WITHOUT any intervening draw. */
+        im_state_machine asm_;
+        im_states_init(&asm_, IM_TEMPLATE_BUTTON_ACCENT, &pal);
+        im_states_go_to(&asm_, "Normal", 0u);
+        im_states_go_to(&asm_, "PointerOver", 100u);
+        uint32_t pre_int = im_states_sample_color(&asm_, "ContentPresenter", "Background", 140u, 0u);
+        im_states_go_to(&asm_, "Pressed", 140u);
+        uint32_t post_int = im_states_sample_color(&asm_, "ContentPresenter", "Background", 140u, 0u);
+        if (pre_int != post_int) return 232;
+        uint32_t settled = im_states_sample_color(&asm_, "ContentPresenter", "Background", 223u, 0u);
+        uint32_t want_pressed = im_brush_over(&pal, IM_BRUSH_AccentButtonBackgroundPressed, 0, IM_ONE, IM_ONE);
+        if (settled != want_pressed) return 233;
+    }
+
+    /* 4. Unsigned 32-bit wrap-safe clock, late clamp, descending track, and IM_CONTRAST color evaluation. */
+    {
+        if (im_anim_elapsed_ms(0xFFFFFFF0u, 0x00000010u) != 32u) return 234;
+        if (im_anim_elapsed_ms(100u, 90u) != 0u) return 235;
+        im_template_keyframe desc_kfs[2] = {
+            {IM_KF_LINEAR_DOUBLE, 0, {IM_TVAL_FIXED, 100 * IM_ONE, 0, 0, 0, NULL, NULL}, {0, 0, 0, 0}},
+            {IM_KF_LINEAR_DOUBLE, 100, {IM_TVAL_FIXED, 20 * IM_ONE, 0, 0, 0, NULL, NULL}, {0, 0, 0, 0}},
+        };
+        im_template_anim desc_anim = {IM_ANIM_DOUBLE_KEYFRAMES, "X", "Y", 0, IM_DIR_NONE, false, false, false,
+            {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
+            {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, 0, 2};
+        im_palette pal = {IM_CONTRAST, {0}};
+        pal.slot[11] = 0xFF112233u;
+        /* Across wrap: start=0xFFFFFFF0, now=0x00000022 -> elapsed=50 ms -> midpoint 60 * IM_ONE. */
+        if (im_anim_eval_fixed(&desc_anim, desc_kfs, &pal, 0, 0xFFFFFFF0u, 0x00000022u, false) != 60 * IM_ONE) return 236;
+        /* Late sample clamps to 20 * IM_ONE. */
+        if (im_anim_eval_fixed(&desc_anim, desc_kfs, &pal, 0, 10u, 500u, false) != 20 * IM_ONE) return 237;
+        /* IM_TVAL_COLOR with IM_CONTRAST slot 11. */
+        im_template_keyframe col_kf = {IM_KF_LINEAR_COLOR, 100,
+            {IM_TVAL_COLOR, (int32_t)0xFF000000u, (int32_t)0xFFFFFFFFu, 0, 11, NULL, NULL}, {0, 0, 0, 0}};
+        im_template_anim col_anim = {IM_ANIM_COLOR_KEYFRAMES, "X", "C", 0, IM_DIR_NONE, false, false, false,
+            {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
+            {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, 0, 1};
+        if (im_anim_eval_color(&col_anim, &col_kf, &pal, 0xFF000000u, 0u, 100u, false) != 0xFF112233u) return 238;
+    }
+
+    /* 5. ToggleSwitch composed knob position (Off->On, On->Off, Dragging->On, unbound default 0) + 2D Reposition X/Y. */
+    {
+        im_palette pal = {IM_DARK, {0}};
+        im_state_machine ts;
+        im_states_init(&ts, IM_TEMPLATE_TOGGLE_SWITCH, &pal);
+        im_states_go_to(&ts, "Normal", 0u);
+        im_states_go_to(&ts, "Off", 0u);
+        im_states_go_to(&ts, "OffContent", 0u);
+
+        /* Unbound offset defaults to 0. */
+        im_states_go_to(&ts, "On", 10u);
+        if (im_states_sample_fixed(&ts, "SwitchKnob", "RepositionX", 10u, 999) != 0) return 239;
+        im_states_go_to(&ts, "Off", 500u);
+
+        /* Off -> On with KnobOffToOnOffset = -20 * IM_ONE. */
+        im_states_set_binding(&ts, "TemplateSettings.KnobOffToOnOffset",
+            (im_template_value){IM_TVAL_FIXED, -20 * IM_ONE, 0, 0, 0, NULL, NULL});
+        im_states_go_to(&ts, "On", 1000u);
+        im_fixed x0 = im_states_sample_fixed(&ts, "KnobTranslateTransform", "X", 1000u, 0)
+                    + im_states_sample_fixed(&ts, "SwitchKnob", "RepositionX", 1000u, 0);
+        im_fixed x100 = im_states_sample_fixed(&ts, "KnobTranslateTransform", "X", 1100u, 0)
+                      + im_states_sample_fixed(&ts, "SwitchKnob", "RepositionX", 1100u, 0);
+        im_fixed x367 = im_states_sample_fixed(&ts, "KnobTranslateTransform", "X", 1367u, 0)
+                      + im_states_sample_fixed(&ts, "SwitchKnob", "RepositionX", 1367u, 0);
+        if (x0 != 0 || !(x100 > 0 && x100 < 20 * IM_ONE) || x367 != 20 * IM_ONE) return 240;
+
+        /* On -> Off with KnobOnToOffOffset = +20 * IM_ONE. */
+        im_states_set_binding(&ts, "TemplateSettings.KnobOnToOffOffset",
+            (im_template_value){IM_TVAL_FIXED, 20 * IM_ONE, 0, 0, 0, NULL, NULL});
+        im_states_go_to(&ts, "Off", 2000u);
+        im_fixed back0 = im_states_sample_fixed(&ts, "KnobTranslateTransform", "X", 2000u, 0)
+                       + im_states_sample_fixed(&ts, "SwitchKnob", "RepositionX", 2000u, 0);
+        im_fixed back367 = im_states_sample_fixed(&ts, "KnobTranslateTransform", "X", 2367u, 0)
+                         + im_states_sample_fixed(&ts, "SwitchKnob", "RepositionX", 2367u, 0);
+        if (back0 != 20 * IM_ONE || back367 != 0) return 241;
+
+        /* Partial drag release Dragging -> On with KnobCurrentToOnOffset = -8 * IM_ONE. */
+        im_states_go_to(&ts, "Dragging", 3000u);
+        im_states_set_binding(&ts, "TemplateSettings.KnobCurrentToOnOffset",
+            (im_template_value){IM_TVAL_FIXED, -8 * IM_ONE, 0, 0, 0, NULL, NULL});
+        im_states_go_to(&ts, "On", 3100u);
+        im_fixed drag0 = im_states_sample_fixed(&ts, "KnobTranslateTransform", "X", 3100u, 0)
+                       + im_states_sample_fixed(&ts, "SwitchKnob", "RepositionX", 3100u, 0);
+        im_fixed drag367 = im_states_sample_fixed(&ts, "KnobTranslateTransform", "X", 3467u, 0)
+                         + im_states_sample_fixed(&ts, "SwitchKnob", "RepositionX", 3467u, 0);
+        if (drag0 != 12 * IM_ONE || drag367 != 20 * IM_ONE) return 242;
+
+        /* Independent groups: changing CommonStates to Pressed must NOT clear ToggleStates="On" or ContentStates="OffContent". */
+        if (!im_states_go_to(&ts, "Pressed", 4000u)) return 243;
+        if (!str_eq(im_states_current(&ts, 1), "On") || !str_eq(im_states_current(&ts, 2), "OffContent")) return 244;
+        /* Repeat and unknown state return false (no-op). */
+        if (im_states_go_to(&ts, "Pressed", 4010u)) return 245;
+        if (im_states_go_to(&ts, "NonExistentState", 4010u)) return 246;
+
+        /* 2D Reposition: literal X (12) and bound Y (-16) animate independently to 0 and snap under reduced_motion. */
+        static const im_template_anim rep2d_anims[] = {
+            {IM_ANIM_REPOSITION_THEME, "Box", NULL, 0, IM_DIR_NONE, true, true, false,
+             {IM_TVAL_FIXED, 12 * IM_ONE, 0, 0, 0, NULL, NULL},
+             {IM_TVAL_BINDING, IM_BIND_TEMPLATED_PARENT, IM_BIND_ONE_WAY, 0, 0, "OffsetY", NULL},
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, 0, 0},
+        };
+        static const im_template_state rep2d_states[] = {
+            {"A", 0, 0, 0, 0},
+            {"B", 0, 0, 0, 1},
+        };
+        static const im_template_group rep2d_groups[] = {{"G", 0, 2, 0, 0}};
+        static const im_template rep2d_tpl = {"Rep2D", "Grid", 0, 0, 0, 0, 0, 1};
+        im_template_tables rep2d_tbls = {NULL, NULL, NULL, rep2d_groups, rep2d_states, NULL, rep2d_anims, NULL};
+        im_state_machine rsm;
+        im_states_init_custom(&rsm, &rep2d_tpl, &rep2d_tbls, &pal);
+        im_states_set_binding(&rsm, "OffsetY", (im_template_value){IM_TVAL_FIXED, -16 * IM_ONE, 0, 0, 0, NULL, NULL});
+        im_states_go_to(&rsm, "B", 100u);
+        if (im_states_sample_fixed(&rsm, "Box", "RepositionX", 100u, 99) != 12 * IM_ONE) return 247;
+        if (im_states_sample_fixed(&rsm, "Box", "RepositionY", 100u, 99) != -16 * IM_ONE) return 248;
+        im_fixed rx_mid = im_states_sample_fixed(&rsm, "Box", "RepositionX", 200u, 99);
+        im_fixed ry_mid = im_states_sample_fixed(&rsm, "Box", "RepositionY", 200u, 99);
+        if (!(rx_mid > 0 && rx_mid < 12 * IM_ONE) || !(ry_mid < 0 && ry_mid > -16 * IM_ONE)) return 249;
+        /* Reduced motion snaps BOTH X and Y immediately to 0. */
+        im_states_set_reduced_motion(&rsm, true, 200u);
+        if (im_states_is_animating(&rsm, 200u)) return 250;
+        if (im_states_sample_fixed(&rsm, "Box", "RepositionX", 200u, 99) != 0 ||
+            im_states_sample_fixed(&rsm, "Box", "RepositionY", 200u, 99) != 0) return 251;
+    }
+
+    /* 6. Wildcard scoring ((NULL,B) beats (A,NULL)), case-insensitive matching, and last-default (NULL,NULL) retention. */
+    {
+        im_palette pal = {IM_DARK, {0}};
+        static const im_template_transition wc_trans[] = {
+            {NULL, NULL, 100, 0, 0},
+            {NULL, NULL, 250, 0, 0}, /* last default must win */
+            {"A", NULL, 150, 0, 0},  /* source-only score 1 */
+            {NULL, "B", 300, 0, 0},  /* dest-only score 2 must beat source-only */
+        };
+        static const im_template_state wc_states[] = {
+            {"A", 0, 0, 0, 0},
+            {"B", 0, 0, 0, 0},
+            {"C", 0, 0, 0, 0},
+        };
+        static const im_template_group wc_groups[] = {{"G", 0, 3, 0, 4}};
+        static const im_template wc_tpl = {"WC", "Grid", 0, 0, 0, 0, 0, 1};
+        im_template_tables wc_tbls = {NULL, NULL, NULL, wc_groups, wc_states, wc_trans, NULL, NULL};
+        im_state_machine wsm;
+        im_states_init_custom(&wsm, &wc_tpl, &wc_tbls, &pal);
+        /* Case-insensitive "a" enters "A". */
+        if (!im_states_go_to(&wsm, "a", 0u)) return 252;
+        /* A -> B: dest-only (NULL, B) = 300 ms beats source-only (A, NULL) = 150 ms. */
+        im_states_go_to(&wsm, "b", 100u);
+        if (!im_states_is_animating(&wsm, 350u) || im_states_is_animating(&wsm, 400u)) return 253;
+        /* B -> C: no specific match -> LAST default (250 ms, not 100 ms) wins. */
+        im_states_go_to(&wsm, "C", 500u);
+        if (!im_states_is_animating(&wsm, 700u) || im_states_is_animating(&wsm, 750u)) return 254;
+    }
+
+    /* 7. TextBox Focused -> Normal with and without PlaceholderForeground binding + nested DeleteButton press. */
+    {
+        im_palette pal = {IM_DARK, {0}};
+        im_state_machine tb;
+        im_states_init(&tb, IM_TEMPLATE_TEXT_BOX, &pal);
+        im_states_go_to(&tb, "Normal", 0u);
+        enum im_brush_id ph = (enum im_brush_id)0;
+        if (!im_states_sample_brush(&tb, "PlaceholderTextContentPresenter", "Foreground", 0u, &ph, NULL, NULL) ||
+            ph != IM_BRUSH_TextControlPlaceholderForeground) return 255;
+        im_states_go_to(&tb, "Focused", 10u);
+        if (!im_states_sample_brush(&tb, "PlaceholderTextContentPresenter", "Foreground", 10u, &ph, NULL, NULL) ||
+            ph != IM_BRUSH_TextControlPlaceholderForegroundFocused) return 256;
+        /* Nested DeleteButton (template index 5) presses independently while TextBox stays Focused. */
+        im_state_machine del_btn;
+        im_states_init(&del_btn, (im_template_id)5, &pal);
+        im_states_go_to(&del_btn, "Pressed", 20u);
+        enum im_brush_id del_bg = (enum im_brush_id)0, tb_border = (enum im_brush_id)0;
+        if (!im_states_sample_brush(&del_btn, "ButtonLayoutGrid", "Background", 20u, &del_bg, NULL, NULL) ||
+            del_bg != IM_BRUSH_TextControlButtonBackgroundPressed) return 257;
+        if (!im_states_sample_brush(&tb, "BorderElement", "BorderBrush", 20u, &tb_border, NULL, NULL) ||
+            tb_border != IM_BRUSH_TextControlBorderBrushFocused) return 258;
+        /* Returning TextBox to Normal restores base fallback brush. */
+        im_states_go_to(&tb, "Normal", 30u);
+        if (!im_states_sample_brush(&tb, "PlaceholderTextContentPresenter", "Foreground", 30u, &ph, NULL, NULL) ||
+            ph != IM_BRUSH_TextControlPlaceholderForeground) return 259;
+
+        /* Now with caller-supplied PlaceholderForeground binding: stays caller brush before, during, and after Focused. */
+        im_states_set_binding(&tb, "PlaceholderForeground",
+            (im_template_value){IM_TVAL_BRUSH, IM_BRUSH_AccentButtonBackground, 0, 0, 0, NULL, NULL});
+        if (!im_states_sample_brush(&tb, "PlaceholderTextContentPresenter", "Foreground", 40u, &ph, NULL, NULL) ||
+            ph != IM_BRUSH_AccentButtonBackground) return 260;
+        im_states_go_to(&tb, "Focused", 50u);
+        if (!im_states_sample_brush(&tb, "PlaceholderTextContentPresenter", "Foreground", 50u, &ph, NULL, NULL) ||
+            ph != IM_BRUSH_AccentButtonBackground) return 261;
+        im_states_go_to(&tb, "Normal", 60u);
+        if (!im_states_sample_brush(&tb, "PlaceholderTextContentPresenter", "Foreground", 60u, &ph, NULL, NULL) ||
+            ph != IM_BRUSH_AccentButtonBackground) return 262;
+    }
+
+    /* 8. ListViewItemExpanded: DisabledStates, MultiSelectStates (333 ms Visibility), DataVirtualizationStates,
+          ReorderHintStates (DragOver + 200 ms NoReorderHint), DragStates (DragItem, FadeIn/Out, DropTarget + 200 ms NotDragging). */
+    {
+        im_palette pal = {IM_DARK, {0}};
+        im_state_machine lv;
+        im_states_init(&lv, IM_TEMPLATE_LIST_VIEW_ITEM_EXPANDED, &pal);
+        im_states_go_to(&lv, "Normal", 0u);
+        im_states_go_to(&lv, "Enabled", 0u);
+        im_states_go_to(&lv, "MultiSelectDisabled", 0u);
+        im_states_go_to(&lv, "DataAvailable", 0u);
+        im_states_go_to(&lv, "NoReorderHint", 0u);
+        im_states_go_to(&lv, "NotDragging", 0u);
+
+        /* DisabledStates */
+        im_states_go_to(&lv, "Disabled", 10u);
+        im_fixed dis_op = im_states_sample_fixed(&lv, "ContentBorder", "Opacity", 10u, IM_ONE);
+        if (dis_op != im_value(&pal, IM_VALUE_ListViewItemDisabledThemeOpacity)[0]) return 263;
+        im_states_go_to(&lv, "Enabled", 20u);
+        im_template_value op_check;
+        if (im_states_sample_value(&lv, "ContentBorder", "Opacity", 20u, &op_check)) return 264;
+        if (im_states_sample_fixed(&lv, "ContentBorder", "Opacity", 20u, IM_ONE) != IM_ONE) return 264;
+
+        /* MultiSelectStates: delayed Collapsed at 333 ms. */
+        im_states_go_to(&lv, "MultiSelectEnabled", 100u);
+        im_template_value vis;
+        if (!im_states_sample_value(&lv, "MultiSelectSquare", "Visibility", 100u, &vis) ||
+            !str_eq(vis.text, "Visible")) return 265;
+        im_states_go_to(&lv, "MultiSelectDisabled", 500u);
+        if (!im_states_sample_value(&lv, "MultiSelectSquare", "Visibility", 832u, &vis) ||
+            !str_eq(vis.text, "Visible")) return 266;
+        if (!im_states_sample_value(&lv, "MultiSelectSquare", "Visibility", 833u, &vis) ||
+            !str_eq(vis.text, "Collapsed")) return 267;
+
+        /* DataVirtualizationStates */
+        im_states_go_to(&lv, "DataPlaceholder", 900u);
+        if (!im_states_sample_value(&lv, "PlaceholderTextBlock", "Visibility", 900u, &vis) ||
+            !str_eq(vis.text, "Visible")) return 268;
+        if (!im_states_sample_value(&lv, "PlaceholderRect", "Visibility", 900u, &vis) ||
+            !str_eq(vis.text, "Visible")) return 268;
+        im_states_go_to(&lv, "DataAvailable", 910u);
+        if (!im_states_sample_value(&lv, "PlaceholderRect", "Visibility", 910u, &vis) ||
+            !str_eq(vis.text, "Collapsed")) return 269;
+
+        /* ReorderHintStates: Bottom (+Y), Top (-Y), Left (-X), Right (+X), and 200 ms generated return to NoReorderHint. */
+        im_fixed hint_off = im_value(&pal, IM_VALUE_ListViewItemReorderHintThemeOffset)[0];
+        im_states_go_to(&lv, "BottomReorderHint", 1000u);
+        if (im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1167u, 0) != hint_off) return 270;
+        im_states_go_to(&lv, "TopReorderHint", 1200u);
+        if (im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1367u, 0) != -hint_off) return 271;
+        im_states_go_to(&lv, "NoReorderHint", 1500u);
+        im_fixed ret_mid_y = im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1600u, 99);
+        im_fixed ret_end_y = im_states_sample_fixed(&lv, "ContentBorder", "DragOverY", 1700u, 99);
+        if (!(ret_mid_y < 0 && ret_mid_y > -hint_off) || ret_end_y != 0) return 272;
+
+        /* DragStates: MultipleDraggingPrimary (DragItem + FadeIn), ReorderedPlaceholder (FadeOut), DragOver (DropTarget),
+           and 200 ms generated return to NotDragging. */
+        im_states_go_to(&lv, "MultipleDraggingPrimary", 2000u);
+        if (im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 2167u, 0) != IM_DRAG_ITEM_SCALE) return 273;
+        if (im_states_sample_fixed(&lv, "MultiArrangeOverlayText", "Opacity", 2167u, 0) != IM_ONE) return 274;
+        im_states_go_to(&lv, "NotDragging", 2500u);
+        im_fixed nd_mid = im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 2600u, 0);
+        im_fixed nd_end = im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 2700u, 0);
+        if (!(nd_mid > IM_DRAG_ITEM_SCALE && nd_mid < IM_ONE) || nd_end != IM_ONE) return 275;
+        im_states_go_to(&lv, "ReorderedPlaceholder", 3000u);
+        if (im_states_sample_fixed(&lv, "ContentBorder", "Opacity", 3167u, IM_ONE) != 0) return 276;
+        im_states_go_to(&lv, "DragOver", 3200u);
+        if (im_states_sample_fixed(&lv, "ContentBorder", "ScaleX", 3367u, 0) != IM_ONE) return 277;
+    }
+
+    /* 9. im_states_apply_to_tree connects layout-affecting visual states to im_tree without losing local values. */
+    {
+        layer_alloc_rec rec = {0};
+        rec.used = 0;
+        im_allocator alloc = {la_alloc, la_realloc, la_free, &rec};
+        im_palette pal = {IM_DARK, {0}};
+        im_tree tree;
+        if (!im_tree_init(&tree, alloc)) return 278;
+        im_node *ts_root = im_tree_instantiate_template(&tree, &pal, IM_TEMPLATE_TOGGLE_SWITCH, "TS");
+        if (!ts_root) return 279;
+        tree.root = ts_root;
+        im_node *knob_on = im_tree_find_by_name(ts_root, "SwitchKnobOn");
+        if (!knob_on) return 280;
+        /* Set a distinct caller local width (15 * IM_ONE) on SwitchKnobOn before applying Pressed state (17 * IM_ONE). */
+        im_node_set_size(knob_on, 15 * IM_ONE, 15 * IM_ONE);
+        im_layout_measure(&tree, ts_root, (im_size){200 * IM_ONE, 100 * IM_ONE}, IM_ONE);
+        im_layout_arrange(&tree, ts_root, box(0, 0, 200, 100), IM_ONE);
+        if ((knob_on->layout_rect.right - knob_on->layout_rect.left) != 15 * IM_ONE) return 281;
+
+        im_state_machine sm;
+        im_states_init(&sm, IM_TEMPLATE_TOGGLE_SWITCH, &pal);
+        im_states_go_to(&sm, "Pressed", 0u);
+        im_states_apply_to_tree(&sm, ts_root, 83u);
+        im_layout_measure(&tree, ts_root, (im_size){200 * IM_ONE, 100 * IM_ONE}, IM_ONE);
+        im_layout_arrange(&tree, ts_root, box(0, 0, 200, 100), IM_ONE);
+        if ((knob_on->layout_rect.right - knob_on->layout_rect.left) != 17 * IM_ONE) return 282;
+
+        /* Re-init empty state machine (no active Pressed override) -> local 15 * IM_ONE must restore cleanly! */
+        im_states_init(&sm, IM_TEMPLATE_TOGGLE_SWITCH, &pal);
+        im_states_apply_to_tree(&sm, ts_root, 200u);
+        im_layout_measure(&tree, ts_root, (im_size){200 * IM_ONE, 100 * IM_ONE}, IM_ONE);
+        im_layout_arrange(&tree, ts_root, box(0, 0, 200, 100), IM_ONE);
+        if ((knob_on->layout_rect.right - knob_on->layout_rect.left) != 15 * IM_ONE) return 283;
+        im_tree_destroy(&tree);
+        if (rec.live_allocs != 0 || rec.live_bytes != 0) return 284;
+
+        /* Also verify ListViewItemExpanded MultiSelectSquare Visibility toggles layout via im_states_apply_to_tree. */
+        rec.used = 0;
+        if (!im_tree_init(&tree, alloc)) return 290;
+        im_node *lv_root = im_tree_instantiate_template(&tree, &pal, IM_TEMPLATE_LIST_VIEW_ITEM_EXPANDED, "LV");
+        if (!lv_root) return 291;
+        tree.root = lv_root;
+        im_node *ms_sq = im_tree_find_by_name(lv_root, "MultiSelectSquare");
+        if (!ms_sq) return 292;
+        im_layout_measure(&tree, lv_root, (im_size){200 * IM_ONE, 40 * IM_ONE}, IM_ONE);
+        if (ms_sq->visibility != IM_VIS_COLLAPSED || ms_sq->desired_size.width != 0) return 293;
+        im_states_init(&sm, IM_TEMPLATE_LIST_VIEW_ITEM_EXPANDED, &pal);
+        im_states_go_to(&sm, "MultiSelectEnabled", 0u);
+        im_states_apply_to_tree(&sm, lv_root, 0u);
+        im_layout_measure(&tree, lv_root, (im_size){200 * IM_ONE, 40 * IM_ONE}, IM_ONE);
+        if (ms_sq->visibility != IM_VIS_VISIBLE || ms_sq->desired_size.width == 0) return 294;
+        im_states_go_to(&sm, "MultiSelectDisabled", 100u);
+        im_states_apply_to_tree(&sm, lv_root, 433u);
+        im_layout_measure(&tree, lv_root, (im_size){200 * IM_ONE, 40 * IM_ONE}, IM_ONE);
+        if (ms_sq->visibility != IM_VIS_COLLAPSED || ms_sq->desired_size.width != 0) return 295;
+        im_tree_destroy(&tree);
+        if (rec.live_allocs != 0 || rec.live_bytes != 0) return 296;
+    }
+
+    /* 10. Reduced motion: snap on entry, snap mid-flight, and re-enable for subsequent transitions. */
+    {
+        im_palette pal = {IM_DARK, {0}};
+        im_state_machine sm;
+        im_states_init(&sm, IM_TEMPLATE_BUTTON, &pal);
+        im_states_set_reduced_motion(&sm, true, 0u);
+        im_states_go_to(&sm, "Normal", 0u);
+        im_states_go_to(&sm, "PointerOver", 100u);
+        if (im_states_is_animating(&sm, 100u)) return 285;
+        uint32_t want_po = im_brush_over(&pal, IM_BRUSH_ButtonBackgroundPointerOver, 0, IM_ONE, IM_ONE);
+        if (im_states_sample_color(&sm, "ContentPresenter", "Background", 100u, 0u) != want_po) return 286;
+
+        /* Re-enable animation: next transition must animate normally. */
+        im_states_set_reduced_motion(&sm, false, 200u);
+        im_states_go_to(&sm, "Pressed", 200u);
+        if (!im_states_is_animating(&sm, 220u)) return 287;
+        /* Mid-flight reduced_motion snaps immediately. */
+        im_states_set_reduced_motion(&sm, true, 220u);
+        if (im_states_is_animating(&sm, 220u)) return 288;
+        uint32_t want_pr = im_brush_over(&pal, IM_BRUSH_ButtonBackgroundPressed, 0, IM_ONE, IM_ONE);
+        if (im_states_sample_color(&sm, "ContentPresenter", "Background", 220u, 0u) != want_pr) return 289;
+    }
+
+    return 0;
+}
+
 int im_main(void) {
     const im_radii square = {0}, round = {4 * IM_ONE, 4 * IM_ONE, 4 * IM_ONE, 4 * IM_ONE};
     const enum im_brush_id white = IM_BRUSH_TextFillColorPrimaryBrush; /* #FFFFFF in the dark theme */
@@ -1178,5 +1660,7 @@ int im_main(void) {
     if (r != 0) return r;
     r = test_tree_and_layout();
     if (r != 0) return r;
-    return test_clips_and_layers();
+    r = test_clips_and_layers();
+    if (r != 0) return r;
+    return test_visual_states_and_animation();
 }

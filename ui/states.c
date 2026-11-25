@@ -1,0 +1,951 @@
+/* Impossible UI: compiled WinUI visual state groups, transitions and setters. Portable. */
+#include "states.h"
+
+static bool str_eq(const char *a, const char *b) {
+    if (a == b) return true;
+    if (!a || !b) return false;
+    while (*a && *b) {
+        if (*a != *b) return false;
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
+static char ascii_lower(char c) {
+    if (c >= 'A' && c <= 'Z') return (char)(c + ('a' - 'A'));
+    return c;
+}
+
+static bool str_ieq(const char *a, const char *b) {
+    if (a == b) return true;
+    if (!a || !b) return false;
+    while (*a && *b) {
+        if (ascii_lower(*a) != ascii_lower(*b)) return false;
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
+static bool target_matches(const char *entry_target, const char *query_target) {
+    if (str_eq(entry_target, query_target)) return true;
+    if (!entry_target || !query_target) return false;
+    size_t i = 0;
+    while (query_target[i] != '\0') {
+        if (entry_target[i] != query_target[i]) return false;
+        i++;
+    }
+    return entry_target[i] == '.';
+}
+
+static bool prop_matches(const char *entry_prop, const char *query_prop) {
+    if (str_eq(entry_prop, query_prop)) return true;
+    if (!entry_prop || !query_prop) return false;
+    if ((str_eq(entry_prop, "(Shape.Stroke).(SolidColorBrush.Color)") && str_eq(query_prop, "Stroke")) ||
+        (str_eq(query_prop, "(Shape.Stroke).(SolidColorBrush.Color)") && str_eq(entry_prop, "Stroke"))) {
+        return true;
+    }
+    if ((str_eq(entry_prop, "(Shape.Fill).(SolidColorBrush.Color)") && str_eq(query_prop, "Fill")) ||
+        (str_eq(query_prop, "(Shape.Fill).(SolidColorBrush.Color)") && str_eq(entry_prop, "Fill"))) {
+        return true;
+    }
+    if ((str_eq(entry_prop, "(Panel.Background).(SolidColorBrush.Color)") && str_eq(query_prop, "Background")) ||
+        (str_eq(query_prop, "(Panel.Background).(SolidColorBrush.Color)") && str_eq(entry_prop, "Background"))) {
+        return true;
+    }
+    return false;
+}
+
+static bool resolve_theme_resource_fallback(const char *fallback, im_template_value *out_val) {
+    if (!fallback || !out_val) return false;
+    if (str_eq(fallback, "{ThemeResource TextControlPlaceholderForeground}")) {
+        *out_val = (im_template_value){IM_TVAL_BRUSH, IM_BRUSH_TextControlPlaceholderForeground, 0, 0, 0, NULL, NULL};
+        return true;
+    }
+    if (str_eq(fallback, "{ThemeResource TextControlPlaceholderForegroundDisabled}")) {
+        *out_val = (im_template_value){IM_TVAL_BRUSH, IM_BRUSH_TextControlPlaceholderForegroundDisabled, 0, 0, 0, NULL, NULL};
+        return true;
+    }
+    if (str_eq(fallback, "{ThemeResource TextControlPlaceholderForegroundFocused}")) {
+        *out_val = (im_template_value){IM_TVAL_BRUSH, IM_BRUSH_TextControlPlaceholderForegroundFocused, 0, 0, 0, NULL, NULL};
+        return true;
+    }
+    if (str_eq(fallback, "{ThemeResource TextControlPlaceholderForegroundPointerOver}")) {
+        *out_val = (im_template_value){IM_TVAL_BRUSH, IM_BRUSH_TextControlPlaceholderForegroundPointerOver, 0, 0, 0, NULL, NULL};
+        return true;
+    }
+    return false;
+}
+
+static bool resolve_binding(const im_state_machine *sm, const im_template_value *val, im_template_value *out_val) {
+    if (!sm || !val || !out_val) return false;
+    if (val->kind != IM_TVAL_BINDING) {
+        *out_val = *val;
+        return true;
+    }
+    if (val->text) {
+        for (uint32_t i = 0; i < sm->binding_count; i++) {
+            if (str_eq(sm->bindings[i].name, val->text)) {
+                *out_val = sm->bindings[i].value;
+                return true;
+            }
+        }
+    }
+    if (val->fallback && resolve_theme_resource_fallback(val->fallback, out_val)) {
+        return true;
+    }
+    /* Unbound numeric TemplateSettings offsets default cleanly to 0. */
+    *out_val = (im_template_value){IM_TVAL_FIXED, 0, 0, 0, 0, NULL, NULL};
+    return true;
+}
+
+static bool find_style_setter(const im_state_machine *sm, const char *property, im_template_value *out_val) {
+    if (!sm || !sm->tmpl || !sm->tables.setters || !property || !out_val) return false;
+    uint16_t start = sm->tmpl->style_setter_start;
+    uint16_t count = sm->tmpl->style_setter_count;
+    bool found = false;
+    for (uint16_t i = 0; i < count; i++) {
+        const im_template_setter *s = &sm->tables.setters[start + i];
+        if (s->target == NULL && str_eq(s->property, property)) {
+            *out_val = s->value;
+            found = true;
+        }
+    }
+    return found;
+}
+
+static bool find_element_base_prop(const im_state_machine *sm, const char *target, const char *property, im_template_value *out_val) {
+    if (!sm || !sm->tmpl || !property || !out_val) return false;
+    if (target == NULL) {
+        return find_style_setter(sm, property, out_val);
+    }
+    if (!sm->tables.elements || !sm->tables.props) return false;
+    uint16_t estart = sm->tmpl->elem_start;
+    uint16_t ecount = sm->tmpl->elem_count;
+    for (uint16_t i = 0; i < ecount; i++) {
+        const im_template_element *e = &sm->tables.elements[estart + i];
+        if (!str_eq(e->name, target)) continue;
+        for (uint16_t p = 0; p < e->prop_count; p++) {
+            const im_template_prop *pr = &sm->tables.props[e->prop_start + p];
+            if (!prop_matches(pr->name, property)) continue;
+            if (pr->value.kind == IM_TVAL_TEMPLATE_BINDING && pr->value.text) {
+                return find_style_setter(sm, pr->value.text, out_val);
+            }
+            if (pr->value.kind == IM_TVAL_BINDING) {
+                return resolve_binding(sm, &pr->value, out_val);
+            }
+            *out_val = pr->value;
+            return true;
+        }
+    }
+    return false;
+}
+
+static im_fixed default_base_fixed(const im_state_machine *sm, const char *target, const char *property) {
+    im_template_value val;
+    if (find_element_base_prop(sm, target, property, &val)) {
+        return im_template_value_to_fixed(&val, &sm->palette, 0);
+    }
+    if (str_eq(property, "Opacity") || str_eq(property, "ScaleX") || str_eq(property, "ScaleY")) {
+        return IM_ONE;
+    }
+    return 0;
+}
+
+static uint32_t default_base_color(const im_state_machine *sm, const char *target, const char *property) {
+    im_template_value val;
+    if (find_element_base_prop(sm, target, property, &val)) {
+        return im_template_value_to_argb(&val, &sm->palette);
+    }
+    return 0u;
+}
+
+static bool entry_eval_value(const im_state_machine *sm, const im_state_entry *e, uint32_t now_ms, im_template_value *out_val) {
+    if (!sm || !e || !out_val) return false;
+    bool rm = sm->reduced_motion || e->snapped;
+    switch (e->kind) {
+    case IM_SENTRY_SETTER:
+        return resolve_binding(sm, &e->setter_val, out_val);
+    case IM_SENTRY_GEN_FIXED: {
+        uint32_t el = im_anim_elapsed_ms(e->start_ms, now_ms);
+        im_fixed v = (rm || e->duration_ms == 0u || el >= e->duration_ms)
+            ? e->end_fixed
+            : im_lerp_fixed_ratio(e->start_fixed, e->end_fixed, el, e->duration_ms);
+        *out_val = (im_template_value){IM_TVAL_FIXED, v, 0, 0, 0, NULL, NULL};
+        return true;
+    }
+    case IM_SENTRY_GEN_COLOR: {
+        uint32_t el = im_anim_elapsed_ms(e->start_ms, now_ms);
+        uint32_t c = (rm || e->duration_ms == 0u || el >= e->duration_ms)
+            ? e->end_argb
+            : im_lerp_argb_ratio(e->start_argb, e->end_argb, el, e->duration_ms);
+        *out_val = (im_template_value){IM_TVAL_COLOR, (int32_t)c, (int32_t)c, (int32_t)c, -1, NULL, NULL};
+        return true;
+    }
+    case IM_SENTRY_ANIM: {
+        if (!e->anim) return false;
+        if (e->anim->kind == IM_ANIM_OBJECT_KEYFRAMES) {
+            im_template_value raw;
+            if (!im_anim_eval_object(e->anim, sm->tables.keyframes, e->start_ms, now_ms, rm, &raw)) {
+                return false;
+            }
+            return resolve_binding(sm, &raw, out_val);
+        }
+        if (e->anim->kind == IM_ANIM_COLOR_KEYFRAMES) {
+            uint32_t c = im_anim_eval_color(e->anim, sm->tables.keyframes, &sm->palette, e->start_argb, e->start_ms, now_ms, rm);
+            *out_val = (im_template_value){IM_TVAL_COLOR, (int32_t)c, (int32_t)c, (int32_t)c, -1, NULL, NULL};
+            return true;
+        }
+        if (e->anim->kind == IM_ANIM_DROP_TARGET_THEME &&
+            (str_eq(e->property, "DragOverX") || str_eq(e->property, "DragOverY"))) {
+            uint32_t dur = e->duration_ms;
+            uint32_t el = im_anim_elapsed_ms(e->start_ms, now_ms);
+            im_fixed v = (rm || dur == 0u || el >= dur)
+                ? 0
+                : im_lerp_fixed(e->start_fixed, 0, im_spline_eval_ratio(IM_PVL_SPLINE_X1, IM_PVL_SPLINE_Y1, IM_PVL_SPLINE_X2, IM_PVL_SPLINE_Y2, el, dur));
+            *out_val = (im_template_value){IM_TVAL_FIXED, v, 0, 0, 0, NULL, NULL};
+            return true;
+        }
+        im_fixed v = im_anim_eval_fixed(e->anim, sm->tables.keyframes, &sm->palette, e->start_fixed, e->start_ms, now_ms, rm);
+        *out_val = (im_template_value){IM_TVAL_FIXED, v, 0, 0, 0, NULL, NULL};
+        return true;
+    }
+    }
+    return false;
+}
+
+static bool entry_is_active(const im_state_machine *sm, const im_state_entry *e, uint32_t now_ms) {
+    if (!sm || !e || sm->reduced_motion || e->snapped) return false;
+    if (e->duration_ms == 0u) return false;
+    return im_anim_elapsed_ms(e->start_ms, now_ms) < e->duration_ms;
+}
+
+static void detect_brush_transition(im_state_machine *sm) {
+    sm->has_bg_transition = false;
+    sm->bg_target = NULL;
+    if (!sm || !sm->tmpl || !sm->tables.elements) return;
+    uint16_t estart = sm->tmpl->elem_start;
+    uint16_t ecount = sm->tmpl->elem_count;
+    for (uint16_t i = 0; i < ecount; i++) {
+        const im_template_element *e = &sm->tables.elements[estart + i];
+        if (e->kind != IM_ELEM_BRUSH_TRANSITION) continue;
+        if (e->parent < 0 || e->parent >= (int32_t)ecount) continue;
+        const im_template_element *parent = &sm->tables.elements[estart + e->parent];
+        uint32_t dur = IM_BRUSH_TRANSITION_DURATION_MS;
+        if (sm->tables.props) {
+            for (uint16_t p = 0; p < e->prop_count; p++) {
+                const im_template_prop *pr = &sm->tables.props[e->prop_start + p];
+                if (str_eq(pr->name, "Duration") && pr->value.kind == IM_TVAL_DURATION_MS) {
+                    dur = (uint32_t)pr->value.a;
+                }
+            }
+        }
+        im_template_value base_bg;
+        enum im_brush_id init_brush = (enum im_brush_id)0;
+        uint32_t init_argb = 0u;
+        if (find_element_base_prop(sm, parent->name, "Background", &base_bg) && base_bg.kind == IM_TVAL_BRUSH) {
+            init_brush = (enum im_brush_id)base_bg.a;
+            init_argb = im_template_value_to_argb(&base_bg, &sm->palette);
+        }
+        sm->has_bg_transition = true;
+        sm->bg_target = parent->name;
+        im_brush_transition_init(&sm->bg_transition, init_brush, init_argb, dur);
+        return;
+    }
+}
+
+void im_states_init_custom(im_state_machine *sm, const im_template *tmpl, const im_template_tables *tables, const im_palette *palette) {
+    if (!sm) return;
+    uint8_t *raw = (uint8_t *)sm;
+    for (size_t i = 0; i < sizeof(*sm); i++) raw[i] = 0;
+    sm->tmpl = tmpl;
+    if (tables) {
+        sm->tables = *tables;
+    } else {
+        sm->tables.setters = im_template_setters;
+        sm->tables.elements = im_template_elements;
+        sm->tables.props = im_template_props;
+        sm->tables.groups = im_template_groups;
+        sm->tables.states = im_template_states;
+        sm->tables.transitions = im_template_transitions;
+        sm->tables.anims = im_template_anims;
+        sm->tables.keyframes = im_template_keyframes;
+    }
+    if (palette) sm->palette = *palette;
+    for (uint32_t g = 0; g < IM_MAX_STATE_GROUPS; g++) {
+        sm->group_state[g] = -1;
+    }
+    detect_brush_transition(sm);
+}
+
+void im_states_init(im_state_machine *sm, im_template_id id, const im_palette *palette) {
+    if (!sm) return;
+    if ((int)id < 0 || id >= IM_TEMPLATE_COUNT) {
+        im_states_init_custom(sm, NULL, NULL, palette);
+        return;
+    }
+    im_states_init_custom(sm, &im_templates[id], NULL, palette);
+}
+
+bool im_states_set_binding(im_state_machine *sm, const char *name, im_template_value value) {
+    if (!sm || !name) return false;
+    for (uint32_t i = 0; i < sm->binding_count; i++) {
+        if (str_eq(sm->bindings[i].name, name)) {
+            sm->bindings[i].value = value;
+            return true;
+        }
+    }
+    if (sm->binding_count >= IM_MAX_STATE_BINDINGS) return false;
+    sm->bindings[sm->binding_count].name = name;
+    sm->bindings[sm->binding_count].value = value;
+    sm->binding_count++;
+    return true;
+}
+
+void im_states_clear_binding(im_state_machine *sm, const char *name) {
+    if (!sm || !name) return;
+    for (uint32_t i = 0; i < sm->binding_count; i++) {
+        if (str_eq(sm->bindings[i].name, name)) {
+            for (uint32_t j = i + 1u; j < sm->binding_count; j++) {
+                sm->bindings[j - 1u] = sm->bindings[j];
+            }
+            sm->binding_count--;
+            return;
+        }
+    }
+}
+
+void im_states_set_reduced_motion(im_state_machine *sm, bool reduced_motion, uint32_t now_ms) {
+    (void)now_ms;
+    if (!sm) return;
+    sm->reduced_motion = reduced_motion;
+    if (reduced_motion) {
+        for (uint32_t i = 0; i < sm->entry_count; i++) {
+            sm->entries[i].snapped = true;
+        }
+        for (uint32_t g = 0; g < IM_MAX_STATE_GROUPS; g++) {
+            sm->group_trans_snapped[g] = true;
+        }
+        if (sm->has_bg_transition) {
+            sm->bg_transition.from_argb = sm->bg_transition.to_argb;
+            sm->bg_transition.active = false;
+        }
+    }
+}
+
+/* WinUI VisualStateManager.cpp:219-252 transition selection:
+   - case-insensitive state name matching
+   - retains the LAST default (NULL, NULL) transition
+   - strict '>' first-win across non-default matches: (from,to)=3, (NULL,to)=2, (from,NULL)=1 */
+static const im_template_transition *select_transition(const im_state_machine *sm, const im_template_group *grp,
+    const char *from_name, const char *to_name) {
+    if (!sm || !grp || !sm->tables.transitions) return NULL;
+    const im_template_transition *default_trans = NULL;
+    const im_template_transition *best_trans = NULL;
+    int best_score = 0;
+    for (uint16_t i = 0; i < grp->trans_count; i++) {
+        const im_template_transition *tr = &sm->tables.transitions[grp->trans_start + i];
+        if (tr->from_state == NULL && tr->to_state == NULL) {
+            default_trans = tr;
+            continue;
+        }
+        int score = 0;
+        if (tr->from_state != NULL && tr->to_state != NULL) {
+            if (from_name && to_name && str_ieq(tr->from_state, from_name) && str_ieq(tr->to_state, to_name)) {
+                score = 3;
+            }
+        } else if (tr->from_state == NULL && tr->to_state != NULL) {
+            if (to_name && str_ieq(tr->to_state, to_name)) {
+                score = 2;
+            }
+        } else if (tr->from_state != NULL && tr->to_state == NULL) {
+            if (from_name && str_ieq(tr->from_state, from_name)) {
+                score = 1;
+            }
+        }
+        if (score > best_score) {
+            best_score = score;
+            best_trans = tr;
+        }
+    }
+    return best_trans ? best_trans : default_trans;
+}
+
+static bool add_entry(im_state_machine *sm, im_state_entry entry) {
+    if (!sm || sm->entry_count >= IM_MAX_STATE_ENTRIES) return false;
+    sm->entries[sm->entry_count++] = entry;
+    return true;
+}
+
+static void add_anim_entries(im_state_machine *sm, uint8_t group_index, bool from_transition,
+    const im_template_anim *anim, uint32_t now_ms) {
+    if (!sm || !anim) return;
+    uint32_t dur = im_anim_duration_ms(anim, sm->tables.keyframes);
+
+    if (anim->kind == IM_ANIM_REPOSITION_THEME) {
+        if (anim->has_from) {
+            im_template_value resolved;
+            resolve_binding(sm, &anim->from_val, &resolved);
+            im_fixed sx = im_template_value_to_fixed(&resolved, &sm->palette, 0);
+            im_state_entry e = {
+                .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+                .snapped = sm->reduced_motion, .target = anim->target_name, .property = "RepositionX",
+                .anim = anim, .start_fixed = sx, .end_fixed = 0, .start_ms = now_ms, .duration_ms = dur
+            };
+            add_entry(sm, e);
+        }
+        if (anim->has_from_y) {
+            im_template_value resolved;
+            resolve_binding(sm, &anim->from_y_val, &resolved);
+            im_fixed sy = im_template_value_to_fixed(&resolved, &sm->palette, 0);
+            im_state_entry e = {
+                .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+                .snapped = sm->reduced_motion, .target = anim->target_name, .property = "RepositionY",
+                .anim = anim, .start_fixed = sy, .end_fixed = 0, .start_ms = now_ms, .duration_ms = dur
+            };
+            add_entry(sm, e);
+        }
+        return;
+    }
+
+    if (anim->kind == IM_ANIM_DRAG_OVER_THEME) {
+        const char *prop = (anim->direction == IM_DIR_TOP || anim->direction == IM_DIR_BOTTOM) ? "DragOverY" : "DragOverX";
+        im_fixed cur = im_states_sample_fixed(sm, anim->target_name, prop, now_ms, 0);
+        im_state_entry e = {
+            .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+            .snapped = sm->reduced_motion, .target = anim->target_name, .property = prop,
+            .anim = anim, .start_fixed = cur, .start_ms = now_ms, .duration_ms = dur
+        };
+        add_entry(sm, e);
+        return;
+    }
+
+    if (anim->kind == IM_ANIM_DRAG_ITEM_THEME) {
+        const char *axes[2] = {"ScaleX", "ScaleY"};
+        for (int a = 0; a < 2; a++) {
+            im_fixed cur = im_states_sample_fixed(sm, anim->target_name, axes[a], now_ms, IM_ONE);
+            im_state_entry e = {
+                .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+                .snapped = sm->reduced_motion, .target = anim->target_name, .property = axes[a],
+                .anim = anim, .start_fixed = cur, .start_ms = now_ms, .duration_ms = dur
+            };
+            add_entry(sm, e);
+        }
+        return;
+    }
+
+    if (anim->kind == IM_ANIM_DROP_TARGET_THEME) {
+        const char *scales[2] = {"ScaleX", "ScaleY"};
+        for (int a = 0; a < 2; a++) {
+            im_fixed cur = im_states_sample_fixed(sm, anim->target_name, scales[a], now_ms, IM_ONE);
+            im_state_entry e = {
+                .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+                .snapped = sm->reduced_motion, .target = anim->target_name, .property = scales[a],
+                .anim = anim, .start_fixed = cur, .start_ms = now_ms, .duration_ms = dur
+            };
+            add_entry(sm, e);
+        }
+        const char *drags[2] = {"DragOverX", "DragOverY"};
+        for (int a = 0; a < 2; a++) {
+            im_fixed cur = im_states_sample_fixed(sm, anim->target_name, drags[a], now_ms, 0);
+            im_state_entry e = {
+                .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+                .snapped = sm->reduced_motion, .target = anim->target_name, .property = drags[a],
+                .anim = anim, .start_fixed = cur, .start_ms = now_ms, .duration_ms = dur
+            };
+            add_entry(sm, e);
+        }
+        return;
+    }
+
+    if (anim->kind == IM_ANIM_FADE_IN_THEME || anim->kind == IM_ANIM_FADE_OUT_THEME) {
+        im_fixed fallback = (anim->kind == IM_ANIM_FADE_IN_THEME) ? 0 : IM_ONE;
+        im_fixed cur = im_states_sample_fixed(sm, anim->target_name, "Opacity", now_ms, fallback);
+        im_state_entry e = {
+            .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+            .snapped = sm->reduced_motion, .target = anim->target_name, .property = "Opacity",
+            .anim = anim, .start_fixed = cur, .start_ms = now_ms, .duration_ms = dur
+        };
+        add_entry(sm, e);
+        return;
+    }
+
+    if (anim->kind == IM_ANIM_COLOR_KEYFRAMES) {
+        uint32_t cur = im_states_sample_color(sm, anim->target_name, anim->target_property, now_ms,
+            default_base_color(sm, anim->target_name, anim->target_property));
+        im_state_entry e = {
+            .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+            .snapped = sm->reduced_motion, .target = anim->target_name, .property = anim->target_property,
+            .anim = anim, .start_argb = cur, .start_ms = now_ms, .duration_ms = dur
+        };
+        add_entry(sm, e);
+        return;
+    }
+
+    if (anim->kind == IM_ANIM_OBJECT_KEYFRAMES) {
+        im_state_entry e = {
+            .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+            .snapped = sm->reduced_motion, .target = anim->target_name, .property = anim->target_property,
+            .anim = anim, .start_ms = now_ms, .duration_ms = dur
+        };
+        add_entry(sm, e);
+        return;
+    }
+
+    /* IM_ANIM_DOUBLE / IM_ANIM_DOUBLE_KEYFRAMES */
+    im_fixed base = default_base_fixed(sm, anim->target_name, anim->target_property);
+    im_fixed cur = im_states_sample_fixed(sm, anim->target_name, anim->target_property, now_ms, base);
+    im_state_entry e = {
+        .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+        .snapped = sm->reduced_motion, .target = anim->target_name, .property = anim->target_property,
+        .anim = anim, .start_fixed = cur, .start_ms = now_ms, .duration_ms = dur
+    };
+    add_entry(sm, e);
+}
+
+static bool sample_raw_value_no_bt(const im_state_machine *sm, const char *target, const char *property,
+    uint32_t now_ms, im_template_value *out_val, bool *out_from_state) {
+    if (!sm || !property || !out_val) return false;
+    if (out_from_state) *out_from_state = false;
+
+    /* Walk entries in reverse so later/transition entries override earlier ones;
+       skip expired transition entries if a state entry exists for the same property. */
+    bool found = false;
+    for (uint32_t i = sm->entry_count; i > 0u; i--) {
+        const im_state_entry *e = &sm->entries[i - 1u];
+        if (!target_matches(e->target, target) || !prop_matches(e->property, property)) continue;
+        if (e->from_transition && !entry_is_active(sm, e, now_ms)) {
+            /* Once a transition finishes, fall through to the destination state's held value,
+               except for reposition/generated return tracks whose settled endpoint is known. */
+            if (e->anim && e->anim->kind == IM_ANIM_REPOSITION_THEME) {
+                *out_val = (im_template_value){IM_TVAL_FIXED, 0, 0, 0, 0, NULL, NULL};
+                return true;
+            }
+            if (e->kind == IM_SENTRY_GEN_FIXED) {
+                *out_val = (im_template_value){IM_TVAL_FIXED, e->end_fixed, 0, 0, 0, NULL, NULL};
+                return true;
+            }
+            if (e->kind == IM_SENTRY_GEN_COLOR) {
+                *out_val = (im_template_value){IM_TVAL_COLOR, (int32_t)e->end_argb, (int32_t)e->end_argb, (int32_t)e->end_argb, -1, NULL, NULL};
+                return true;
+            }
+            continue;
+        }
+        if (entry_eval_value(sm, e, now_ms, out_val)) {
+            if (out_from_state) *out_from_state = true;
+            found = true;
+            break;
+        }
+    }
+    if (found) return true;
+    return find_element_base_prop(sm, target, property, out_val);
+}
+
+bool im_states_go_to(im_state_machine *sm, const char *state_name, uint32_t now_ms) {
+    if (!sm || !sm->tmpl || !sm->tables.groups || !sm->tables.states || !state_name) return false;
+
+    uint32_t group_count = sm->tmpl->group_count;
+    if (group_count > IM_MAX_STATE_GROUPS) group_count = IM_MAX_STATE_GROUPS;
+
+    int32_t target_group = -1;
+    int32_t target_state_rel = -1;
+    const im_template_group *grp = NULL;
+    const im_template_state *st = NULL;
+
+    for (uint32_t g = 0; g < group_count; g++) {
+        const im_template_group *cand_grp = &sm->tables.groups[sm->tmpl->group_start + g];
+        for (uint16_t s = 0; s < cand_grp->state_count; s++) {
+            const im_template_state *cand_st = &sm->tables.states[cand_grp->state_start + s];
+            if (str_ieq(cand_st->name, state_name)) {
+                target_group = (int32_t)g;
+                target_state_rel = (int32_t)s;
+                grp = cand_grp;
+                st = cand_st;
+                break;
+            }
+        }
+        if (target_group >= 0) break;
+    }
+
+    if (target_group < 0 || !grp || !st) return false;
+    if (sm->group_state[target_group] == target_state_rel) return false;
+
+    const char *from_name = NULL;
+    if (sm->group_state[target_group] >= 0) {
+        from_name = sm->tables.states[grp->state_start + sm->group_state[target_group]].name;
+    }
+    const im_template_transition *tr = select_transition(sm, grp, from_name, st->name);
+
+    /* Snapshot outgoing entries owned by target_group before removing them (for generated transitions). */
+    typedef struct out_snap {
+        const char *target;
+        const char *property;
+        bool is_color;
+        im_fixed fixed_val;
+        uint32_t color_val;
+    } out_snap;
+    out_snap snaps[IM_MAX_STATE_ENTRIES];
+    uint32_t snap_count = 0;
+
+    if (tr && tr->duration_ms > 0u && tr->anim_count == 0u) {
+        for (uint32_t i = 0; i < sm->entry_count; i++) {
+            const im_state_entry *e = &sm->entries[i];
+            if (e->group_index != (uint8_t)target_group) continue;
+            im_template_value sv;
+            if (!entry_eval_value(sm, e, now_ms, &sv)) continue;
+            if (sv.kind == IM_TVAL_FIXED) {
+                snaps[snap_count++] = (out_snap){e->target, e->property, false, sv.a, 0u};
+            } else if (sv.kind == IM_TVAL_COLOR || sv.kind == IM_TVAL_BRUSH) {
+                snaps[snap_count++] = (out_snap){e->target, e->property, true, 0, im_template_value_to_argb(&sv, &sm->palette)};
+            }
+        }
+    }
+
+    /* Capture pre-removal snapshot values for incoming state/transition tracks. */
+    im_fixed incoming_fixed[IM_MAX_STATE_ENTRIES];
+    uint32_t incoming_color[IM_MAX_STATE_ENTRIES];
+    uint32_t n_state_anims = st->anim_count;
+    if (n_state_anims > IM_MAX_STATE_ENTRIES) n_state_anims = IM_MAX_STATE_ENTRIES;
+    for (uint32_t i = 0; i < n_state_anims; i++) {
+        const im_template_anim *a = &sm->tables.anims[st->anim_start + i];
+        if (a->kind == IM_ANIM_COLOR_KEYFRAMES) {
+            incoming_color[i] = im_states_sample_color(sm, a->target_name, a->target_property, now_ms,
+                default_base_color(sm, a->target_name, a->target_property));
+        } else if (a->target_property) {
+            im_fixed base = default_base_fixed(sm, a->target_name, a->target_property);
+            incoming_fixed[i] = im_states_sample_fixed(sm, a->target_name, a->target_property, now_ms, base);
+        } else {
+            incoming_fixed[i] = 0;
+        }
+    }
+
+    /* Remove outgoing entries owned by target_group ONLY; other groups stay intact. */
+    uint32_t write_idx = 0;
+    for (uint32_t i = 0; i < sm->entry_count; i++) {
+        if (sm->entries[i].group_index != (uint8_t)target_group) {
+            sm->entries[write_idx++] = sm->entries[i];
+        }
+    }
+    sm->entry_count = write_idx;
+
+    sm->group_state[target_group] = target_state_rel;
+    sm->group_start_ms[target_group] = now_ms;
+    sm->group_trans_dur_ms[target_group] = tr ? tr->duration_ms : 0u;
+    sm->group_trans_snapped[target_group] = sm->reduced_motion;
+
+    /* Add destination state setters. */
+    if (sm->tables.setters) {
+        for (uint16_t i = 0; i < st->setter_count; i++) {
+            const im_template_setter *s = &sm->tables.setters[st->setter_start + i];
+            im_state_entry e = {
+                .kind = IM_SENTRY_SETTER, .group_index = (uint8_t)target_group, .from_transition = false,
+                .snapped = true, .target = s->target, .property = s->property,
+                .setter_val = s->value, .start_ms = now_ms, .duration_ms = 0u
+            };
+            add_entry(sm, e);
+        }
+    }
+
+    /* Add destination state storyboard animations using captured start values. */
+    if (sm->tables.anims) {
+        for (uint32_t i = 0; i < n_state_anims; i++) {
+            const im_template_anim *a = &sm->tables.anims[st->anim_start + i];
+            if (a->kind == IM_ANIM_DOUBLE || a->kind == IM_ANIM_DOUBLE_KEYFRAMES) {
+                im_state_entry e = {
+                    .kind = IM_SENTRY_ANIM, .group_index = (uint8_t)target_group, .from_transition = false,
+                    .snapped = sm->reduced_motion, .target = a->target_name, .property = a->target_property,
+                    .anim = a, .start_fixed = incoming_fixed[i], .start_ms = now_ms,
+                    .duration_ms = im_anim_duration_ms(a, sm->tables.keyframes)
+                };
+                add_entry(sm, e);
+            } else if (a->kind == IM_ANIM_COLOR_KEYFRAMES) {
+                im_state_entry e = {
+                    .kind = IM_SENTRY_ANIM, .group_index = (uint8_t)target_group, .from_transition = false,
+                    .snapped = sm->reduced_motion, .target = a->target_name, .property = a->target_property,
+                    .anim = a, .start_argb = incoming_color[i], .start_ms = now_ms,
+                    .duration_ms = im_anim_duration_ms(a, sm->tables.keyframes)
+                };
+                add_entry(sm, e);
+            } else {
+                add_anim_entries(sm, (uint8_t)target_group, false, a, now_ms);
+            }
+        }
+    }
+
+    /* Add explicit transition storyboard animations (overrides state during transition). */
+    if (tr && tr->anim_count > 0u && sm->tables.anims) {
+        for (uint16_t i = 0; i < tr->anim_count; i++) {
+            add_anim_entries(sm, (uint8_t)target_group, true, &sm->tables.anims[tr->anim_start + i], now_ms);
+        }
+    }
+
+    /* Zero-track generated transition: interpolate snapshotted outgoing properties back to destination/base. */
+    if (tr && tr->duration_ms > 0u && tr->anim_count == 0u) {
+        for (uint32_t i = 0; i < snap_count; i++) {
+            bool overwritten = false;
+            for (uint32_t j = 0; j < sm->entry_count; j++) {
+                if (sm->entries[j].group_index == (uint8_t)target_group &&
+                    target_matches(sm->entries[j].target, snaps[i].target) &&
+                    prop_matches(sm->entries[j].property, snaps[i].property)) {
+                    overwritten = true;
+                    break;
+                }
+            }
+            if (overwritten) continue;
+            if (!snaps[i].is_color) {
+                im_fixed dest = default_base_fixed(sm, snaps[i].target, snaps[i].property);
+                if (snaps[i].fixed_val != dest) {
+                    im_state_entry e = {
+                        .kind = IM_SENTRY_GEN_FIXED, .group_index = (uint8_t)target_group, .from_transition = true,
+                        .snapped = sm->reduced_motion, .target = snaps[i].target, .property = snaps[i].property,
+                        .start_fixed = snaps[i].fixed_val, .end_fixed = dest,
+                        .start_ms = now_ms, .duration_ms = tr->duration_ms
+                    };
+                    add_entry(sm, e);
+                }
+            } else {
+                uint32_t dest = default_base_color(sm, snaps[i].target, snaps[i].property);
+                if (snaps[i].color_val != dest) {
+                    im_state_entry e = {
+                        .kind = IM_SENTRY_GEN_COLOR, .group_index = (uint8_t)target_group, .from_transition = true,
+                        .snapped = sm->reduced_motion, .target = snaps[i].target, .property = snaps[i].property,
+                        .start_argb = snaps[i].color_val, .end_argb = dest,
+                        .start_ms = now_ms, .duration_ms = tr->duration_ms
+                    };
+                    add_entry(sm, e);
+                }
+            }
+        }
+    }
+
+    /* Retarget Background BrushTransition if this template has one (e.g. Button ContentPresenter). */
+    if (sm->has_bg_transition && sm->bg_target) {
+        im_template_value bg_val;
+        if (sample_raw_value_no_bt(sm, sm->bg_target, "Background", now_ms, &bg_val, NULL) &&
+            bg_val.kind == IM_TVAL_BRUSH) {
+            uint32_t new_argb = im_template_value_to_argb(&bg_val, &sm->palette);
+            im_brush_transition_set(&sm->bg_transition, (enum im_brush_id)bg_val.a, new_argb, now_ms, sm->reduced_motion);
+        }
+    }
+
+    return true;
+}
+
+const char *im_states_current(const im_state_machine *sm, uint32_t group_index) {
+    if (!sm || !sm->tmpl || !sm->tables.groups || !sm->tables.states) return NULL;
+    if (group_index >= sm->tmpl->group_count || group_index >= IM_MAX_STATE_GROUPS) return NULL;
+    int32_t rel = sm->group_state[group_index];
+    if (rel < 0) return NULL;
+    const im_template_group *grp = &sm->tables.groups[sm->tmpl->group_start + group_index];
+    if ((uint16_t)rel >= grp->state_count) return NULL;
+    return sm->tables.states[grp->state_start + rel].name;
+}
+
+bool im_states_is_animating(const im_state_machine *sm, uint32_t now_ms) {
+    if (!sm || sm->reduced_motion) return false;
+    if (sm->has_bg_transition && im_brush_transition_is_active(&sm->bg_transition, now_ms, false)) {
+        return true;
+    }
+    for (uint32_t i = 0; i < sm->entry_count; i++) {
+        if (entry_is_active(sm, &sm->entries[i], now_ms)) return true;
+    }
+    uint32_t gc = sm->tmpl ? sm->tmpl->group_count : 0u;
+    if (gc > IM_MAX_STATE_GROUPS) gc = IM_MAX_STATE_GROUPS;
+    for (uint32_t g = 0; g < gc; g++) {
+        if (!sm->group_trans_snapped[g] && sm->group_trans_dur_ms[g] > 0u &&
+            im_anim_elapsed_ms(sm->group_start_ms[g], now_ms) < sm->group_trans_dur_ms[g]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool im_states_sample_value(const im_state_machine *sm, const char *target, const char *property,
+    uint32_t now_ms, im_template_value *out_val) {
+    return sample_raw_value_no_bt(sm, target, property, now_ms, out_val, NULL);
+}
+
+im_fixed im_states_sample_fixed(const im_state_machine *sm, const char *target, const char *property,
+    uint32_t now_ms, im_fixed fallback) {
+    im_template_value val;
+    if (!sample_raw_value_no_bt(sm, target, property, now_ms, &val, NULL)) return fallback;
+    return im_template_value_to_fixed(&val, &sm->palette, fallback);
+}
+
+uint32_t im_states_sample_color(const im_state_machine *sm, const char *target, const char *property,
+    uint32_t now_ms, uint32_t fallback) {
+    if (!sm) return fallback;
+    if (sm->has_bg_transition && target_matches(sm->bg_target, target) && str_eq(property, "Background")) {
+        return im_brush_transition_sample(&sm->bg_transition, now_ms, sm->reduced_motion);
+    }
+    im_template_value val;
+    if (!sample_raw_value_no_bt(sm, target, property, now_ms, &val, NULL)) return fallback;
+    if (val.kind == IM_TVAL_COLOR || val.kind == IM_TVAL_BRUSH) {
+        return im_template_value_to_argb(&val, &sm->palette);
+    }
+    return fallback;
+}
+
+bool im_states_sample_brush(const im_state_machine *sm, const char *target, const char *property,
+    uint32_t now_ms, enum im_brush_id *out_brush, uint32_t *out_argb, bool *out_is_transitioning) {
+    if (!sm || !property) return false;
+    if (sm->has_bg_transition && target_matches(sm->bg_target, target) && str_eq(property, "Background")) {
+        bool active = im_brush_transition_is_active(&sm->bg_transition, now_ms, sm->reduced_motion);
+        if (out_is_transitioning) *out_is_transitioning = active;
+        if (out_brush) *out_brush = sm->bg_transition.target_brush;
+        if (out_argb) *out_argb = im_brush_transition_sample(&sm->bg_transition, now_ms, sm->reduced_motion);
+        return true;
+    }
+    im_template_value val;
+    if (!sample_raw_value_no_bt(sm, target, property, now_ms, &val, NULL)) return false;
+    if (out_is_transitioning) *out_is_transitioning = false;
+    if (val.kind == IM_TVAL_BRUSH) {
+        if (out_brush) *out_brush = (enum im_brush_id)val.a;
+        if (out_argb) *out_argb = im_template_value_to_argb(&val, &sm->palette);
+        return true;
+    }
+    if (val.kind == IM_TVAL_COLOR) {
+        if (out_brush) *out_brush = (enum im_brush_id)0;
+        if (out_argb) *out_argb = im_template_value_to_argb(&val, &sm->palette);
+        return true;
+    }
+    return false;
+}
+
+static bool parse_align_str(const char *s, im_align *out) {
+    if (!s || !out) return false;
+    if (str_eq(s, "Left") || str_eq(s, "Top")) { *out = IM_ALIGN_START; return true; }
+    if (str_eq(s, "Center")) { *out = IM_ALIGN_CENTER; return true; }
+    if (str_eq(s, "Right") || str_eq(s, "Bottom")) { *out = IM_ALIGN_END; return true; }
+    if (str_eq(s, "Stretch")) { *out = IM_ALIGN_STRETCH; return true; }
+    return false;
+}
+
+static bool value_to_thickness(const im_template_value *v, const im_palette *palette, im_thickness *out) {
+    if (!v || !out) return false;
+    if (v->kind == IM_TVAL_QUAD) {
+        *out = (im_thickness){v->a, v->b, v->c, v->d};
+        return true;
+    }
+    if (v->kind == IM_TVAL_THEME_VALUE && palette && v->a >= 0 && v->a < IM_VALUE_COUNT) {
+        const im_fixed *q = im_value(palette, (enum im_value_id)v->a);
+        *out = (im_thickness){q[0], q[1], q[2], q[3]};
+        return true;
+    }
+    return false;
+}
+
+void im_states_apply_to_tree(const im_state_machine *sm, im_node *root, uint32_t now_ms) {
+    if (!sm || !root) return;
+    if (root->name) {
+        im_template_value val;
+        bool from_state = false;
+
+        if (sample_raw_value_no_bt(sm, root->name, "Width", now_ms, &val, &from_state) && from_state) {
+            im_node_set_state_width(root, true, im_template_value_to_fixed(&val, &sm->palette, root->width));
+        } else {
+            im_node_set_state_width(root, false, 0);
+        }
+
+        if (sample_raw_value_no_bt(sm, root->name, "Height", now_ms, &val, &from_state) && from_state) {
+            im_node_set_state_height(root, true, im_template_value_to_fixed(&val, &sm->palette, root->height));
+        } else {
+            im_node_set_state_height(root, false, 0);
+        }
+
+        im_thickness thick;
+        if (sample_raw_value_no_bt(sm, root->name, "Margin", now_ms, &val, &from_state) && from_state &&
+            value_to_thickness(&val, &sm->palette, &thick)) {
+            im_node_set_state_margin(root, true, thick);
+        } else {
+            im_node_set_state_margin(root, false, (im_thickness){0, 0, 0, 0});
+        }
+
+        if (sample_raw_value_no_bt(sm, root->name, "Visibility", now_ms, &val, &from_state) && from_state &&
+            val.kind == IM_TVAL_ENUM_STR && val.text) {
+            im_visibility vis = str_eq(val.text, "Collapsed") ? IM_VIS_COLLAPSED : IM_VIS_VISIBLE;
+            im_node_set_state_visibility(root, true, vis);
+        } else {
+            im_node_set_state_visibility(root, false, IM_VIS_VISIBLE);
+        }
+
+        im_align al;
+        if (sample_raw_value_no_bt(sm, root->name, "HorizontalAlignment", now_ms, &val, &from_state) && from_state &&
+            val.kind == IM_TVAL_ENUM_STR && parse_align_str(val.text, &al)) {
+            im_node_set_state_h_align(root, true, al);
+        } else {
+            im_node_set_state_h_align(root, false, IM_ALIGN_STRETCH);
+        }
+
+        if (sample_raw_value_no_bt(sm, root->name, "VerticalAlignment", now_ms, &val, &from_state) && from_state &&
+            val.kind == IM_TVAL_ENUM_STR && parse_align_str(val.text, &al)) {
+            im_node_set_state_v_align(root, true, al);
+        } else {
+            im_node_set_state_v_align(root, false, IM_ALIGN_STRETCH);
+        }
+
+        if (sample_raw_value_no_bt(sm, root->name, "BorderThickness", now_ms, &val, &from_state) && from_state &&
+            value_to_thickness(&val, &sm->palette, &thick)) {
+            im_node_set_state_border_thickness(root, true, thick);
+        } else {
+            im_node_set_state_border_thickness(root, false, (im_thickness){0, 0, 0, 0});
+        }
+    }
+    for (uint32_t i = 0; i < root->child_count; i++) {
+        im_states_apply_to_tree(sm, root->children[i], now_ms);
+    }
+}
+
+static im_fixed scale_fixed(im_fixed value, im_fixed scale) {
+    return (im_fixed)(((int64_t)value * scale + IM_ONE / 2) >> 16);
+}
+
+static im_fixed whole_px(im_fixed value) {
+    return (value + IM_ONE / 2) & ~(IM_ONE - 1);
+}
+
+void im_states_draw_button(const im_state_machine *sm, im_surface *surface, im_rect bounds, uint32_t now_ms) {
+    if (!sm || !surface) return;
+
+    enum im_brush_id bg_brush = (enum im_brush_id)0;
+    uint32_t bg_argb = 0u;
+    bool bg_transitioning = false;
+    if (!im_states_sample_brush(sm, "ContentPresenter", "Background", now_ms, &bg_brush, &bg_argb, &bg_transitioning)) {
+        return;
+    }
+
+    enum im_brush_id border_brush = (enum im_brush_id)0;
+    uint32_t border_argb = 0u;
+    bool border_transitioning = false;
+    bool has_border = im_states_sample_brush(sm, "ContentPresenter", "BorderBrush", now_ms,
+        &border_brush, &border_argb, &border_transitioning);
+
+    bool under_border = false;
+    im_template_value sizing;
+    if (im_states_sample_value(sm, NULL, "BackgroundSizing", now_ms, &sizing) &&
+        sizing.kind == IM_TVAL_ENUM_STR && str_eq(sizing.text, "OuterBorderEdge")) {
+        under_border = true;
+    }
+
+    const im_fixed *corner = im_value(&surface->palette, IM_VALUE_ControlCornerRadius);
+    im_fixed thickness = whole_px(scale_fixed(im_value(&surface->palette, IM_VALUE_ButtonBorderThemeThickness)[0], surface->scale));
+    im_radii corners = {
+        scale_fixed(corner[0], surface->scale),
+        scale_fixed(corner[1], surface->scale),
+        scale_fixed(corner[2], surface->scale),
+        scale_fixed(corner[3], surface->scale)
+    };
+    im_fixed in = under_border ? 0 : thickness;
+    im_rect fill_rect = im_inset(bounds, in);
+    im_radii fill_radii = im_grow(corners, under_border ? thickness / 2 : -thickness / 2);
+
+    if (bg_transitioning) {
+        im_fill_argb(surface, fill_rect, fill_radii, bg_argb);
+    } else {
+        im_fill(surface, fill_rect, fill_radii, bg_brush);
+    }
+    if (has_border) {
+        im_stroke(surface, bounds, corners, thickness, border_brush);
+    }
+}

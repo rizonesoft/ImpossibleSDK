@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,ui/tree.h,ui/layout.h,ui/clip.h,ui/layer.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
+<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,ui/tree.h,ui/layout.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/states.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
 # Drawing
 
 How do you draw Windows 11's shapes and colours? Describe your canvas as a surface, then fill shapes with the brushes of the theme.
@@ -41,6 +41,10 @@ From WinUI's own theme, as [brushes](site:api-theme.html) for dark, light and co
 ## How do clips and opacity layers work?
 
 Attach an `im_layer_ctx` to an `im_surface` with `im_layer_init`, passing a caller-supplied `im_allocator` and a live buffer `memory_limit`. Push rectangular or rounded clips with `im_layer_push_clip_rect` and `im_layer_push_clip_rounded` (calling `im_layer_pop_clip` only when push returned `true`; fractional clip rectangles are intersected exactly in 64-bit fixed point via `im_clip_pixel_coverage_range`, including wide surfaces of 32,768 pixels or more), and push bounded group-opacity layers with `im_layer_push`. Every `im_fill`, `im_fill_argb`, `im_stroke`, and `im_draw_button` honours the active clip and layer automatically. When `im_layer_push` returns `IM_LAYER_OK` or `IM_LAYER_FALLBACK` (when `memory_limit` or the allocator refuses the offscreen buffer and direct-draw fallback runs instead), pair it with `im_layer_pop`; if it returns `IM_LAYER_ERR`, nothing was pushed.
+
+## How do visual states and animations run?
+
+Initialize an `im_state_machine` with `im_states_init` for any compiled WinUI control template (`IM_TEMPLATE_BUTTON`, `IM_TEMPLATE_TOGGLE_SWITCH`, `IM_TEMPLATE_TEXT_BOX`, `IM_TEMPLATE_LIST_VIEW_ITEM_EXPANDED`, and others) and transition groups with `im_states_go_to(sm, state_name, now_ms)` using a caller-supplied millisecond clock. Cubic Bezier key splines (`im_spline_eval_ratio`), keyframe tracks (`im_anim_eval_fixed`, `im_anim_eval_color`, `im_anim_eval_object`), theme animations (`Reposition`, `FadeIn`, `FadeOut`, `DragOver`, `DragItem`, `DropTarget`), generated return transitions, and straight-ARGB `BrushTransition` fades (`im_brush_transition`) run entirely in portable integer fixed-point math. Call `im_states_set_reduced_motion(sm, true, now_ms)` to snap both active and future transitions immediately to their end state, `im_states_apply_to_tree` to project layout-affecting visual-state values onto an `im_tree` without losing underlying local values, and `im_states_draw_button` to render a Button directly from its active state machine.
 
 | Call | What it does |
 | --- | --- |

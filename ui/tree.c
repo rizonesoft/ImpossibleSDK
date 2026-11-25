@@ -298,10 +298,20 @@ bool im_tree_set_grid_cols(im_tree *tree, im_node *grid, const im_grid_def *defs
 
 void im_node_set_size(im_node *node, im_fixed width, im_fixed height) {
     if (!node) return;
-    if (node->width == width && node->height == height) return;
-    node->width = width;
-    node->height = height;
-    im_tree_invalidate_measure(node);
+    bool changed = false;
+    if (node->state_mask & IM_SBIT_WIDTH) {
+        node->base_width = width;
+    } else if (node->width != width) {
+        node->width = width;
+        changed = true;
+    }
+    if (node->state_mask & IM_SBIT_HEIGHT) {
+        node->base_height = height;
+    } else if (node->height != height) {
+        node->height = height;
+        changed = true;
+    }
+    if (changed) im_tree_invalidate_measure(node);
 }
 
 void im_node_set_min_max(im_node *node, im_fixed min_w, im_fixed min_h, im_fixed max_w, im_fixed max_h) {
@@ -324,7 +334,12 @@ void im_node_set_intrinsic_size(im_node *node, im_fixed width, im_fixed height) 
 }
 
 void im_node_set_margin(im_node *node, im_thickness margin) {
-    if (!node || thickness_eq(node->margin, margin)) return;
+    if (!node) return;
+    if (node->state_mask & IM_SBIT_MARGIN) {
+        node->base_margin = margin;
+        return;
+    }
+    if (thickness_eq(node->margin, margin)) return;
     node->margin = margin;
     im_tree_invalidate_measure(node);
 }
@@ -350,6 +365,11 @@ void im_node_clear_padding(im_node *node) {
 void im_node_set_border_thickness(im_node *node, im_thickness thickness) {
     if (!node) return;
     bool was_local = (node->local_mask & IM_PBIT_BORDER_THICKNESS) != 0;
+    if (node->state_mask & IM_SBIT_BORDER_THICKNESS) {
+        node->base_border_thickness = thickness;
+        node->local_mask |= IM_PBIT_BORDER_THICKNESS;
+        return;
+    }
     if (was_local && thickness_eq(node->border_thickness, thickness)) return;
     node->border_thickness = thickness;
     node->local_mask |= IM_PBIT_BORDER_THICKNESS;
@@ -360,6 +380,10 @@ void im_node_set_border_thickness(im_node *node, im_thickness thickness) {
 void im_node_clear_border_thickness(im_node *node) {
     if (!node || !(node->local_mask & IM_PBIT_BORDER_THICKNESS)) return;
     node->local_mask &= ~IM_PBIT_BORDER_THICKNESS;
+    if (node->state_mask & IM_SBIT_BORDER_THICKNESS) {
+        node->base_border_thickness = node->default_border_thickness;
+        return;
+    }
     node->border_thickness = node->default_border_thickness;
     im_tree_invalidate_measure(node);
     invalidate_template_bindings(node, node, IM_PBIT_BORDER_THICKNESS);
@@ -367,10 +391,20 @@ void im_node_clear_border_thickness(im_node *node) {
 
 void im_node_set_alignment(im_node *node, im_align h_align, im_align v_align) {
     if (!node) return;
-    if (node->h_align == h_align && node->v_align == v_align) return;
-    node->h_align = h_align;
-    node->v_align = v_align;
-    im_tree_invalidate_arrange(node);
+    bool changed = false;
+    if (node->state_mask & IM_SBIT_H_ALIGN) {
+        node->base_h_align = h_align;
+    } else if (node->h_align != h_align) {
+        node->h_align = h_align;
+        changed = true;
+    }
+    if (node->state_mask & IM_SBIT_V_ALIGN) {
+        node->base_v_align = v_align;
+    } else if (node->v_align != v_align) {
+        node->v_align = v_align;
+        changed = true;
+    }
+    if (changed) im_tree_invalidate_arrange(node);
 }
 
 void im_node_set_content_alignment(im_node *node, im_align h_align, im_align v_align) {
@@ -396,9 +430,154 @@ void im_node_clear_content_alignment(im_node *node) {
 }
 
 void im_node_set_visibility(im_node *node, im_visibility visibility) {
-    if (!node || node->visibility == visibility) return;
+    if (!node) return;
+    if (node->state_mask & IM_SBIT_VISIBILITY) {
+        node->base_visibility = visibility;
+        return;
+    }
+    if (node->visibility == visibility) return;
     node->visibility = visibility;
     im_tree_invalidate_measure(node);
+}
+
+void im_node_set_state_width(im_node *node, bool active, im_fixed width) {
+    if (!node) return;
+    if (active) {
+        if (!(node->state_mask & IM_SBIT_WIDTH)) {
+            node->base_width = node->width;
+            node->state_mask |= IM_SBIT_WIDTH;
+        }
+        if (node->width != width) {
+            node->width = width;
+            im_tree_invalidate_measure(node);
+        }
+    } else if (node->state_mask & IM_SBIT_WIDTH) {
+        node->state_mask &= ~IM_SBIT_WIDTH;
+        if (node->width != node->base_width) {
+            node->width = node->base_width;
+            im_tree_invalidate_measure(node);
+        }
+    }
+}
+
+void im_node_set_state_height(im_node *node, bool active, im_fixed height) {
+    if (!node) return;
+    if (active) {
+        if (!(node->state_mask & IM_SBIT_HEIGHT)) {
+            node->base_height = node->height;
+            node->state_mask |= IM_SBIT_HEIGHT;
+        }
+        if (node->height != height) {
+            node->height = height;
+            im_tree_invalidate_measure(node);
+        }
+    } else if (node->state_mask & IM_SBIT_HEIGHT) {
+        node->state_mask &= ~IM_SBIT_HEIGHT;
+        if (node->height != node->base_height) {
+            node->height = node->base_height;
+            im_tree_invalidate_measure(node);
+        }
+    }
+}
+
+void im_node_set_state_margin(im_node *node, bool active, im_thickness margin) {
+    if (!node) return;
+    if (active) {
+        if (!(node->state_mask & IM_SBIT_MARGIN)) {
+            node->base_margin = node->margin;
+            node->state_mask |= IM_SBIT_MARGIN;
+        }
+        if (!thickness_eq(node->margin, margin)) {
+            node->margin = margin;
+            im_tree_invalidate_measure(node);
+        }
+    } else if (node->state_mask & IM_SBIT_MARGIN) {
+        node->state_mask &= ~IM_SBIT_MARGIN;
+        if (!thickness_eq(node->margin, node->base_margin)) {
+            node->margin = node->base_margin;
+            im_tree_invalidate_measure(node);
+        }
+    }
+}
+
+void im_node_set_state_visibility(im_node *node, bool active, im_visibility visibility) {
+    if (!node) return;
+    if (active) {
+        if (!(node->state_mask & IM_SBIT_VISIBILITY)) {
+            node->base_visibility = node->visibility;
+            node->state_mask |= IM_SBIT_VISIBILITY;
+        }
+        if (node->visibility != visibility) {
+            node->visibility = visibility;
+            im_tree_invalidate_measure(node);
+        }
+    } else if (node->state_mask & IM_SBIT_VISIBILITY) {
+        node->state_mask &= ~IM_SBIT_VISIBILITY;
+        if (node->visibility != node->base_visibility) {
+            node->visibility = node->base_visibility;
+            im_tree_invalidate_measure(node);
+        }
+    }
+}
+
+void im_node_set_state_h_align(im_node *node, bool active, im_align align) {
+    if (!node) return;
+    if (active) {
+        if (!(node->state_mask & IM_SBIT_H_ALIGN)) {
+            node->base_h_align = node->h_align;
+            node->state_mask |= IM_SBIT_H_ALIGN;
+        }
+        if (node->h_align != align) {
+            node->h_align = align;
+            im_tree_invalidate_arrange(node);
+        }
+    } else if (node->state_mask & IM_SBIT_H_ALIGN) {
+        node->state_mask &= ~IM_SBIT_H_ALIGN;
+        if (node->h_align != node->base_h_align) {
+            node->h_align = node->base_h_align;
+            im_tree_invalidate_arrange(node);
+        }
+    }
+}
+
+void im_node_set_state_v_align(im_node *node, bool active, im_align align) {
+    if (!node) return;
+    if (active) {
+        if (!(node->state_mask & IM_SBIT_V_ALIGN)) {
+            node->base_v_align = node->v_align;
+            node->state_mask |= IM_SBIT_V_ALIGN;
+        }
+        if (node->v_align != align) {
+            node->v_align = align;
+            im_tree_invalidate_arrange(node);
+        }
+    } else if (node->state_mask & IM_SBIT_V_ALIGN) {
+        node->state_mask &= ~IM_SBIT_V_ALIGN;
+        if (node->v_align != node->base_v_align) {
+            node->v_align = node->base_v_align;
+            im_tree_invalidate_arrange(node);
+        }
+    }
+}
+
+void im_node_set_state_border_thickness(im_node *node, bool active, im_thickness thickness) {
+    if (!node) return;
+    if (active) {
+        if (!(node->state_mask & IM_SBIT_BORDER_THICKNESS)) {
+            node->base_border_thickness = node->border_thickness;
+            node->state_mask |= IM_SBIT_BORDER_THICKNESS;
+        }
+        if (!thickness_eq(node->border_thickness, thickness)) {
+            node->border_thickness = thickness;
+            im_tree_invalidate_measure(node);
+        }
+    } else if (node->state_mask & IM_SBIT_BORDER_THICKNESS) {
+        node->state_mask &= ~IM_SBIT_BORDER_THICKNESS;
+        if (!thickness_eq(node->border_thickness, node->base_border_thickness)) {
+            node->border_thickness = node->base_border_thickness;
+            im_tree_invalidate_measure(node);
+        }
+    }
 }
 
 void im_node_set_flow_direction(im_node *node, im_flow_dir dir) {

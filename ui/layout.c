@@ -384,7 +384,12 @@ static im_size measure_grid(im_tree *tree, im_node *node, im_size avail, im_fixe
     /* Pass 1: single-span children not in finite Star tracks (Auto/Pixel and Star-under-inf). */
     for (uint32_t i = 0; i < node->child_count; i++) {
         im_node *ch = node->children[i];
-        if (ch->visibility == IM_VIS_COLLAPSED) continue;
+        if (ch->visibility == IM_VIS_COLLAPSED) {
+            ch->desired_size = (im_size){0, 0};
+            ch->unclipped_desired = (im_size){0, 0};
+            ch->measure_dirty = false;
+            continue;
+        }
         uint32_t r = clamp_index(ch->grid_row, rcount);
         uint32_t c = clamp_index(ch->grid_col, ccount);
         uint32_t rs = clamp_span(r, ch->grid_row_span, rcount);
@@ -679,7 +684,12 @@ static im_size measure_stack(im_tree *tree, im_node *node, im_size avail, im_fix
 
     for (uint32_t i = 0; i < node->child_count; i++) {
         im_node *ch = node->children[i];
-        if (ch->visibility == IM_VIS_COLLAPSED) continue;
+        if (ch->visibility == IM_VIS_COLLAPSED) {
+            ch->desired_size = (im_size){0, 0};
+            ch->unclipped_desired = (im_size){0, 0};
+            ch->measure_dirty = false;
+            continue;
+        }
         im_size d = im_layout_measure(tree, ch, child_avail, scale);
         if (visible > 0) {
             sum_main = add_fixed(sum_main, sp);
@@ -767,8 +777,14 @@ static im_size measure_single_box(im_tree *tree, im_node *node, im_size avail, i
     im_fixed inner_h = sub_nonneg(avail.height, inset_h);
 
     im_size child_d = {0, 0};
-    if (node->child_count > 0 && node->children[0]->visibility != IM_VIS_COLLAPSED) {
-        child_d = im_layout_measure(tree, node->children[0], (im_size){inner_w, inner_h}, scale);
+    if (node->child_count > 0) {
+        if (node->children[0]->visibility == IM_VIS_COLLAPSED) {
+            node->children[0]->desired_size = (im_size){0, 0};
+            node->children[0]->unclipped_desired = (im_size){0, 0};
+            node->children[0]->measure_dirty = false;
+        } else {
+            child_d = im_layout_measure(tree, node->children[0], (im_size){inner_w, inner_h}, scale);
+        }
     }
     return (im_size){add_fixed(child_d.width, inset_w), add_fixed(child_d.height, inset_h)};
 }
