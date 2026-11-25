@@ -280,11 +280,6 @@ void im_tree_invalidate_paint(im_node *node);
    so dirty-rectangle collection invalidates pixels painted beyond node->absolute_rect; negative sides clamp to 0. */
 void im_node_set_paint_outset(im_node *node, im_thickness outset);
 
-/* Update a Path node's intrinsic_width and intrinsic_height from compiled path segments,
-   invalidating measure when the natural extent changes. */
-void im_node_set_path_intrinsic_bounds(im_node *node, const im_template_path_seg *segs,
-                                       uint32_t start, uint32_t count);
-
 /* Set or replace node's RenderTransform and normalized origin [0..IM_ONE]; marks node and subtree paint-dirty. */
 void im_node_set_render_transform(im_node *node, const im_transform *transform, im_fixed origin_x, im_fixed origin_y);
 

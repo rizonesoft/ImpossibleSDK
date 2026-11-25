@@ -104,6 +104,11 @@ bool im_path_close(im_path *path);
 /* Compute the local axis-aligned bounding box of path. Returns false if path is empty. */
 bool im_path_bounds(const im_path_data *path, im_rect *out_bounds);
 
+/* Update a Path node's intrinsic_width and intrinsic_height from compiled path segments (including
+   stroke thickness extent when stroked), invalidating measure when the natural extent changes. */
+void im_node_set_path_intrinsic_bounds(im_node *node, const im_template_path_seg *segs,
+                                       uint32_t start, uint32_t count);
+
 /* Return the SDK-owned geometric checkmark path (normalized to [0, 16] x [0, 16]). */
 im_path_data im_path_sdk_checkmark(void);
 

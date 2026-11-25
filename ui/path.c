@@ -918,6 +918,31 @@ bool im_path_bounds(const im_path_data *path, im_rect *out_bounds) {
     return true;
 }
 
+void im_node_set_path_intrinsic_bounds(im_node *node, const im_template_path_seg *segs,
+                                       uint32_t start, uint32_t count) {
+    if (!node) return;
+    im_fixed nw = 0, nh = 0;
+    if (segs && count > 0u) {
+        im_path_data pd = { segs + start, count, (im_fill_rule)node->path_fill_rule };
+        im_rect pb;
+        if (im_path_bounds(&pd, &pb)) {
+            int64_t dw = (int64_t)pb.right - pb.left;
+            int64_t dh = (int64_t)pb.bottom - pb.top;
+            if (node->path_has_stroke && node->path_stroke_thickness > 0) {
+                dw += (int64_t)node->path_stroke_thickness;
+                dh += (int64_t)node->path_stroke_thickness;
+            }
+            if (dw > 0) nw = (dw > INT32_MAX) ? INT32_MAX : (im_fixed)dw;
+            if (dh > 0) nh = (dh > INT32_MAX) ? INT32_MAX : (im_fixed)dh;
+        }
+    }
+    if (node->intrinsic_width != nw || node->intrinsic_height != nh) {
+        node->intrinsic_width = nw;
+        node->intrinsic_height = nh;
+        im_tree_invalidate_measure(node);
+    }
+}
+
 /* ---------- 16-Subscanline Analytic Horizontal Coverage Rasterizer ---------- */
 
 typedef struct scan_edge {
