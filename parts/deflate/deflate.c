@@ -783,6 +783,7 @@ im_deflate_status im_deflate_step(im_deflate *st,
     if (st->state == ST_DONE) {
         return (in_len > 0u) ? IM_DEFLATE_BAD_ARG : IM_DEFLATE_OK;
     }
+    if (st->eof_latched && in_len > 0u) return IM_DEFLATE_BAD_ARG;
     if (st->state > ST_DONE) return IM_DEFLATE_BAD_ARG;
 
     size_t in_pos = 0;
