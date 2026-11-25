@@ -65,14 +65,56 @@ bool im_node_device_transform(const im_node *node, im_fixed scale, im_transform 
     return im_transform_multiply(&logical, &sc, out);
 }
 
+static im_fixed q30_128_to_fixed_floor_sat(__int128 q) {
+    const int shift = IM_TR_SHIFT - 16; /* 14 */
+    const __int128 step = ((__int128)1) << shift;
+    __int128 f = (q >= 0) ? (q >> shift) : -(((-q) + step - 1) >> shift);
+    if (f < (__int128)INT32_MIN) return INT32_MIN;
+    if (f > (__int128)INT32_MAX) return INT32_MAX;
+    return (im_fixed)f;
+}
+
+static im_fixed q30_128_to_fixed_ceil_sat(__int128 q) {
+    const int shift = IM_TR_SHIFT - 16; /* 14 */
+    const __int128 step = ((__int128)1) << shift;
+    __int128 c = (q >= 0) ? ((q + step - 1) >> shift) : -((-q) >> shift);
+    if (c < (__int128)INT32_MIN) return INT32_MIN;
+    if (c > (__int128)INT32_MAX) return INT32_MAX;
+    return (im_fixed)c;
+}
+
 bool im_node_transformed_logical_bounds(const im_node *node, im_rect *out_logical) {
     if (!node || !out_logical) return false;
-    im_fixed w = (im_fixed)((int64_t)node->absolute_rect.right - node->absolute_rect.left);
-    im_fixed h = (im_fixed)((int64_t)node->absolute_rect.bottom - node->absolute_rect.top);
-    if (w <= 0 || h <= 0) return false;
+    int64_t w_q30 = im_fixed_to_q30(node->absolute_rect.right) - im_fixed_to_q30(node->absolute_rect.left);
+    int64_t h_q30 = im_fixed_to_q30(node->absolute_rect.bottom) - im_fixed_to_q30(node->absolute_rect.top);
+    if (w_q30 <= 0 || h_q30 <= 0) return false;
     im_transform logical;
     if (!node_logical_transform(node, &logical)) return false;
-    return im_transform_rect_bounds(&logical, (im_rect){0, 0, w, h}, out_logical);
+
+    int64_t cx[4] = {0, w_q30, w_q30, 0};
+    int64_t cy[4] = {0, 0, h_q30, h_q30};
+    __int128 min_x = 0, max_x = 0, min_y = 0, max_y = 0;
+    for (int i = 0; i < 4; i++) {
+        __int128 sx = (__int128)cx[i] * logical.m11 + (__int128)cy[i] * logical.m21;
+        __int128 sy = (__int128)cx[i] * logical.m12 + (__int128)cy[i] * logical.m22;
+        __int128 rxf = ((sx >= 0) ? (sx >> IM_TR_SHIFT) : -(((-sx) + IM_TR_ONE - 1) >> IM_TR_SHIFT)) + logical.dx;
+        __int128 rxc = ((sx >= 0) ? ((sx + IM_TR_ONE - 1) >> IM_TR_SHIFT) : -((-sx) >> IM_TR_SHIFT)) + logical.dx;
+        __int128 ryf = ((sy >= 0) ? (sy >> IM_TR_SHIFT) : -(((-sy) + IM_TR_ONE - 1) >> IM_TR_SHIFT)) + logical.dy;
+        __int128 ryc = ((sy >= 0) ? ((sy + IM_TR_ONE - 1) >> IM_TR_SHIFT) : -((-sy) >> IM_TR_SHIFT)) + logical.dy;
+        if (i == 0 || rxf < min_x) min_x = rxf;
+        if (i == 0 || rxc > max_x) max_x = rxc;
+        if (i == 0 || ryf < min_y) min_y = ryf;
+        if (i == 0 || ryc > max_y) max_y = ryc;
+    }
+
+    im_rect res;
+    res.left = q30_128_to_fixed_floor_sat(min_x);
+    res.top = q30_128_to_fixed_floor_sat(min_y);
+    res.right = q30_128_to_fixed_ceil_sat(max_x);
+    res.bottom = q30_128_to_fixed_ceil_sat(max_y);
+    if (res.left >= res.right || res.top >= res.bottom) return false;
+    *out_logical = res;
+    return true;
 }
 
 bool im_input_to_local(const im_node *node, im_fixed scale,

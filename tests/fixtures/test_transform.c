@@ -780,6 +780,79 @@ static void test_shared_transform_and_input(void) {
     im_layout_run(&tree, root, FX(120), FX(80), SCALE);
     im_dirty_clear(&dirty);
 
+    /* Zoomed wide-bounds damage regression: [0, 4096) x [0, 1) at 8x horizontal zoom (100% scale,
+       transformed right = 32768 > 16.16 max) must invalidate visible pixel (0, 0) on both repaint
+       and detach, matching full redraw byte-for-byte. */
+    {
+        im_tree zt;
+        im_tree_init(&zt, alloc);
+        im_node *zroot = im_tree_create_node(&zt, IM_ELEM_GRID, "zroot");
+        im_node *zbox = im_tree_create_node(&zt, IM_ELEM_BORDER, "zbox");
+        zbox->use_layout_rounding = false;
+        zbox->h_align = IM_ALIGN_START;
+        zbox->v_align = IM_ALIGN_START;
+        zbox->width = FX(4096);
+        zbox->height = FX(1);
+        im_tree_append_child(&zt, zroot, zbox);
+        im_layout_run(&zt, zroot, FX(4096), FX(8), IM_ONE);
+        im_transform z8 = im_transform_scale(FX(8), IM_ONE);
+        im_node_set_render_transform(zbox, &z8, 0, 0);
+
+        uint32_t zp_part[16 * 4], zp_full[16 * 4];
+        im_layer_ctx zl_part, zl_full;
+        im_surface zs_part = { zp_part, 16, 4, 16, pal, IM_ONE, &zl_part, NULL };
+        im_surface zs_full = { zp_full, 16, 4, 16, pal, IM_ONE, &zl_full, NULL };
+        im_layer_init(&zl_part, &zs_part, alloc, 1024u * 1024u);
+        im_layer_init(&zl_full, &zs_full, alloc, 1024u * 1024u);
+        im_dirty_list zd;
+        im_dirty_init(&zd, 16, 4);
+
+        /* Initial frame with fill color 1. */
+        im_dirty_collect_tree(&zd, &zt, zroot, IM_ONE);
+        CHECK(zd.count > 0u, "zoomed 4096x1 node initial frame emits dirty rect");
+        im_fill_argb(&zs_part, (im_rect){0, 0, FX(16), FX(4)}, (im_radii){0, 0, 0, 0}, 0xFF101010u);
+        paint_node_transformed(&zs_part, zbox, IM_ONE, 0xFF2288EEu);
+        memcpy(zp_full, zp_part, sizeof(zp_part));
+        CHECK((zp_part[0] & 0x00FFFFFFu) == 0x002288EEu, "zoomed 4096x1 node paints pixel (0, 0) initially");
+        im_dirty_clear(&zd);
+
+        /* Change fill and invalidate paint: partial redraw must match full redraw. */
+        im_tree_invalidate_paint(zbox);
+        im_dirty_collect_tree(&zd, &zt, zroot, IM_ONE);
+        CHECK(zd.count > 0u, "zoomed 4096x1 node repaint emits dirty rect");
+        for (uint32_t i = 0; i < zd.count; i++) {
+            CHECK(im_dirty_push_clip(&zl_part, zd.rects[i]), "push zoomed repaint clip");
+            im_fill_argb(&zs_part, (im_rect){0, 0, FX(16), FX(4)}, (im_radii){0, 0, 0, 0}, 0xFF101010u);
+            paint_node_transformed(&zs_part, zbox, IM_ONE, 0xFFEE4422u);
+            im_layer_pop_clip(&zl_part);
+        }
+        im_fill_argb(&zs_full, (im_rect){0, 0, FX(16), FX(4)}, (im_radii){0, 0, 0, 0}, 0xFF101010u);
+        paint_node_transformed(&zs_full, zbox, IM_ONE, 0xFFEE4422u);
+        CHECK((zp_part[0] & 0x00FFFFFFu) == 0x00EE4422u &&
+              bytes_eq(zp_part, zp_full, sizeof(zp_part)),
+              "partial redraw after repainting zoomed 4096x1 node equals full redraw");
+        im_dirty_clear(&zd);
+
+        /* Detach zoomed node: partial redraw must restore background at (0, 0) and match full redraw. */
+        im_tree_remove_child(&zt, zroot, zbox);
+        im_dirty_collect_tree(&zd, &zt, zroot, IM_ONE);
+        CHECK(zd.count > 0u, "detaching zoomed 4096x1 node emits dirty rect");
+        for (uint32_t i = 0; i < zd.count; i++) {
+            CHECK(im_dirty_push_clip(&zl_part, zd.rects[i]), "push zoomed detach clip");
+            im_fill_argb(&zs_part, (im_rect){0, 0, FX(16), FX(4)}, (im_radii){0, 0, 0, 0}, 0xFF101010u);
+            im_layer_pop_clip(&zl_part);
+        }
+        im_fill_argb(&zs_full, (im_rect){0, 0, FX(16), FX(4)}, (im_radii){0, 0, 0, 0}, 0xFF101010u);
+        CHECK((zp_part[0] & 0x00FFFFFFu) == 0x00101010u &&
+              bytes_eq(zp_part, zp_full, sizeof(zp_part)),
+              "partial redraw after detaching zoomed 4096x1 node equals full redraw");
+
+        im_layer_destroy(&zl_part);
+        im_layer_destroy(&zl_full);
+        im_tree_destroy_subtree(&zt, zbox);
+        im_tree_destroy_subtree(&zt, zroot);
+    }
+
     /* Q30 half-open boundary regression: 1-unit-wide node at 2x scale must hit at 2*IM_ONE - 1. */
     {
         im_node *tiny_n = im_tree_create_node(&tree, IM_ELEM_BORDER, "tiny");

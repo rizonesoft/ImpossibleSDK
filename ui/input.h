@@ -11,7 +11,9 @@
 bool im_node_device_transform(const im_node *node, im_fixed scale, im_transform *out);
 
 /* Compute the logical (pre-scale) axis-aligned painted bounding rect of node taking its
-   own and all ancestor render_transforms into account. Returns false if empty or overflow. */
+   own and all ancestor render_transforms into account, saturating wide bounds to the
+   representable 16.16 range so zoomed visible nodes are never dropped. Returns false if
+   empty, collapsed, or completely outside the representable 16.16 range. */
 bool im_node_transformed_logical_bounds(const im_node *node, im_rect *out_logical);
 
 /* Map a device-pixel pointer (dev_x, dev_y) in 16.16 fixed point back into node-local
