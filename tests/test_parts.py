@@ -1714,7 +1714,13 @@ class GifDecoder(unittest.TestCase):
                         f"{name} frame {idx}: metadata/image-fields mismatch",
                     )
                     self.assertEqual(hashlib.sha256(fpx_r).hexdigest(), exp_f["rgba8_sha256"], f"{name} frame {idx}: RGBA8 mismatch")
-                    self.assertEqual((got_b[7], got_b[8], got_b[9]), (exp_f["width"], exp_f["height"], 0), f"{name} frame {idx}: BGRA8 image fields")
+                    self.assertEqual(
+                        got_b[:12],
+                        (exp_f["delay_ms"], exp_f["disposal"], exp_f["user_input"], exp_f["left"], exp_f["top"],
+                         exp_f["frame_width"], exp_f["frame_height"], exp_f["width"], exp_f["height"], 0,
+                         exp_f["width"] * 4, exp_f["width"] * exp_f["height"] * 4),
+                        f"{name} frame {idx}: BGRA8 metadata/image-fields mismatch",
+                    )
                     self.assertEqual(got_b[12], swap_rb(fpx_r), f"{name} frame {idx}: BGRA8 mismatch")
 
                 bad_cnt, first_bad = check_prefixes(raw, label=f"prefixes:{name}")
