@@ -283,12 +283,12 @@ A frame redraws only what changed, and nothing runs when nothing changes.
 1. Add `paint_dirty`/`prev_absolute_rect`/`pending_damage` in `ui/tree.{h,c}`, write `ui/dirty.{h,c}` and `ui/frame.{h,c}`, register both in `parts.json`, extend `include/impossible/window.h` and `src/window.c`, and update `docs/guide/drawing.md` and `docs/guide/first-window.md`. Done when: `python3 tools/check_parts.py` and `python3 tools/site/build.py --check` pass and `test-dirty.exe` builds.
 2. Add `tests/fixtures/test_dirty.c` in `CMakeLists.txt` and wire `test-dirty.exe` in `tests/test_ui.py`. Done when: `python3 tools/build.py`, `python3 tools/check_parts.py`, and `python3 tools/site/build.py --check` exit 0.
 
-- [ ] Collect changed rectangles from the tree in `ui/dirty.h`/`ui/dirty.c` and `ui/tree.h`/`ui/tree.c`. Done when: random changes drawn partially equal a full redraw, byte for byte, 10,000 times. Cheaper substitute: redrawing the window.
-- [ ] Merge rectangles under a fixed limit in `ui/dirty.c`. Done when: 1,000 changes give at most 16 rectangles that cover them all. Cheaper substitute: one bounding box.
-- [ ] Ask the host for the next frame only while an animation or change is pending, in `ui/frame.h`/`ui/frame.c`. Done when: an idle window makes no call for 10 seconds. Cheaper substitute: a steady timer.
-- [ ] Pass the rectangles to Windows in `include/impossible/window.h` and `src/window.c`. Done when: a hover over one button paints only its area, read from the update region. Cheaper substitute: painting everything.
-- [ ] Bring back a frame after the window is moved, covered or resized, in `src/window.c`. Done when: the pixels equal a fresh draw. Cheaper substitute: waiting for the next change.
-- [ ] Commit: `ui: dirty rectangles and frame timing`
+- [x] Collect changed rectangles from the tree in `ui/dirty.h`/`ui/dirty.c` and `ui/tree.h`/`ui/tree.c`. Done when: random changes drawn partially equal a full redraw, byte for byte, 10,000 times. Cheaper substitute: redrawing the window.
+- [x] Merge rectangles under a fixed limit in `ui/dirty.c`. Done when: 1,000 changes give at most 16 rectangles that cover them all. Cheaper substitute: one bounding box.
+- [x] Ask the host for the next frame only while an animation or change is pending, in `ui/frame.h`/`ui/frame.c`. Done when: an idle window makes no call for 10 seconds. Cheaper substitute: a steady timer.
+- [x] Pass the rectangles to Windows in `include/impossible/window.h` and `src/window.c`. Done when: a hover over one button paints only its area, read from the update region. Cheaper substitute: painting everything.
+- [x] Bring back a frame after the window is moved, covered or resized, in `src/window.c`. Done when: the pixels equal a fresh draw. Cheaper substitute: waiting for the next change.
+- [x] Commit: `ui: dirty rectangles and frame timing`
 
 **Test checkpoint:** `python3 tools/build.py`, `python3 tools/check_parts.py`, and `python3 tools/site/build.py --check` exit 0, and the new tests fail when their production change is reverted.
 

@@ -3260,6 +3260,14 @@ class Drawing(unittest.TestCase):
         self.assertEqual(desc_count, 14)
         self.assertEqual(pvl_count, 12)
 
+    def test_dirty_rectangles_and_frame_timing(self):
+        res = subprocess.run(
+            [str(BUILD / "test-dirty.exe")],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("ALL PASSED", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

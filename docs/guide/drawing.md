@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,ui/tree.h,ui/layout.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/states.h,ui/host.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
+<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,ui/tree.h,ui/layout.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/states.h,ui/host.h,ui/dirty.h,ui/frame.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
 # Drawing
 
 How do you draw Windows 11's shapes and colours? Describe your canvas as a surface, then fill shapes with the brushes of the theme.
@@ -49,6 +49,10 @@ Initialize an `im_state_machine` with `im_states_init` for any compiled WinUI co
 ## How does the portable engine talk to the host?
 
 Every system-owned service (memory, monotonic clock, clipboard, pointer cursor, caret blink timing, input method, opening URLs, sound, file pickers, and screen-reader announcements) goes through a single versioned and sized `im_host` callback table (`ui/host.h`, `ui/host.c`). Hosts built for an older smaller table version are accepted by `im_host_accept` (with v1 tables capped at `IM_HOST_V1_SIZE` regardless of backing size), missing callbacks are refused by exact name through `im_host_require`, and every `im_host_*` wrapper returns a defined safe result and clears output buffers on error or cancellation. On Windows, call `im_win_host_init` (`include/impossible/win_host.h`, `src/host.c`) to fill the Tier 0/1 memory, monotonic time, and cursor callbacks bound to your `im_window`.
+
+## How do dirty rectangles and frame timing work?
+
+Collect damaged device-pixel regions from an `im_tree` with `im_dirty_collect_tree` (`ui/dirty.h`, `ui/dirty.c`), which drains detached or destroyed subtree bounds from `tree->pending_damage`, scales logical bounds by the display scale with outward pixel rounding before clipping, marks the full viewport dirty on scale changes, and merges rectangles down to at most `IM_DIRTY_MAX_RECTS` (16) using minimum added waste area. Drive repaint scheduling with `im_frame_scheduler` (`ui/frame.h`, `ui/frame.c`): `im_frame_step` requests a one-shot frame (`im_window_request_frame`) only while damage, an active animation, or a settled final frame is owed, acknowledges only the painted generation via `im_frame_begin_paint` and `im_frame_on_painted` so damage queued during paint is never lost, and makes zero calls while the window is idle.
 
 | Call | What it does |
 | --- | --- |

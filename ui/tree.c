@@ -112,12 +112,29 @@ im_node *im_tree_create_node(im_tree *tree, im_element_kind kind, const char *na
     return node;
 }
 
+static void record_detached_damage(im_tree *tree, const im_node *node) {
+    if (!tree || !node) return;
+    if (node->had_prev_rect) {
+        if (tree->pending_damage_count < IM_TREE_PENDING_DAMAGE_CAP) {
+            tree->pending_damage[tree->pending_damage_count++] = node->prev_absolute_rect;
+        } else {
+            tree->pending_damage_overflow = true;
+        }
+    }
+    for (uint32_t i = 0; i < node->child_count; i++) {
+        record_detached_damage(tree, node->children[i]);
+    }
+}
+
 void im_tree_destroy_subtree(im_tree *tree, im_node *node) {
     if (!tree || !node) return;
     if (node->parent) {
         im_tree_remove_child(tree, node->parent, node);
     } else if (tree->root == node) {
+        record_detached_damage(tree, node);
         tree->root = NULL;
+    } else {
+        record_detached_damage(tree, node);
     }
     destroy_node_recursive(tree, node);
 }
@@ -188,10 +205,10 @@ bool im_tree_append_child(im_tree *tree, im_node *parent, im_node *child) {
 }
 
 bool im_tree_remove_child(im_tree *tree, im_node *parent, im_node *child) {
-    (void)tree;
     if (!parent || !child || child->parent != parent) return false;
     for (uint32_t i = 0; i < parent->child_count; i++) {
         if (parent->children[i] == child) {
+            if (tree) record_detached_damage(tree, child);
             for (uint32_t j = i; j + 1u < parent->child_count; j++) {
                 parent->children[j] = parent->children[j + 1u];
             }
@@ -206,11 +223,11 @@ bool im_tree_remove_child(im_tree *tree, im_node *parent, im_node *child) {
 }
 
 im_node *im_tree_replace_child(im_tree *tree, im_node *parent, uint32_t index, im_node *replacement) {
-    (void)tree;
     if (!parent || !replacement || replacement->parent != NULL || replacement == parent) return NULL;
     if (is_ancestor(replacement, parent)) return NULL;
     if (index >= parent->child_count) return NULL;
     im_node *old = parent->children[index];
+    if (tree) record_detached_damage(tree, old);
     old->parent = NULL;
     detach_external_templated_parents(old, old);
     parent->children[index] = replacement;
@@ -247,6 +264,11 @@ void im_tree_invalidate_arrange(im_node *node) {
         cur->arrange_dirty = true;
         cur = cur->parent;
     }
+}
+
+void im_tree_invalidate_paint(im_node *node) {
+    if (!node) return;
+    node->paint_dirty = true;
 }
 
 static void invalidate_template_bindings(im_node *root, im_node *templated_parent, uint32_t bit) {

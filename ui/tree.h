@@ -182,13 +182,22 @@ typedef struct im_node {
     im_size unclipped_desired;
     im_rect layout_rect;
     im_rect absolute_rect;
+    bool paint_dirty;
+    bool had_prev_rect;
+    im_rect prev_absolute_rect;
 } im_node;
 
-/* Element tree owning the allocator and root pointer. */
+/* Maximum number of detached/destroyed subtree bounds buffered before overflowing to a full repaint. */
+#define IM_TREE_PENDING_DAMAGE_CAP 32
+
+/* Element tree owning the allocator, root pointer, and detached-subtree damage queue. */
 typedef struct im_tree {
     im_allocator alloc;
     im_node *root;
     uint32_t node_count;
+    im_rect pending_damage[IM_TREE_PENDING_DAMAGE_CAP];
+    uint32_t pending_damage_count;
+    bool pending_damage_overflow;
 } im_tree;
 
 /* Initialise an empty element tree with a caller-supplied allocator. Returns false if invalid. */
@@ -223,6 +232,9 @@ void im_tree_invalidate_measure(im_node *node);
 
 /* Mark node and its ancestors arrange-dirty. */
 void im_tree_invalidate_arrange(im_node *node);
+
+/* Mark node as needing a visual repaint (e.g. brush/color/state change without geometry change). */
+void im_tree_invalidate_paint(im_node *node);
 
 /* Set Grid row definitions transactionally; on allocation failure, existing rows remain intact. */
 bool im_tree_set_grid_rows(im_tree *tree, im_node *grid, const im_grid_def *defs, uint32_t count);
