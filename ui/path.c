@@ -457,20 +457,41 @@ static bool transform_pt_opt(const im_transform *tr, int64_t lx, int64_t ly, int
     return im_transform_point_q30(tr, lx, ly, ox, oy);
 }
 
-/* Convert W3C SVG/WinUI endpoint elliptical arc in local Q30 to cubics, transforming each control point by tr. */
-static bool flatten_svg_arc(subpath_list *sl, const im_transform *tr,
-                            int64_t x0, int64_t y0,
-                            int64_t rx, int64_t ry, im_fixed phi_deg,
-                            bool large_arc, bool sweep,
-                            int64_t x1, int64_t y1, int64_t tol_q30) {
-    if (x0 == x1 && y0 == y1) return true;
+/* Freestanding 128-bit unsigned divide by 64-bit unsigned divisor (zero __udivti3). */
+static unsigned __int128 udiv128_u64(unsigned __int128 num, uint64_t den) {
+    if (den == 0u) return 0u;
+    if (num <= (unsigned __int128)UINT64_MAX) return (unsigned __int128)((uint64_t)num / den);
+    uint64_t hi = (uint64_t)(num >> 64);
+    uint64_t lo = (uint64_t)num;
+    uint64_t q_hi = hi / den;
+    uint64_t rem = hi % den;
+    uint64_t q_lo = 0u;
+    for (int i = 63; i >= 0; i--) {
+        uint64_t top = rem >> 63;
+        rem = (rem << 1) | ((lo >> i) & 1u);
+        if (top || rem >= den) {
+            rem -= den;
+            q_lo |= ((uint64_t)1u << i);
+        }
+    }
+    return ((unsigned __int128)q_hi << 64) | (unsigned __int128)q_lo;
+}
+
+typedef struct svg_arc_cubic {
+    int64_t c1x, c1y, c2x, c2y, ex, ey;
+} svg_arc_cubic;
+
+/* Convert a W3C SVG/WinUI endpoint elliptical arc in local Q30 into 1..8 cubic Bezier segments.
+   Returns 0 when endpoints coincide; returns -1 when degenerate to a straight line (x0,y0)->(x1,y1). */
+static int svg_arc_to_cubics(int64_t x0, int64_t y0,
+                             int64_t rx, int64_t ry, im_fixed phi_deg,
+                             bool large_arc, bool sweep,
+                             int64_t x1, int64_t y1,
+                             svg_arc_cubic out_cubics[8]) {
+    if (x0 == x1 && y0 == y1) return 0;
     rx = i64_abs(rx);
     ry = i64_abs(ry);
-    if (rx == 0 || ry == 0) {
-        int64_t tx = 0, ty = 0;
-        if (!transform_pt_opt(tr, x1, y1, &tx, &ty)) return false;
-        return subpaths_add_pt(sl, tx, ty);
-    }
+    if (rx == 0 || ry == 0) return -1;
 
     int64_t cos_p = im_cos_deg(phi_deg);
     int64_t sin_p = im_sin_deg(phi_deg);
@@ -505,31 +526,29 @@ static bool flatten_svg_arc(subpath_list *sl, const im_transform *tr,
         if (ry == 0) ry = 1;
         coef_q30 = 0;
     } else if (lam_q60 > 0) {
-        /* sq = (1 - lam) / lam in Q60 -> sqrt(sq) in Q30 */
-        unsigned __int128 diff_q60 = one_q60 - lam_q60;
-        /* Shift down to fit denominator in int64_t for im_sdiv128_i64. */
-        unsigned __int128 num = diff_q60;
+        /* Keep quotient (1 - lam) / lam wide as unsigned __int128 through isqrt128
+           so short arcs with large (1 - lam) / lam never overflow int64_t. */
+        unsigned __int128 num = one_q60 - lam_q60;
         unsigned __int128 den = lam_q60;
-        while (den > (unsigned __int128)INT64_MAX) {
+        while (den > (unsigned __int128)UINT64_MAX) {
             num >>= 1;
             den >>= 1;
         }
-        if (den == 0) den = 1;
-        /* Want sqrt(num / den) * 2^30 = sqrt((num * 2^60) / den). Keep num*2^60 inside 128 bits. */
-        int extra = 60;
-        while (extra > 0 && num > (((unsigned __int128)1 << 127) >> extra)) {
+        if (den == 0u) den = 1u;
+        int extra = 60; /* always even */
+        while (extra >= 2 && num > (((unsigned __int128)1 << 127) >> extra)) {
+            extra -= 2;
+        }
+        while (num > (((unsigned __int128)1 << 127) >> extra)) {
             num >>= 1;
             den >>= 1;
-            if (den == 0) den = 1;
-            extra--;
-            if (extra > 0) extra--;
+            if (den == 0u) den = 1u;
         }
-        int64_t sq_q = im_sdiv128_i64((__int128)(num << extra), (int64_t)den);
-        if (sq_q < 0) sq_q = 0;
-        int64_t root = (int64_t)isqrt64((uint64_t)sq_q);
-        int rem = 30 - (extra / 2);
-        coef_q30 = (rem >= 0) ? (root << rem) : (root >> (-rem));
-        if (large_arc == sweep) coef_q30 = -coef_q30;
+        unsigned __int128 sq_q = udiv128_u64(num << extra, (uint64_t)den);
+        uint64_t root = isqrt128(sq_q);
+        int rem_sh = 30 - (extra / 2);
+        int64_t c = (rem_sh >= 0) ? (int64_t)(root << rem_sh) : (int64_t)(root >> (-rem_sh));
+        coef_q30 = (large_arc == sweep) ? -c : c;
     }
 
     int64_t cxp = q30_mul(coef_q30, im_sdiv128_i64((__int128)rx * y1p, ry));
@@ -550,25 +569,18 @@ static bool flatten_svg_arc(subpath_list *sl, const im_transform *tr,
     int64_t delta = (int64_t)a_end - (int64_t)a_start;
     if (sweep && delta < 0) delta += 360LL * IM_ONE;
     if (!sweep && delta > 0) delta -= 360LL * IM_ONE;
-    if (delta == 0) {
-        int64_t tx = 0, ty = 0;
-        if (!transform_pt_opt(tr, x1, y1, &tx, &ty)) return false;
-        return subpaths_add_pt(sl, tx, ty);
-    }
+    if (delta == 0) return -1;
 
     int64_t segs = (i64_abs(delta) + (45LL * IM_ONE) - 1) / (45LL * IM_ONE);
     if (segs < 1) segs = 1;
-    if (segs > 64) segs = 64;
-
-    int64_t cur_x = 0, cur_y = 0;
-    if (!transform_pt_opt(tr, x0, y0, &cur_x, &cur_y)) return false;
+    if (segs > 8) segs = 8;
 
     for (int64_t i = 0; i < segs; i++) {
         im_fixed a0 = (im_fixed)((int64_t)a_start + (delta * i) / segs);
         im_fixed a1 = (im_fixed)((int64_t)a_start + (delta * (i + 1)) / segs);
         im_fixed d = (im_fixed)((int64_t)a1 - (int64_t)a0);
         int64_t tan_q = 0;
-        if (!im_tan_deg(d / 4, &tan_q)) return false;
+        if (!im_tan_deg(d / 4, &tan_q)) return -1;
         int64_t k_q = (tan_q * 4) / 3;
 
         int64_t ca0 = im_cos_deg(a0), sa0 = im_sin_deg(a0);
@@ -581,17 +593,39 @@ static bool flatten_svg_arc(subpath_list *sl, const im_transform *tr,
         int64_t lex = q30_mul(rx, ca1);
         int64_t ley = q30_mul(ry, sa1);
 
-        int64_t rc1x = cx + q30_mul(lc1x, cos_p) - q30_mul(lc1y, sin_p);
-        int64_t rc1y = cy + q30_mul(lc1x, sin_p) + q30_mul(lc1y, cos_p);
-        int64_t rc2x = cx + q30_mul(lc2x, cos_p) - q30_mul(lc2y, sin_p);
-        int64_t rc2y = cy + q30_mul(lc2x, sin_p) + q30_mul(lc2y, cos_p);
-        int64_t rex = (i + 1 == segs) ? x1 : (cx + q30_mul(lex, cos_p) - q30_mul(ley, sin_p));
-        int64_t rey = (i + 1 == segs) ? y1 : (cy + q30_mul(lex, sin_p) + q30_mul(ley, cos_p));
+        out_cubics[i].c1x = cx + q30_mul(lc1x, cos_p) - q30_mul(lc1y, sin_p);
+        out_cubics[i].c1y = cy + q30_mul(lc1x, sin_p) + q30_mul(lc1y, cos_p);
+        out_cubics[i].c2x = cx + q30_mul(lc2x, cos_p) - q30_mul(lc2y, sin_p);
+        out_cubics[i].c2y = cy + q30_mul(lc2x, sin_p) + q30_mul(lc2y, cos_p);
+        out_cubics[i].ex = (i + 1 == segs) ? x1 : (cx + q30_mul(lex, cos_p) - q30_mul(ley, sin_p));
+        out_cubics[i].ey = (i + 1 == segs) ? y1 : (cy + q30_mul(lex, sin_p) + q30_mul(ley, cos_p));
+    }
+    return (int)segs;
+}
 
+/* Convert W3C SVG/WinUI endpoint elliptical arc in local Q30 to cubics, transforming each control point by tr. */
+static bool flatten_svg_arc(subpath_list *sl, const im_transform *tr,
+                            int64_t x0, int64_t y0,
+                            int64_t rx, int64_t ry, im_fixed phi_deg,
+                            bool large_arc, bool sweep,
+                            int64_t x1, int64_t y1, int64_t tol_q30) {
+    svg_arc_cubic cubics[8];
+    int segs = svg_arc_to_cubics(x0, y0, rx, ry, phi_deg, large_arc, sweep, x1, y1, cubics);
+    if (segs == 0) return true;
+    if (segs < 0) {
+        int64_t tx = 0, ty = 0;
+        if (!transform_pt_opt(tr, x1, y1, &tx, &ty)) return false;
+        return subpaths_add_pt(sl, tx, ty);
+    }
+
+    int64_t cur_x = 0, cur_y = 0;
+    if (!transform_pt_opt(tr, x0, y0, &cur_x, &cur_y)) return false;
+
+    for (int i = 0; i < segs; i++) {
         int64_t tc1x = 0, tc1y = 0, tc2x = 0, tc2y = 0, tex = 0, tey = 0;
-        if (!transform_pt_opt(tr, rc1x, rc1y, &tc1x, &tc1y) ||
-            !transform_pt_opt(tr, rc2x, rc2y, &tc2x, &tc2y) ||
-            !transform_pt_opt(tr, rex, rey, &tex, &tey)) {
+        if (!transform_pt_opt(tr, cubics[i].c1x, cubics[i].c1y, &tc1x, &tc1y) ||
+            !transform_pt_opt(tr, cubics[i].c2x, cubics[i].c2y, &tc2x, &tc2y) ||
+            !transform_pt_opt(tr, cubics[i].ex, cubics[i].ey, &tex, &tey)) {
             return false;
         }
         if (!flatten_cubic(sl, cur_x, cur_y, tc1x, tc1y, tc2x, tc2y, tex, tey, tol_q30, 0)) return false;
@@ -605,6 +639,7 @@ static bool flatten_path_to_subpaths(const im_path_data *path, const im_transfor
                                      int64_t tol_q30, subpath_list *sl) {
     if (!path || !sl) return false;
     bool has_cur = false;
+    bool subpath_open = false;
     int64_t cur_lx = 0, cur_ly = 0;
     int64_t start_lx = 0, start_ly = 0;
     int64_t cur_tx = 0, cur_ty = 0;
@@ -620,6 +655,7 @@ static bool flatten_path_to_subpaths(const im_path_data *path, const im_transfor
             if (!transform_pt_opt(tr, cur_lx, cur_ly, &cur_tx, &cur_ty)) return false;
             if (!subpaths_begin(sl, cur_tx, cur_ty)) return false;
             has_cur = true;
+            subpath_open = true;
             break;
         }
         case IM_PATH_LINE: {
@@ -631,7 +667,14 @@ static bool flatten_path_to_subpaths(const im_path_data *path, const im_transfor
                 if (!transform_pt_opt(tr, cur_lx, cur_ly, &cur_tx, &cur_ty)) return false;
                 if (!subpaths_begin(sl, cur_tx, cur_ty)) return false;
                 has_cur = true;
+                subpath_open = true;
             } else {
+                if (!subpath_open) {
+                    start_lx = cur_lx;
+                    start_ly = cur_ly;
+                    if (!subpaths_begin(sl, cur_tx, cur_ty)) return false;
+                    subpath_open = true;
+                }
                 cur_lx = im_fixed_to_q30(s->x1);
                 cur_ly = im_fixed_to_q30(s->y1);
                 if (!transform_pt_opt(tr, cur_lx, cur_ly, &cur_tx, &cur_ty)) return false;
@@ -641,6 +684,12 @@ static bool flatten_path_to_subpaths(const im_path_data *path, const im_transfor
         }
         case IM_PATH_QUAD: {
             if (!has_cur) return false;
+            if (!subpath_open) {
+                start_lx = cur_lx;
+                start_ly = cur_ly;
+                if (!subpaths_begin(sl, cur_tx, cur_ty)) return false;
+                subpath_open = true;
+            }
             int64_t c1x = 0, c1y = 0, ex = 0, ey = 0;
             int64_t lx1 = im_fixed_to_q30(s->x1), ly1 = im_fixed_to_q30(s->y1);
             int64_t lx2 = im_fixed_to_q30(s->x2), ly2 = im_fixed_to_q30(s->y2);
@@ -653,6 +702,12 @@ static bool flatten_path_to_subpaths(const im_path_data *path, const im_transfor
         }
         case IM_PATH_CUBIC: {
             if (!has_cur) return false;
+            if (!subpath_open) {
+                start_lx = cur_lx;
+                start_ly = cur_ly;
+                if (!subpaths_begin(sl, cur_tx, cur_ty)) return false;
+                subpath_open = true;
+            }
             int64_t c1x = 0, c1y = 0, c2x = 0, c2y = 0, ex = 0, ey = 0;
             int64_t lx1 = im_fixed_to_q30(s->x1), ly1 = im_fixed_to_q30(s->y1);
             int64_t lx2 = im_fixed_to_q30(s->x2), ly2 = im_fixed_to_q30(s->y2);
@@ -667,6 +722,12 @@ static bool flatten_path_to_subpaths(const im_path_data *path, const im_transfor
         }
         case IM_PATH_ARC: {
             if (!has_cur) return false;
+            if (!subpath_open) {
+                start_lx = cur_lx;
+                start_ly = cur_ly;
+                if (!subpaths_begin(sl, cur_tx, cur_ty)) return false;
+                subpath_open = true;
+            }
             int64_t lx2 = im_fixed_to_q30(s->x2), ly2 = im_fixed_to_q30(s->y2);
             if (!flatten_svg_arc(sl, tr, cur_lx, cur_ly,
                                  im_fixed_to_q30(s->x1), im_fixed_to_q30(s->y1),
@@ -679,12 +740,13 @@ static bool flatten_path_to_subpaths(const im_path_data *path, const im_transfor
             break;
         }
         case IM_PATH_CLOSE: {
-            if (sl->count > 0u) {
+            if (subpath_open && sl->count > 0u) {
                 sl->subs[sl->count - 1u].closed = true;
             }
             cur_lx = start_lx;
             cur_ly = start_ly;
             if (!transform_pt_opt(tr, cur_lx, cur_ly, &cur_tx, &cur_ty)) return false;
+            subpath_open = false;
             break;
         }
         default:
@@ -694,63 +756,165 @@ static bool flatten_path_to_subpaths(const im_path_data *path, const im_transfor
     return !sl->oom && !sl->pts.oom;
 }
 
+static void bounds_include_1d(int64_t v, bool *has, int64_t *min_v, int64_t *max_v) {
+    if (!*has || v < *min_v) *min_v = v;
+    if (!*has || v > *max_v) *max_v = v;
+    *has = true;
+}
+
+static void bounds_include_quad_1d(int64_t p0, int64_t p1, int64_t p2, bool *has, int64_t *min_v, int64_t *max_v) {
+    bounds_include_1d(p0, has, min_v, max_v);
+    bounds_include_1d(p2, has, min_v, max_v);
+    int64_t denom = p0 - 2 * p1 + p2;
+    if (denom != 0) {
+        int64_t num = p0 - p1;
+        if ((denom > 0 && num > 0 && num < denom) || (denom < 0 && num < 0 && num > denom)) {
+            int64_t t = im_sdiv128_i64((__int128)num * IM_TR_ONE, denom);
+            int64_t mt = IM_TR_ONE - t;
+            int64_t a = q30_mul(mt, p0) + q30_mul(t, p1);
+            int64_t b = q30_mul(mt, p1) + q30_mul(t, p2);
+            int64_t v = q30_mul(mt, a) + q30_mul(t, b);
+            bounds_include_1d(v, has, min_v, max_v);
+        }
+    }
+}
+
+static void bounds_eval_cubic_t(int64_t p0, int64_t p1, int64_t p2, int64_t p3, int64_t t,
+                                bool *has, int64_t *min_v, int64_t *max_v) {
+    if (t <= 0 || t >= IM_TR_ONE) return;
+    int64_t mt = IM_TR_ONE - t;
+    int64_t q0 = q30_mul(mt, p0) + q30_mul(t, p1);
+    int64_t q1 = q30_mul(mt, p1) + q30_mul(t, p2);
+    int64_t q2 = q30_mul(mt, p2) + q30_mul(t, p3);
+    int64_t r0 = q30_mul(mt, q0) + q30_mul(t, q1);
+    int64_t r1 = q30_mul(mt, q1) + q30_mul(t, q2);
+    int64_t v = q30_mul(mt, r0) + q30_mul(t, r1);
+    bounds_include_1d(v, has, min_v, max_v);
+}
+
+static void bounds_include_cubic_1d(int64_t p0, int64_t p1, int64_t p2, int64_t p3,
+                                    bool *has, int64_t *min_v, int64_t *max_v) {
+    bounds_include_1d(p0, has, min_v, max_v);
+    bounds_include_1d(p3, has, min_v, max_v);
+    /* B'(t) = 3*(a*t^2 + 2*b*t + c) = 0 */
+    int64_t a = -p0 + 3 * p1 - 3 * p2 + p3;
+    int64_t b = p0 - 2 * p1 + p2;
+    int64_t c = p1 - p0;
+    if (a == 0) {
+        if (b != 0) {
+            int64_t t = im_sdiv128_i64((__int128)(-c) * IM_TR_ONE, 2 * b);
+            bounds_eval_cubic_t(p0, p1, p2, p3, t, has, min_v, max_v);
+        }
+        return;
+    }
+    /* Normalize a, b, c so b^2 - a*c fits comfortably inside __int128. */
+    int64_t as = a, bs = b, cs = c;
+    while (i64_abs(as) > ((int64_t)1 << 45) || i64_abs(bs) > ((int64_t)1 << 45) || i64_abs(cs) > ((int64_t)1 << 45)) {
+        as >>= 1; bs >>= 1; cs >>= 1;
+    }
+    if (as == 0) return;
+    __int128 disc = (__int128)bs * bs - (__int128)as * cs;
+    if (disc < 0) return;
+    int64_t sq = (int64_t)isqrt128((unsigned __int128)disc);
+    int64_t t1 = im_sdiv128_i64((__int128)(-bs + sq) * IM_TR_ONE, as);
+    int64_t t2 = im_sdiv128_i64((__int128)(-bs - sq) * IM_TR_ONE, as);
+    bounds_eval_cubic_t(p0, p1, p2, p3, t1, has, min_v, max_v);
+    bounds_eval_cubic_t(p0, p1, p2, p3, t2, has, min_v, max_v);
+}
+
+static im_fixed q30_to_fixed_floor(int64_t q) {
+    int64_t v = (q >= 0) ? (q >> (IM_TR_SHIFT - 16)) : -(((-q) + ((1LL << (IM_TR_SHIFT - 16)) - 1)) >> (IM_TR_SHIFT - 16));
+    if (v < INT32_MIN) v = INT32_MIN;
+    if (v > INT32_MAX) v = INT32_MAX;
+    return (im_fixed)v;
+}
+
+static im_fixed q30_to_fixed_ceil(int64_t q) {
+    int64_t v = (q >= 0) ? ((q + ((1LL << (IM_TR_SHIFT - 16)) - 1)) >> (IM_TR_SHIFT - 16)) : -((-q) >> (IM_TR_SHIFT - 16));
+    if (v < INT32_MIN) v = INT32_MIN;
+    if (v > INT32_MAX) v = INT32_MAX;
+    return (im_fixed)v;
+}
+
 bool im_path_bounds(const im_path_data *path, im_rect *out_bounds) {
     if (!path || !out_bounds || path->count == 0u) return false;
-    bool has = false;
+    bool has_x = false, has_y = false;
     int64_t min_x = INT64_MAX, min_y = INT64_MAX;
     int64_t max_x = INT64_MIN, max_y = INT64_MIN;
-    /* Track control/endpoint bounds; for arcs also include center +/- radius conservatism via endpoint + rx/ry. */
-    int64_t cur_x = 0, cur_y = 0;
+    int64_t cur_x = 0, cur_y = 0, start_x = 0, start_y = 0;
+    bool has_cur = false;
+
     for (uint32_t i = 0; i < path->count; i++) {
         const im_path_seg *s = &path->segs[i];
-        int64_t xs[3], ys[3];
-        int n = 0;
         switch (s->cmd) {
         case IM_PATH_MOVE:
-        case IM_PATH_LINE:
-            xs[0] = s->x1; ys[0] = s->y1; n = 1;
-            cur_x = s->x1; cur_y = s->y1;
+            cur_x = im_fixed_to_q30(s->x1);
+            cur_y = im_fixed_to_q30(s->y1);
+            start_x = cur_x; start_y = cur_y;
+            has_cur = true;
+            bounds_include_1d(cur_x, &has_x, &min_x, &max_x);
+            bounds_include_1d(cur_y, &has_y, &min_y, &max_y);
             break;
-        case IM_PATH_QUAD:
-            xs[0] = s->x1; ys[0] = s->y1;
-            xs[1] = s->x2; ys[1] = s->y2; n = 2;
-            cur_x = s->x2; cur_y = s->y2;
+        case IM_PATH_LINE: {
+            int64_t nx = im_fixed_to_q30(s->x1);
+            int64_t ny = im_fixed_to_q30(s->y1);
+            if (!has_cur) { start_x = nx; start_y = ny; has_cur = true; }
+            bounds_include_1d(nx, &has_x, &min_x, &max_x);
+            bounds_include_1d(ny, &has_y, &min_y, &max_y);
+            cur_x = nx; cur_y = ny;
             break;
-        case IM_PATH_CUBIC:
-            xs[0] = s->x1; ys[0] = s->y1;
-            xs[1] = s->x2; ys[1] = s->y2;
-            xs[2] = s->x3; ys[2] = s->y3; n = 3;
-            cur_x = s->x3; cur_y = s->y3;
+        }
+        case IM_PATH_QUAD: {
+            if (!has_cur) break;
+            int64_t cx = im_fixed_to_q30(s->x1), cy = im_fixed_to_q30(s->y1);
+            int64_t ex = im_fixed_to_q30(s->x2), ey = im_fixed_to_q30(s->y2);
+            bounds_include_quad_1d(cur_x, cx, ex, &has_x, &min_x, &max_x);
+            bounds_include_quad_1d(cur_y, cy, ey, &has_y, &min_y, &max_y);
+            cur_x = ex; cur_y = ey;
             break;
+        }
+        case IM_PATH_CUBIC: {
+            if (!has_cur) break;
+            int64_t c1x = im_fixed_to_q30(s->x1), c1y = im_fixed_to_q30(s->y1);
+            int64_t c2x = im_fixed_to_q30(s->x2), c2y = im_fixed_to_q30(s->y2);
+            int64_t ex = im_fixed_to_q30(s->x3), ey = im_fixed_to_q30(s->y3);
+            bounds_include_cubic_1d(cur_x, c1x, c2x, ex, &has_x, &min_x, &max_x);
+            bounds_include_cubic_1d(cur_y, c1y, c2y, ey, &has_y, &min_y, &max_y);
+            cur_x = ex; cur_y = ey;
+            break;
+        }
         case IM_PATH_ARC: {
-            int64_t rx = i64_abs(s->x1), ry = i64_abs(s->y1);
-            int64_t r = (rx > ry) ? rx : ry;
-            int64_t lo_x = (cur_x < s->x2 ? cur_x : s->x2) - r;
-            int64_t hi_x = (cur_x > s->x2 ? cur_x : s->x2) + r;
-            int64_t lo_y = (cur_y < s->y2 ? cur_y : s->y2) - r;
-            int64_t hi_y = (cur_y > s->y2 ? cur_y : s->y2) + r;
-            xs[0] = lo_x; ys[0] = lo_y;
-            xs[1] = hi_x; ys[1] = hi_y; n = 2;
-            cur_x = s->x2; cur_y = s->y2;
+            if (!has_cur) break;
+            int64_t ex = im_fixed_to_q30(s->x2), ey = im_fixed_to_q30(s->y2);
+            svg_arc_cubic cubics[8];
+            int segs = svg_arc_to_cubics(cur_x, cur_y, im_fixed_to_q30(s->x1), im_fixed_to_q30(s->y1),
+                                         s->angle_deg, s->large_arc, s->sweep, ex, ey, cubics);
+            if (segs > 0) {
+                int64_t px = cur_x, py = cur_y;
+                for (int k = 0; k < segs; k++) {
+                    bounds_include_cubic_1d(px, cubics[k].c1x, cubics[k].c2x, cubics[k].ex, &has_x, &min_x, &max_x);
+                    bounds_include_cubic_1d(py, cubics[k].c1y, cubics[k].c2y, cubics[k].ey, &has_y, &min_y, &max_y);
+                    px = cubics[k].ex; py = cubics[k].ey;
+                }
+            } else {
+                bounds_include_1d(ex, &has_x, &min_x, &max_x);
+                bounds_include_1d(ey, &has_y, &min_y, &max_y);
+            }
+            cur_x = ex; cur_y = ey;
             break;
         }
         case IM_PATH_CLOSE:
+            cur_x = start_x; cur_y = start_y;
             break;
         }
-        for (int k = 0; k < n; k++) {
-            if (!has || xs[k] < min_x) min_x = xs[k];
-            if (!has || xs[k] > max_x) max_x = xs[k];
-            if (!has || ys[k] < min_y) min_y = ys[k];
-            if (!has || ys[k] > max_y) max_y = ys[k];
-            has = true;
-        }
     }
-    if (!has) return false;
-    if (min_x < INT32_MIN) min_x = INT32_MIN;
-    if (min_y < INT32_MIN) min_y = INT32_MIN;
-    if (max_x > INT32_MAX) max_x = INT32_MAX;
-    if (max_y > INT32_MAX) max_y = INT32_MAX;
-    *out_bounds = (im_rect){ (im_fixed)min_x, (im_fixed)min_y, (im_fixed)max_x, (im_fixed)max_y };
+    if (!has_x || !has_y) return false;
+    *out_bounds = (im_rect){
+        q30_to_fixed_floor(min_x),
+        q30_to_fixed_floor(min_y),
+        q30_to_fixed_ceil(max_x),
+        q30_to_fixed_ceil(max_y)
+    };
     return true;
 }
 
@@ -781,9 +945,50 @@ static void sort_scan_x(scan_x *arr, uint32_t n) {
     }
 }
 
-static bool rasterize_subpaths(im_surface *surface, im_allocator alloc,
-                               const subpath_list *sl, im_fill_rule fill_rule,
-                               uint32_t solid_argb, im_path_shader_fn shader, void *shader_ctx) {
+typedef struct raster_plan {
+    im_allocator alloc;
+    scan_edge *edges;
+    size_t edges_bytes;
+    uint32_t edge_count;
+    uint32_t *cov;
+    size_t cov_bytes;
+    scan_x *xs;
+    size_t xs_bytes;
+    int from, to, top, bottom;
+    im_fill_rule fill_rule;
+    bool has_tr;
+    im_transform inv;
+    bool has_local_clip;
+    im_rect local_clip;
+    bool active;
+} raster_plan;
+
+static void raster_plan_destroy(raster_plan *p) {
+    if (!p) return;
+    if (p->cov) p->alloc.free(p->alloc.ctx, p->cov, p->cov_bytes);
+    if (p->xs) p->alloc.free(p->alloc.ctx, p->xs, p->xs_bytes);
+    if (p->edges) p->alloc.free(p->alloc.ctx, p->edges, p->edges_bytes);
+    p->cov = NULL;
+    p->xs = NULL;
+    p->edges = NULL;
+    p->active = false;
+}
+
+/* Prepare all rasterizer scratch buffers before blending a single pixel (all-or-nothing OOM safety). */
+static bool raster_plan_prepare(raster_plan *p, const im_surface *surface, im_allocator alloc,
+                                const subpath_list *sl, im_fill_rule fill_rule,
+                                bool has_local_clip, im_rect local_clip) {
+    p->alloc = alloc;
+    p->edges = NULL; p->edges_bytes = 0u; p->edge_count = 0u;
+    p->cov = NULL; p->cov_bytes = 0u;
+    p->xs = NULL; p->xs_bytes = 0u;
+    p->from = p->to = p->top = p->bottom = 0;
+    p->fill_rule = fill_rule;
+    p->has_tr = false;
+    p->has_local_clip = has_local_clip;
+    p->local_clip = local_clip;
+    p->active = false;
+
     if (!surface || !surface->pixels || surface->width <= 0 || surface->height <= 0) return true;
     if (!alloc.alloc || !alloc.realloc || !alloc.free) return false;
 
@@ -793,11 +998,20 @@ static bool rasterize_subpaths(im_surface *surface, im_allocator alloc,
     }
     if (bound_l >= bound_r || bound_t >= bound_b) return true;
 
-    im_transform inv;
-    bool has_tr = (surface->transform != NULL);
-    if (has_tr && !im_transform_invert(surface->transform, &inv)) return true;
+    p->has_tr = (surface->transform != NULL);
+    if (p->has_tr && !im_transform_invert(surface->transform, &p->inv)) return true;
 
-    /* Count max possible edges across all subpaths (implicit closure for fill!). */
+    if (has_local_clip) {
+        int cl = 0, ct = 0, cr = 0, cb = 0;
+        if (!im_transform_viewport_bounds_q30(surface->transform,
+                im_fixed_to_q30(local_clip.left), im_fixed_to_q30(local_clip.top),
+                im_fixed_to_q30(local_clip.right), im_fixed_to_q30(local_clip.bottom),
+                bound_l, bound_t, bound_r, bound_b, &cl, &ct, &cr, &cb)) {
+            return true;
+        }
+        bound_l = cl; bound_t = ct; bound_r = cr; bound_b = cb;
+    }
+
     uint32_t max_edges = 0u;
     for (uint32_t si = 0; si < sl->count; si++) {
         if (sl->subs[si].count >= 2u) {
@@ -808,9 +1022,9 @@ static bool rasterize_subpaths(im_surface *surface, im_allocator alloc,
     if (max_edges == 0u) return true;
 
     if ((size_t)max_edges > (SIZE_MAX / sizeof(scan_edge))) return false;
-    size_t edges_bytes = (size_t)max_edges * sizeof(scan_edge);
-    scan_edge *edges = (scan_edge *)alloc.alloc(alloc.ctx, edges_bytes);
-    if (!edges) return false;
+    p->edges_bytes = (size_t)max_edges * sizeof(scan_edge);
+    p->edges = (scan_edge *)alloc.alloc(alloc.ctx, p->edges_bytes);
+    if (!p->edges) return false;
 
     uint32_t edge_count = 0u;
     int64_t min_x = INT64_MAX, max_x = INT64_MIN;
@@ -829,7 +1043,7 @@ static bool rasterize_subpaths(im_surface *surface, im_allocator alloc,
             } else {
                 e.x0 = p1.x; e.y0 = p1.y; e.x1 = p0.x; e.y1 = p0.y; e.dir = -1;
             }
-            edges[edge_count++] = e;
+            p->edges[edge_count++] = e;
             int64_t ex_lo = (e.x0 < e.x1) ? e.x0 : e.x1;
             int64_t ex_hi = (e.x0 > e.x1) ? e.x0 : e.x1;
             if (ex_lo < min_x) min_x = ex_lo;
@@ -840,79 +1054,88 @@ static bool rasterize_subpaths(im_surface *surface, im_allocator alloc,
     }
 
     if (edge_count == 0u) {
-        alloc.free(alloc.ctx, edges, edges_bytes);
+        raster_plan_destroy(p);
         return true;
     }
 
-    /* Clip bounding box to viewport [bound_l, bound_r) x [bound_t, bound_b). */
     int64_t f_from = (min_x >= 0) ? (min_x >> IM_TR_SHIFT) : -(((-min_x) + IM_TR_ONE - 1) >> IM_TR_SHIFT);
     int64_t f_to = (max_x >= 0) ? ((max_x + IM_TR_ONE - 1) >> IM_TR_SHIFT) : -((-max_x) >> IM_TR_SHIFT);
     int64_t f_top = (min_y >= 0) ? (min_y >> IM_TR_SHIFT) : -(((-min_y) + IM_TR_ONE - 1) >> IM_TR_SHIFT);
     int64_t f_bot = (max_y >= 0) ? ((max_y + IM_TR_ONE - 1) >> IM_TR_SHIFT) : -((-max_y) >> IM_TR_SHIFT);
 
-    int from = (f_from < bound_l) ? bound_l : (f_from > bound_r ? bound_r : (int)f_from);
-    int to = (f_to > bound_r) ? bound_r : (f_to < bound_l ? bound_l : (int)f_to);
-    int top = (f_top < bound_t) ? bound_t : (f_top > bound_b ? bound_b : (int)f_top);
-    int bottom = (f_bot > bound_b) ? bound_b : (f_bot < bound_t ? bound_t : (int)f_bot);
+    p->from = (f_from < bound_l) ? bound_l : (f_from > bound_r ? bound_r : (int)f_from);
+    p->to = (f_to > bound_r) ? bound_r : (f_to < bound_l ? bound_l : (int)f_to);
+    p->top = (f_top < bound_t) ? bound_t : (f_top > bound_b ? bound_b : (int)f_top);
+    p->bottom = (f_bot > bound_b) ? bound_b : (f_bot < bound_t ? bound_t : (int)f_bot);
 
-    if (from >= to || top >= bottom) {
-        alloc.free(alloc.ctx, edges, edges_bytes);
+    if (p->from >= p->to || p->top >= p->bottom) {
+        raster_plan_destroy(p);
         return true;
     }
 
-    int row_w = to - from;
-    size_t cov_bytes = (size_t)row_w * sizeof(uint32_t);
-    size_t xs_bytes = (size_t)edge_count * sizeof(scan_x);
-    uint32_t *cov = (uint32_t *)alloc.alloc(alloc.ctx, cov_bytes);
-    scan_x *xs = (scan_x *)alloc.alloc(alloc.ctx, xs_bytes);
-    if (!cov || !xs) {
-        if (cov) alloc.free(alloc.ctx, cov, cov_bytes);
-        if (xs) alloc.free(alloc.ctx, xs, xs_bytes);
-        alloc.free(alloc.ctx, edges, edges_bytes);
+    int row_w = p->to - p->from;
+    p->cov_bytes = (size_t)row_w * sizeof(uint32_t);
+    p->xs_bytes = (size_t)edge_count * sizeof(scan_x);
+    p->cov = (uint32_t *)alloc.alloc(alloc.ctx, p->cov_bytes);
+    p->xs = (scan_x *)alloc.alloc(alloc.ctx, p->xs_bytes);
+    if (!p->cov || !p->xs) {
+        raster_plan_destroy(p);
         return false;
     }
+    p->edge_count = edge_count;
+    p->active = true;
+    return true;
+}
 
-    int64_t row_l_q30 = (int64_t)from * IM_TR_ONE;
-    int64_t row_r_q30 = (int64_t)to * IM_TR_ONE;
+static void raster_plan_commit(im_surface *surface, raster_plan *p,
+                               uint32_t solid_argb, im_path_shader_fn shader, void *shader_ctx) {
+    if (!p || !p->active) return;
+    int row_w = p->to - p->from;
+    int64_t row_l_q30 = (int64_t)p->from * IM_TR_ONE;
+    int64_t row_r_q30 = (int64_t)p->to * IM_TR_ONE;
     const int64_t sub_step = IM_TR_ONE / 16;
     const int64_t sub_half = IM_TR_ONE / 32;
+    int64_t cl_l = im_fixed_to_q30(p->local_clip.left);
+    int64_t cl_t = im_fixed_to_q30(p->local_clip.top);
+    int64_t cl_r = im_fixed_to_q30(p->local_clip.right);
+    int64_t cl_b = im_fixed_to_q30(p->local_clip.bottom);
 
-    for (int y = top; y < bottom; y++) {
-        for (int i = 0; i < row_w; i++) cov[i] = 0u;
+    for (int y = p->top; y < p->bottom; y++) {
+        for (int i = 0; i < row_w; i++) p->cov[i] = 0u;
         int64_t y_base = (int64_t)y * IM_TR_ONE;
 
         for (int s = 0; s < 16; s++) {
             int64_t sy = y_base + (int64_t)s * sub_step + sub_half;
             uint32_t nx = 0u;
-            for (uint32_t ei = 0; ei < edge_count; ei++) {
-                const scan_edge *e = &edges[ei];
+            for (uint32_t ei = 0; ei < p->edge_count; ei++) {
+                const scan_edge *e = &p->edges[ei];
                 if (sy < e->y0 || sy >= e->y1) continue;
                 int64_t ix = e->x0 + im_sdiv128_i64((__int128)(e->x1 - e->x0) * (sy - e->y0), e->y1 - e->y0);
-                xs[nx++] = (scan_x){ ix, e->dir };
+                p->xs[nx++] = (scan_x){ ix, e->dir };
             }
             if (nx < 2u) continue;
-            sort_scan_x(xs, nx);
+            sort_scan_x(p->xs, nx);
 
             int winding = 0;
             bool inside = false;
             int64_t span_start = 0;
             for (uint32_t i = 0; i < nx; i++) {
-                winding += (int)xs[i].dir;
-                bool now_in = (fill_rule == IM_FILL_NON_ZERO) ? (winding != 0) : ((winding & 1) != 0);
+                winding += (int)p->xs[i].dir;
+                bool now_in = (p->fill_rule == IM_FILL_NON_ZERO) ? (winding != 0) : ((winding & 1) != 0);
                 if (!inside && now_in) {
-                    span_start = xs[i].x;
+                    span_start = p->xs[i].x;
                     inside = true;
                 } else if (inside && !now_in) {
                     int64_t sl_q = span_start;
-                    int64_t sr_q = xs[i].x;
+                    int64_t sr_q = p->xs[i].x;
                     inside = false;
                     if (sr_q <= row_l_q30 || sl_q >= row_r_q30 || sl_q >= sr_q) continue;
                     if (sl_q < row_l_q30) sl_q = row_l_q30;
                     if (sr_q > row_r_q30) sr_q = row_r_q30;
                     int px0 = (int)(sl_q >> IM_TR_SHIFT);
                     int px1 = (int)((sr_q - 1) >> IM_TR_SHIFT);
-                    if (px0 < from) px0 = from;
-                    if (px1 >= to) px1 = to - 1;
+                    if (px0 < p->from) px0 = p->from;
+                    if (px1 >= p->to) px1 = p->to - 1;
                     for (int px = px0; px <= px1; px++) {
                         int64_t p_l = (int64_t)px * IM_TR_ONE;
                         int64_t p_r = p_l + IM_TR_ONE;
@@ -921,7 +1144,7 @@ static bool rasterize_subpaths(im_surface *surface, im_allocator alloc,
                         if (or_ > ol) {
                             uint32_t frac = (uint32_t)(((or_ - ol) + ((int64_t)1 << (IM_TR_SHIFT - 17))) >> (IM_TR_SHIFT - 16));
                             if (frac > (uint32_t)IM_ONE) frac = (uint32_t)IM_ONE;
-                            cov[px - from] += frac;
+                            p->cov[px - p->from] += frac;
                         }
                     }
                 }
@@ -930,17 +1153,19 @@ static bool rasterize_subpaths(im_surface *surface, im_allocator alloc,
 
         uint32_t *line = surface->pixels + (size_t)y * (size_t)surface->stride;
         int64_t py_c = y_base + (IM_TR_ONE >> 1);
-        for (int px = from; px < to; px++) {
-            uint32_t c = (cov[px - from] + 8u) >> 4;
+        for (int px = p->from; px < p->to; px++) {
+            uint32_t c = (p->cov[px - p->from] + 8u) >> 4;
             if (c == 0u) continue;
             if (c > (uint32_t)IM_ONE) c = (uint32_t)IM_ONE;
-            uint32_t col = solid_argb;
-            if (shader) {
-                int64_t px_c = (int64_t)px * IM_TR_ONE + (IM_TR_ONE >> 1);
-                int64_t lx = px_c, ly = py_c;
-                if (has_tr && !im_transform_point_q30(&inv, px_c, py_c, &lx, &ly)) continue;
-                col = shader(shader_ctx, lx, ly);
+            int64_t px_c = (int64_t)px * IM_TR_ONE + (IM_TR_ONE >> 1);
+            int64_t lx = px_c, ly = py_c;
+            if (p->has_tr && (shader || p->has_local_clip)) {
+                if (!im_transform_point_q30(&p->inv, px_c, py_c, &lx, &ly)) continue;
             }
+            if (p->has_local_clip) {
+                if (lx < cl_l || lx >= cl_r || ly < cl_t || ly >= cl_b) continue;
+            }
+            uint32_t col = shader ? shader(shader_ctx, lx, ly) : solid_argb;
             if ((col >> 24) == 0u) continue;
             if (surface->layers) {
                 im_layer_blend_pixel(surface->layers, px, y, col, c);
@@ -949,10 +1174,17 @@ static bool rasterize_subpaths(im_surface *surface, im_allocator alloc,
             }
         }
     }
+}
 
-    alloc.free(alloc.ctx, cov, cov_bytes);
-    alloc.free(alloc.ctx, xs, xs_bytes);
-    alloc.free(alloc.ctx, edges, edges_bytes);
+static bool rasterize_subpaths(im_surface *surface, im_allocator alloc,
+                               const subpath_list *sl, im_fill_rule fill_rule,
+                               uint32_t solid_argb, im_path_shader_fn shader, void *shader_ctx) {
+    raster_plan plan;
+    if (!raster_plan_prepare(&plan, surface, alloc, sl, fill_rule, false, (im_rect){0, 0, 0, 0})) {
+        return false;
+    }
+    raster_plan_commit(surface, &plan, solid_argb, shader, shader_ctx);
+    raster_plan_destroy(&plan);
     return true;
 }
 
@@ -965,7 +1197,7 @@ bool im_path_fill_shaded(im_surface *surface, im_allocator alloc, const im_path_
 
     subpath_list sl;
     subpaths_init(&sl, alloc);
-    bool ok = flatten_path_to_subpaths(path, surface->transform, IM_TR_ONE / 256, &sl);
+    bool ok = flatten_path_to_subpaths(path, surface->transform, IM_TR_ONE / 512, &sl);
     if (ok) {
         ok = rasterize_subpaths(surface, alloc, &sl, path->fill_rule, 0xFFFFFFFFu, shader, shader_ctx);
     }
@@ -981,7 +1213,7 @@ bool im_path_fill_argb(im_surface *surface, im_allocator alloc, const im_path_da
 
     subpath_list sl;
     subpaths_init(&sl, alloc);
-    bool ok = flatten_path_to_subpaths(path, surface->transform, IM_TR_ONE / 256, &sl);
+    bool ok = flatten_path_to_subpaths(path, surface->transform, IM_TR_ONE / 512, &sl);
     if (ok) {
         ok = rasterize_subpaths(surface, alloc, &sl, path->fill_rule, argb, NULL, NULL);
     }
@@ -991,21 +1223,22 @@ bool im_path_fill_argb(im_surface *surface, im_allocator alloc, const im_path_da
 
 /* ---------- Stroke Expansion (caps, joins, miter limit, dashes) ---------- */
 
-/* Append a circular arc of radius r around (cx, cy) from angle a0 to a1 (in Q30) as flattened vertices. */
+/* Append a circular arc of radius r around (cx, cy) from angle a0 to a1 (in Q30) as flattened vertices,
+   choosing step count so the chord sagitta stays <= tol_q30 in device space. */
 static bool append_arc_pts(pt_buf *out, int64_t cx, int64_t cy, int64_t r,
                            im_fixed a0, int64_t sweep, int64_t tol_q30) {
     if (r <= 0 || sweep == 0) return true;
-    /* Choose steps so sagitta r*(1 - cos(d/2)) <= tol_q30; conservative 16 steps per 90 deg or finer for large r. */
+    int64_t tol = (tol_q30 > 0) ? tol_q30 : (IM_TR_ONE / 256);
     int64_t abs_sw = i64_abs(sweep);
-    int64_t steps = (abs_sw + (6LL * IM_ONE) - 1) / (6LL * IM_ONE);
-    if (r > 32 * IM_TR_ONE) {
-        int64_t extra = (r / (16 * IM_TR_ONE));
-        if (extra > 4) extra = 4;
-        steps *= extra;
-    }
+    /* For sagitta s = r*(1 - cos(d/2)) <= tol, d <= 2*sqrt(2*tol/r) => steps >= rad * sqrt(r / (8*tol)).
+       rad_q30 = abs_sw * (pi / 180) * 2^14; pi/180 * 2^30 = 18740331. */
+    int64_t rad_q30 = (int64_t)(((unsigned __int128)abs_sw * 18740331u) >> 16);
+    uint64_t denom = (uint64_t)(8 * tol);
+    unsigned __int128 ratio_q30 = udiv128_u64((unsigned __int128)(uint64_t)r << 30, denom > 0u ? denom : 1u);
+    uint64_t sqrt_q15 = isqrt128(ratio_q30);
+    int64_t steps = (int64_t)((((unsigned __int128)(uint64_t)rad_q30 * sqrt_q15) + (((unsigned __int128)1 << 45) - 1u)) >> 45);
     if (steps < 4) steps = 4;
-    if (steps > 64) steps = 64;
-    (void)tol_q30;
+    if (steps > 256) steps = 256;
     for (int64_t i = 1; i <= steps; i++) {
         im_fixed a = (im_fixed)((int64_t)a0 + (sweep * i) / steps);
         int64_t px = cx + q30_mul(r, im_cos_deg(a));
@@ -1274,21 +1507,26 @@ static bool expand_dashed_subpath(subpath_list *dst, im_allocator alloc,
                                       style->line_join, miter_lim_q30, tr, tol_q30);
     }
 
-    /* Normalize dash_offset * thickness modulo cycle. */
+    /* Normalize dash_offset * thickness modulo cycle; advance cleanly past zero-length entries when off > 0. */
     int64_t off = q30_mul(im_fixed_to_q30(style->dash_offset), thick_q30);
     off %= cycle;
     if (off < 0) off += cycle;
     uint32_t pat_idx = 0u;
-    while (off >= pat[pat_idx] && pat[pat_idx] > 0) {
+    uint32_t guard = 0u;
+    while (off > 0 && off >= pat[pat_idx] && guard < pat_n) {
         off -= pat[pat_idx];
         pat_idx = (pat_idx + 1u) % pat_n;
+        guard++;
     }
     int64_t rem = pat[pat_idx] - off;
     bool drawing = ((pat_idx & 1u) == 0u);
 
     uint32_t seg_count = closed ? n : (n - 1u);
-    pt_buf cur_dash;
+    pt_buf cur_dash, first_dash;
     pt_buf_init(&cur_dash, alloc);
+    pt_buf_init(&first_dash, alloc);
+    bool capture_first = closed && drawing;
+    bool saw_gap = false;
     bool ok = true;
 
     if (drawing) {
@@ -1312,6 +1550,9 @@ static bool expand_dashed_subpath(subpath_list *dst, im_allocator alloc,
                                                 style->dash_cap, style->dash_cap,
                                                 style->line_join, miter_lim_q30, tr, tol_q30);
                     cur_dash.count = 0u;
+                    capture_first = false;
+                } else {
+                    saw_gap = true;
                 }
                 pat_idx = (pat_idx + 1u) % pat_n;
                 drawing = ((pat_idx & 1u) == 0u);
@@ -1331,32 +1572,117 @@ static bool expand_dashed_subpath(subpath_list *dst, im_allocator alloc,
             int64_t py = (pos == seg_len) ? b.y : (a.y + im_sdiv128_i64((__int128)(b.y - a.y) * pos, seg_len));
             if (drawing) {
                 ok = pt_buf_push(&cur_dash, px, py);
+            } else {
+                saw_gap = true;
             }
             if (rem == 0) {
                 if (drawing && cur_dash.count > 0u) {
-                    ok = expand_polyline_stroke(dst, alloc, cur_dash.pts, cur_dash.count, false, half_w,
-                                                style->dash_cap, style->dash_cap,
-                                                style->line_join, miter_lim_q30, tr, tol_q30);
+                    if (capture_first) {
+                        for (uint32_t k = 0; k < cur_dash.count && ok; k++) {
+                            ok = pt_buf_push(&first_dash, cur_dash.pts[k].x, cur_dash.pts[k].y);
+                        }
+                        capture_first = false;
+                    } else {
+                        ok = expand_polyline_stroke(dst, alloc, cur_dash.pts, cur_dash.count, false, half_w,
+                                                    style->dash_cap, style->dash_cap,
+                                                    style->line_join, miter_lim_q30, tr, tol_q30);
+                    }
                     cur_dash.count = 0u;
                 }
                 pat_idx = (pat_idx + 1u) % pat_n;
                 drawing = ((pat_idx & 1u) == 0u);
                 rem = pat[pat_idx];
-                if (drawing && pos < seg_len) {
+                if (drawing && (pos < seg_len || si + 1u < seg_count)) {
                     ok = pt_buf_push(&cur_dash, px, py);
                 }
             }
         }
     }
 
-    if (ok && drawing && cur_dash.count > 0u) {
-        ok = expand_polyline_stroke(dst, alloc, cur_dash.pts, cur_dash.count, false, half_w,
-                                    style->dash_cap, style->dash_cap,
-                                    style->line_join, miter_lim_q30, tr, tol_q30);
+    if (ok) {
+        if (closed && drawing && !saw_gap && capture_first) {
+            /* Entire closed loop was a single continuous ON dash: keep it closed with joins at every vertex. */
+            ok = expand_polyline_stroke(dst, alloc, pts, n, true, half_w,
+                                        style->start_cap, style->end_cap,
+                                        style->line_join, miter_lim_q30, tr, tol_q30);
+        } else if (closed && drawing && cur_dash.count > 0u && first_dash.count > 0u) {
+            /* Merge the tail ON dash with the head ON dash across the closed seam so the seam joins cleanly. */
+            uint32_t start_k = 0u;
+            pt_q30 last = cur_dash.pts[cur_dash.count - 1u];
+            if (last.x == first_dash.pts[0].x && last.y == first_dash.pts[0].y) {
+                start_k = 1u;
+            }
+            for (uint32_t k = start_k; k < first_dash.count && ok; k++) {
+                ok = pt_buf_push(&cur_dash, first_dash.pts[k].x, first_dash.pts[k].y);
+            }
+            if (ok) {
+                ok = expand_polyline_stroke(dst, alloc, cur_dash.pts, cur_dash.count, false, half_w,
+                                            style->dash_cap, style->dash_cap,
+                                            style->line_join, miter_lim_q30, tr, tol_q30);
+            }
+        } else {
+            if (first_dash.count > 0u) {
+                ok = expand_polyline_stroke(dst, alloc, first_dash.pts, first_dash.count, false, half_w,
+                                            style->dash_cap, style->dash_cap,
+                                            style->line_join, miter_lim_q30, tr, tol_q30);
+            }
+            if (ok && drawing && cur_dash.count > 0u) {
+                ok = expand_polyline_stroke(dst, alloc, cur_dash.pts, cur_dash.count, false, half_w,
+                                            style->dash_cap, style->dash_cap,
+                                            style->line_join, miter_lim_q30, tr, tol_q30);
+            }
+        }
     }
 
+    pt_buf_destroy(&first_dash);
     pt_buf_destroy(&cur_dash);
     alloc.free(alloc.ctx, pat, pat_bytes);
+    return ok;
+}
+
+static int64_t compute_stroke_local_tol(const im_transform *tr) {
+    /* Keep device-space curve and round-cap/join flatness <= 1/256 px (strictly tighter than 1/128 px). */
+    int64_t local_tol = IM_TR_ONE / 256;
+    if (tr) {
+        int64_t sx = hypot_q30(tr->m11, tr->m12);
+        int64_t sy = hypot_q30(tr->m21, tr->m22);
+        int64_t max_s = (sx > sy) ? sx : sy;
+        if (max_s > IM_TR_ONE) {
+            local_tol = im_sdiv128_i64((__int128)(IM_TR_ONE / 256) * IM_TR_ONE, max_s);
+            if (local_tol < 256) local_tol = 256;
+        }
+    }
+    return local_tol;
+}
+
+/* Flatten path through optional geom_tr (e.g. shape stretch), expand stroke at unscaled style->thickness,
+   and map the expanded stroke outline through render_tr (e.g. surface->transform). */
+static bool build_stroke_outline(im_allocator alloc, const im_path_data *path,
+                                 const im_stroke_style *style,
+                                 const im_transform *geom_tr, const im_transform *render_tr,
+                                 subpath_list *outline_sl) {
+    int64_t local_tol = compute_stroke_local_tol(render_tr);
+    subpath_list local_sl;
+    subpaths_init(&local_sl, alloc);
+
+    bool ok = flatten_path_to_subpaths(path, geom_tr, local_tol, &local_sl);
+    int64_t half_w = im_fixed_to_q30(style->thickness) >> 1;
+    int64_t miter_lim_q30 = (style->miter_limit > 0) ? im_fixed_to_q30(style->miter_limit) : (10LL * IM_TR_ONE);
+
+    for (uint32_t si = 0; si < local_sl.count && ok; si++) {
+        const subpath_rec *sr = &local_sl.subs[si];
+        if (sr->count == 0u) continue;
+        if (style->dash_array && style->dash_count > 0u) {
+            ok = expand_dashed_subpath(outline_sl, alloc, &local_sl.pts.pts[sr->start], sr->count,
+                                       sr->closed, style, half_w, miter_lim_q30, render_tr, local_tol);
+        } else {
+            ok = expand_polyline_stroke(outline_sl, alloc, &local_sl.pts.pts[sr->start], sr->count,
+                                        sr->closed, half_w, style->start_cap, style->end_cap,
+                                        style->line_join, miter_lim_q30, render_tr, local_tol);
+        }
+    }
+
+    subpaths_destroy(&local_sl);
     return ok;
 }
 
@@ -1369,45 +1695,15 @@ static bool stroke_path_impl(im_surface *surface, im_allocator alloc, const im_p
     im_transform inv;
     if (surface->transform && !im_transform_invert(surface->transform, &inv)) return true;
 
-    /* Scale local flatness tolerance down by max transform scale so device flatness stays <= 1/16 px. */
-    int64_t local_tol = IM_TR_ONE / 16;
-    if (surface->transform) {
-        int64_t sx = hypot_q30(surface->transform->m11, surface->transform->m12);
-        int64_t sy = hypot_q30(surface->transform->m21, surface->transform->m22);
-        int64_t max_s = (sx > sy) ? sx : sy;
-        if (max_s > IM_TR_ONE) {
-            local_tol = im_sdiv128_i64((__int128)(IM_TR_ONE / 16) * IM_TR_ONE, max_s);
-            if (local_tol < 1024) local_tol = 1024;
-        }
-    }
-
-    subpath_list local_sl, outline_sl;
-    subpaths_init(&local_sl, alloc);
+    subpath_list outline_sl;
     subpaths_init(&outline_sl, alloc);
 
-    bool ok = flatten_path_to_subpaths(path, NULL, local_tol, &local_sl);
-    int64_t half_w = im_fixed_to_q30(style->thickness) >> 1;
-    int64_t miter_lim_q30 = (style->miter_limit > 0) ? im_fixed_to_q30(style->miter_limit) : (10LL * IM_TR_ONE);
-
-    for (uint32_t si = 0; si < local_sl.count && ok; si++) {
-        const subpath_rec *sr = &local_sl.subs[si];
-        if (sr->count == 0u) continue;
-        if (style->dash_array && style->dash_count > 0u) {
-            ok = expand_dashed_subpath(&outline_sl, alloc, &local_sl.pts.pts[sr->start], sr->count,
-                                       sr->closed, style, half_w, miter_lim_q30, surface->transform, local_tol);
-        } else {
-            ok = expand_polyline_stroke(&outline_sl, alloc, &local_sl.pts.pts[sr->start], sr->count,
-                                        sr->closed, half_w, style->start_cap, style->end_cap,
-                                        style->line_join, miter_lim_q30, surface->transform, local_tol);
-        }
-    }
-
+    bool ok = build_stroke_outline(alloc, path, style, NULL, surface->transform, &outline_sl);
     if (ok) {
         ok = rasterize_subpaths(surface, alloc, &outline_sl, IM_FILL_NON_ZERO, solid_argb, shader, shader_ctx);
     }
 
     subpaths_destroy(&outline_sl);
-    subpaths_destroy(&local_sl);
     return ok;
 }
 
@@ -1425,6 +1721,13 @@ bool im_path_draw_stretched(im_surface *surface, im_allocator alloc, const im_pa
                             im_rect dst_rect, int stretch_mode, uint32_t fill_argb,
                             const im_stroke_style *stroke_style, uint32_t stroke_argb) {
     if (!surface || !path || path->count == 0u) return true;
+    bool has_fill = ((fill_argb >> 24) != 0u);
+    bool has_stroke = (stroke_style && stroke_style->thickness > 0 && (stroke_argb >> 24) != 0u);
+    if (!has_fill && !has_stroke) return true;
+    if (!alloc.alloc || !alloc.realloc || !alloc.free) return false;
+    im_transform inv;
+    if (surface->transform && !im_transform_invert(surface->transform, &inv)) return true;
+
     int64_t dw = (int64_t)dst_rect.right - dst_rect.left;
     int64_t dh = (int64_t)dst_rect.bottom - dst_rect.top;
     if (dw <= 0 || dh <= 0) return true;
@@ -1434,27 +1737,35 @@ bool im_path_draw_stretched(im_surface *surface, im_allocator alloc, const im_pa
     int64_t pw = (int64_t)pb.right - pb.left;
     int64_t ph = (int64_t)pb.bottom - pb.top;
 
+    /* Match pinned WinUI shape.cpp:286-310: reserve stroke thickness before fitting geometry so
+       stretched shapes keep unscaled stroke thickness and stay inside dst_rect. */
+    int64_t st_pad = has_stroke ? (int64_t)stroke_style->thickness : 0;
+    int64_t fit_w = (dw > st_pad) ? (dw - st_pad) : (st_pad > 0 ? st_pad : dw);
+    int64_t fit_h = (dh > st_pad) ? (dh - st_pad) : (st_pad > 0 ? st_pad : dh);
+    int64_t fit_l = (int64_t)dst_rect.left + (st_pad >> 1);
+    int64_t fit_t = (int64_t)dst_rect.top + (st_pad >> 1);
+
     im_transform fit = im_transform_identity();
-    if (stretch_mode == 0 || pw <= 0 || ph <= 0) {
+    if (stretch_mode == 0 || (pw <= 0 && ph <= 0)) {
         /* Stretch=None */
         fit = im_transform_translate(dst_rect.left, dst_rect.top);
     } else {
-        int64_t sx_q = im_sdiv128_i64((__int128)dw * IM_TR_ONE, pw);
-        int64_t sy_q = im_sdiv128_i64((__int128)dh * IM_TR_ONE, ph);
+        int64_t sx_q = (pw > 0) ? im_sdiv128_i64((__int128)fit_w * IM_TR_ONE, pw) : IM_TR_ONE;
+        int64_t sy_q = (ph > 0) ? im_sdiv128_i64((__int128)fit_h * IM_TR_ONE, ph) : IM_TR_ONE;
         if (stretch_mode == 2) {
             /* Uniform */
-            int64_t s = (sx_q < sy_q) ? sx_q : sy_q;
+            int64_t s = (pw > 0 && ph > 0) ? ((sx_q < sy_q) ? sx_q : sy_q) : ((pw > 0) ? sx_q : sy_q);
             sx_q = sy_q = s;
         } else if (stretch_mode == 3) {
             /* UniformToFill */
-            int64_t s = (sx_q > sy_q) ? sx_q : sy_q;
+            int64_t s = (pw > 0 && ph > 0) ? ((sx_q > sy_q) ? sx_q : sy_q) : ((pw > 0) ? sx_q : sy_q);
             sx_q = sy_q = s;
         }
         int64_t scaled_w = q30_mul(im_fixed_to_q30((im_fixed)pw), sx_q);
         int64_t scaled_h = q30_mul(im_fixed_to_q30((im_fixed)ph), sy_q);
-        int64_t ox = im_fixed_to_q30(dst_rect.left) + ((im_fixed_to_q30((im_fixed)dw) - scaled_w) >> 1) -
+        int64_t ox = im_fixed_to_q30((im_fixed)fit_l) + ((im_fixed_to_q30((im_fixed)fit_w) - scaled_w) >> 1) -
                      q30_mul(im_fixed_to_q30(pb.left), sx_q);
-        int64_t oy = im_fixed_to_q30(dst_rect.top) + ((im_fixed_to_q30((im_fixed)dh) - scaled_h) >> 1) -
+        int64_t oy = im_fixed_to_q30((im_fixed)fit_t) + ((im_fixed_to_q30((im_fixed)fit_h) - scaled_h) >> 1) -
                      q30_mul(im_fixed_to_q30(pb.top), sy_q);
         fit = (im_transform){ sx_q, 0, 0, sy_q, ox, oy };
     }
@@ -1464,15 +1775,38 @@ bool im_path_draw_stretched(im_surface *surface, im_allocator alloc, const im_pa
         if (!im_transform_multiply(&fit, surface->transform, &combined)) return false;
     }
 
-    const im_transform *saved = surface->transform;
-    surface->transform = &combined;
+    bool clip_dst = (stretch_mode == 3);
+    subpath_list fill_sl, stroke_sl;
+    raster_plan fill_plan, stroke_plan;
+    subpaths_init(&fill_sl, alloc);
+    subpaths_init(&stroke_sl, alloc);
+    fill_plan.edges = NULL; fill_plan.cov = NULL; fill_plan.xs = NULL; fill_plan.active = false;
+    stroke_plan.edges = NULL; stroke_plan.cov = NULL; stroke_plan.xs = NULL; stroke_plan.active = false;
+
+    /* Prepare BOTH fill and stroke scratch buffers BEFORE blending any pixel into surface
+       so OOM during stroke never leaves partial fill pixels behind. */
     bool ok = true;
-    if ((fill_argb >> 24) != 0u) {
-        ok = im_path_fill_argb(surface, alloc, path, fill_argb);
+    if (has_fill) {
+        ok = flatten_path_to_subpaths(path, &combined, IM_TR_ONE / 512, &fill_sl);
+        if (ok) {
+            ok = raster_plan_prepare(&fill_plan, surface, alloc, &fill_sl, path->fill_rule, clip_dst, dst_rect);
+        }
     }
-    if (ok && stroke_style && stroke_style->thickness > 0 && (stroke_argb >> 24) != 0u) {
-        ok = im_path_stroke_argb(surface, alloc, path, stroke_style, stroke_argb);
+    if (ok && has_stroke) {
+        ok = build_stroke_outline(alloc, path, stroke_style, &fit, surface->transform, &stroke_sl);
+        if (ok) {
+            ok = raster_plan_prepare(&stroke_plan, surface, alloc, &stroke_sl, IM_FILL_NON_ZERO, clip_dst, dst_rect);
+        }
     }
-    surface->transform = saved;
+
+    if (ok) {
+        if (has_fill) raster_plan_commit(surface, &fill_plan, fill_argb, NULL, NULL);
+        if (has_stroke) raster_plan_commit(surface, &stroke_plan, stroke_argb, NULL, NULL);
+    }
+
+    raster_plan_destroy(&stroke_plan);
+    raster_plan_destroy(&fill_plan);
+    subpaths_destroy(&stroke_sl);
+    subpaths_destroy(&fill_sl);
     return ok;
 }

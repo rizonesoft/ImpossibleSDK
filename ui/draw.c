@@ -332,6 +332,15 @@ uint32_t im_shape_coverage(im_rect shape, im_radii radii, int x, int y) {
     return (uint32_t)(covered / ROWS);
 }
 
+bool im_shape_contains(im_rect shape, im_radii radii, im_fixed x, im_fixed y) {
+    if (shape.left >= shape.right || shape.top >= shape.bottom) return false;
+    if (x < shape.left || x >= shape.right || y < shape.top || y >= shape.bottom) return false;
+    fitted_radii f = fit(shape, radii);
+    int64_t l = 0, r = 0;
+    if (!extent(shape, &f, (int64_t)y, &l, &r)) return false;
+    return (int64_t)x >= l && (int64_t)x < r;
+}
+
 static im_fixed grown(im_fixed radius, im_fixed by) {
     return radius > 0 ? held(larger64(0, (int64_t)radius + by)) : 0;
 }

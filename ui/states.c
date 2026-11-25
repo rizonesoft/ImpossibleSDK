@@ -2,6 +2,7 @@
 #include "states.h"
 #include "button.h"
 #include "input.h"
+#include "layer.h"
 #include "path.h"
 
 static bool str_eq(const char *a, const char *b) {
@@ -987,25 +988,68 @@ void im_states_apply_to_tree(const im_state_machine *sm, im_node *root, uint32_t
     }
     if (root->kind == IM_ELEM_PATH) {
         im_template_value dval;
+        bool has_dyn = false;
         if (root->name && im_states_sample_value(sm, root->name, "Data", now_ms, &dval)) {
+            has_dyn = true;
+        } else if (root->path_data_binding != NULL) {
+            bool found_b = false;
+            for (uint32_t i = 0; i < sm->binding_count; i++) {
+                if (str_eq(sm->bindings[i].name, root->path_data_binding)) {
+                    dval = sm->bindings[i].value;
+                    found_b = true;
+                    break;
+                }
+            }
+            if (!found_b) {
+                dval = (im_template_value){ IM_TVAL_TEMPLATE_BINDING, 0, 0, 0, 0, root->path_data_binding, NULL };
+            }
+            has_dyn = true;
+        }
+
+        uint8_t cur_kind = 0u;
+        uint32_t cur_a = 0u, cur_b = 0u;
+        uint8_t cur_c = 0u;
+        if (has_dyn) {
             if (dval.kind == IM_TVAL_PATH && dval.b > 0) {
                 im_node_set_path_intrinsic_bounds(root, sm->tables.path_segs, (uint32_t)dval.a, (uint32_t)dval.b);
+                cur_kind = (uint8_t)IM_TVAL_PATH;
+                cur_a = (uint32_t)dval.a;
+                cur_b = (uint32_t)dval.b;
+                cur_c = (uint8_t)dval.c;
             } else if (dval.kind == IM_TVAL_ICON && dval.a > IM_ICON_NONE && dval.a < IM_ICON_COUNT) {
                 im_fixed sz = (dval.a == IM_ICON_CHECKMARK) ? (16 * IM_ONE) : (10 * IM_ONE);
+                if (root->path_has_stroke && root->path_stroke_thickness > 0) {
+                    int64_t s2 = (int64_t)sz + root->path_stroke_thickness;
+                    sz = (s2 > INT32_MAX) ? INT32_MAX : (im_fixed)s2;
+                }
                 if (root->intrinsic_width != sz || root->intrinsic_height != sz) {
                     root->intrinsic_width = sz;
                     root->intrinsic_height = sz;
                     im_tree_invalidate_measure(root);
                 }
+                cur_kind = (uint8_t)IM_TVAL_ICON;
+                cur_a = (uint32_t)dval.a;
             } else if (dval.kind == IM_TVAL_NULL || dval.kind == IM_TVAL_NONE || dval.kind == IM_TVAL_TEMPLATE_BINDING) {
                 im_node_set_path_intrinsic_bounds(root, NULL, 0u, 0u);
+                cur_kind = (uint8_t)IM_TVAL_NULL;
             }
         } else if (root->path_seg_count > 0u) {
             im_node_set_path_intrinsic_bounds(root, sm->tables.path_segs, root->path_seg_start, root->path_seg_count);
-        } else if (root->path_data_binding != NULL) {
-            /* Unbound Data={TemplateBinding ...} has zero natural size until bound. */
-            im_node_set_path_intrinsic_bounds(root, NULL, 0u, 0u);
+            cur_kind = (uint8_t)IM_TVAL_PATH;
+            cur_a = root->path_seg_start;
+            cur_b = root->path_seg_count;
+            cur_c = root->path_fill_rule;
         }
+        if (root->path_applied_valid &&
+            (root->path_applied_kind != cur_kind || root->path_applied_a != cur_a ||
+             root->path_applied_b != cur_b || root->path_applied_c != cur_c)) {
+            im_tree_invalidate_paint(root);
+        }
+        root->path_applied_valid = true;
+        root->path_applied_kind = cur_kind;
+        root->path_applied_a = cur_a;
+        root->path_applied_b = cur_b;
+        root->path_applied_c = cur_c;
     }
     if (root->render_transform_name) {
         const char *tn = root->render_transform_name;
@@ -1125,35 +1169,60 @@ bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, i
         if (!fill_trans && fill_brush < IM_BRUSH_COUNT) {
             fill_argb = im_brush_over(&sm->palette, fill_brush, 0, h, sc);
         }
-        fill_argb = apply_node_opacity(fill_argb, node->opacity);
     } else if (node->path_has_fill) {
         fill_argb = (node->path_fill_brush < IM_BRUSH_COUNT)
             ? im_brush_over(&sm->palette, node->path_fill_brush, 0, h, sc)
             : node->path_fill_argb;
-        fill_argb = apply_node_opacity(fill_argb, node->opacity);
     }
     if (node->name && im_states_sample_brush(sm, node->name, "Stroke", now_ms, &stroke_brush, &stroke_argb, &stroke_trans)) {
         if (!stroke_trans && stroke_brush < IM_BRUSH_COUNT) {
             stroke_argb = im_brush_over(&sm->palette, stroke_brush, 0, h, sc);
         }
-        stroke_argb = apply_node_opacity(stroke_argb, node->opacity);
     } else if (node->path_has_stroke) {
         stroke_argb = (node->path_stroke_brush < IM_BRUSH_COUNT)
             ? im_brush_over(&sm->palette, node->path_stroke_brush, 0, h, sc)
             : node->path_stroke_argb;
-        stroke_argb = apply_node_opacity(stroke_argb, node->opacity);
     }
     bool has_fill = ((fill_argb >> 24) != 0u);
     bool has_stroke = ((stroke_argb >> 24) != 0u && node->path_stroke_thickness > 0);
     if (!has_fill && !has_stroke) return true;
 
-    /* Resolve dynamic Data from visual-state setters or caller bindings first; fall back to static node geometry. */
+    /* When both fill and stroke are present and Opacity < 1, composite through one opacity group
+       so overlap pixels receive node->opacity once instead of twice. */
+    bool use_group_opacity = (has_fill && has_stroke && node->opacity < IM_ONE);
+    if (!use_group_opacity) {
+        if (has_fill) fill_argb = apply_node_opacity(fill_argb, node->opacity);
+        if (has_stroke) stroke_argb = apply_node_opacity(stroke_argb, node->opacity);
+        has_fill = ((fill_argb >> 24) != 0u);
+        has_stroke = ((stroke_argb >> 24) != 0u && node->path_stroke_thickness > 0);
+        if (!has_fill && !has_stroke) return true;
+    }
+
+    /* Resolve dynamic Data from visual-state setters or caller bindings first (even on unnamed nodes);
+       fall back to static node geometry. */
     im_icon_id icon_id = node->path_icon_id;
     uint32_t seg_start = node->path_seg_start;
     uint32_t seg_count = node->path_seg_count;
     uint8_t fill_rule = node->path_fill_rule;
     im_template_value dval;
+    bool has_dyn = false;
     if (node->name && im_states_sample_value(sm, node->name, "Data", now_ms, &dval)) {
+        has_dyn = true;
+    } else if (node->path_data_binding != NULL) {
+        bool found_b = false;
+        for (uint32_t i = 0; i < sm->binding_count; i++) {
+            if (str_eq(sm->bindings[i].name, node->path_data_binding)) {
+                dval = sm->bindings[i].value;
+                found_b = true;
+                break;
+            }
+        }
+        if (!found_b) {
+            dval = (im_template_value){ IM_TVAL_TEMPLATE_BINDING, 0, 0, 0, 0, node->path_data_binding, NULL };
+        }
+        has_dyn = true;
+    }
+    if (has_dyn) {
         if (dval.kind == IM_TVAL_ICON) {
             icon_id = (im_icon_id)dval.a;
             seg_count = 0u;
@@ -1171,24 +1240,13 @@ bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, i
     im_transform dev_tr;
     if (!im_node_device_transform(node, sc, &dev_tr)) return true;
 
+    const im_template_path_seg *segs = path_segs ? path_segs : sm->tables.path_segs;
     im_path_data pd = { NULL, 0u, IM_FILL_EVEN_ODD };
-    im_path_seg *tmp = NULL;
-    size_t tmp_bytes = 0u;
     if (resolve_sdk_icon_path(icon_id, &pd)) {
         /* SDK-owned icon path ready. */
-    } else if (path_segs && seg_count > 0u) {
-        if (!alloc.alloc || !alloc.free) return false;
-        tmp_bytes = (size_t)seg_count * sizeof(im_path_seg);
-        tmp = (im_path_seg *)alloc.alloc(alloc.ctx, tmp_bytes);
-        if (!tmp) return false;
-        for (uint32_t i = 0; i < seg_count; i++) {
-            const im_template_path_seg *s = &path_segs[seg_start + i];
-            tmp[i] = (im_path_seg){
-                (im_path_cmd)s->cmd, s->x1, s->y1, s->x2, s->y2, s->x3, s->y3,
-                s->angle_deg, s->large_arc, s->sweep
-            };
-        }
-        pd = (im_path_data){ tmp, seg_count, (im_fill_rule)fill_rule };
+    } else if (segs && seg_count > 0u) {
+        /* Zero-copy bind: im_template_path_seg is typedef'd directly to im_path_seg. */
+        pd = (im_path_data){ segs + seg_start, seg_count, (im_fill_rule)fill_rule };
     } else {
         return true;
     }
@@ -1202,12 +1260,39 @@ bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, i
         (node->path_miter_limit > 0) ? node->path_miter_limit : (10 * IM_ONE),
         NULL, 0u, 0
     };
+
+    bool ok = true;
+    im_layer_ctx tmp_layers;
+    bool created_layers = false;
+    bool pushed_layer = false;
+    if (use_group_opacity) {
+        uint8_t op8 = (uint8_t)(((uint64_t)node->opacity * 255u + (IM_ONE / 2)) >> 16);
+        im_rect full_bounds = { 0, 0, (im_fixed)(surface->width * IM_ONE), (im_fixed)(surface->height * IM_ONE) };
+        if (!surface->layers) {
+            size_t cap = (size_t)surface->width * (size_t)surface->height * 4u + 4096u;
+            if (!im_layer_init(&tmp_layers, surface, alloc, cap)) return false;
+            created_layers = true;
+        }
+        im_layer_result lr = im_layer_push(surface->layers, full_bounds, op8, false, (im_radii){0, 0, 0, 0});
+        if (lr == IM_LAYER_ERR) {
+            if (created_layers) im_layer_destroy(&tmp_layers);
+            return false;
+        }
+        pushed_layer = true;
+    }
+
     const im_transform *saved = surface->transform;
     surface->transform = &dev_tr;
-    bool ok = im_path_draw_stretched(surface, alloc, &pd, (im_rect){0, 0, (im_fixed)w, (im_fixed)h},
-                                     node->path_stretch, has_fill ? fill_argb : 0u,
-                                     has_stroke ? &st : NULL, has_stroke ? stroke_argb : 0u);
+    ok = im_path_draw_stretched(surface, alloc, &pd, (im_rect){0, 0, (im_fixed)w, (im_fixed)h},
+                                node->path_stretch, has_fill ? fill_argb : 0u,
+                                has_stroke ? &st : NULL, has_stroke ? stroke_argb : 0u);
     surface->transform = saved;
-    if (tmp) alloc.free(alloc.ctx, tmp, tmp_bytes);
+
+    if (pushed_layer) {
+        im_layer_pop(surface->layers);
+    }
+    if (created_layers) {
+        im_layer_destroy(&tmp_layers);
+    }
     return ok;
 }

@@ -171,8 +171,7 @@ int im_main(void) {
             CHECK(im_path_fill_argb(&s, alloc, &pd, 0xFFFFFFFFu), "fill random path");
             im_path_destroy(&p);
 
-            /* Emit compact line: RPATH rule kind npts x0 y0 ... : 256 red bytes (every 5th path full pixel check
-               plus all 1000 paths checked at 8 deterministic probe pixels = 1,000 random paths verified!). */
+            /* Emit full 256-pixel row for ALL 1,000 random paths so every pixel of the corpus is oracle-checked. */
             write_str(STD_OUTPUT_HANDLE, "RPATH ");
             write_i64(STD_OUTPUT_HANDLE, (int64_t)rule); write_str(STD_OUTPUT_HANDLE, " ");
             write_i64(STD_OUTPUT_HANDLE, use_cubic ? 3 : 2); write_str(STD_OUTPUT_HANDLE, " ");
@@ -182,17 +181,9 @@ int im_main(void) {
                 write_str(STD_OUTPUT_HANDLE, " "); write_i64(STD_OUTPUT_HANDLE, pts[k][1]);
             }
             write_str(STD_OUTPUT_HANDLE, " :");
-            if (idx < 60) {
-                for (int i = 0; i < 256; i++) {
-                    write_str(STD_OUTPUT_HANDLE, " ");
-                    write_i64(STD_OUTPUT_HANDLE, (int64_t)((pix[i] >> 16) & 0xFFu));
-                }
-            } else {
-                static const int probe[8] = { 34, 53, 88, 119, 136, 170, 201, 220 };
-                for (int j = 0; j < 8; j++) {
-                    write_str(STD_OUTPUT_HANDLE, " ");
-                    write_i64(STD_OUTPUT_HANDLE, (int64_t)((pix[probe[j]] >> 16) & 0xFFu));
-                }
+            for (int i = 0; i < 256; i++) {
+                write_str(STD_OUTPUT_HANDLE, " ");
+                write_i64(STD_OUTPUT_HANDLE, (int64_t)((pix[i] >> 16) & 0xFFu));
             }
             write_str(STD_OUTPUT_HANDLE, "\n");
         }
@@ -807,6 +798,374 @@ int im_main(void) {
         CHECK(lit_c == 0, "cleared bound Path paints 0 pixels");
 
         im_tree_destroy_subtree(&tree, root);
+    }
+
+    /* 12. Short endpoint arc M0,20 A20,20 0 0 1 10,20 (must NOT collapse to a 180-deg semicircle). */
+    {
+        uint32_t pix[32 * 32];
+        for (int i = 0; i < 1024; i++) pix[i] = 0u;
+        im_surface s = { pix, 32, 32, 32, pal, IM_ONE, NULL, NULL };
+        im_path p;
+        im_path_init(&p, alloc, IM_FILL_NON_ZERO);
+        im_path_move_to(&p, FX(0), FX(20));
+        im_path_arc_to(&p, FX(20), FX(20), 0, false, true, FX(10), FX(20));
+        im_path_close(&p);
+        im_path_data pd = im_path_view(&p);
+        im_rect pb;
+        CHECK(im_path_bounds(&pd, &pb) && (pb.bottom - pb.top) < FX(2),
+              "short endpoint arc M0,20 A20,20 0 0 1 10,20 has shallow ~0.64 px height, not 5 px semicircle");
+        CHECK(im_path_fill_argb(&s, alloc, &pd, 0xFFFFFFFFu), "fill short endpoint arc");
+        CHECK((pix[19 * 32 + 5] & 0xFFu) > 20u && (pix[16 * 32 + 5] & 0xFFu) == 0u,
+              "short endpoint arc paints y=19 and leaves y=16 untouched");
+        im_path_destroy(&p);
+    }
+
+    /* 13. Compiled path default StrokeThickness=1.0 and literal #FF112233 Fill on unnamed path. */
+    {
+        static const im_template_path_seg segs[5] = {
+            { IM_PATH_MOVE, FX(2), FX(2), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(14), FX(2), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(14), FX(14), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(2), FX(14), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_CLOSE, 0, 0, 0, 0, 0, 0, 0, false, false }
+        };
+        static const im_template_element elems[3] = {
+            { IM_ELEM_GRID, "Root", -1, 0, 0 },
+            { IM_ELEM_PATH, NULL, 0, 0, 4 },
+            { IM_ELEM_PATH, NULL, 0, 4, 4 }
+        };
+        static const im_template_prop props[8] = {
+            /* Unnamed stroke-only path with NO StrokeThickness attribute (must default to 1.0). */
+            { "Width", { IM_TVAL_FIXED, FX(16), 0, 0, 0, NULL, NULL } },
+            { "Height", { IM_TVAL_FIXED, FX(16), 0, 0, 0, NULL, NULL } },
+            { "Stroke", { IM_TVAL_BRUSH, IM_BRUSH_TextFillColorPrimaryBrush, 0, 0, 0, NULL, NULL } },
+            { "Data", { IM_TVAL_PATH, 0, 5, 1, 0, NULL, NULL } },
+            /* Unnamed fill path with literal #FF112233 color. */
+            { "Width", { IM_TVAL_FIXED, FX(16), 0, 0, 0, NULL, NULL } },
+            { "Height", { IM_TVAL_FIXED, FX(16), 0, 0, 0, NULL, NULL } },
+            { "Fill", { IM_TVAL_COLOR, (int32_t)0xFF112233u, (int32_t)0xFF112233u, (int32_t)0xFF112233u, -1, "#FF112233", NULL } },
+            { "Data", { IM_TVAL_PATH, 0, 5, 1, 0, NULL, NULL } }
+        };
+        static const im_template tpl = { "DefaultStrokeAndHex", "Control", 0, 0, 0, 3, 0, 0 };
+        im_template_tables tbl = { NULL, elems, props, NULL, NULL, NULL, NULL, NULL, segs };
+        im_tree tree;
+        im_tree_init(&tree, alloc);
+        im_node *root = im_tree_instantiate_custom_template(&tree, &pal, &tpl, NULL, elems, props, "root");
+        im_node *g = im_tree_find_by_name(root, "Root");
+        im_node *p_stroke = g->children[0];
+        im_node *p_hex = g->children[1];
+        im_state_machine sm;
+        im_states_init_custom(&sm, &tpl, &tbl, &pal);
+        im_states_apply_to_tree(&sm, root, 0);
+        im_layout_run(&tree, root, FX(16), FX(16), IM_ONE);
+        uint32_t pix[16 * 16];
+        im_surface s = { pix, 16, 16, 16, pal, IM_ONE, NULL, NULL };
+        for (int i = 0; i < 256; i++) pix[i] = 0u;
+        CHECK(p_stroke->path_stroke_thickness == IM_ONE, "Path default StrokeThickness is 1.0");
+        CHECK(im_states_draw_path_node(&sm, p_stroke, &s, alloc, NULL, 0), "draw default-thickness stroked Path");
+        int lit_s = 0;
+        for (int i = 0; i < 256; i++) if ((pix[i] & 0x00FFFFFFu) != 0u) lit_s++;
+        CHECK(lit_s > 20, "unnamed Path with default StrokeThickness=1.0 paints visible stroke");
+        for (int i = 0; i < 256; i++) pix[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, p_hex, &s, alloc, NULL, 0), "draw literal hex Fill Path");
+        CHECK(pix[8 * 16 + 8] == 0x00112233u, "unnamed Path with Fill=#FF112233 paints exact #112233");
+        im_tree_destroy_subtree(&tree, root);
+    }
+
+    /* 14. Rounded gradient under identity transform must stay rounded (corner (0,0) untouched). */
+    {
+        uint32_t pix[20 * 20];
+        for (int i = 0; i < 400; i++) pix[i] = 0u;
+        im_transform id = im_transform_identity();
+        im_surface s = { pix, 20, 20, 20, pal, IM_ONE, NULL, &id };
+        im_gradient_stop st[2] = { { 0, 0xFFFF0000u }, { IM_ONE, 0xFF0000FFu } };
+        im_linear_gradient lg = { 0, 0, IM_ONE, IM_ONE, IM_MAPPING_RELATIVE, IM_SPREAD_PAD, IM_GRAD_SPACE_SRGB, st, 2u };
+        im_radii r10 = { FX(10), FX(10), FX(10), FX(10) };
+        im_gradient_fill_rect_linear(&s, (im_rect){ 0, 0, FX(20), FX(20) }, r10, &lg);
+        CHECK(pix[0] == 0u && pix[10 * 20 + 10] != 0u,
+              "rounded linear gradient under identity transform clips corner (0,0) and fills center");
+        for (int i = 0; i < 400; i++) pix[i] = 0u;
+        im_radial_gradient rg = im_radial_gradient_default(st, 2u);
+        im_gradient_fill_rect_radial(&s, (im_rect){ 0, 0, FX(20), FX(20) }, r10, &rg);
+        CHECK(pix[0] == 0u && pix[10 * 20 + 10] != 0u,
+              "rounded radial gradient under identity transform clips corner (0,0) and fills center");
+    }
+
+    /* 15. Tight analytic bounds (quadratic, semicircle, stroked horizontal line). */
+    {
+        im_path pq;
+        im_path_init(&pq, alloc, IM_FILL_NON_ZERO);
+        im_path_move_to(&pq, FX(0), FX(0));
+        im_path_quad_to(&pq, FX(10), FX(20), FX(20), FX(0));
+        im_path_data pdq = im_path_view(&pq);
+        im_rect bq;
+        CHECK(im_path_bounds(&pdq, &bq) && bq.left == 0 && bq.right == FX(20) && bq.top == 0 && bq.bottom == FX(10),
+              "tight quadratic bounds have height 10 (curve apex), not 20 (control point)");
+        im_path_destroy(&pq);
+
+        /* Auto-sized semicircle M0,10 A10,10 0 0 1 20,10 Z + auto-sized stroked horizontal line M0,5 L20,5. */
+        static const im_template_path_seg segs[5] = {
+            { IM_PATH_MOVE, FX(0), FX(10), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_ARC, FX(10), FX(10), FX(20), FX(10), 0, 0, 0, false, true },
+            { IM_PATH_CLOSE, 0, 0, 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_MOVE, FX(0), FX(5), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(20), FX(5), 0, 0, 0, 0, 0, false, false }
+        };
+        static const im_template_element elems[3] = {
+            { IM_ELEM_STACK_PANEL, "Root", -1, 0, 0 },
+            { IM_ELEM_PATH, NULL, 0, 0, 4 },
+            { IM_ELEM_PATH, NULL, 0, 4, 5 }
+        };
+        static const im_template_prop props[9] = {
+            { "HorizontalAlignment", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Left", NULL } },
+            { "VerticalAlignment", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Top", NULL } },
+            { "Fill", { IM_TVAL_COLOR, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, -1, NULL, NULL } },
+            { "Data", { IM_TVAL_PATH, 0, 3, 1, 0, NULL, NULL } },
+            { "HorizontalAlignment", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Left", NULL } },
+            { "VerticalAlignment", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Top", NULL } },
+            { "Stroke", { IM_TVAL_COLOR, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, -1, NULL, NULL } },
+            { "StrokeThickness", { IM_TVAL_FIXED, FX(2), 0, 0, 0, NULL, NULL } },
+            { "Data", { IM_TVAL_PATH, 3, 2, 1, 0, NULL, NULL } }
+        };
+        static const im_template tpl = { "ArcAndLineAuto", "Control", 0, 0, 0, 3, 0, 0 };
+        im_template_tables tbl = { NULL, elems, props, NULL, NULL, NULL, NULL, NULL, segs };
+        im_tree tree;
+        im_tree_init(&tree, alloc);
+        im_node *root = im_tree_instantiate_custom_template(&tree, &pal, &tpl, NULL, elems, props, "root");
+        im_node *sp = im_tree_find_by_name(root, "Root");
+        im_state_machine sm;
+        im_states_init_custom(&sm, &tpl, &tbl, &pal);
+        im_states_apply_to_tree(&sm, root, 0);
+        im_layout_run(&tree, root, FX(32), FX(32), IM_ONE);
+        CHECK(sp->children[0]->desired_size.width == FX(20) && sp->children[0]->desired_size.height >= FX(9),
+              "auto-sized semicircle measures to ~20x10 (non-zero height)");
+        CHECK(sp->children[1]->desired_size.width == FX(22) && sp->children[1]->desired_size.height == FX(2),
+              "auto-sized stroked horizontal line includes StrokeThickness=2 in height");
+        im_tree_destroy_subtree(&tree, root);
+    }
+
+    /* 16. All-or-nothing OOM on combined fill+stroke (fail during stroke -> 0 fill pixels written). */
+    {
+        uint32_t pix[32 * 32];
+        for (int i = 0; i < 1024; i++) pix[i] = 0x00123456u;
+        im_surface s = { pix, 32, 32, 32, pal, IM_ONE, NULL, NULL };
+        im_path p;
+        im_path_init(&p, alloc, IM_FILL_NON_ZERO);
+        im_path_move_to(&p, FX(4), FX(4));
+        im_path_line_to(&p, FX(28), FX(4));
+        im_path_line_to(&p, FX(28), FX(28));
+        im_path_line_to(&p, FX(4), FX(28));
+        im_path_close(&p);
+        im_path_data pd = im_path_view(&p);
+        im_stroke_style st = { FX(2), IM_CAP_FLAT, IM_CAP_FLAT, IM_CAP_FLAT, IM_JOIN_MITER, FX(10), NULL, 0u, 0 };
+        /* Sweep memory limits so OOM hits during fill AND after fill succeeds while stroke allocates. */
+        static const size_t limits[8] = { 64u, 128u, 256u, 512u, 768u, 1024u, 1536u, 2048u };
+        bool saw_fail = false;
+        int total_touched = 0;
+        size_t total_leaked = 0u;
+        for (int li = 0; li < 8; li++) {
+            for (int i = 0; i < 1024; i++) pix[i] = 0x00123456u;
+            heap_ctx oc = { GetProcessHeap(), false, limits[li], 0u };
+            im_allocator oom_alloc = { h_alloc, h_realloc, h_free, &oc };
+            bool ok = im_path_draw_stretched(&s, oom_alloc, &pd, (im_rect){ 0, 0, FX(32), FX(32) },
+                                             0, 0x80FFFFFFu, &st, 0xFFFF0000u);
+            if (!ok) {
+                saw_fail = true;
+                for (int i = 0; i < 1024; i++) if (pix[i] != 0x00123456u) total_touched++;
+            }
+            total_leaked += oc.used;
+        }
+        CHECK(saw_fail && total_touched == 0 && total_leaked == 0u,
+              "combined fill+stroke OOM at any limit leaves 0 pixels modified and 0 bytes leaked");
+        im_path_destroy(&p);
+    }
+
+    /* 17. Z terminates its contour: M0,0 L10,0 L10,10 Z L0,10 fills triangle only, not lower-left (2,8). */
+    {
+        uint32_t pix[16 * 16];
+        for (int i = 0; i < 256; i++) pix[i] = 0u;
+        im_surface s = { pix, 16, 16, 16, pal, IM_ONE, NULL, NULL };
+        im_path p;
+        im_path_init(&p, alloc, IM_FILL_NON_ZERO);
+        im_path_move_to(&p, FX(0), FX(0));
+        im_path_line_to(&p, FX(10), FX(0));
+        im_path_line_to(&p, FX(10), FX(10));
+        im_path_close(&p);
+        im_path_line_to(&p, FX(0), FX(10));
+        im_path_data pd = im_path_view(&p);
+        CHECK(im_path_fill_argb(&s, alloc, &pd, 0xFFFFFFFFu), "fill Z-terminated contour + trailing line");
+        CHECK((pix[2 * 16 + 8] & 0xFFu) == 255u && (pix[8 * 16 + 2] & 0xFFu) == 0u,
+              "Z closes triangle without absorbing subsequent L0,10 into a square");
+        im_path_destroy(&p);
+    }
+
+    /* 18. Dash phase past zero entry, exact-vertex transition, and closed-seam join. */
+    {
+        uint32_t pix[32 * 32];
+        im_surface s = { pix, 32, 32, 32, pal, IM_ONE, NULL, NULL };
+        /* 18a: Exact-vertex gap end: (2,10)->(12,10)->(12,20), thickness=2, dash={2,3} (4px on, 6px gap = 10px!). */
+        for (int i = 0; i < 1024; i++) pix[i] = 0u;
+        im_path p1;
+        im_path_init(&p1, alloc, IM_FILL_NON_ZERO);
+        im_path_move_to(&p1, FX(2), FX(10));
+        im_path_line_to(&p1, FX(12), FX(10));
+        im_path_line_to(&p1, FX(12), FX(20));
+        im_fixed da1[2] = { FX(2), FX(3) };
+        im_stroke_style st1 = { FX(2), IM_CAP_FLAT, IM_CAP_FLAT, IM_CAP_FLAT, IM_JOIN_MITER, FX(10), da1, 2u, 0 };
+        im_path_data pd1 = im_path_view(&p1);
+        CHECK(im_path_stroke_argb(&s, alloc, &pd1, &st1, 0xFFFFFFFFu), "stroke exact-vertex dash");
+        CHECK((pix[12 * 32 + 12] & 0xFFu) > 200u, "dash resuming at exact vertex (12,10) paints vertical leg at (12,12)");
+        im_path_destroy(&p1);
+
+        /* 18b: Dotted {0, 2} with nonzero offset=1 (thickness=2, cycle=4): first dot at x=4+2=6, NOT x=4. */
+        for (int i = 0; i < 1024; i++) pix[i] = 0u;
+        im_path p2;
+        im_path_init(&p2, alloc, IM_FILL_NON_ZERO);
+        im_path_move_to(&p2, FX(4), FX(16));
+        im_path_line_to(&p2, FX(24), FX(16));
+        im_fixed da2[2] = { 0, FX(2) };
+        im_stroke_style st2 = { FX(2), IM_CAP_ROUND, IM_CAP_ROUND, IM_CAP_ROUND, IM_JOIN_ROUND, FX(10), da2, 2u, FX(1) };
+        im_path_data pd2 = im_path_view(&p2);
+        CHECK(im_path_stroke_argb(&s, alloc, &pd2, &st2, 0xFFFFFFFFu), "stroke dotted {0,2} with offset=1");
+        CHECK((pix[16 * 32 + 4] & 0xFFu) == 0u && (pix[16 * 32 + 6] & 0xFFu) > 100u,
+              "dotted {0,2} with offset=1 advances past zero entry so dot lands at x=6 not x=4");
+        im_path_destroy(&p2);
+    }
+
+    /* 19. Shape stretch preserves unscaled stroke thickness and UniformToFill clips to dst_rect. */
+    {
+        uint32_t pix[48 * 48];
+        for (int i = 0; i < 48 * 48; i++) pix[i] = 0u;
+        im_surface s = { pix, 48, 48, 48, pal, IM_ONE, NULL, NULL };
+        im_path p;
+        im_path_init(&p, alloc, IM_FILL_NON_ZERO);
+        im_path_move_to(&p, FX(0), FX(0));
+        im_path_line_to(&p, FX(10), FX(0));
+        im_path_line_to(&p, FX(10), FX(10));
+        im_path_line_to(&p, FX(0), FX(10));
+        im_path_close(&p);
+        im_path_data pd = im_path_view(&p);
+        im_stroke_style st = { FX(2), IM_CAP_FLAT, IM_CAP_FLAT, IM_CAP_FLAT, IM_JOIN_MITER, FX(10), NULL, 0u, 0 };
+        CHECK(im_path_draw_stretched(&s, alloc, &pd, (im_rect){ FX(4), FX(4), FX(44), FX(44) }, 1, 0u, &st, 0xFFFFFFFFu),
+              "draw stretched 10x10->40x40 outlined box");
+        /* Top stroke is y in [4, 6), so y=5 is lit and y=8 MUST be empty (stroke NOT scaled 4x to 8 px!). */
+        CHECK((pix[5 * 48 + 24] & 0xFFu) > 200u && (pix[8 * 48 + 24] & 0xFFu) == 0u,
+              "Stretch=Fill preserves unscaled 2px stroke thickness");
+        im_path_destroy(&p);
+
+        /* UniformToFill clips overflowing 20x10 rect strictly to [16, 28) x [16, 28). */
+        for (int i = 0; i < 48 * 48; i++) pix[i] = 0u;
+        im_path p2;
+        im_path_init(&p2, alloc, IM_FILL_NON_ZERO);
+        im_path_move_to(&p2, FX(0), FX(0));
+        im_path_line_to(&p2, FX(20), FX(0));
+        im_path_line_to(&p2, FX(20), FX(10));
+        im_path_line_to(&p2, FX(0), FX(10));
+        im_path_close(&p2);
+        im_path_data pd2 = im_path_view(&p2);
+        CHECK(im_path_draw_stretched(&s, alloc, &pd2, (im_rect){ FX(16), FX(16), FX(28), FX(28) }, 3, 0xFFFFFFFFu, NULL, 0u),
+              "draw UniformToFill clipped rect");
+        CHECK((pix[22 * 48 + 22] & 0xFFu) == 255u && (pix[22 * 48 + 14] & 0xFFu) == 0u && (pix[22 * 48 + 30] & 0xFFu) == 0u,
+              "UniformToFill clips strictly to destination box");
+        im_path_destroy(&p2);
+    }
+
+    /* 20. Group opacity for filled+stroked Path (overlap gets 50% opacity once, not 75% twice). */
+    {
+        static const im_template_path_seg segs[5] = {
+            { IM_PATH_MOVE, FX(4), FX(4), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(20), FX(4), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(20), FX(20), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(4), FX(20), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_CLOSE, 0, 0, 0, 0, 0, 0, 0, false, false }
+        };
+        static const im_template_element elems[2] = {
+            { IM_ELEM_GRID, "Root", -1, 0, 0 },
+            { IM_ELEM_PATH, "BothOp", 0, 0, 7 }
+        };
+        static const im_template_prop props[7] = {
+            { "Width", { IM_TVAL_FIXED, FX(24), 0, 0, 0, NULL, NULL } },
+            { "Height", { IM_TVAL_FIXED, FX(24), 0, 0, 0, NULL, NULL } },
+            { "Fill", { IM_TVAL_COLOR, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, -1, NULL, NULL } },
+            { "Stroke", { IM_TVAL_COLOR, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, -1, NULL, NULL } },
+            { "StrokeThickness", { IM_TVAL_FIXED, FX(4), 0, 0, 0, NULL, NULL } },
+            { "Opacity", { IM_TVAL_FIXED, IM_ONE / 2, 0, 0, 0, NULL, NULL } },
+            { "Data", { IM_TVAL_PATH, 0, 5, 1, 0, NULL, NULL } }
+        };
+        static const im_template tpl = { "GroupOpPath", "Control", 0, 0, 0, 2, 0, 0 };
+        im_template_tables tbl = { NULL, elems, props, NULL, NULL, NULL, NULL, NULL, segs };
+        im_tree tree;
+        im_tree_init(&tree, alloc);
+        im_node *root = im_tree_instantiate_custom_template(&tree, &pal, &tpl, NULL, elems, props, "root");
+        im_node *bp = im_tree_find_by_name(root, "BothOp");
+        im_state_machine sm;
+        im_states_init_custom(&sm, &tpl, &tbl, &pal);
+        im_states_apply_to_tree(&sm, root, 0);
+        im_layout_run(&tree, root, FX(24), FX(24), IM_ONE);
+        uint32_t pix[24 * 24];
+        for (int i = 0; i < 576; i++) pix[i] = 0u;
+        im_surface s = { pix, 24, 24, 24, pal, IM_ONE, NULL, NULL };
+        CHECK(im_states_draw_path_node(&sm, bp, &s, alloc, NULL, 0), "draw filled+stroked Path at Opacity=0.5");
+        uint32_t overlap_r = (pix[5 * 24 + 12] >> 16) & 0xFFu;
+        uint32_t interior_r = (pix[12 * 24 + 12] >> 16) & 0xFFu;
+        CHECK(overlap_r >= 120u && overlap_r <= 136u && interior_r >= 120u && interior_r <= 136u,
+              "filled+stroked Path at Opacity=0.5 composites overlap once (~128), not twice (~191)");
+        im_tree_destroy_subtree(&tree, root);
+    }
+
+    /* 21. Unnamed bound Path + equal-size geometry replacement marks paint_dirty. */
+    {
+        static const im_template_path_seg segs[8] = {
+            /* 0..3: 10x10 upper-right triangle */
+            { IM_PATH_MOVE, FX(0), FX(0), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(10), FX(0), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(10), FX(10), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_CLOSE, 0, 0, 0, 0, 0, 0, 0, false, false },
+            /* 4..7: 10x10 lower-left triangle (EXACT SAME 10x10 size!) */
+            { IM_PATH_MOVE, FX(0), FX(0), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(10), FX(10), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_LINE, FX(0), FX(10), 0, 0, 0, 0, 0, false, false },
+            { IM_PATH_CLOSE, 0, 0, 0, 0, 0, 0, 0, false, false }
+        };
+        static const im_template_element elems[2] = {
+            { IM_ELEM_GRID, "Root", -1, 0, 0 },
+            { IM_ELEM_PATH, NULL, 0, 0, 2 } /* unnamed bound path */
+        };
+        static const im_template_prop props[2] = {
+            { "Fill", { IM_TVAL_COLOR, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, -1, NULL, NULL } },
+            { "Data", { IM_TVAL_TEMPLATE_BINDING, 0, 0, 0, 0, "Content", NULL } }
+        };
+        static const im_template tpl = { "UnnamedBound", "Control", 0, 0, 0, 2, 0, 0 };
+        im_template_tables tbl = { NULL, elems, props, NULL, NULL, NULL, NULL, NULL, segs };
+        im_tree tree;
+        im_tree_init(&tree, alloc);
+        im_node *root = im_tree_instantiate_custom_template(&tree, &pal, &tpl, NULL, elems, props, "root");
+        im_node *g = im_tree_find_by_name(root, "Root");
+        im_node *ub = g->children[0];
+        im_state_machine sm;
+        im_states_init_custom(&sm, &tpl, &tbl, &pal);
+        im_states_set_binding(&sm, "Content", (im_template_value){ IM_TVAL_PATH, 0, 4, 1, 0, NULL, NULL });
+        im_states_apply_to_tree(&sm, root, 0);
+        im_layout_run(&tree, root, FX(16), FX(16), IM_ONE);
+        CHECK(ub->name == NULL && ub->desired_size.width == FX(10) && ub->desired_size.height == FX(10),
+              "unnamed bound Path resolves Content binding and measures 10x10");
+        ub->paint_dirty = false;
+        /* Swap to DIFFERENT 10x10 geometry -> must mark paint_dirty even though size did not change! */
+        im_states_set_binding(&sm, "Content", (im_template_value){ IM_TVAL_PATH, 4, 4, 1, 0, NULL, NULL });
+        im_states_apply_to_tree(&sm, root, 10);
+        CHECK(ub->paint_dirty, "equal-size geometry swap on bound Path marks paint_dirty for incremental redraw");
+        im_tree_destroy_subtree(&tree, root);
+    }
+
+    /* 22. Degenerate IM_SPREAD_REPEAT linear and radial gradients return last stop (not first stop). */
+    {
+        im_gradient_stop st[2] = { { 0, 0xFFFF0000u }, { IM_ONE, 0xFF0000FFu } };
+        im_linear_gradient lg = { FX(10), FX(10), FX(10), FX(10), IM_MAPPING_ABSOLUTE, IM_SPREAD_REPEAT, IM_GRAD_SPACE_SRGB, st, 2u };
+        im_radial_gradient rg = { FX(10), FX(10), 0, 0, FX(10), FX(10), IM_MAPPING_ABSOLUTE, IM_SPREAD_REPEAT, IM_GRAD_SPACE_SRGB, st, 2u };
+        uint32_t cl = im_linear_gradient_eval(&lg, (im_rect){ 0, 0, FX(20), FX(20) }, IM_ONE, 0, 0);
+        uint32_t cr = im_radial_gradient_eval(&rg, (im_rect){ 0, 0, FX(20), FX(20) }, IM_ONE, 0, 0);
+        CHECK(cl == 0xFF0000FFu && cr == 0xFF0000FFu,
+              "degenerate Repeat linear and radial gradients return last stop (blue), not wrapped first stop (red)");
     }
 
     if (g_failures > 0) {

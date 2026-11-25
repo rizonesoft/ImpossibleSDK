@@ -3425,9 +3425,8 @@ class Drawing(unittest.TestCase):
 
         # Independent Python 16-subscanline analytic horizontal interval oracle + converged curve flattening
         # for ALL 1,000 random cubic and quadratic paths (500 EvenOdd, 500 NonZero), tolerance <= 4/255.
-        def flatten_poly(kind, pts):
+        def flatten_poly(kind, pts, steps=64):
             poly = [(pts[0][0], pts[0][1])]
-            steps = 64  # converged reference flattening
             if kind == 3:
                 triples = [(pts[0], pts[1], pts[2], pts[3]), (pts[3], pts[4], pts[5], pts[6]), (pts[6], pts[7], pts[8], pts[0])]
                 for p0, p1, p2, p3 in triples:
@@ -3537,20 +3536,22 @@ class Drawing(unittest.TestCase):
                 npts = int(toks[3])
                 pts = [(int(toks[4 + 2 * k]) / 65536.0, int(toks[5 + 2 * k]) / 65536.0) for k in range(npts)]
                 got = [int(v) for v in right.split()]
-                poly = flatten_poly(kind, pts)
-                if len(got) == 256:
-                    want_rows = eval_rows(poly, rule, range(16))
+                self.assertEqual(len(got), 256, f"RPATH #{rpath_count} must emit all 256 pixels")
+                poly = flatten_poly(kind, pts, steps=64)
+                want_rows = eval_rows(poly, rule, range(16))
+                if rpath_count < 20:
+                    # Verify reference oracle convergence (64 vs 128 steps agree within 1/255).
+                    poly128 = flatten_poly(kind, pts, steps=128)
+                    want128 = eval_rows(poly128, rule, range(16))
                     for y in range(16):
                         for x in range(16):
-                            g = got[y * 16 + x]
-                            w = want_rows[y][x]
-                            self.assertLessEqual(abs(g - w), 4, f"RPATH #{rpath_count} ({x},{y}): got={g} want={w}")
-                else:
-                    want_rows = eval_rows(poly, rule, probe_rows)
-                    for j, pidx in enumerate(probe):
-                        g = got[j]
-                        w = want_rows[pidx // 16][pidx % 16]
-                        self.assertLessEqual(abs(g - w), 4, f"RPATH #{rpath_count} probe {pidx}: got={g} want={w}")
+                            self.assertLessEqual(abs(want_rows[y][x] - want128[y][x]), 1,
+                                                 f"oracle not converged at RPATH #{rpath_count} ({x},{y})")
+                for y in range(16):
+                    for x in range(16):
+                        g = got[y * 16 + x]
+                        w = want_rows[y][x]
+                        self.assertLessEqual(abs(g - w), 4, f"RPATH #{rpath_count} ({x},{y}): got={g} want={w}")
                 rpath_count += 1
             elif line.startswith("GLIN "):
                 _, sx, sy, scol = line.split()
@@ -3607,18 +3608,28 @@ class Drawing(unittest.TestCase):
         # T reflects Q's control (18,20) across (22,20) -> (26,20).
         self.assertEqual((p_st["segs"][6]["x1"], p_st["segs"][6]["y1"]), (26 * 65536, 20 * 65536))
 
-        p_arc = tpl_mod.parse_path_markup("M0,0 a-10,5.5e0 30 1110,10", "fx.xaml", 12)
+        p_arc = tpl_mod.parse_path_markup("M0,0 a10,5.5e0 30 1110,10", "fx.xaml", 12)
         self.assertEqual(p_arc["segs"][1]["cmd"], 4)
         self.assertEqual((p_arc["segs"][1]["x1"], p_arc["segs"][1]["y1"]), (10 * 65536, int(5.5 * 65536)))
         self.assertEqual((p_arc["segs"][1]["large_arc"], p_arc["segs"][1]["sweep"]), (True, True))
         self.assertEqual((p_arc["segs"][1]["x2"], p_arc["segs"][1]["y2"]), (10 * 65536, 10 * 65536))
 
-        # 2. Malformed path markup refusals with exact file:line.
+        # Literal hex colors on Fill and Stroke must compile to IM_TVAL_COLOR (not IM_TVAL_ENUM_STR).
+        hex_comp = tpl_mod.Compiler()
+        for prop_n in ("Fill", "Stroke"):
+            cv = hex_comp.parse_value("#FF112233", prop_n, "s.xaml", 7)
+            self.assertEqual(cv["kind"], "IM_TVAL_COLOR")
+            self.assertEqual(cv["a"], 0xFF112233)
+
+        # 2. Malformed path markup refusals with exact file:line (including signed arc radii and 1e999 overflow).
         bad_cases = [
             ("", "empty"),
             ("M0,0 F1 L1,1", "misplaced fill rule"),
             ("M0,0 L1", "incomplete tuple"),
             ("M0,0 A10,10 0 2 1 20,20", "invalid arc flag"),
+            ("M0,0 A-5 5 0 0 1 10,0", "negative arc radius refused by WinUI"),
+            ("M0,0 A+5 5 0 0 1 10,0", "plus-signed arc radius refused by WinUI"),
+            ("M1e999,0", "overflowing scientific notation"),
             ("M0,0 X1,1", "unknown command"),
             ("L10,10", "before initial MoveTo"),
             ("M30000,0 l5000,0", "overflow after relative addition"),
@@ -3768,6 +3779,100 @@ class Drawing(unittest.TestCase):
             )
             self.assertNotEqual(p_bs.returncode, 0)
             self.assertIn("bad_setter.xaml:11:", p_bs.stderr + p_bs.stdout)
+
+            # 5. End-to-end compiler-to-pixels proof: compile real XAML <Path> templates through
+            # templates.py emit(), compile the generated C tables with llvm-mingw against libImpossibleUI.a,
+            # execute the resulting Windows binary, and verify rendered pixels directly.
+            e2e_xaml = (
+                '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+                ' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">\n'
+                '  <Style x:Key="E2EPathStyle" TargetType="Button">\n'
+                '    <Setter Property="Template">\n'
+                '      <Setter.Value>\n'
+                '        <ControlTemplate TargetType="Button">\n'
+                '          <Grid>\n'
+                '            <Path x:Name="CheckGlyph" Width="16" Height="16" Stretch="Fill" Fill="#FFFFFFFF"'
+                ' Data="M0,123 L39,93 L124,164 L256,18 L295,49 L124,240 z" />\n'
+                '            <Path Width="16" Height="16" Fill="#FF112233" Data="M2,2 L14,2 L14,14 L2,14 Z" />\n'
+                '            <Path Width="16" Height="16" Stroke="#FFFF0000" Data="M2,2 L14,2 L14,14 L2,14 Z" />\n'
+                '          </Grid>\n'
+                '        </ControlTemplate>\n'
+                '      </Setter.Value>\n'
+                '    </Setter>\n'
+                '  </Style>\n'
+                '</ResourceDictionary>\n'
+            )
+            doc = tpl_mod.parse_xaml(e2e_xaml, "e2e_path.xaml")
+            comp = tpl_mod.Compiler()
+            comp.compile_style(doc.children[0], enum_id="IM_TPL_E2E_PATH")
+            emitted = tpl_mod.emit(comp)
+            self.assertIn("im_template_path_segs", emitted["template_data.c"])
+
+            cc = None
+            cache = BUILD / "CMakeCache.txt"
+            if cache.exists():
+                for ln in cache.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if ln.startswith("CMAKE_C_COMPILER:FILEPATH="):
+                        cc = ln.split("=", 1)[1].strip()
+                        break
+            if cc and Path(cc).exists() and (BUILD / "libImpossibleUI.a").exists():
+                gen_c = emitted["template_data.c"].replace('#include "template.h"', "").replace(
+                    "im_templates[IM_TEMPLATE_COUNT]", "gen_templates[1]"
+                )
+                for sym in (
+                    "im_template_setters", "im_template_elements", "im_template_props",
+                    "im_template_groups", "im_template_states", "im_template_transitions",
+                    "im_template_anims", "im_template_keyframes", "im_template_path_segs",
+                ):
+                    gen_c = gen_c.replace(sym, "gen_" + sym[len("im_"):])
+                driver_c = (
+                    '#include <windows.h>\n'
+                    '#include "layout.h"\n#include "path.h"\n#include "states.h"\n#include "tree.h"\n'
+                    + gen_c +
+                    '\nstatic void *a_alloc(void *c, size_t n){return HeapAlloc((HANDLE)c,0,n?n:1);}\n'
+                    'static void *a_realloc(void *c, void *p, size_t o, size_t n){(void)o;return p?HeapReAlloc((HANDLE)c,0,p,n?n:1):HeapAlloc((HANDLE)c,0,n?n:1);}\n'
+                    'static void a_free(void *c, void *p, size_t o){(void)o;if(p)HeapFree((HANDLE)c,0,p);}\n'
+                    'int mainCRTStartup(void){\n'
+                    '  im_allocator al={a_alloc,a_realloc,a_free,GetProcessHeap()};\n'
+                    '  im_palette pal; for(size_t i=0;i<sizeof(pal);i++)((uint8_t*)&pal)[i]=0;\n'
+                    '  im_tree tr; im_tree_init(&tr, al);\n'
+                    '  im_template_tables tbl={gen_template_setters,gen_template_elements,gen_template_props,gen_template_groups,gen_template_states,gen_template_transitions,gen_template_anims,gen_template_keyframes,gen_template_path_segs};\n'
+                    '  im_node *root=im_tree_instantiate_custom_template(&tr,&pal,&gen_templates[0],gen_template_setters,gen_template_elements,gen_template_props,"root");\n'
+                    '  if(!root) ExitProcess(1);\n'
+                    '  im_state_machine sm; im_states_init_custom(&sm,&gen_templates[0],&tbl,&pal);\n'
+                    '  im_states_apply_to_tree(&sm,root,0);\n'
+                    '  im_layout_run(&tr,root,16*IM_ONE,16*IM_ONE,IM_ONE);\n'
+                    '  im_node *g=root->children[0];\n'
+                    '  uint32_t pix[256]; im_surface s={pix,16,16,16,pal,IM_ONE,NULL,NULL};\n'
+                    '  for(int i=0;i<256;i++) pix[i]=0;\n'
+                    '  if(!im_states_draw_path_node(&sm,g->children[0],&s,al,NULL,0)) ExitProcess(2);\n'
+                    '  int chk=0; for(int i=0;i<256;i++) if(pix[i]) chk++;\n'
+                    '  if(chk<=20) ExitProcess(3);\n'
+                    '  for(int i=0;i<256;i++) pix[i]=0;\n'
+                    '  if(!im_states_draw_path_node(&sm,g->children[1],&s,al,NULL,0)) ExitProcess(4);\n'
+                    '  if(pix[8*16+8]!=0x00112233u) ExitProcess(5);\n'
+                    '  for(int i=0;i<256;i++) pix[i]=0;\n'
+                    '  if(!im_states_draw_path_node(&sm,g->children[2],&s,al,NULL,0)) ExitProcess(6);\n'
+                    '  int red=0; for(int i=0;i<256;i++) if((pix[i]>>16)>100u && (pix[i]&0xFFu)==0u) red++;\n'
+                    '  if(red<=20) ExitProcess(7);\n'
+                    '  im_tree_destroy_subtree(&tr,root);\n'
+                    '  ExitProcess(0);\n'
+                    '}\n'
+                )
+                src_p = Path(td) / "e2e_path.c"
+                exe_p = Path(td) / "e2e_path.exe"
+                src_p.write_text(driver_c, encoding="utf-8")
+                c_res = subprocess.run(
+                    [cc, "-std=gnu23", "-O2", "-ffreestanding", "-fno-stack-protector",
+                     "-I", str(ROOT / "ui"), "-I", str(ROOT / "include"),
+                     "-I", str(ROOT / "parts" / "image"), "-I", str(ROOT / "parts" / "unicode"),
+                     str(src_p), str(BUILD / "libImpossibleUI.a"),
+                     "-nostdlib", "-Wl,-emainCRTStartup", "-lkernel32", "-o", str(exe_p)],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(c_res.returncode, 0, c_res.stdout + c_res.stderr)
+                r_res = subprocess.run([str(exe_p)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                self.assertEqual(r_res.returncode, 0, f"e2e compiled Path driver exited {r_res.returncode}")
 
 
 if __name__ == "__main__":

@@ -218,6 +218,11 @@ typedef struct im_node {
     enum im_brush_id path_stroke_brush;
     uint32_t path_stroke_argb;
     const char *path_data_binding;
+    bool path_applied_valid;
+    uint8_t path_applied_kind;
+    uint32_t path_applied_a;
+    uint32_t path_applied_b;
+    uint8_t path_applied_c;
 } im_node;
 
 /* Maximum number of detached/destroyed subtree bounds buffered before overflowing to a full repaint. */

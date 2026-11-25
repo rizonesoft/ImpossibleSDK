@@ -108,12 +108,9 @@ static uint32_t lerp_premul_srgb(uint32_t c0, uint32_t c1, uint32_t w_q16) {
     return (a_255 << 24) | (sr << 16) | (sg << 8) | sb;
 }
 
-uint32_t im_gradient_sample_stops(const im_gradient_stop *stops, uint32_t stop_count,
-                                  im_spread_method spread, int64_t t_q30) {
+static uint32_t sample_stops_clamped(const im_gradient_stop *stops, uint32_t stop_count, int64_t t) {
     if (!stops || stop_count == 0u) return 0x00000000u;
     if (stop_count == 1u) return stops[0].argb;
-
-    int64_t t = apply_spread(t_q30, spread);
 
     /* Find the bracketing stops in stable offset order without mutating or allocating.
        For unsorted stops or repeated offsets:
@@ -148,6 +145,13 @@ uint32_t im_gradient_sample_stops(const im_gradient_stop *stops, uint32_t stop_c
     if (w <= 0) return stops[lo_idx].argb;
     if (w >= IM_ONE) return stops[hi_idx].argb;
     return lerp_premul_srgb(stops[lo_idx].argb, stops[hi_idx].argb, (uint32_t)w);
+}
+
+uint32_t im_gradient_sample_stops(const im_gradient_stop *stops, uint32_t stop_count,
+                                  im_spread_method spread, int64_t t_q30) {
+    if (!stops || stop_count == 0u) return 0x00000000u;
+    if (stop_count == 1u) return stops[0].argb;
+    return sample_stops_clamped(stops, stop_count, apply_spread(t_q30, spread));
 }
 
 /* ---------- Linear & Radial evaluation ---------- */
@@ -212,8 +216,8 @@ uint32_t im_linear_gradient_eval(const im_linear_gradient *grad, im_rect local_b
     int64_t vx = ex - sx;
     int64_t vy = ey - sy;
     if (vx == 0 && vy == 0) {
-        /* Coincident linear endpoints: t = 1 (last stop). */
-        return im_gradient_sample_stops(grad->stops, grad->stop_count, grad->spread, IM_TR_ONE);
+        /* Coincident linear endpoints: always sample last stop directly (bypass Repeat wrap). */
+        return sample_stops_clamped(grad->stops, grad->stop_count, IM_TR_ONE);
     }
 
     int64_t dx = lx_q30 - sx;
@@ -228,7 +232,7 @@ uint32_t im_linear_gradient_eval(const im_linear_gradient *grad, im_rect local_b
     }
     int64_t len2 = (int64_t)((__int128)vx * vx + (__int128)vy * vy);
     if (len2 == 0) {
-        return im_gradient_sample_stops(grad->stops, grad->stop_count, grad->spread, IM_TR_ONE);
+        return sample_stops_clamped(grad->stops, grad->stop_count, IM_TR_ONE);
     }
     __int128 dot = (__int128)dx * vx + (__int128)dy * vy;
     int64_t t_q30 = im_sdiv128_i64(dot * IM_TR_ONE, len2);
@@ -246,8 +250,8 @@ uint32_t im_radial_gradient_eval(const im_radial_gradient *grad, im_rect local_b
     map_radius_to_local_q30(grad->radius_x, grad->radius_y, grad->mapping, local_bounds, scale, &rx, &ry);
 
     if (rx <= 0 || ry <= 0) {
-        /* Degenerate zero radius: t = 1 (last stop). */
-        return im_gradient_sample_stops(grad->stops, grad->stop_count, grad->spread, IM_TR_ONE);
+        /* Degenerate zero radius: always sample last stop directly (bypass Repeat wrap). */
+        return sample_stops_clamped(grad->stops, grad->stop_count, IM_TR_ONE);
     }
 
     /* Transform into unit-circle coordinates centered at (cx, cy):
@@ -400,7 +404,11 @@ static void fill_rect_gradient_impl(im_surface *surface, im_rect rect, im_radii 
                         if (!im_transform_point_q30(&inv, spx, spy, &slx, &sly)) continue;
                         if (slx >= im_fixed_to_q30(rect.left) && slx < im_fixed_to_q30(rect.right) &&
                             sly >= im_fixed_to_q30(rect.top) && sly < im_fixed_to_q30(rect.bottom)) {
-                            hits++;
+                            im_fixed fx = (im_fixed)(slx >> (IM_TR_SHIFT - 16));
+                            im_fixed fy = (im_fixed)(sly >> (IM_TR_SHIFT - 16));
+                            if (im_shape_contains(rect, radii, fx, fy)) {
+                                hits++;
+                            }
                         }
                     }
                 }

@@ -10,6 +10,7 @@ import argparse
 import bisect
 import io
 import json
+import math
 import re
 import subprocess
 import sys
@@ -808,10 +809,13 @@ PINNED_MICROSOFT_PATH_ICONS = {
 }
 
 _PATH_NUM_RE = re.compile(r"[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?")
+_PATH_UNSIGNED_NUM_RE = re.compile(r"(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?")
 _PATH_CMDS = set("MmLlHhVvCcSsQqTtAaZz")
 
 
 def _to_fixed16(val, file, line, label):
+    if not math.isfinite(val) or val < -32768.0 or val > 32767.9999923706:
+        raise TemplateError(f"{file}:{line}: path {label} {val} overflows 16.16 fixed point")
     q = int(round(val * 65536.0))
     if q < -2147483648 or q > 2147483647:
         raise TemplateError(f"{file}:{line}: path {label} {val} overflows 16.16 fixed point")
@@ -866,6 +870,22 @@ def parse_path_markup(text, file, line):
         if not m:
             got = s[pos:pos + 12] if pos < n else "<eof>"
             raise TemplateError(f"{file}:{line}: expected number in path markup near {got!r}")
+        pos = m.end()
+        return float(m.group(0))
+
+    def read_nonneg_num(first_after_cmd=False):
+        nonlocal pos
+        if first_after_cmd:
+            skip_ws()
+        else:
+            skip_sep()
+        if pos < n and s[pos] in ("+", "-"):
+            got = s[pos:pos + 12]
+            raise TemplateError(f"{file}:{line}: arc radius must be unsigned (no leading sign) near {got!r}")
+        m = _PATH_UNSIGNED_NUM_RE.match(s, pos)
+        if not m:
+            got = s[pos:pos + 12] if pos < n else "<eof>"
+            raise TemplateError(f"{file}:{line}: expected unsigned arc radius in path markup near {got!r}")
         pos = m.end()
         return float(m.group(0))
 
@@ -1085,8 +1105,8 @@ def parse_path_markup(text, file, line):
                 cx, cy = x2, y2
                 prev_cmd = cmd
             elif ucmd == "A":
-                rx = abs(read_num(first))
-                ry = abs(read_num(False))
+                rx = read_nonneg_num(first)
+                ry = read_nonneg_num(False)
                 rot = read_num(False)
                 la = read_flag()
                 sw = read_flag()
@@ -1319,6 +1339,23 @@ class Compiler:
                     vals = [vals[0], vals[1], vals[0], vals[1]]
                 if len(vals) == 4:
                     return {"kind": "IM_TVAL_QUAD", "a": vals[0], "b": vals[1], "c": vals[2], "d": vals[3], "text": None, "fallback": None}
+
+        # Literal hex colors (#RGB, #ARGB, #RRGGBB, #AARRGGBB) on brush/color properties
+        if prop_name in ("Fill", "Stroke", "Background", "BorderBrush", "Foreground", "Color") and text.startswith("#"):
+            hx = text[1:]
+            if re.fullmatch(r"[0-9A-Fa-f]{3}", hx):
+                r, g, b = (int(ch * 2, 16) for ch in hx)
+                argb = (0xFF << 24) | (r << 16) | (g << 8) | b
+            elif re.fullmatch(r"[0-9A-Fa-f]{4}", hx):
+                a, r, g, b = (int(ch * 2, 16) for ch in hx)
+                argb = (a << 24) | (r << 16) | (g << 8) | b
+            elif re.fullmatch(r"[0-9A-Fa-f]{6}", hx):
+                argb = 0xFF000000 | int(hx, 16)
+            elif re.fullmatch(r"[0-9A-Fa-f]{8}", hx):
+                argb = int(hx, 16)
+            else:
+                raise TemplateError(f"{file}:{line}: invalid hex color {text!r} for {prop_name!r}")
+            return {"kind": "IM_TVAL_COLOR", "a": argb, "b": argb, "c": argb, "d": -1, "text": text, "fallback": None}
 
         if re.fullmatch(r"-?\d+", text) and prop_name in ("Grid.Row", "Grid.Column", "Grid.RowSpan", "Grid.ColumnSpan", "Canvas.ZIndex"):
             return {"kind": "IM_TVAL_INT", "a": int(text), "b": 0, "c": 0, "d": 0, "text": None, "fallback": None}

@@ -1,5 +1,6 @@
 /* Impossible UI: element tree, properties, template instantiation and invalidation. Portable. */
 #include "tree.h"
+#include "path.h"
 
 static void zero_bytes(void *dst, size_t n) {
     uint8_t *p = (uint8_t *)dst;
@@ -111,6 +112,8 @@ im_node *im_tree_create_node(im_tree *tree, im_element_kind kind, const char *na
     node->orientation = IM_ORIENT_VERTICAL;
     node->grid_row_span = 1;
     node->grid_col_span = 1;
+    /* Pinned WinUI DependencyProperty.cpp:151 sets Shape.StrokeThickness default to 1.0. */
+    node->path_stroke_thickness = IM_ONE;
     node->measure_dirty = true;
     node->arrange_dirty = true;
     tree->node_count++;
@@ -324,27 +327,15 @@ void im_node_set_path_intrinsic_bounds(im_node *node, const im_template_path_seg
     if (!node) return;
     im_fixed nw = 0, nh = 0;
     if (segs && count > 0u) {
-        bool has = false;
-        int64_t min_x = INT64_MAX, min_y = INT64_MAX, max_x = INT64_MIN, max_y = INT64_MIN;
-        for (uint32_t i = 0; i < count; i++) {
-            const im_template_path_seg *s = &segs[start + i];
-            int64_t xs[3], ys[3];
-            int n = 0;
-            if (s->cmd == 0u || s->cmd == 1u) { xs[0] = s->x1; ys[0] = s->y1; n = 1; }
-            else if (s->cmd == 2u) { xs[0] = s->x1; ys[0] = s->y1; xs[1] = s->x2; ys[1] = s->y2; n = 2; }
-            else if (s->cmd == 3u) { xs[0] = s->x1; ys[0] = s->y1; xs[1] = s->x2; ys[1] = s->y2; xs[2] = s->x3; ys[2] = s->y3; n = 3; }
-            else if (s->cmd == 4u) { xs[0] = s->x2; ys[0] = s->y2; n = 1; }
-            for (int k = 0; k < n; k++) {
-                if (!has || xs[k] < min_x) min_x = xs[k];
-                if (!has || xs[k] > max_x) max_x = xs[k];
-                if (!has || ys[k] < min_y) min_y = ys[k];
-                if (!has || ys[k] > max_y) max_y = ys[k];
-                has = true;
+        im_path_data pd = { segs + start, count, (im_fill_rule)node->path_fill_rule };
+        im_rect pb;
+        if (im_path_bounds(&pd, &pb)) {
+            int64_t dw = (int64_t)pb.right - pb.left;
+            int64_t dh = (int64_t)pb.bottom - pb.top;
+            if (node->path_has_stroke && node->path_stroke_thickness > 0) {
+                dw += (int64_t)node->path_stroke_thickness;
+                dh += (int64_t)node->path_stroke_thickness;
             }
-        }
-        if (has) {
-            int64_t dw = max_x - min_x;
-            int64_t dh = max_y - min_y;
             if (dw > 0) nw = (dw > INT32_MAX) ? INT32_MAX : (im_fixed)dw;
             if (dh > 0) nh = (dh > INT32_MAX) ? INT32_MAX : (im_fixed)dh;
         }

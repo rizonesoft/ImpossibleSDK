@@ -28,32 +28,9 @@ typedef enum im_line_join {
     IM_JOIN_ROUND = 2
 } im_line_join;
 
-/* Vector path segment command kind. */
-typedef enum im_path_cmd {
-    IM_PATH_MOVE = 0,
-    IM_PATH_LINE = 1,
-    IM_PATH_QUAD = 2,
-    IM_PATH_CUBIC = 3,
-    IM_PATH_ARC = 4,
-    IM_PATH_CLOSE = 5
-} im_path_cmd;
-
-/* One command in a fixed-point vector path.
-   MOVE/LINE use (x1, y1); QUAD uses ctrl (x1, y1), end (x2, y2);
-   CUBIC uses ctrl1 (x1, y1), ctrl2 (x2, y2), end (x3, y3);
-   ARC uses radii (x1, y1), end (x2, y2), x-axis angle_deg, large_arc, sweep;
-   CLOSE uses no coordinates. */
-typedef struct im_path_seg {
-    im_path_cmd cmd;
-    im_fixed x1, y1;
-    im_fixed x2, y2;
-    im_fixed x3, y3;
-    im_fixed angle_deg;
-    bool large_arc;
-    bool sweep;
-} im_path_seg;
-
-/* Read-only view of a fixed-point vector path (usable with static compiled tables without allocation). */
+/* Read-only view of a fixed-point vector path (usable with static compiled tables without allocation).
+   im_path_cmd and im_path_seg are defined in template.h (included via tree.h) so compiled tables
+   bind directly into im_path_data without copying. */
 typedef struct im_path_data {
     const im_path_seg *segs;
     uint32_t count;

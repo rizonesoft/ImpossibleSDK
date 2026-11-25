@@ -121,17 +121,30 @@ typedef struct im_template_value {
     const char *fallback;
 } im_template_value;
 
-/* One compiled fixed-point vector path segment stored in im_template_path_segs.
-   cmd matches im_path_cmd (0=MOVE, 1=LINE, 2=QUAD, 3=CUBIC, 4=ARC, 5=CLOSE). */
-typedef struct im_template_path_seg {
-    uint8_t cmd;
+/* Vector path segment command kind shared by compiled template tables and runtime paths. */
+typedef enum im_path_cmd {
+    IM_PATH_MOVE = 0,
+    IM_PATH_LINE = 1,
+    IM_PATH_QUAD = 2,
+    IM_PATH_CUBIC = 3,
+    IM_PATH_ARC = 4,
+    IM_PATH_CLOSE = 5
+} im_path_cmd;
+
+/* One fixed-point vector path segment shared by im_path_data and im_template_path_segs
+   so static compiled template paths render with zero per-draw allocation or copying. */
+typedef struct im_path_seg {
+    im_path_cmd cmd;
     im_fixed x1, y1;
     im_fixed x2, y2;
     im_fixed x3, y3;
     im_fixed angle_deg;
     bool large_arc;
     bool sweep;
-} im_template_path_seg;
+} im_path_seg;
+
+/* Compiled template path segment alias sharing exact layout with im_path_seg. */
+typedef im_path_seg im_template_path_seg;
 
 /* One named property on a compiled template element. */
 typedef struct im_template_prop {
