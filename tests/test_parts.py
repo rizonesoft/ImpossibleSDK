@@ -755,7 +755,8 @@ class InflateAndChecksum(unittest.TestCase):
                     pat = rng.randbytes(rng.randint(1, 12))
                     raw = (pat * rng.randint(2, 30))[: rng.randint(1, 300)]
                 else:
-                    raw = rng.randbytes(rng.randint(65, 512))
+                    # Larger repetitive+mixed inputs trigger dynamic Huffman blocks (BTYPE=2) across levels!
+                    raw = (rng.randbytes(rng.randint(8, 32)) * rng.randint(12, 40)) + rng.randbytes(rng.randint(128, 512))
                 cobj = zlib.compressobj(level=level, wbits=wbits_for[fmt])
                 comp = cobj.compress(raw) + cobj.flush()
                 st, iu, out = run_inflate(fmt, comp, max(len(raw) + 16, 64), has_limit=True, limit=len(raw))
@@ -763,17 +764,13 @@ class InflateAndChecksum(unittest.TestCase):
                 self.assertEqual(out, raw, f"case {i} mismatch")
                 self.assertEqual(iu, len(comp), f"case {i} in_used")
 
-            # Byte-at-a-time streaming (1-byte input AND 1-byte output) across stored, fixed, dynamic,
-            # overlapping matches (dist=1, dist=3), 32 KiB window wrap, and multi-member gzip with FHCRC!
-            stream_cases = [
-                (1, zlib.compress(b"stored block test " * 20, 0), b"stored block test " * 20),
-                (1, zlib.compress(b"A" * 5000, 6), b"A" * 5000),
-                (1, zlib.compress(b"ABC" * 2000, 9), b"ABC" * 2000),
-                (0, zlib.compressobj(9, zlib.DEFLATED, -15).compress(b"hello " * 100) + zlib.compressobj(9, zlib.DEFLATED, -15).flush(), None),
-            ]
-            # 40 KiB window-wrap case (exceeding 32768-byte sliding window)
+            # Byte-at-a-time streaming (1-byte input AND 1-byte output) across raw, stored, fixed, dynamic,
+            # overlapping matches (dist=1, dist=3), 32 KiB window wrap, and multi-member gzip!
+            raw_c = zlib.compressobj(9, zlib.DEFLATED, -15)
+            raw_stream = raw_c.compress(b"hello " * 100) + raw_c.flush()
             wrap_data = (rng.randbytes(1024) * 40)[:40960]
             stream_cases = [
+                (0, raw_stream, b"hello " * 100),
                 (1, zlib.compress(b"stored block test " * 20, 0), b"stored block test " * 20),
                 (1, zlib.compress(b"A" * 5000, 6), b"A" * 5000),
                 (1, zlib.compress(b"ABC" * 2000, 9), b"ABC" * 2000),
@@ -785,6 +782,59 @@ class InflateAndChecksum(unittest.TestCase):
                 self.assertEqual(st, 0, f"1-by-1 fmt={fmt} st={st}")
                 self.assertEqual(out, expected)
                 self.assertEqual(iu, len(comp))
+
+            # Deterministic RFC 1951 degenerate dynamic-block tests:
+            # (a) HDIST=32 (with reserved 30/31 zero-length) + empty distance tree on literal-only 'A' -> OK;
+            # (b) zlib small advertised window (CINFO=0 -> 256B window) rejecting distance 300 -> BAD_DATA (6).
+            def pack_bits(pairs):
+                val, cnt = 0, 0
+                out_b = bytearray()
+                for bits, n in pairs:
+                    val |= (bits & ((1 << n) - 1)) << cnt
+                    cnt += n
+                    while cnt >= 8:
+                        out_b.append(val & 0xFF)
+                        val >>= 8
+                        cnt -= 8
+                if cnt:
+                    out_b.append(val & 0xFF)
+                return bytes(out_b)
+
+            # Build dynamic block: BFINAL=1, BTYPE=2, HLIT=257 (0), HDIST=32 (31), HCLEN=19 (15)
+            # clen symbols: 0=len 2 (00), 1=len 2 (01), 18=len 1 (1).
+            # Wait: 0 -> len 2 (code 10), 1 -> len 2 (code 11), 18 -> len 1 (code 0): canonical!
+            # clen_order: [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15]
+            clens = {18: 1, 0: 2, 1: 2}
+            clen_order = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
+            bits = [(1, 1), (2, 2), (0, 5), (31, 5), (15, 4)]
+            for sym in clen_order:
+                bits.append((clens.get(sym, 0), 3))
+            # Emit 257 litlen lengths ('A'=65 has len 1, 256 EOB has len 1; all others 0) + 32 dist lengths (all 0):
+            # sym 18 = code 0 (1 bit) + 7 extra bits for 11..138 zeros; sym 0 = code 0b10 (LSB-first: 0b01? No, canonical 10 -> reversed 01!), sym 1 = code 0b11 (2 bits)
+            # 65 zeros = sym 18 (extra 54); lit 'A'=1 (0b11); 190 zeros = 138 (extra 127) + 52 (extra 41); EOB 256=1 (0b11); 32 dist zeros = sym 18 (extra 21)
+            bits.extend([
+                (0, 1), (65 - 11, 7),
+                (0b11, 2),
+                (0, 1), (138 - 11, 7),
+                (0, 1), (52 - 11, 7),
+                (0b11, 2),
+                (0, 1), (32 - 11, 7),
+                # Litlen canonical: 'A' (65) = 0 (1 bit), EOB (256) = 1 (1 bit)
+                (0, 1), (1, 1),
+            ])
+            dyn_hdist32_empty = pack_bits(bits)
+            st_d, _, out_d = run_inflate(0, dyn_hdist32_empty, 16)
+            self.assertEqual(st_d, 0, f"dynamic HDIST=32 + empty dist tree should return OK, got {st_d}")
+            self.assertEqual(out_d, b"A")
+
+            # Zlib small advertised window (CINFO=0 -> 256 bytes) rejecting a 300-byte back-reference -> BAD_DATA (6)
+            big_z = bytearray(zlib.compress(b"X" * 400 + b"Y" * 100 + b"X" * 400, 9))
+            # Rewrite CMF from 0x78 (CINFO=7) to 0x08 (CINFO=0, 256B window) with valid FLG check bits
+            cmf = 0x08
+            flg = (31 - ((cmf * 256) % 31)) % 31
+            big_z[0], big_z[1] = cmf, flg
+            st_w, _, _ = run_inflate(1, bytes(big_z), 1024)
+            self.assertEqual(st_w, 6, f"zlib distance > advertised 256B window must return BAD_DATA (6), got {st_w}")
 
             # Gzip optional fields (FEXTRA + FNAME + FCOMMENT + FHCRC) split byte-by-byte + bad FHCRC + reserved flag
             body_raw = b"Gzip optional headers work!"
@@ -832,6 +882,9 @@ class InflateAndChecksum(unittest.TestCase):
             st_b, tout_b = struct.unpack("<IQ", read_exact(12))
             self.assertEqual(st_b, 3, f"1 GB bomb must return IM_INFLATE_LIMIT (3), got {st_b}")
             self.assertEqual(tout_b, limit_1mb)
+        except Exception:
+            proc.kill()
+            raise
         finally:
             if proc.stdin:
                 proc.stdin.close()
@@ -840,7 +893,12 @@ class InflateAndChecksum(unittest.TestCase):
             err_text = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
             if proc.stderr:
                 proc.stderr.close()
-            proc.wait(timeout=30)
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+                raise
             self.assertEqual(proc.returncode, 0, err_text)
 
 

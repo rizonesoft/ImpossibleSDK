@@ -26,6 +26,7 @@ enum inf_state {
     S_GZIP_TRAILER,
     S_GZIP_NEXT,
     S_DONE,
+    S_BAD_ARG,
     S_ERR
 };
 
@@ -198,10 +199,10 @@ void im_inflate_init(im_inflate *st, im_inflate_format fmt, bool has_limit, size
     if (fmt == IM_INFLATE_RAW) st->state = S_BLOCK_HDR;
     else if (fmt == IM_INFLATE_ZLIB) st->state = S_ZLIB_HDR;
     else if (fmt == IM_INFLATE_GZIP) st->state = S_GZIP_HDR;
-    else st->state = S_ERR;
+    else st->state = S_BAD_ARG;
 }
 
-/* Emit one output byte into out[*op] + sliding window + running checksum.
+/* Emit one output byte into out[*op] + sliding window (checksum is updated in batch over contiguous spans).
    Returns: 1 = emitted, 0 = output buffer full, -1 = output_limit exceeded. */
 static int emit_byte(im_inflate *st, uint8_t b, uint8_t *out, size_t out_cap, size_t *op) {
     if (st->has_limit && st->total_out >= (uint64_t)st->output_limit) return -1;
@@ -211,9 +212,15 @@ static int emit_byte(im_inflate *st, uint8_t b, uint8_t *out, size_t out_cap, si
     st->win_pos = (st->win_pos + 1u) & 32767u;
     st->total_out++;
     st->member_out++;
-    if (st->fmt == IM_INFLATE_ZLIB) st->check = im_adler32_update(st->check, &b, 1u);
-    else if (st->fmt == IM_INFLATE_GZIP) st->check = im_crc32_update(st->check, &b, 1u);
     return 1;
+}
+
+static void flush_check_span(im_inflate *st, const uint8_t *out, size_t *chk_from, size_t op) {
+    if (op > *chk_from) {
+        if (st->fmt == IM_INFLATE_ZLIB) st->check = im_adler32_update(st->check, out + *chk_from, op - *chk_from);
+        else if (st->fmt == IM_INFLATE_GZIP) st->check = im_crc32_update(st->check, out + *chk_from, op - *chk_from);
+        *chk_from = op;
+    }
 }
 
 im_inflate_status im_inflate_step(im_inflate *st,
@@ -222,11 +229,13 @@ im_inflate_status im_inflate_step(im_inflate *st,
     if (in_used) *in_used = 0;
     if (out_used) *out_used = 0;
     if (!st || (in_len > 0u && !in) || (out_cap > 0u && !out)) return IM_INFLATE_BAD_ARG;
+    if (st->state == S_BAD_ARG) return IM_INFLATE_BAD_ARG;
     if (st->state == S_ERR) return IM_INFLATE_BAD_DATA;
     if (st->state == S_DONE) return IM_INFLATE_OK;
 
     size_t ip = 0;
     size_t op = 0;
+    size_t chk_from = 0;
     im_inflate_status res = IM_INFLATE_NEED_INPUT;
 
     for (;;) {
@@ -462,7 +471,8 @@ im_inflate_status im_inflate_step(im_inflate *st,
             st->hclen = (uint16_t)(((st->bitbuf >> 10) & 15u) + 4u);
             st->bitbuf >>= 14;
             st->bitcnt -= 14u;
-            if (st->hlit > 286u || st->hdist > 30u) {
+            /* RFC 1951 s3.2.7: HDIST + 1 may declare up to 32 entries (reserved 30/31 rejected if decoded). */
+            if (st->hlit > 286u || st->hdist > 32u) {
                 st->state = S_ERR;
                 res = IM_INFLATE_BAD_DATA;
                 goto done;
@@ -627,6 +637,7 @@ im_inflate_status im_inflate_step(im_inflate *st,
                 uint32_t ex = (uint32_t)(st->bitbuf & ((1u << eb) - 1u));
                 st->bitbuf >>= eb;
                 st->bitcnt -= eb;
+                /* Note: length code 284 (sym_code=27) + extra 31 yields 258, matching zlib's historical tolerance. */
                 st->copy_len = k_len_base[st->sym_code] + ex;
             } else {
                 st->copy_len = k_len_base[st->sym_code];
@@ -689,6 +700,7 @@ im_inflate_status im_inflate_step(im_inflate *st,
         }
 
         case S_ZLIB_TRAILER: {
+            flush_check_span(st, out, &chk_from, op);
             while (st->hdr_have < 4u) {
                 uint8_t b = 0;
                 if (!read_aligned_byte(st, in, in_len, &ip, &b)) {
@@ -711,6 +723,7 @@ im_inflate_status im_inflate_step(im_inflate *st,
         }
 
         case S_GZIP_TRAILER: {
+            flush_check_span(st, out, &chk_from, op);
             while (st->hdr_have < 8u) {
                 uint8_t b = 0;
                 if (!read_aligned_byte(st, in, in_len, &ip, &b)) {
@@ -763,6 +776,7 @@ im_inflate_status im_inflate_step(im_inflate *st,
     }
 
 done:
+    flush_check_span(st, out, &chk_from, op);
     if (in_used) *in_used = ip;
     if (out_used) *out_used = op;
     return res;

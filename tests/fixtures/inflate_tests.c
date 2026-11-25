@@ -55,20 +55,29 @@ static void test_checksum_vectors(void) {
 }
 
 static void test_zlib_vectors_and_edge_cases(void) {
-    /* 1. Upstream zlib hello vector: "hello, hello!" */
-    static const uint8_t hello_z[] = {
-        0x78, 0x9C, 0xCB, 0x48, 0xCD, 0xC9, 0xC9, 0xD7, 0x51, 0x28, 0xCF, 0x2F, 0xCA, 0x49, 0x51, 0x04, 0x00, 0x20, 0x5E, 0x04, 0x8A
+    /* 1. Upstream zlib test/example.c vector: "hello, hello!\0" (14 bytes including NUL) + "hello, world!" */
+    static const uint8_t hello_hello_z[] = {
+        0x78, 0x9C, 0xCB, 0x48, 0xCD, 0xC9, 0xC9, 0xD7, 0x51, 0xC8, 0x00, 0x51, 0x8A, 0x0C, 0x00,
+        0x26, 0x06, 0x04, 0x96
     };
-    /* Wait: let's verify standard zlib "hello, world!" (0x78 0x9c ...). Above is "hello, world" - check exact bytes! */
     static const uint8_t hello_world_z[] = {
         0x78, 0x9C, 0xCB, 0x48, 0xCD, 0xC9, 0xC9, 0xD7, 0x51, 0x28, 0xCF, 0x2F, 0xCA, 0x49, 0x51, 0x04, 0x00,
         0x21, 0xFE, 0x04, 0xAA
     };
-    (void)hello_z;
     uint8_t out[64];
     size_t out_len = 0;
-    im_inflate_status st = im_inflate_all(IM_INFLATE_ZLIB, hello_world_z, sizeof(hello_world_z), out, sizeof(out), false, 0, &out_len);
+    im_inflate_status st = im_inflate_all(IM_INFLATE_ZLIB, hello_hello_z, sizeof(hello_hello_z), out, sizeof(out), false, 0, &out_len);
+    const char *want_hh = "hello, hello!";
+    bool hh_eq = (st == IM_INFLATE_OK && out_len == 14u);
+    for (size_t i = 0; hh_eq && i < 14u; ++i) if (out[i] != (uint8_t)want_hh[i]) hh_eq = false;
+    check(hh_eq, "Upstream zlib vector 'hello, hello!\\0' decodes byte-for-byte");
+
+    st = im_inflate_all(IM_INFLATE_ZLIB, hello_world_z, sizeof(hello_world_z), out, sizeof(out), false, 0, &out_len);
     check(st == IM_INFLATE_OK && out_len == 13u, "zlib vector 'hello, world!' decodes with OK");
+
+    /* Invalid format enum returns IM_INFLATE_BAD_ARG (8), not IM_INFLATE_BAD_DATA (6). */
+    check(im_inflate_all((im_inflate_format)99, hello_world_z, sizeof(hello_world_z), out, sizeof(out), false, 0, &out_len) == IM_INFLATE_BAD_ARG,
+          "Invalid format enum returns IM_INFLATE_BAD_ARG");
 
     /* 2. Exact output_limit == 13 succeeds, and sentinel byte at out[13] stays untouched! */
     out[13] = 0xAAu;
@@ -200,6 +209,7 @@ static int run_batch(void) {
                     total_out += ou;
                     if (st == IM_INFLATE_NEED_INPUT) {
                         if (eof && iu == 0) { st = IM_INFLATE_TRUNCATED; break; }
+                        if (in_avail > 0 && iu == 0 && ou == 0) { st = IM_INFLATE_BAD_DATA; break; } /* no-progress guard */
                         continue;
                     }
                     if (st == IM_INFLATE_OUT_FULL) {
