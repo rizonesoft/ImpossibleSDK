@@ -140,7 +140,7 @@ The engine that measures and arranges the compiled elements: Grid, StackPanel, B
 
 ## 4. Visual states and animation
 
-> **Started:** 2026-11-25T02:33Z
+> **Started:** 2026-11-25T02:45Z
 
 States, transitions and storyboards run from a caller-supplied clock, so a frame can be drawn for any instant.
 
