@@ -16,8 +16,14 @@ static bool host_header_ok(const im_host *host) {
     return host != NULL && host->version >= 1u && host->version <= IM_HOST_VERSION && host->size >= IM_HOST_MIN_SIZE;
 }
 
+static uint32_t host_effective_size(const im_host *host) {
+    if (!host_header_ok(host)) return 0u;
+    if (host->version == 1u && host->size > IM_HOST_V1_SIZE) return IM_HOST_V1_SIZE;
+    return host->size;
+}
+
 #define HOST_HAS(h, field) \
-    (host_header_ok(h) && (h)->size >= (uint32_t)(offsetof(im_host, field) + sizeof((h)->field)) && (h)->field != NULL)
+    (host_effective_size(h) >= (uint32_t)(offsetof(im_host, field) + sizeof((h)->field)) && (h)->field != NULL)
 
 static bool host_has_memory_unit(const im_host *host) {
     return HOST_HAS(host, alloc) && HOST_HAS(host, realloc) && HOST_HAS(host, free);
@@ -152,7 +158,12 @@ im_host_result im_host_clipboard_get_utf8(const im_host *host, char *buf, size_t
     if (buf && cap > 0u) buf[0] = '\0';
     if (!host_header_ok(host)) return IM_HOST_INVALID;
     if (!HOST_HAS(host, clipboard_get_utf8)) return IM_HOST_UNSUPPORTED;
-    return host->clipboard_get_utf8(host->ctx, buf, cap, out_len);
+    im_host_result res = host->clipboard_get_utf8(host->ctx, buf, cap, out_len);
+    if (res != IM_HOST_OK) {
+        if (out_len) *out_len = 0u;
+        if (buf && cap > 0u) buf[0] = '\0';
+    }
+    return res;
 }
 
 im_host_result im_host_clipboard_set_utf8(const im_host *host, const char *utf8, size_t len) {
@@ -199,7 +210,12 @@ im_host_result im_host_file_pick(const im_host *host, im_file_pick_kind kind, ch
     if (utf8_path && cap > 0u) utf8_path[0] = '\0';
     if (!host_header_ok(host)) return IM_HOST_INVALID;
     if (!HOST_HAS(host, file_pick)) return IM_HOST_UNSUPPORTED;
-    return host->file_pick(host->ctx, kind, utf8_path, cap, out_len);
+    im_host_result res = host->file_pick(host->ctx, kind, utf8_path, cap, out_len);
+    if (res != IM_HOST_OK) {
+        if (out_len) *out_len = 0u;
+        if (utf8_path && cap > 0u) utf8_path[0] = '\0';
+    }
+    return res;
 }
 
 im_host_result im_host_announce(const im_host *host, const char *utf8_text) {

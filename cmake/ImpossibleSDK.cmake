@@ -15,7 +15,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 function(_impossible_compile target)
     set_target_properties(${target} PROPERTIES C_STANDARD 23 C_STANDARD_REQUIRED ON C_EXTENSIONS ON)
     target_compile_definitions(${target} PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00)
-    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:C>:-ffreestanding -fno-stack-protector -Wall -Wextra -Werror>
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:C>:-ffreestanding -fno-stack-protector -ffunction-sections -fdata-sections -Wall -Wextra -Werror>
         "$<$<COMPILE_LANGUAGE:C>:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.>" "$<$<COMPILE_LANGUAGE:C>:-ffile-prefix-map=${IMPOSSIBLE_SDK_DIR}=sdk>")
 endfunction()
 

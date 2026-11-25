@@ -68,8 +68,12 @@ typedef struct rec_host {
     bool fail_next_realloc;
     uint32_t clock_ms;
     bool cancel_next_pick;
+    bool fail_next_clip_get;
     char clip_buf[64];
     size_t clip_len;
+    im_rect last_ime_rect;
+    char last_url[64];
+    char last_announce[64];
     rec_event log[REC_LOG_CAP];
     uint32_t log_count;
 } rec_host;
@@ -139,6 +143,13 @@ static uint32_t rec_now_ms(void *ctx) {
 static im_host_result rec_clip_get(void *ctx, char *buf, size_t cap, size_t *out_len) {
     rec_host *r = (rec_host *)ctx;
     rec_push(r, OP_CLIP_GET, ctx, (int32_t)cap);
+    if (r->fail_next_clip_get) {
+        r->fail_next_clip_get = false;
+        /* Deliberately write partial output before failing to prove wrapper clears it. */
+        if (buf && cap > 1u) { buf[0] = 'y'; buf[1] = '\0'; }
+        if (out_len) *out_len = 1u;
+        return IM_HOST_FAILED;
+    }
     size_t n = r->clip_len;
     if (buf && cap > 0u) {
         size_t copy = n < cap - 1u ? n : cap - 1u;
@@ -174,12 +185,20 @@ static im_host_result rec_caret_blink(void *ctx, uint32_t *out_ms) {
 
 static im_host_result rec_ime(void *ctx, im_rect rect) {
     rec_host *r = (rec_host *)ctx;
+    r->last_ime_rect = rect;
     rec_push(r, OP_IME, ctx, rect.left);
     return IM_HOST_OK;
 }
 
+static void copy_str_cap(char *dst, size_t cap, const char *src) {
+    size_t i = 0u;
+    while (src && src[i] && i + 1u < cap) { dst[i] = src[i]; i++; }
+    if (cap > 0u) dst[i] = '\0';
+}
+
 static im_host_result rec_open_url(void *ctx, const char *utf8_url) {
     rec_host *r = (rec_host *)ctx;
+    copy_str_cap(r->last_url, sizeof(r->last_url), utf8_url);
     rec_push(r, OP_OPEN_URL, ctx, (int32_t)utf8_url[0]);
     return IM_HOST_OK;
 }
@@ -195,8 +214,9 @@ static im_host_result rec_file_pick(void *ctx, im_file_pick_kind kind, char *utf
     rec_push(r, OP_FILE_PICK, ctx, (int32_t)kind);
     if (r->cancel_next_pick) {
         r->cancel_next_pick = false;
-        if (out_len) *out_len = 0u;
-        if (utf8_path && cap > 0u) utf8_path[0] = '\0';
+        /* Deliberately write partial output before cancelling to prove wrapper clears it. */
+        if (utf8_path && cap > 1u) { utf8_path[0] = 'x'; utf8_path[1] = '\0'; }
+        if (out_len) *out_len = 1u;
         return IM_HOST_CANCELLED;
     }
     const char *sample = "C:/demo.txt";
@@ -212,6 +232,7 @@ static im_host_result rec_file_pick(void *ctx, im_file_pick_kind kind, char *utf
 
 static im_host_result rec_announce(void *ctx, const char *utf8_text) {
     rec_host *r = (rec_host *)ctx;
+    copy_str_cap(r->last_announce, sizeof(r->last_announce), utf8_text);
     rec_push(r, OP_ANNOUNCE, ctx, (int32_t)utf8_text[0]);
     return IM_HOST_OK;
 }
@@ -244,18 +265,22 @@ typedef struct cursor_win_ctx {
 static void cursor_test_paint(im_window *window, im_canvas *canvas) {
     cursor_win_ctx *c = (cursor_win_ctx *)window->user;
     for (int i = 0; i < canvas->width * canvas->height; i++) canvas->pixels[i] = 0x00202020u;
-    if (im_host_set_cursor(&c->host, IM_CURSOR_HAND) != IM_HOST_OK) { c->status = 71; return; }
+    HCURSOR ibeam = LoadCursorW(NULL, (LPCWSTR)IDC_IBEAM);
     HCURSOR hand = LoadCursorW(NULL, (LPCWSTR)IDC_HAND);
+    HCURSOR arrow = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
+    if (im_host_set_cursor(&c->host, IM_CURSOR_HAND) != IM_HOST_OK) { c->status = 71; return; }
     if (window->cursor != hand) { c->status = 72; return; }
     HWND hwnd = (HWND)window->native;
     WNDPROC proc = (WNDPROC)GetWindowLongPtrW(hwnd, GWLP_WNDPROC);
+    /* Install a different cursor first, then prove WM_SETCURSOR actually calls SetCursor(hand). */
+    SetCursor(ibeam);
     LRESULT handled = proc(hwnd, WM_SETCURSOR, (WPARAM)hwnd, MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
-    if (handled != TRUE || window->cursor != hand) { c->status = 73; return; }
+    if (handled != TRUE || SetCursor(ibeam) != hand) { c->status = 73; return; }
     if (im_host_set_cursor(&c->host, IM_CURSOR_ARROW) != IM_HOST_OK) { c->status = 74; return; }
-    HCURSOR arrow = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
     if (window->cursor != arrow) { c->status = 75; return; }
+    SetCursor(ibeam);
     handled = proc(hwnd, WM_SETCURSOR, (WPARAM)hwnd, MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
-    if (handled != TRUE || window->cursor != arrow) { c->status = 76; return; }
+    if (handled != TRUE || SetCursor(ibeam) != arrow) { c->status = 76; return; }
     c->status = 0;
 }
 
@@ -296,14 +321,23 @@ int im_main(void) {
         im_allocator bad_alloc = im_host_allocator(&partial.host);
         if (bad_alloc.alloc(bad_alloc.ctx, 32u) != NULL) return 12;
 
-        /* Incompatible versions (0 and 99) and undersized header. */
+        /* Larger storage advertising version = 1 MUST still cap readable extent at IM_HOST_V1_SIZE. */
+        rec_host v1_big;
+        rec_host_init(&v1_big);
+        v1_big.host.version = 1u;
+        v1_big.host.size = (uint32_t)sizeof(im_host);
+        if (im_host_accept(&v1_big.host, &reason) != IM_HOST_OK || reason != NULL) return 17;
+        if (im_host_require(&v1_big.host, "set_cursor", &missing) != IM_HOST_UNSUPPORTED || !str_eq(missing, "set_cursor")) return 18;
+        if (im_host_set_cursor(&v1_big.host, IM_CURSOR_HAND) != IM_HOST_UNSUPPORTED) return 19;
+
+        /* Incompatible versions (0 and 99) and undersized header must provide refusal reasons. */
         im_host bad_v0 = {.version = 0u, .size = (uint32_t)sizeof(im_host)};
         im_host bad_v99 = {.version = 99u, .size = (uint32_t)sizeof(im_host)};
         im_host bad_sz = {.version = 1u, .size = 4u};
-        if (im_host_accept(NULL, &reason) != IM_HOST_INVALID) return 13;
-        if (im_host_accept(&bad_v0, &reason) != IM_HOST_INVALID) return 14;
-        if (im_host_accept(&bad_v99, &reason) != IM_HOST_INVALID) return 15;
-        if (im_host_accept(&bad_sz, &reason) != IM_HOST_INVALID) return 16;
+        if (im_host_accept(NULL, &reason) != IM_HOST_INVALID || !reason) return 13;
+        if (im_host_accept(&bad_v0, &reason) != IM_HOST_INVALID || !reason) return 14;
+        if (im_host_accept(&bad_v99, &reason) != IM_HOST_INVALID || !reason) return 15;
+        if (im_host_accept(&bad_sz, &reason) != IM_HOST_INVALID || !reason) return 16;
     }
 
     /* 2. Empty and NULL table safe defaults across all wrappers plus real ui/ consumers. */
@@ -357,29 +391,43 @@ int im_main(void) {
         rec_host_init(&rec);
         im_allocator alloc = im_host_allocator(&rec.host);
 
-        /* Tree: first child append calls realloc(NULL, 0, ...), growth preserves children, refusal preserves intact. */
+        /* Tree: first child append calls realloc(NULL, 0, ...), growth preserves exact child order,
+           refusal preserves all 8 children intact, teardown leaks 0 bytes. */
         im_tree tree;
         if (!im_tree_init(&tree, alloc)) return 40;
         im_node *root = im_tree_create_node(&tree, IM_ELEM_STACK_PANEL, "Root");
         if (!root) return 41;
         tree.root = root;
-        for (int i = 0; i < 6; i++) {
-            im_node *ch = im_tree_create_node(&tree, IM_ELEM_BORDER, "Child");
-            if (!ch || !im_tree_append_child(&tree, root, ch)) return 42;
+        im_node *kids[8] = {0};
+        for (int i = 0; i < 8; i++) {
+            kids[i] = im_tree_create_node(&tree, IM_ELEM_BORDER, "Child");
+            if (!kids[i] || !im_tree_append_child(&tree, root, kids[i])) return 42;
         }
-        /* Trigger child-array growth refusal on 9th child (capacity 8 -> 16) and verify existing 8 stay intact. */
-        for (int i = 6; i < 8; i++) {
-            im_node *ch = im_tree_create_node(&tree, IM_ELEM_BORDER, "Child");
-            if (!ch || !im_tree_append_child(&tree, root, ch)) return 43;
+        for (uint32_t i = 0; i < 8u; i++) {
+            if (root->children[i] != kids[i]) return 43;
         }
         im_node *extra = im_tree_create_node(&tree, IM_ELEM_BORDER, "Extra");
         if (!extra) return 44;
         rec.fail_next_realloc = true;
         if (im_tree_append_child(&tree, root, extra)) return 45;
         if (root->child_count != 8u) return 46;
+        for (uint32_t i = 0; i < 8u; i++) {
+            if (root->children[i] != kids[i]) return 46;
+        }
         im_tree_destroy_subtree(&tree, extra);
         im_tree_destroy(&tree);
         if (rec.live_allocs != 0u || rec.live_bytes != 0u) return 47;
+
+        /* Layer consumer backed by recording host allocator: push IM_LAYER_OK, fill, pop, zero leaks. */
+        uint32_t lpx[64] = {0};
+        im_surface lsurf = {lpx, 8, 8, 8, {IM_DARK, {0}}, IM_ONE, NULL};
+        im_layer_ctx lctx;
+        if (!im_layer_init(&lctx, &lsurf, alloc, 4096u)) return 47;
+        if (im_layer_push(&lctx, (im_rect){0, 0, 8 * IM_ONE, 8 * IM_ONE}, 128u, false, (im_radii){0}) != IM_LAYER_OK) return 47;
+        im_fill_argb(&lsurf, (im_rect){0, 0, 8 * IM_ONE, 8 * IM_ONE}, (im_radii){0}, 0xFFFF0000u);
+        im_layer_pop(&lctx);
+        im_layer_destroy(&lctx);
+        if (lpx[0] == 0u || rec.live_allocs != 0u || rec.live_bytes != 0u) return 47;
 
         /* State machine driven by recording host clock advancing 1000 -> 1021 -> 1083 ms. */
         im_palette pal = {IM_DARK, {0}};
@@ -404,30 +452,37 @@ int im_main(void) {
         char cbuf[32] = {0};
         size_t clen = 0u;
         if (im_host_clipboard_get_utf8(&rec.host, cbuf, sizeof(cbuf), &clen) != IM_HOST_OK || clen != 5u || !str_eq(cbuf, "hello")) return 52;
+        /* Clipboard failure after partial write must clear caller outputs. */
+        rec.fail_next_clip_get = true;
+        if (im_host_clipboard_get_utf8(&rec.host, cbuf, sizeof(cbuf), &clen) != IM_HOST_FAILED || clen != 0u || cbuf[0] != '\0') return 52;
         if (im_host_set_cursor(&rec.host, IM_CURSOR_SIZE_WE) != IM_HOST_OK) return 53;
         uint32_t blink = 0u;
         if (im_host_caret_blink_ms(&rec.host, &blink) != IM_HOST_OK || blink != 600u) return 54;
-        if (im_host_ime_set_rect(&rec.host, (im_rect){12 * IM_ONE, 0, 20 * IM_ONE, 16 * IM_ONE}) != IM_HOST_OK) return 55;
-        if (im_host_open_url(&rec.host, "https://sdk.impossibleos.co") != IM_HOST_OK) return 56;
+        im_rect ime_r = {12 * IM_ONE, 4 * IM_ONE, 20 * IM_ONE, 16 * IM_ONE};
+        if (im_host_ime_set_rect(&rec.host, ime_r) != IM_HOST_OK) return 55;
+        if (rec.last_ime_rect.left != ime_r.left || rec.last_ime_rect.top != ime_r.top ||
+            rec.last_ime_rect.right != ime_r.right || rec.last_ime_rect.bottom != ime_r.bottom) return 55;
+        if (im_host_open_url(&rec.host, "https://sdk.impossibleos.co") != IM_HOST_OK ||
+            !str_eq(rec.last_url, "https://sdk.impossibleos.co")) return 56;
         if (im_host_play_sound(&rec.host, IM_SOUND_FOCUS) != IM_HOST_OK) return 57;
         char pbuf[32] = {0};
         size_t plen = 0u;
         if (im_host_file_pick(&rec.host, IM_FILE_PICK_OPEN, pbuf, sizeof(pbuf), &plen) != IM_HOST_OK || plen != 11u || !str_eq(pbuf, "C:/demo.txt")) return 58;
         rec.cancel_next_pick = true;
         if (im_host_file_pick(&rec.host, IM_FILE_PICK_SAVE, pbuf, sizeof(pbuf), &plen) != IM_HOST_CANCELLED || plen != 0u || pbuf[0] != '\0') return 59;
-        if (im_host_announce(&rec.host, "Saved") != IM_HOST_OK) return 60;
+        if (im_host_announce(&rec.host, "Saved") != IM_HOST_OK || !str_eq(rec.last_announce, "Saved")) return 60;
 
-        const rec_op want_ops[14] = {
-            OP_ALLOC, OP_REALLOC, OP_FREE, OP_NOW_MS, OP_CLIP_SET, OP_CLIP_GET,
+        const rec_op want_ops[15] = {
+            OP_ALLOC, OP_REALLOC, OP_FREE, OP_NOW_MS, OP_CLIP_SET, OP_CLIP_GET, OP_CLIP_GET,
             OP_CURSOR, OP_CARET, OP_IME, OP_OPEN_URL, OP_SOUND, OP_FILE_PICK, OP_FILE_PICK, OP_ANNOUNCE
         };
-        const int32_t want_args[14] = {
-            16, 32, 32, 777, 5, 32,
+        const int32_t want_args[15] = {
+            16, 32, 32, 777, 5, 32, 32,
             (int32_t)IM_CURSOR_SIZE_WE, 600, 12 * IM_ONE, (int32_t)'h', (int32_t)IM_SOUND_FOCUS,
             (int32_t)IM_FILE_PICK_OPEN, (int32_t)IM_FILE_PICK_SAVE, (int32_t)'S'
         };
-        if (rec.log_count != 14u) return 61;
-        for (uint32_t i = 0; i < 14u; i++) {
+        if (rec.log_count != 15u) return 61;
+        for (uint32_t i = 0; i < 15u; i++) {
             if (rec.log[i].op != want_ops[i] || rec.log[i].ctx != &rec || rec.log[i].arg != want_args[i]) return 62;
         }
     }
