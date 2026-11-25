@@ -24,9 +24,20 @@ static int64_t rect_area(im_irect r) {
     return (int64_t)(r.right - r.left) * (int64_t)(r.bottom - r.top);
 }
 
+static int64_t rect_intersection_area(im_irect a, im_irect b) {
+    im_irect inter = {
+        a.left > b.left ? a.left : b.left,
+        a.top > b.top ? a.top : b.top,
+        a.right < b.right ? a.right : b.right,
+        a.bottom < b.bottom ? a.bottom : b.bottom
+    };
+    return rect_area(inter);
+}
+
 static bool rect_touches_zero_waste(im_irect a, im_irect b) {
     im_irect u = rect_union(a, b);
-    return rect_area(u) <= rect_area(a) + rect_area(b);
+    int64_t covered = rect_area(a) + rect_area(b) - rect_intersection_area(a, b);
+    return rect_area(u) <= covered;
 }
 
 static im_irect clip_to_viewport(const im_dirty_list *list, im_irect r) {
@@ -109,7 +120,8 @@ bool im_dirty_add(im_dirty_list *list, im_irect rect) {
     for (uint32_t i = 0; i < IM_DIRTY_MAX_RECTS; i++) {
         for (uint32_t j = i + 1u; j <= IM_DIRTY_MAX_RECTS; j++) {
             im_irect u = rect_union(cand[i], cand[j]);
-            int64_t waste = rect_area(u) - rect_area(cand[i]) - rect_area(cand[j]);
+            int64_t covered = rect_area(cand[i]) + rect_area(cand[j]) - rect_intersection_area(cand[i], cand[j]);
+            int64_t waste = rect_area(u) - covered;
             if (waste < best_waste) {
                 best_waste = waste;
                 best_i = i;
@@ -264,6 +276,12 @@ bool im_dirty_covers(const im_dirty_list *list, im_irect rect) {
 
 bool im_dirty_push_clip(im_layer_ctx *ctx, im_irect rect) {
     if (!ctx || rect_empty(rect)) return false;
+    if (rect.left < -32768 || rect.left > 32767 ||
+        rect.top < -32768 || rect.top > 32767 ||
+        rect.right < -32768 || rect.right > 32767 ||
+        rect.bottom < -32768 || rect.bottom > 32767) {
+        return false;
+    }
     im_rect fr = {
         (im_fixed)((int64_t)rect.left * (int64_t)IM_ONE),
         (im_fixed)((int64_t)rect.top * (int64_t)IM_ONE),

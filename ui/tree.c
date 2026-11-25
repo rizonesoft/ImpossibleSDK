@@ -46,6 +46,8 @@ bool im_tree_init(im_tree *tree, im_allocator alloc) {
     tree->alloc = alloc;
     tree->root = NULL;
     tree->node_count = 0;
+    tree->pending_damage_count = 0u;
+    tree->pending_damage_overflow = false;
     return true;
 }
 
@@ -112,7 +114,7 @@ im_node *im_tree_create_node(im_tree *tree, im_element_kind kind, const char *na
     return node;
 }
 
-static void record_detached_damage(im_tree *tree, const im_node *node) {
+static void record_detached_damage(im_tree *tree, im_node *node) {
     if (!tree || !node) return;
     if (node->had_prev_rect) {
         if (tree->pending_damage_count < IM_TREE_PENDING_DAMAGE_CAP) {
@@ -120,6 +122,8 @@ static void record_detached_damage(im_tree *tree, const im_node *node) {
         } else {
             tree->pending_damage_overflow = true;
         }
+        node->had_prev_rect = false;
+        node->prev_absolute_rect = (im_rect){0, 0, 0, 0};
     }
     for (uint32_t i = 0; i < node->child_count; i++) {
         record_detached_damage(tree, node->children[i]);

@@ -5,8 +5,9 @@
 #include "animate.h"
 #include "dirty.h"
 
-/* Host callback invoked when a frame must be scheduled (delay_ms == 0 means immediate). */
-typedef void (*im_frame_request_fn)(void *ctx, uint32_t delay_ms);
+/* Host callback invoked when a frame must be scheduled (delay_ms == 0 means immediate).
+   Returns true if the host accepted the wake-up request, or false on failure. */
+typedef bool (*im_frame_request_fn)(void *ctx, uint32_t delay_ms);
 
 /* Host callback invoked when an idle window cancels any previously armed frame timer. */
 typedef void (*im_frame_cancel_fn)(void *ctx);

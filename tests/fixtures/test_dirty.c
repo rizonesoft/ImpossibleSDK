@@ -143,19 +143,19 @@ static void render_full(im_surface *surf, const leaf_table *tab, const im_node *
     render_node_recursive(surf, tab, root);
 }
 
-static void render_partial(im_surface *surf, im_layer_ctx *layers, const leaf_table *tab,
+static bool render_partial(im_surface *surf, im_layer_ctx *layers, const leaf_table *tab,
                            const im_node *root, const im_dirty_list *dirty, uint32_t bg) {
     im_rect full = {0, 0, FX(surf->width), FX(surf->height)};
     im_radii r = {0, 0, 0, 0};
     for (uint32_t i = 0; i < dirty->count; i++) {
         if (!im_dirty_push_clip(layers, dirty->rects[i])) {
-            render_full(surf, tab, root, bg);
-            return;
+            return false;
         }
         im_fill_argb(surf, full, r, bg);
         render_node_recursive(surf, tab, root);
         im_layer_pop_clip(layers);
     }
+    return true;
 }
 
 static im_node *make_leaf(im_tree *tree, uint32_t *rng) {
@@ -168,7 +168,7 @@ static im_node *make_leaf(im_tree *tree, uint32_t *rng) {
     return n;
 }
 
-/* 1. 10,000 random tree mutations: partial redraw vs full redraw byte-for-byte identical. */
+/* 1. Tree init/reattach regressions and 10,000 random tree mutations. */
 static void test_random_tree_mutations(void) {
     const int W = 128, H = 96;
     const uint32_t BG = 0xFF181A20u;
@@ -180,6 +180,57 @@ static void test_random_tree_mutations(void) {
     test_alloc_ctx actx = {false};
     im_allocator alloc = {test_alloc_fn, test_realloc_fn, test_free_fn, &actx};
     im_palette pal = make_dark_palette();
+
+    /* Regression: im_tree_init must zero pending_damage_count and pending_damage_overflow. */
+    im_tree dirty_storage;
+    dirty_storage.pending_damage_count = 17u;
+    dirty_storage.pending_damage_overflow = true;
+    CHECK(im_tree_init(&dirty_storage, alloc), "im_tree_init on dirty stack storage");
+    CHECK(dirty_storage.pending_damage_count == 0u && !dirty_storage.pending_damage_overflow,
+          "im_tree_init clears pending_damage_count and pending_damage_overflow");
+
+    /* Regression: detach -> collect -> clear -> reattach at same bounds produces damage,
+       and replace_child + destroy_subtree does not double-queue bounds. */
+    {
+        im_node *r = im_tree_create_node(&dirty_storage, IM_ELEM_GRID, "r");
+        im_node *p = im_tree_create_node(&dirty_storage, IM_ELEM_BORDER, "p");
+        p->h_align = IM_ALIGN_START;
+        p->v_align = IM_ALIGN_START;
+        p->width = FX(20);
+        p->height = FX(20);
+        p->margin = (im_thickness){FX(10), FX(10), 0, 0};
+        im_tree_append_child(&dirty_storage, r, p);
+        im_layout_run(&dirty_storage, r, FX(W), FX(H), IM_ONE);
+        im_dirty_list dl;
+        im_dirty_init(&dl, W, H);
+        im_dirty_collect_tree(&dl, &dirty_storage, r, IM_ONE);
+        im_dirty_clear(&dl);
+
+        im_tree_remove_child(&dirty_storage, r, p);
+        im_layout_run(&dirty_storage, r, FX(W), FX(H), IM_ONE);
+        im_dirty_collect_tree(&dl, &dirty_storage, r, IM_ONE);
+        CHECK(dl.count > 0u, "detach produces damage");
+        im_dirty_clear(&dl);
+
+        im_tree_append_child(&dirty_storage, r, p);
+        im_layout_run(&dirty_storage, r, FX(W), FX(H), IM_ONE);
+        im_dirty_collect_tree(&dl, &dirty_storage, r, IM_ONE);
+        CHECK(dl.count > 0u && im_dirty_covers(&dl, (im_irect){10, 10, 30, 30}),
+              "reattach at same bounds produces damage covering control");
+
+        /* replace_child + destroy_subtree queues old bounds once, not twice. */
+        im_dirty_clear(&dl);
+        im_node *q = im_tree_create_node(&dirty_storage, IM_ELEM_BORDER, "q");
+        q->h_align = IM_ALIGN_START;
+        q->v_align = IM_ALIGN_START;
+        q->width = FX(20);
+        q->height = FX(20);
+        im_node *removed = im_tree_replace_child(&dirty_storage, r, 0, q);
+        CHECK(removed == p && dirty_storage.pending_damage_count == 1u, "replace queues old bounds once");
+        im_tree_destroy_subtree(&dirty_storage, removed);
+        CHECK(dirty_storage.pending_damage_count == 1u, "destroy after replace does not double-queue bounds");
+        im_tree_destroy_subtree(&dirty_storage, r);
+    }
 
     im_surface s_part = {pix_part, W, H, W, pal, IM_ONE, NULL};
     im_surface s_full = {pix_full, W, H, W, pal, IM_ONE, NULL};
@@ -295,7 +346,7 @@ static void test_random_tree_mutations(void) {
 
         im_layout_run(&tree, root, FX(W), FX(H), IM_ONE);
         im_dirty_collect_tree(&dirty, &tree, root, IM_ONE);
-        render_partial(&s_part, &layers_part, &tab, root, &dirty, BG);
+        CHECK(render_partial(&s_part, &layers_part, &tab, root, &dirty, BG), "partial render succeeds");
         render_full(&s_full, &tab, root, BG);
         im_dirty_clear(&dirty);
 
@@ -314,13 +365,17 @@ static void test_random_tree_mutations(void) {
     heap_free_ptr(pix_full);
 }
 
-/* 2. Dirty-list merging, distant controls, scaling, scale-change, clip refusal. */
+/* 2. Dirty-list merging, overlap waste, scaling, large coords, and clip refusal retry. */
 static void test_dirty_list_properties(void) {
     const int W = 200, H = 64;
     uint32_t *pix = (uint32_t *)heap_alloc_zero((size_t)(W * H) * sizeof(uint32_t));
-    CHECK(pix != NULL, "alloc distant buffer");
-    if (!pix) return;
-    for (int i = 0; i < W * H; i++) pix[i] = 0x00112233u;
+    uint32_t *ref = (uint32_t *)heap_alloc_zero((size_t)(W * H) * sizeof(uint32_t));
+    CHECK(pix && ref, "alloc distant buffer");
+    if (!pix || !ref) return;
+    for (int i = 0; i < W * H; i++) {
+        pix[i] = 0x00112233u;
+        ref[i] = 0x00112233u;
+    }
 
     test_alloc_ctx actx = {false};
     im_allocator alloc = {test_alloc_fn, test_realloc_fn, test_free_fn, &actx};
@@ -352,7 +407,14 @@ static void test_dirty_list_properties(void) {
     CHECK(pix[10 * W + 10] == 0x00AA5500u, "left control painted");
     CHECK(pix[40 * W + 180] == 0x00AA5500u, "right control painted");
 
-    /* 17-rect merge picks the known minimum-waste pair and breaks ties deterministically. */
+    /* Regression: overlapping 10x10 rects offset by (2,2) have 8px waste, so must NOT merge early. */
+    im_dirty_list ov;
+    im_dirty_init(&ov, 100, 100);
+    CHECK(im_dirty_add(&ov, (im_irect){0, 0, 10, 10}), "add overlap A");
+    CHECK(im_dirty_add(&ov, (im_irect){2, 2, 12, 12}), "add overlap B");
+    CHECK(ov.count == 2u, "overlapping rects with non-zero bounding waste stay separate when slots are free");
+
+    /* 17-rect merge picks the known minimum-waste pair. */
     im_dirty_list m;
     im_dirty_init(&m, 1000, 1000);
     for (int i = 0; i < 15; i++) {
@@ -371,7 +433,7 @@ static void test_dirty_list_properties(void) {
     }
     CHECK(found_merged_pair, "17th rect merged zero-waste adjacent pair");
 
-    /* Deterministic tie-break: two identical-waste runs produce identical rect arrays. */
+    /* Deterministic tie-break: equal-waste pairs must merge the lowest (0, 1) pair [0, 40) x [0, 10). */
     im_dirty_list t1, t2;
     im_dirty_init(&t1, 1000, 1000);
     im_dirty_init(&t2, 1000, 1000);
@@ -382,6 +444,8 @@ static void test_dirty_list_properties(void) {
     }
     CHECK(t1.count == IM_DIRTY_MAX_RECTS && t2.count == IM_DIRTY_MAX_RECTS, "tie-break counts are 16");
     CHECK(bytes_eq(t1.rects, t2.rects, sizeof(t1.rects)), "tie-break merge is deterministic");
+    CHECK(t1.rects[0].left == 0 && t1.rects[0].top == 0 && t1.rects[0].right == 40 && t1.rects[0].bottom == 10,
+          "tie-break selects lowest (0, 1) pair");
 
     /* Empty and fully-clipped rects schedule zero work. */
     im_dirty_list e;
@@ -415,21 +479,33 @@ static void test_dirty_list_properties(void) {
     }
     CHECK(all_covered, "1,000 random rects are 100% covered after merging");
 
-    /* Fractional partly-offscreen rect at 150% DPI matches independent expected device-pixel box. */
+    /* Fractional scaling at 150% DPI: both unclipped right/bottom ceil AND partly-offscreen clip. */
     im_dirty_list sc;
     im_dirty_init(&sc, 100, 80);
+    im_fixed scale_150 = IM_ONE + (IM_ONE / 2);
+    /* (10.25, 10.25)-(20.25, 20.25) * 1.5 = (15.375, 15.375)-(30.375, 30.375) => [15, 31) x [15, 31). */
+    im_rect inner_frac = {
+        10 * IM_ONE + (IM_ONE / 4),
+        10 * IM_ONE + (IM_ONE / 4),
+        20 * IM_ONE + (IM_ONE / 4),
+        20 * IM_ONE + (IM_ONE / 4)
+    };
+    CHECK(im_dirty_add_scaled(&sc, inner_frac, scale_150), "add unclipped fractional 150% rect");
+    CHECK(sc.count == 1 && sc.rects[0].left == 15 && sc.rects[0].top == 15 &&
+          sc.rects[0].right == 31 && sc.rects[0].bottom == 31,
+          "unclipped 150% fractional rect floors left/top and ceils right/bottom");
+
+    im_dirty_clear(&sc);
     im_rect lrect = {
         -2 * IM_ONE - (IM_ONE / 2),
         10 * IM_ONE + (IM_ONE / 4),
         70 * IM_ONE + (IM_ONE / 4),
         60 * IM_ONE + (IM_ONE / 2)
     };
-    im_fixed scale_150 = IM_ONE + (IM_ONE / 2);
-    CHECK(im_dirty_add_scaled(&sc, lrect, scale_150), "add scaled fractional rect");
-    CHECK(sc.count == 1, "scaled fractional rect count is 1");
-    CHECK(sc.rects[0].left == 0 && sc.rects[0].top == 15 &&
+    CHECK(im_dirty_add_scaled(&sc, lrect, scale_150), "add partly-offscreen scaled rect");
+    CHECK(sc.count == 1 && sc.rects[0].left == 0 && sc.rects[0].top == 15 &&
           sc.rects[0].right == 100 && sc.rects[0].bottom == 80,
-          "fractional partly-offscreen 150% rect rounds outward and clips accurately");
+          "partly-offscreen 150% rect rounds outward and clips accurately");
 
     /* Scale change in im_dirty_collect_tree marks full viewport dirty. */
     im_tree stree;
@@ -448,19 +524,46 @@ static void test_dirty_list_properties(void) {
           "scale change triggers full viewport dirty rect");
     im_tree_destroy_subtree(&stree, sroot);
 
-    /* Clip-push refusal preserves outer clip and does not lose pending damage. */
+    /* Large device coordinates >= 32768 must be refused cleanly instead of wrapping to empty clip. */
+    CHECK(!im_dirty_push_clip(&layers, (im_irect){0, 0, 32768, 100}),
+          "im_dirty_push_clip refuses right >= 32768 instead of overflowing 16.16");
+
+    /* Clip-push refusal with pending damage extending outside outer clip:
+       verify outer clip is preserved, pending damage survives, and retry paints exact pixels. */
+    for (int i = 0; i < W * H; i++) {
+        pix[i] = 0x00112233u;
+        ref[i] = 0x00112233u;
+    }
+    im_dirty_list pending;
+    im_dirty_init(&pending, W, H);
+    im_dirty_add(&pending, (im_irect){20, 10, 120, 50}); /* extends beyond outer clip [10, 50) */
     CHECK(im_layer_push_clip_rect(&layers, (im_rect){FX(10), FX(10), FX(50), FX(50)}), "push outer clip");
     while (layers.clips.count < layers.clips.cap) {
         CHECK(im_layer_push_clip_rect(&layers, (im_rect){FX(10), FX(10), FX(50), FX(50)}), "fill clip cap");
     }
     uint32_t before_count = layers.clips.count;
     actx.fail_next = true;
-    CHECK(!im_dirty_push_clip(&layers, (im_irect){20, 20, 40, 40}), "dirty push clip refuses on OOM");
+    CHECK(!im_dirty_push_clip(&layers, pending.rects[0]), "dirty push clip refuses on OOM");
     CHECK(layers.clips.count == before_count, "outer clip stack untouched after push refusal");
+    CHECK(pending.count == 1u, "pending damage remains intact after clip-push refusal");
     while (layers.clips.count > 0) im_layer_pop_clip(&layers);
+
+    /* Retry with outer clip popped: full pending rect [20, 120) x [10, 50) paints cleanly. */
+    CHECK(im_dirty_push_clip(&layers, pending.rects[0]), "retry clip push succeeds");
+    im_fill_argb(&surf, (im_rect){0, 0, FX(W), FX(H)}, (im_radii){0, 0, 0, 0}, 0xFF33CC66u);
+    im_layer_pop_clip(&layers);
+    im_dirty_clear(&pending);
+    for (int y = 10; y < 50; y++) {
+        for (int x = 20; x < 120; x++) {
+            ref[y * W + x] = 0x0033CC66u;
+        }
+    }
+    CHECK(bytes_eq(pix, ref, (size_t)(W * H) * sizeof(uint32_t)),
+          "retry after clip-push refusal paints exact pending damage outside former outer clip");
 
     im_layer_destroy(&layers);
     heap_free_ptr(pix);
+    heap_free_ptr(ref);
 }
 
 /* 3. Demand-driven frame scheduler tests. */
@@ -468,12 +571,18 @@ typedef struct sched_probe {
     int requests;
     int cancels;
     uint32_t last_delay;
+    bool fail_next_request;
 } sched_probe;
 
-static void probe_request(void *ctx, uint32_t delay_ms) {
+static bool probe_request(void *ctx, uint32_t delay_ms) {
     sched_probe *p = (sched_probe *)ctx;
+    if (p->fail_next_request) {
+        p->fail_next_request = false;
+        return false;
+    }
     p->requests++;
     p->last_delay = delay_ms;
+    return true;
 }
 
 static void probe_cancel(void *ctx) {
@@ -486,7 +595,7 @@ static void test_frame_scheduler(void) {
     im_frame_init(&sched, 16);
     im_dirty_list empty;
     im_dirty_init(&empty, 100, 100);
-    sched_probe p = {0, 0, 0};
+    sched_probe p = {0, 0, 0, false};
 
     for (uint32_t t = 0; t <= 10000; t += 16) {
         im_frame_step(&sched, &empty, false, t, probe_request, probe_cancel, &p);
@@ -503,18 +612,34 @@ static void test_frame_scheduler(void) {
     im_frame_on_painted(&sched, token2, 116);
     CHECK(!im_frame_needs_tick(&sched, &empty, false), "clean after painting latest generation");
 
+    /* Regression: failed host request must not strand pending_request. */
+    im_frame_mark_dirty(&sched);
+    p.fail_next_request = true;
+    CHECK(!im_frame_step(&sched, &empty, false, 200, probe_request, probe_cancel, &p),
+          "step returns false when host refuses frame request");
+    CHECK(!sched.pending_request, "pending_request remains false after host refusal");
+    CHECK(im_frame_step(&sched, &empty, false, 200, probe_request, probe_cancel, &p),
+          "retry succeeds immediately after host refusal");
+    im_frame_on_painted(&sched, im_frame_begin_paint(&sched), 200);
+
+    /* Regression: im_frame_needs_tick recognizes settlement before step,
+       and a stale paint token taken before settlement cannot clear the final-frame obligation. */
     im_frame_init(&sched, 16);
     p.requests = 0;
     p.cancels = 0;
     CHECK(im_frame_step(&sched, &empty, true, 1000, probe_request, probe_cancel, &p), "animating requests frame");
-    CHECK(p.requests == 1, "first animation request issued");
-    im_frame_on_painted(&sched, im_frame_begin_paint(&sched), 1016);
-    CHECK(im_frame_step(&sched, &empty, false, 1032, probe_request, probe_cancel, &p), "final settled frame requested");
-    CHECK(p.requests == 2, "final settled frame triggered request");
-    im_frame_on_painted(&sched, im_frame_begin_paint(&sched), 1032);
+    uint64_t stale_tok = im_frame_begin_paint(&sched);
+    CHECK(im_frame_needs_tick(&sched, &empty, false), "needs_tick recognizes animation settlement before step");
+    CHECK(im_frame_step(&sched, &empty, false, 1016, probe_request, probe_cancel, &p), "settlement requests final frame");
+    /* Stale paint token from before settlement finishes now: must NOT clear final-frame obligation. */
+    im_frame_on_painted(&sched, stale_tok, 1016);
+    CHECK(im_frame_needs_tick(&sched, &empty, false), "stale paint token cannot acknowledge newer settlement");
+    /* Fresh paint token taken after settlement completes and settles scheduler. */
+    uint64_t settled_tok = im_frame_begin_paint(&sched);
+    im_frame_on_painted(&sched, settled_tok, 1032);
     CHECK(!im_frame_step(&sched, &empty, false, 1048, probe_request, probe_cancel, &p), "idle after final settled frame");
-    CHECK(p.requests == 2, "no further requests after final settled frame");
 
+    /* Reduced-motion snap mid-animation delivers final settled frame, then stops. */
     im_palette pal = make_dark_palette();
     im_state_machine sm;
     im_states_init(&sm, IM_TEMPLATE_TOGGLE_SWITCH, &pal);
@@ -529,33 +654,38 @@ static void test_frame_scheduler(void) {
     im_frame_on_painted(&sched, im_frame_begin_paint(&sched), 20);
     im_states_set_reduced_motion(&sm, true, 30);
     CHECK(!im_states_is_animating(&sm, 30), "reduced_motion snaps animation immediately");
+    CHECK(im_frame_needs_tick(&sched, &empty, im_states_is_animating(&sm, 30)),
+          "needs_tick sees reduced_motion snap immediately");
     CHECK(im_frame_step(&sched, &empty, im_states_is_animating(&sm, 30), 30, probe_request, probe_cancel, &p),
-          "reduced_motion snap still requests final settled frame");
+          "reduced_motion snap requests final settled frame");
     im_frame_on_painted(&sched, im_frame_begin_paint(&sched), 30);
     CHECK(!im_frame_step(&sched, &empty, im_states_is_animating(&sm, 46), 46, probe_request, probe_cancel, &p),
           "scheduler goes idle after reduced_motion final settled frame");
 }
 
-/* 4 & 5. Real Windows window tests: WM_MOUSEMOVE partial hover, animation tick stop,
-   partial band blit, resize stride change, and pre-open / post-close refusal. */
+/* 4 & 5. Real Windows window tests: WM_MOUSEMOVE exact hover, disjoint rects,
+   stale cancelled wake-up, independent exposure, post-paint buffer verification,
+   resize stride change, real animation wake/stop, and pre-open / post-close refusal. */
 typedef struct win_test_state {
     int phase;
     int paint_count;
     int tick_count;
-    int hover_paint_count;
-    int legacy_full_count;
-    int band_paint_count;
-    int resize_paint_count;
+    int stale_ticks_observed;
     bool first_was_full;
-    bool hover_was_partial;
+    bool hover_exact_rect;
     bool hover_pixels_outside_untouched;
+    bool disjoint_preserved;
+    bool disjoint_middle_untouched;
     bool legacy_was_full;
     bool band_was_partial;
-    bool band_outside_intact;
+    bool band_post_paint_verified;
+    bool exposure_was_partial;
+    bool exposure_post_paint_verified;
     bool resize_was_full;
-    bool resize_pixels_match;
+    bool resize_post_paint_verified;
     bool anim_woke_and_stopped;
     bool btn1_hovered;
+    bool cancel_while_open_ok;
     uint32_t anim_start_tick;
     im_host host;
     im_state_machine sm;
@@ -570,14 +700,14 @@ static uint32_t asym_pixel(int x, int y) {
     return (r << 16) | (g << 8) | b;
 }
 
-static void win_sched_request(void *ctx, uint32_t delay_ms) {
+static bool win_sched_request(void *ctx, uint32_t delay_ms) {
     im_window *w = (im_window *)ctx;
-    im_window_request_frame(w, delay_ms);
+    return im_window_request_frame(w, delay_ms);
 }
 
 static void win_sched_cancel(void *ctx) {
     im_window *w = (im_window *)ctx;
-    im_window_cancel_frame(w);
+    (void)im_window_cancel_frame(w);
 }
 
 static void win_paint(im_window *w, im_canvas *c) {
@@ -591,16 +721,19 @@ static void win_paint(im_window *w, im_canvas *c) {
                 c->pixels[y * c->width + x] = asym_pixel(x, y);
             }
         }
+        /* Arm a 0 ms wake-up and immediately cancel it to verify stale wake-up is ignored. */
+        im_window_request_frame(w, 0);
+        st->cancel_while_open_ok = im_window_cancel_frame(w);
         st->phase = 1;
         PostMessageW((HWND)w->native, WM_MOUSEMOVE, 0, MAKELPARAM(40, 32));
         return;
     }
 
     if (st->phase == 1) {
-        st->hover_paint_count++;
-        st->hover_was_partial = (!c->full_redraw &&
-            c->dirty.left >= 20 && c->dirty.top >= 20 &&
-            c->dirty.right <= 100 && c->dirty.bottom <= 52);
+        st->stale_ticks_observed = st->tick_count;
+        st->hover_exact_rect = (!c->full_redraw && c->dirty_count == 1 &&
+            c->dirty.left == 20 && c->dirty.top == 20 &&
+            c->dirty.right == 100 && c->dirty.bottom == 52);
         for (int y = c->dirty.top; y < c->dirty.bottom; y++) {
             for (int x = c->dirty.left; x < c->dirty.right; x++) {
                 c->pixels[y * c->width + x] = 0x0022AAFFu;
@@ -610,26 +743,50 @@ static void win_paint(im_window *w, im_canvas *c) {
             (c->pixels[10 * c->width + 10] == asym_pixel(10, 10)) &&
             (c->pixels[32 * c->width + 160] == asym_pixel(160, 32));
 
+        /* Phase 2: two disjoint rectangles via im_window_invalidate_rects. */
         st->phase = 2;
-        PostMessageW((HWND)w->native, WM_KEYDOWN, 'A', 0);
+        im_dirty_rect pair[2] = {{4, 4, 24, 24}, {180, 90, 210, 120}};
+        im_window_invalidate_rects(w, pair, 2);
         return;
     }
 
     if (st->phase == 2) {
-        st->legacy_full_count++;
+        st->disjoint_preserved = (!c->full_redraw && c->dirty_count == 2 &&
+            c->dirty_rects[0].left == 4 && c->dirty_rects[0].top == 4 &&
+            c->dirty_rects[0].right == 24 && c->dirty_rects[0].bottom == 24 &&
+            c->dirty_rects[1].left == 180 && c->dirty_rects[1].top == 90 &&
+            c->dirty_rects[1].right == 210 && c->dirty_rects[1].bottom == 120);
+        for (int i = 0; i < c->dirty_count; i++) {
+            im_dirty_rect r = c->dirty_rects[i];
+            for (int y = r.top; y < r.bottom; y++) {
+                for (int x = r.left; x < r.right; x++) {
+                    c->pixels[y * c->width + x] = 0x0077DD44u;
+                }
+            }
+        }
+        st->disjoint_middle_untouched =
+            (c->pixels[60 * c->width + 120] == asym_pixel(120, 60));
+
+        /* Phase 3: legacy event handler returning true without calling im_window_invalidate. */
+        st->phase = 3;
+        PostMessageW((HWND)w->native, WM_KEYDOWN, 'A', 0);
+        return;
+    }
+
+    if (st->phase == 3) {
         st->legacy_was_full = c->full_redraw;
         for (int y = 0; y < c->height; y++) {
             for (int x = 0; x < c->width; x++) {
                 c->pixels[y * c->width + x] = asym_pixel(x, y);
             }
         }
-        st->phase = 3;
+        /* Phase 4: explicit partial horizontal band invalidation [16, 180) x [70, 90). */
+        st->phase = 4;
         im_window_invalidate(w, 16, 70, 180, 90);
         return;
     }
 
-    if (st->phase == 3) {
-        st->band_paint_count++;
+    if (st->phase == 4) {
         st->band_was_partial = (!c->full_redraw &&
             c->dirty.left == 16 && c->dirty.top == 70 &&
             c->dirty.right == 180 && c->dirty.bottom == 90);
@@ -638,46 +795,40 @@ static void win_paint(im_window *w, im_canvas *c) {
                 c->pixels[y * c->width + x] = 0x00FF3366u;
             }
         }
-        st->band_outside_intact =
-            (c->pixels[69 * c->width + 50] == asym_pixel(50, 69)) &&
-            (c->pixels[90 * c->width + 50] == asym_pixel(50, 90)) &&
-            (c->pixels[80 * c->width + 15] == asym_pixel(15, 80)) &&
-            (c->pixels[80 * c->width + 180] == asym_pixel(180, 80));
-
-        st->phase = 4;
-        SetWindowPos((HWND)w->native, NULL, 0, 0, 320, 200,
-                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        /* Post key 'B' to verify presented buffer AFTER WM_PAINT returns and trigger exposure. */
+        st->phase = 5;
+        PostMessageW((HWND)w->native, WM_KEYDOWN, 'B', 0);
         return;
     }
 
-    if (st->phase == 4) {
-        st->resize_paint_count++;
+    if (st->phase == 5) {
+        /* Independent exposure repaint triggered via raw Win32 InvalidateRect (no pending_rects). */
+        st->exposure_was_partial = (!c->full_redraw && c->dirty_count == 1 &&
+            c->dirty.left == 30 && c->dirty.top == 20 &&
+            c->dirty.right == 90 && c->dirty.bottom == 50);
+        for (int y = c->dirty.top; y < c->dirty.bottom; y++) {
+            for (int x = c->dirty.left; x < c->dirty.right; x++) {
+                c->pixels[y * c->width + x] = 0x00AABBCCu;
+            }
+        }
+        st->phase = 6;
+        PostMessageW((HWND)w->native, WM_KEYDOWN, 'C', 0);
+        return;
+    }
+
+    if (st->phase == 6) {
         st->resize_was_full = c->full_redraw;
         for (int y = 0; y < c->height; y++) {
             for (int x = 0; x < c->width; x++) {
                 c->pixels[y * c->width + x] = asym_pixel(x, y);
             }
         }
-        bool match = true;
-        for (int y = 0; y < c->height && match; y += 7) {
-            for (int x = 0; x < c->width; x += 11) {
-                if (c->pixels[y * c->width + x] != asym_pixel(x, y)) {
-                    match = false;
-                    break;
-                }
-            }
-        }
-        st->resize_pixels_match = match;
-
-        st->phase = 5;
-        st->anim_start_tick = im_host_now_ms(&st->host);
-        im_states_go_to(&st->sm, "On", 0);
-        im_frame_step(&st->sched, &st->dirty, im_states_is_animating(&st->sm, 0),
-                      0, win_sched_request, win_sched_cancel, w);
+        st->phase = 7;
+        PostMessageW((HWND)w->native, WM_KEYDOWN, 'D', 0);
         return;
     }
 
-    if (st->phase == 5) {
+    if (st->phase == 7) {
         uint64_t tok = im_frame_begin_paint(&st->sched);
         uint32_t elapsed = im_host_now_ms(&st->host) - st->anim_start_tick;
         bool anim = im_states_is_animating(&st->sm, elapsed);
@@ -690,7 +841,7 @@ static void win_paint(im_window *w, im_canvas *c) {
         if (!im_frame_step(&st->sched, &st->dirty, anim, elapsed,
                            win_sched_request, win_sched_cancel, w)) {
             st->anim_woke_and_stopped = (st->tick_count > 0 && !w->frame_timer_active);
-            st->phase = 6;
+            st->phase = 8;
             PostMessageW((HWND)w->native, WM_CLOSE, 0, 0);
         }
     }
@@ -706,8 +857,51 @@ static bool win_event(im_window *w, const im_event *e) {
         }
         return false;
     }
-    if (st->phase == 2 && e->kind == IM_KEY_DOWN) {
+    if (st->phase == 3 && e->kind == IM_KEY_DOWN && e->key == 'A') {
         return true;
+    }
+    if (st->phase == 5 && e->kind == IM_KEY_DOWN && e->key == 'B') {
+        /* Verify band paint survived WM_PAINT presentation. */
+        int lw = w->last_width;
+        st->band_post_paint_verified = (w->buffer != NULL && w->painted &&
+            w->buffer[80 * lw + 50] == 0x00FF3366u &&
+            w->buffer[69 * lw + 50] == asym_pixel(50, 69) &&
+            w->buffer[90 * lw + 50] == asym_pixel(50, 90) &&
+            w->buffer[80 * lw + 15] == asym_pixel(15, 80) &&
+            w->buffer[80 * lw + 180] == asym_pixel(180, 80));
+        /* Induce external OS exposure independent of resize. */
+        RECT exp_rc = {30, 20, 90, 50};
+        InvalidateRect((HWND)w->native, &exp_rc, FALSE);
+        return false;
+    }
+    if (st->phase == 6 && e->kind == IM_KEY_DOWN && e->key == 'C') {
+        int lw = w->last_width;
+        st->exposure_post_paint_verified = (w->buffer != NULL &&
+            w->buffer[35 * lw + 60] == 0x00AABBCCu &&
+            w->buffer[19 * lw + 60] == asym_pixel(60, 19));
+        /* Trigger stride-changing resize. */
+        SetWindowPos((HWND)w->native, NULL, 0, 0, 320, 200,
+                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        return false;
+    }
+    if (st->phase == 7 && e->kind == IM_KEY_DOWN && e->key == 'D') {
+        int lw = w->last_width;
+        int lh = w->last_height;
+        bool match = (w->buffer != NULL && lw > 0 && lh > 0);
+        for (int y = 0; y < lh && match; y += 7) {
+            for (int x = 0; x < lw; x += 11) {
+                if (w->buffer[y * lw + x] != asym_pixel(x, y)) {
+                    match = false;
+                    break;
+                }
+            }
+        }
+        st->resize_post_paint_verified = match;
+        st->anim_start_tick = im_host_now_ms(&st->host);
+        im_states_go_to(&st->sm, "On", 0);
+        im_frame_step(&st->sched, &st->dirty, im_states_is_animating(&st->sm, 0),
+                      0, win_sched_request, win_sched_cancel, w);
+        return false;
     }
     return false;
 }
@@ -742,26 +936,32 @@ static void test_windows_partial_paint_and_lifecycle(void) {
     im_dirty_rect one = {0, 0, 10, 10};
     CHECK(!im_window_invalidate_rects(&w, &one, 1), "invalidate_rects before open returns false");
     CHECK(!im_window_request_frame(&w, 16), "request_frame before open returns false");
+    CHECK(!im_window_cancel_frame(&w), "cancel_frame before open returns false");
 
     CHECK(im_window_run(&w, false), "im_window_run succeeds");
 
     CHECK(w.native == NULL, "window->native cleared to NULL after close");
     CHECK(!im_window_invalidate(&w, 0, 0, 10, 10), "invalidate after close returns false");
     CHECK(!im_window_request_frame(&w, 16), "request_frame after close returns false");
+    CHECK(!im_window_cancel_frame(&w), "cancel_frame after close returns false");
 
     CHECK(st.first_was_full, "first paint has full_redraw == true");
-    CHECK(st.hover_paint_count >= 1 && st.hover_was_partial,
-          "WM_MOUSEMOVE hover produced partial dirty rect bounded to button 1");
+    CHECK(st.cancel_while_open_ok && st.stale_ticks_observed == 0,
+          "cancelled wake-up returns true while open and never invokes tick");
+    CHECK(st.hover_exact_rect,
+          "WM_MOUSEMOVE hover produced exact button 1 dirty rect [20, 100) x [20, 52)");
     CHECK(st.hover_pixels_outside_untouched,
           "WM_MOUSEMOVE hover left pixels outside button 1 untouched");
-    CHECK(st.legacy_full_count >= 1 && st.legacy_was_full,
+    CHECK(st.disjoint_preserved && st.disjoint_middle_untouched,
+          "im_window_invalidate_rects preserves 2 disjoint dirty rects and leaves middle untouched");
+    CHECK(st.legacy_was_full,
           "legacy event handler returning true without explicit damage gets full_redraw == true");
-    CHECK(st.band_paint_count >= 1 && st.band_was_partial,
-          "explicit horizontal band invalidation sets full_redraw == false with exact rect");
-    CHECK(st.band_outside_intact,
-          "explicit horizontal band paint leaves surrounding pixels intact");
-    CHECK(st.resize_paint_count >= 1 && st.resize_was_full && st.resize_pixels_match,
-          "stride-changing resize triggers full_redraw == true with matching pixels");
+    CHECK(st.band_was_partial && st.band_post_paint_verified,
+          "explicit horizontal band paint sets exact rect and survives WM_PAINT presentation");
+    CHECK(st.exposure_was_partial && st.exposure_post_paint_verified,
+          "independent exposure repaint updates only exposed rect and survives presentation");
+    CHECK(st.resize_was_full && st.resize_post_paint_verified,
+          "stride-changing resize triggers full_redraw == true with matching post-paint pixels");
     CHECK(st.anim_woke_and_stopped,
           "real im_window animation woke via im_window_request_frame and stopped when settled");
 }
