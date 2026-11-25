@@ -106,13 +106,7 @@ static void paint(im_window *window, HWND handle) {
         window->last_width = canvas.width;
         window->last_height = canvas.height;
         window->last_scale = scale;
-        bool ok = true;
-        for (int i = 0; i < rects_cnt; i++) {
-            if (!blit_rect(screen, &canvas, rects_ptr[i])) {
-                ok = false;
-                break;
-            }
-        }
+        bool ok = blit_rect(screen, &canvas, single_rect);
         if (ok) window->painted = true;
         else fail(window);
     }
@@ -124,7 +118,7 @@ static void send(im_window *window, HWND handle, im_event event) {
     window->event_damaged = false;
     bool handled = window->event && window->event(window, &event);
     bool damaged_here = window->event_damaged;
-    window->event_damaged = prev_damaged || damaged_here;
+    window->event_damaged = prev_damaged;
     if (handled && !damaged_here) {
         window->pending_count = 0;
         window->pending_overflow = true;

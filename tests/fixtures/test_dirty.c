@@ -414,6 +414,29 @@ static void test_dirty_list_properties(void) {
     CHECK(im_dirty_add(&ov, (im_irect){2, 2, 12, 12}), "add overlap B");
     CHECK(ov.count == 2u, "overlapping rects with non-zero bounding waste stay separate when slots are free");
 
+    /* Regression: at capacity (17th rect), intersection area must be subtracted in waste math.
+       Overlapping 20x20 pair offset by (10,10) has true waste 900-(400+400-100)=200 (buggy: 100).
+       Disjoint 10x10 pair with 15px gap has true waste 350-200=150 -> must merge the disjoint pair! */
+    im_dirty_list cap_ov;
+    im_dirty_init(&cap_ov, 4000, 1000);
+    for (int i = 0; i < 13; i++) {
+        int x = i * 200;
+        CHECK(im_dirty_add(&cap_ov, (im_irect){x, 0, x + 10, 10}), "add well-spaced rect");
+    }
+    CHECK(im_dirty_add(&cap_ov, (im_irect){500, 200, 510, 210}), "add disjoint A");
+    CHECK(im_dirty_add(&cap_ov, (im_irect){0, 200, 20, 220}), "add overlap pair A");
+    CHECK(im_dirty_add(&cap_ov, (im_irect){10, 210, 30, 230}), "add overlap pair B");
+    CHECK(im_dirty_add(&cap_ov, (im_irect){525, 200, 535, 210}), "add disjoint B (17th)");
+    CHECK(cap_ov.count == IM_DIRTY_MAX_RECTS, "capacity overlap test stays at 16");
+    bool merged_disjoint_not_overlap = false;
+    for (uint32_t i = 0; i < cap_ov.count; i++) {
+        if (cap_ov.rects[i].left == 500 && cap_ov.rects[i].top == 200 &&
+            cap_ov.rects[i].right == 535 && cap_ov.rects[i].bottom == 210) {
+            merged_disjoint_not_overlap = true;
+        }
+    }
+    CHECK(merged_disjoint_not_overlap, "capacity merge subtracts intersection area and picks lower-waste disjoint pair");
+
     /* 17-rect merge picks the known minimum-waste pair. */
     im_dirty_list m;
     im_dirty_init(&m, 1000, 1000);
@@ -663,29 +686,107 @@ static void test_frame_scheduler(void) {
           "scheduler goes idle after reduced_motion final settled frame");
 }
 
-/* 4 & 5. Real Windows window tests: WM_MOUSEMOVE exact hover, disjoint rects,
-   stale cancelled wake-up, independent exposure, post-paint buffer verification,
-   resize stride change, real animation wake/stop, and pre-open / post-close refusal. */
+/* Dynamically loaded GDI/User32 pixel readback (via Tier 0 LoadLibraryW/GetProcAddress)
+   to observe actual presented window pixels after SetDIBitsToDevice, independent of w->buffer. */
+typedef HDC (WINAPI *fn_GetDC)(HWND);
+typedef int (WINAPI *fn_ReleaseDC)(HWND, HDC);
+typedef HDC (WINAPI *fn_CreateCompatibleDC)(HDC);
+typedef HBITMAP (WINAPI *fn_CreateDIBSection)(HDC, const BITMAPINFO *, UINT, void **, HANDLE, DWORD);
+typedef HGDIOBJ (WINAPI *fn_SelectObject)(HDC, HGDIOBJ);
+typedef BOOL (WINAPI *fn_BitBlt)(HDC, int, int, int, int, HDC, int, int, DWORD);
+typedef BOOL (WINAPI *fn_DeleteObject)(HGDIOBJ);
+typedef BOOL (WINAPI *fn_DeleteDC)(HDC);
+typedef BOOL (WINAPI *fn_GdiFlush)(void);
+typedef LRESULT (WINAPI *fn_SendMessageW)(HWND, UINT, WPARAM, LPARAM);
+
+static bool read_presented_pixels(HWND hwnd, int w, int h, uint32_t *out) {
+    if (!hwnd || w <= 0 || h <= 0 || !out) return false;
+    HMODULE u32 = LoadLibraryW(L"user32.dll");
+    HMODULE g32 = LoadLibraryW(L"gdi32.dll");
+    if (!u32 || !g32) return false;
+    fn_GetDC pGetDC = (fn_GetDC)(void *)GetProcAddress(u32, "GetDC");
+    fn_ReleaseDC pReleaseDC = (fn_ReleaseDC)(void *)GetProcAddress(u32, "ReleaseDC");
+    fn_CreateCompatibleDC pCreateCompatibleDC = (fn_CreateCompatibleDC)(void *)GetProcAddress(g32, "CreateCompatibleDC");
+    fn_CreateDIBSection pCreateDIBSection = (fn_CreateDIBSection)(void *)GetProcAddress(g32, "CreateDIBSection");
+    fn_SelectObject pSelectObject = (fn_SelectObject)(void *)GetProcAddress(g32, "SelectObject");
+    fn_BitBlt pBitBlt = (fn_BitBlt)(void *)GetProcAddress(g32, "BitBlt");
+    fn_DeleteObject pDeleteObject = (fn_DeleteObject)(void *)GetProcAddress(g32, "DeleteObject");
+    fn_DeleteDC pDeleteDC = (fn_DeleteDC)(void *)GetProcAddress(g32, "DeleteDC");
+    fn_GdiFlush pGdiFlush = (fn_GdiFlush)(void *)GetProcAddress(g32, "GdiFlush");
+    if (!pGetDC || !pReleaseDC || !pCreateCompatibleDC || !pCreateDIBSection ||
+        !pSelectObject || !pBitBlt || !pDeleteObject || !pDeleteDC || !pGdiFlush) {
+        return false;
+    }
+    pGdiFlush();
+    HDC hdc = pGetDC(hwnd);
+    if (!hdc) return false;
+    HDC memdc = pCreateCompatibleDC(hdc);
+    if (!memdc) { pReleaseDC(hwnd, hdc); return false; }
+    BITMAPINFO bi;
+    memset(&bi, 0, sizeof(bi));
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void *bits = NULL;
+    HBITMAP bmp = pCreateDIBSection(memdc, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (!bmp || !bits) {
+        pDeleteDC(memdc);
+        pReleaseDC(hwnd, hdc);
+        return false;
+    }
+    HGDIOBJ old = pSelectObject(memdc, bmp);
+    BOOL blt_ok = pBitBlt(memdc, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+    pGdiFlush();
+    if (blt_ok) {
+        const uint32_t *src = (const uint32_t *)bits;
+        for (int i = 0; i < w * h; i++) out[i] = src[i] & 0x00FFFFFFu;
+    }
+    pSelectObject(memdc, old);
+    pDeleteObject(bmp);
+    pDeleteDC(memdc);
+    pReleaseDC(hwnd, hdc);
+    return blt_ok != 0;
+}
+
+static LRESULT send_msg_sync(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    HMODULE u32 = LoadLibraryW(L"user32.dll");
+    if (!u32) return 0;
+    fn_SendMessageW pSendMessageW = (fn_SendMessageW)(void *)GetProcAddress(u32, "SendMessageW");
+    return pSendMessageW ? pSendMessageW(hwnd, msg, wp, lp) : 0;
+}
+
+/* 4 & 5. Real Windows window tests: WM_MOUSEMOVE exact hover, disjoint rects + gap exposure,
+   nested reentrant event, stale delayed timer vs replacement, independent exposure,
+   presented-pixel DC readback, resize stride change, real animation wake/stop, and lifecycle refusal. */
 typedef struct win_test_state {
     int phase;
     int paint_count;
     int tick_count;
     int stale_ticks_observed;
     bool first_was_full;
+    bool first_screen_verified;
     bool hover_exact_rect;
     bool hover_pixels_outside_untouched;
     bool disjoint_preserved;
-    bool disjoint_middle_untouched;
+    bool disjoint_gap_screen_verified;
+    bool nested_outer_got_full;
     bool legacy_was_full;
     bool band_was_partial;
-    bool band_post_paint_verified;
+    bool band_screen_verified;
     bool exposure_was_partial;
-    bool exposure_post_paint_verified;
+    bool exposure_screen_verified;
     bool resize_was_full;
-    bool resize_post_paint_verified;
+    bool resize_screen_verified;
+    bool stale_timer_ignored;
+    bool replacement_timer_fired;
     bool anim_woke_and_stopped;
     bool btn1_hovered;
+    bool req_zero_ok;
     bool cancel_while_open_ok;
+    bool waiting_replacement_tick;
     uint32_t anim_start_tick;
     im_host host;
     im_state_machine sm;
@@ -721,11 +822,11 @@ static void win_paint(im_window *w, im_canvas *c) {
                 c->pixels[y * c->width + x] = asym_pixel(x, y);
             }
         }
-        /* Arm a 0 ms wake-up and immediately cancel it to verify stale wake-up is ignored. */
-        im_window_request_frame(w, 0);
+        /* Arm a 0 ms wake-up (check return value) and immediately cancel it. */
+        st->req_zero_ok = im_window_request_frame(w, 0);
         st->cancel_while_open_ok = im_window_cancel_frame(w);
         st->phase = 1;
-        PostMessageW((HWND)w->native, WM_MOUSEMOVE, 0, MAKELPARAM(40, 32));
+        PostMessageW((HWND)w->native, WM_KEYDOWN, '1', 0);
         return;
     }
 
@@ -743,10 +844,12 @@ static void win_paint(im_window *w, im_canvas *c) {
             (c->pixels[10 * c->width + 10] == asym_pixel(10, 10)) &&
             (c->pixels[32 * c->width + 160] == asym_pixel(160, 32));
 
-        /* Phase 2: two disjoint rectangles via im_window_invalidate_rects. */
+        /* Phase 2: two disjoint controls PLUS simultaneous OS exposure in the gap between them. */
         st->phase = 2;
         im_dirty_rect pair[2] = {{4, 4, 24, 24}, {180, 90, 210, 120}};
         im_window_invalidate_rects(w, pair, 2);
+        RECT gap = {60, 40, 100, 70};
+        InvalidateRect((HWND)w->native, &gap, FALSE);
         return;
     }
 
@@ -764,29 +867,37 @@ static void win_paint(im_window *w, im_canvas *c) {
                 }
             }
         }
-        st->disjoint_middle_untouched =
-            (c->pixels[60 * c->width + 120] == asym_pixel(120, 60));
-
-        /* Phase 3: legacy event handler returning true without calling im_window_invalidate. */
         st->phase = 3;
-        PostMessageW((HWND)w->native, WM_KEYDOWN, 'A', 0);
+        PostMessageW((HWND)w->native, WM_KEYDOWN, '2', 0);
         return;
     }
 
     if (st->phase == 3) {
+        /* Nested reentrant event: inner invalidated small rect, outer returned true -> must be full_redraw. */
+        st->nested_outer_got_full = c->full_redraw;
+        for (int y = 0; y < c->height; y++) {
+            for (int x = 0; x < c->width; x++) {
+                c->pixels[y * c->width + x] = asym_pixel(x, y);
+            }
+        }
+        st->phase = 4;
+        PostMessageW((HWND)w->native, WM_KEYDOWN, 'A', 0);
+        return;
+    }
+
+    if (st->phase == 4) {
         st->legacy_was_full = c->full_redraw;
         for (int y = 0; y < c->height; y++) {
             for (int x = 0; x < c->width; x++) {
                 c->pixels[y * c->width + x] = asym_pixel(x, y);
             }
         }
-        /* Phase 4: explicit partial horizontal band invalidation [16, 180) x [70, 90). */
-        st->phase = 4;
+        st->phase = 5;
         im_window_invalidate(w, 16, 70, 180, 90);
         return;
     }
 
-    if (st->phase == 4) {
+    if (st->phase == 5) {
         st->band_was_partial = (!c->full_redraw &&
             c->dirty.left == 16 && c->dirty.top == 70 &&
             c->dirty.right == 180 && c->dirty.bottom == 90);
@@ -795,14 +906,12 @@ static void win_paint(im_window *w, im_canvas *c) {
                 c->pixels[y * c->width + x] = 0x00FF3366u;
             }
         }
-        /* Post key 'B' to verify presented buffer AFTER WM_PAINT returns and trigger exposure. */
-        st->phase = 5;
+        st->phase = 6;
         PostMessageW((HWND)w->native, WM_KEYDOWN, 'B', 0);
         return;
     }
 
-    if (st->phase == 5) {
-        /* Independent exposure repaint triggered via raw Win32 InvalidateRect (no pending_rects). */
+    if (st->phase == 6) {
         st->exposure_was_partial = (!c->full_redraw && c->dirty_count == 1 &&
             c->dirty.left == 30 && c->dirty.top == 20 &&
             c->dirty.right == 90 && c->dirty.bottom == 50);
@@ -811,24 +920,24 @@ static void win_paint(im_window *w, im_canvas *c) {
                 c->pixels[y * c->width + x] = 0x00AABBCCu;
             }
         }
-        st->phase = 6;
+        st->phase = 7;
         PostMessageW((HWND)w->native, WM_KEYDOWN, 'C', 0);
         return;
     }
 
-    if (st->phase == 6) {
+    if (st->phase == 7) {
         st->resize_was_full = c->full_redraw;
         for (int y = 0; y < c->height; y++) {
             for (int x = 0; x < c->width; x++) {
                 c->pixels[y * c->width + x] = asym_pixel(x, y);
             }
         }
-        st->phase = 7;
+        st->phase = 8;
         PostMessageW((HWND)w->native, WM_KEYDOWN, 'D', 0);
         return;
     }
 
-    if (st->phase == 7) {
+    if (st->phase == 9) {
         uint64_t tok = im_frame_begin_paint(&st->sched);
         uint32_t elapsed = im_host_now_ms(&st->host) - st->anim_start_tick;
         bool anim = im_states_is_animating(&st->sm, elapsed);
@@ -840,8 +949,8 @@ static void win_paint(im_window *w, im_canvas *c) {
         im_frame_on_painted(&st->sched, tok, elapsed);
         if (!im_frame_step(&st->sched, &st->dirty, anim, elapsed,
                            win_sched_request, win_sched_cancel, w)) {
-            st->anim_woke_and_stopped = (st->tick_count > 0 && !w->frame_timer_active);
-            st->phase = 8;
+            st->anim_woke_and_stopped = (st->tick_count > 1 && !w->frame_timer_active);
+            st->phase = 10;
             PostMessageW((HWND)w->native, WM_CLOSE, 0, 0);
         }
     }
@@ -849,6 +958,19 @@ static void win_paint(im_window *w, im_canvas *c) {
 
 static bool win_event(im_window *w, const im_event *e) {
     win_test_state *st = (win_test_state *)w->user;
+    if (st->phase == 1 && e->kind == IM_KEY_DOWN && e->key == '1') {
+        /* Read presented pixels from window DC after first paint. */
+        int lw = w->last_width, lh = w->last_height;
+        uint32_t *scr = (uint32_t *)heap_alloc_zero((size_t)(lw * lh) * sizeof(uint32_t));
+        if (scr && read_presented_pixels((HWND)w->native, lw, lh, scr)) {
+            st->first_screen_verified =
+                (scr[10 * lw + 10] == asym_pixel(10, 10)) &&
+                (scr[80 * lw + 120] == asym_pixel(120, 80));
+        }
+        heap_free_ptr(scr);
+        PostMessageW((HWND)w->native, WM_MOUSEMOVE, 0, MAKELPARAM(40, 32));
+        return false;
+    }
     if (st->phase == 1 && e->kind == IM_POINTER_MOVE) {
         if (e->x >= 20 && e->x < 100 && e->y >= 20 && e->y < 52 && !st->btn1_hovered) {
             st->btn1_hovered = true;
@@ -857,50 +979,89 @@ static bool win_event(im_window *w, const im_event *e) {
         }
         return false;
     }
-    if (st->phase == 3 && e->kind == IM_KEY_DOWN && e->key == 'A') {
+    if (st->phase == 3 && e->kind == IM_KEY_DOWN && e->key == '2') {
+        /* Read presented pixels after disjoint + gap exposure paint. */
+        int lw = w->last_width, lh = w->last_height;
+        uint32_t *scr = (uint32_t *)heap_alloc_zero((size_t)(lw * lh) * sizeof(uint32_t));
+        if (scr && read_presented_pixels((HWND)w->native, lw, lh, scr)) {
+            st->disjoint_gap_screen_verified =
+                (scr[12 * lw + 12] == 0x0077DD44u) &&
+                (scr[100 * lw + 190] == 0x0077DD44u) &&
+                (scr[55 * lw + 80] == asym_pixel(80, 55));
+        }
+        heap_free_ptr(scr);
+        /* Trigger nested reentrant event test. */
+        PostMessageW((HWND)w->native, WM_KEYDOWN, 'N', 0);
+        return false;
+    }
+    if (st->phase == 3 && e->kind == IM_KEY_DOWN && e->key == 'N') {
+        /* Synchronously invoke inner event that invalidates a small rect, then return true for full repaint. */
+        send_msg_sync((HWND)w->native, WM_MOUSEMOVE, 0, MAKELPARAM(50, 30));
         return true;
     }
-    if (st->phase == 5 && e->kind == IM_KEY_DOWN && e->key == 'B') {
-        /* Verify band paint survived WM_PAINT presentation. */
-        int lw = w->last_width;
-        st->band_post_paint_verified = (w->buffer != NULL && w->painted &&
-            w->buffer[80 * lw + 50] == 0x00FF3366u &&
-            w->buffer[69 * lw + 50] == asym_pixel(50, 69) &&
-            w->buffer[90 * lw + 50] == asym_pixel(50, 90) &&
-            w->buffer[80 * lw + 15] == asym_pixel(15, 80) &&
-            w->buffer[80 * lw + 180] == asym_pixel(180, 80));
-        /* Induce external OS exposure independent of resize. */
+    if (st->phase == 3 && e->kind == IM_POINTER_MOVE) {
+        im_window_invalidate(w, 20, 20, 40, 40);
+        return true;
+    }
+    if (st->phase == 4 && e->kind == IM_KEY_DOWN && e->key == 'A') {
+        return true;
+    }
+    if (st->phase == 6 && e->kind == IM_KEY_DOWN && e->key == 'B') {
+        int lw = w->last_width, lh = w->last_height;
+        uint32_t *scr = (uint32_t *)heap_alloc_zero((size_t)(lw * lh) * sizeof(uint32_t));
+        if (scr && read_presented_pixels((HWND)w->native, lw, lh, scr)) {
+            st->band_screen_verified =
+                (scr[80 * lw + 50] == 0x00FF3366u) &&
+                (scr[69 * lw + 50] == asym_pixel(50, 69)) &&
+                (scr[90 * lw + 50] == asym_pixel(50, 90)) &&
+                (scr[80 * lw + 15] == asym_pixel(15, 80)) &&
+                (scr[80 * lw + 180] == asym_pixel(180, 80));
+        }
+        heap_free_ptr(scr);
         RECT exp_rc = {30, 20, 90, 50};
         InvalidateRect((HWND)w->native, &exp_rc, FALSE);
         return false;
     }
-    if (st->phase == 6 && e->kind == IM_KEY_DOWN && e->key == 'C') {
-        int lw = w->last_width;
-        st->exposure_post_paint_verified = (w->buffer != NULL &&
-            w->buffer[35 * lw + 60] == 0x00AABBCCu &&
-            w->buffer[19 * lw + 60] == asym_pixel(60, 19));
-        /* Trigger stride-changing resize. */
+    if (st->phase == 7 && e->kind == IM_KEY_DOWN && e->key == 'C') {
+        int lw = w->last_width, lh = w->last_height;
+        uint32_t *scr = (uint32_t *)heap_alloc_zero((size_t)(lw * lh) * sizeof(uint32_t));
+        if (scr && read_presented_pixels((HWND)w->native, lw, lh, scr)) {
+            st->exposure_screen_verified =
+                (scr[35 * lw + 60] == 0x00AABBCCu) &&
+                (scr[19 * lw + 60] == asym_pixel(60, 19));
+        }
+        heap_free_ptr(scr);
         SetWindowPos((HWND)w->native, NULL, 0, 0, 320, 200,
                      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         return false;
     }
-    if (st->phase == 7 && e->kind == IM_KEY_DOWN && e->key == 'D') {
-        int lw = w->last_width;
-        int lh = w->last_height;
-        bool match = (w->buffer != NULL && lw > 0 && lh > 0);
+    if (st->phase == 8 && e->kind == IM_KEY_DOWN && e->key == 'D') {
+        int lw = w->last_width, lh = w->last_height;
+        uint32_t *scr = (uint32_t *)heap_alloc_zero((size_t)(lw * lh) * sizeof(uint32_t));
+        bool match = (scr != NULL && lw > 0 && lh > 0 &&
+                      read_presented_pixels((HWND)w->native, lw, lh, scr));
         for (int y = 0; y < lh && match; y += 7) {
             for (int x = 0; x < lw; x += 11) {
-                if (w->buffer[y * lw + x] != asym_pixel(x, y)) {
+                if (scr[y * lw + x] != asym_pixel(x, y)) {
                     match = false;
                     break;
                 }
             }
         }
-        st->resize_post_paint_verified = match;
-        st->anim_start_tick = im_host_now_ms(&st->host);
-        im_states_go_to(&st->sm, "On", 0);
-        im_frame_step(&st->sched, &st->dirty, im_states_is_animating(&st->sm, 0),
-                      0, win_sched_request, win_sched_cancel, w);
+        heap_free_ptr(scr);
+        st->resize_screen_verified = match;
+
+        /* Test stale delayed WM_TIMER against a replacement timer. */
+        int before_ticks = st->tick_count;
+        bool r1 = im_window_request_frame(w, 20);
+        uint32_t old_tok = w->frame_token;
+        bool r2 = im_window_request_frame(w, 30);
+        uint32_t new_tok = w->frame_token;
+        st->waiting_replacement_tick = true;
+        /* Deliver stale WM_TIMER synchronously for old_tok: must NOT call tick or cancel new_tok. */
+        send_msg_sync((HWND)w->native, WM_TIMER, (WPARAM)old_tok, 0);
+        st->stale_timer_ignored = (r1 && r2 && new_tok != old_tok &&
+            st->tick_count == before_ticks && w->frame_timer_active && w->frame_token == new_tok);
         return false;
     }
     return false;
@@ -909,6 +1070,17 @@ static bool win_event(im_window *w, const im_event *e) {
 static void win_tick(im_window *w) {
     win_test_state *st = (win_test_state *)w->user;
     st->tick_count++;
+    if (st->waiting_replacement_tick) {
+        st->waiting_replacement_tick = false;
+        st->replacement_timer_fired = true;
+        /* Start Phase 9: real im_state_machine animation. */
+        st->phase = 9;
+        st->anim_start_tick = im_host_now_ms(&st->host);
+        im_states_go_to(&st->sm, "On", 0);
+        im_frame_step(&st->sched, &st->dirty, im_states_is_animating(&st->sm, 0),
+                      0, win_sched_request, win_sched_cancel, w);
+        return;
+    }
     im_window_invalidate(w, 0, 0, 32, 32);
 }
 
@@ -945,23 +1117,28 @@ static void test_windows_partial_paint_and_lifecycle(void) {
     CHECK(!im_window_request_frame(&w, 16), "request_frame after close returns false");
     CHECK(!im_window_cancel_frame(&w), "cancel_frame after close returns false");
 
-    CHECK(st.first_was_full, "first paint has full_redraw == true");
-    CHECK(st.cancel_while_open_ok && st.stale_ticks_observed == 0,
-          "cancelled wake-up returns true while open and never invokes tick");
+    CHECK(st.first_was_full && st.first_screen_verified,
+          "first paint sets full_redraw == true and presented DC pixels match");
+    CHECK(st.req_zero_ok && st.cancel_while_open_ok && st.stale_ticks_observed == 0,
+          "cancelled 0 ms wake-up succeeded, cancelled cleanly, and never invoked tick");
     CHECK(st.hover_exact_rect,
           "WM_MOUSEMOVE hover produced exact button 1 dirty rect [20, 100) x [20, 52)");
     CHECK(st.hover_pixels_outside_untouched,
           "WM_MOUSEMOVE hover left pixels outside button 1 untouched");
-    CHECK(st.disjoint_preserved && st.disjoint_middle_untouched,
-          "im_window_invalidate_rects preserves 2 disjoint dirty rects and leaves middle untouched");
+    CHECK(st.disjoint_preserved && st.disjoint_gap_screen_verified,
+          "disjoint rects preserved AND simultaneous gap exposure restored on presented DC");
+    CHECK(st.nested_outer_got_full,
+          "nested explicit damage inside inner event does not suppress outer full repaint");
     CHECK(st.legacy_was_full,
           "legacy event handler returning true without explicit damage gets full_redraw == true");
-    CHECK(st.band_was_partial && st.band_post_paint_verified,
-          "explicit horizontal band paint sets exact rect and survives WM_PAINT presentation");
-    CHECK(st.exposure_was_partial && st.exposure_post_paint_verified,
-          "independent exposure repaint updates only exposed rect and survives presentation");
-    CHECK(st.resize_was_full && st.resize_post_paint_verified,
-          "stride-changing resize triggers full_redraw == true with matching post-paint pixels");
+    CHECK(st.band_was_partial && st.band_screen_verified,
+          "explicit horizontal band paint sets exact rect and presented DC pixels match");
+    CHECK(st.exposure_was_partial && st.exposure_screen_verified,
+          "independent exposure repaint updates only exposed rect and presented DC pixels match");
+    CHECK(st.resize_was_full && st.resize_screen_verified,
+          "stride-changing resize triggers full_redraw == true and presented DC pixels match");
+    CHECK(st.stale_timer_ignored && st.replacement_timer_fired,
+          "stale delayed WM_TIMER ignored without cancelling replacement timer which fires");
     CHECK(st.anim_woke_and_stopped,
           "real im_window animation woke via im_window_request_frame and stopped when settled");
 }
