@@ -1,0 +1,90 @@
+{
+  "ref": "D06 T01 \u00a72",
+  "title": "Deflate",
+  "implementation_sha": "1a06ee2f2ec0085bf4baf96cd364df7f57e8a260",
+  "date": "2026-11-25",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/06-shared/D06-T01-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "tools/check_parts.py",
+    "tools/build.py",
+    "tools/site/build.py --check",
+    "Windows python.exe DeflatePart+PortableParts+ManifestAndCheck"
+  ],
+  "completion": {
+    "report": "docs/reviews/06-shared/D06-T01-s2.md",
+    "verdict": "reconciled",
+    "candidate": "1a06ee2f2ec0085bf4baf96cd364df7f57e8a260",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/06-shared/D06-T01-s2.md",
+    "candidate": "d200841bd2d99ffb8d60829ec4fec158bfc72b03",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "d200841bd2d99ffb8d60829ec4fec158bfc72b03",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "lenses": {
+      "thread-safety": "Which state is reached from two threads (UI, worker, callback, timer) without one lock or atomic owning it, and which lock order, wait, cancellation or teardown can deadlock or run after its owner is gone?",
+      "memory-safety": "Which pointer, reference, view, handle or iterator can outlive what it refers to, and which size, index or cast is trusted unchecked?"
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

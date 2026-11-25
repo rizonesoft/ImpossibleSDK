@@ -186,7 +186,7 @@ Sections: 35 | Checklist items: 184
 | [ ]    | D04 T01 §3  | Safe subset                            | none                          | 4     |
 | [ ]    | D04 T01 §4  | CSS syntax and selectors               | none                          | 4     |
 | [ ]    | D04 T01 §5  | Values and cascade                     | none                          | 4     |
-| [ ]    | D06 T01 §2  | Deflate                                | none                          | 5     |
+| [x]    | D06 T01 §2  | Deflate                                | none                          | 5     |
 | [ ]    | D06 T01 §3  | Hashes                                 | none                          | 4     |
 | [ ]    | D06 T01 §4  | Text buffer                            | none                          | 4     |
 | [ ]    | D06 T01 §6  | Time zones and recurrence              | none                          | 4     |
@@ -244,6 +244,6 @@ Sections: 2 | Checklist items: 6
 | [ ]    | D01 T01 §20 | Native 150% DPI fractional layout | windows-host, display-session, operator | 3     |
 | [ ]    | D08 T01 §13 | First public release              | operator                                | 3     |
 
-Progress: 16/189 verified sections, 22 ready to run now.
+Progress: 17/189 verified sections, 22 ready to run now.
 
 Checklist: 88/1547 items completed (includes Commit items).

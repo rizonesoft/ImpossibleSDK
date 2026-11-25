@@ -33,7 +33,7 @@ title: "TODO-01 -- Shared Parts"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | A host's own engine | D01 T01 §7 | [ ] |
-| 2 | §2 | Deflate | D02 T01 §2 | [ ] |
+| 2 | §2 | Deflate | D02 T01 §2 | [x] |
 | 3 | §3 | Hashes | D02 T01 §2 | [ ] |
 | 4 | §4 | Text buffer | D02 T01 §1 | [ ] |
 | 5 | §5 | Unicode data | D02 T01 §1 | [x] |
@@ -87,6 +87,9 @@ Deflate and the zlib and gzip wrappers. Zip, Paint, Stillframe, Icon Editor, the
 - [x] Commit: `parts: deflate`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-25 | §2 | 1a06ee2f2ec0085bf4baf96cd364df7f57e8a260
+> **Review:** `docs/reviews/d06-t01-s2.json`
 
 ## 3. Hashes
 
