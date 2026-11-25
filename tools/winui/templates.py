@@ -1849,7 +1849,11 @@ class Compiler:
             if child.tag != "Setter":
                 raise TemplateError(f"{child.file}:{child.line}: expected Setter in Style, got {child.tag!r}")
             prop = child.take("Property", "")
-            style_allowed = allowed_props_for(target_type) if target_type in ELEMENT_OWN_PROPS else KNOWN_PROPS
+            style_allowed = (
+                allowed_props_for(target_type) | {"Template", "ItemsPanel", "ItemContainerTransitions"}
+                if target_type in ELEMENT_OWN_PROPS
+                else KNOWN_PROPS
+            )
             if prop not in style_allowed:
                 raise TemplateError(
                     f"{child.file}:{child.attr_line('Property')}: unknown property {prop!r} in Style Setter for {target_type or 'Style'}"
