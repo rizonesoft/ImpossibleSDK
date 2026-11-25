@@ -51,10 +51,16 @@ void im_material_resolve(im_material_kind kind, const im_node *node, const im_pa
     out->bounds = (im_rect){0, 0, 0, 0};
     out->radii = (im_radii){0, 0, 0, 0};
     out->kind = kind;
+    if (kind == IM_MATERIAL_NONE) {
+        out->fallback_argb = 0u;
+        out->tint_argb = 0u;
+        out->uses_fallback = true;
+        return;
+    }
+
     im_palette eff = im_resources_effective_palette(node, window_palette);
     im_theme th = eff.theme;
-    bool use_fb = (!transparency_enabled) || (th == IM_CONTRAST) ||
-                  (!host_supports_backdrop && kind != IM_MATERIAL_ACRYLIC_IN_APP);
+    bool use_fb = (!transparency_enabled) || (th == IM_CONTRAST) || (!host_supports_backdrop);
     out->uses_fallback = use_fb;
 
     if (th == IM_CONTRAST) {
@@ -74,14 +80,14 @@ void im_material_resolve(im_material_kind kind, const im_node *node, const im_pa
         out->tint_argb = (th == IM_LIGHT) ? 0xCCDADADAu : 0xCC0A0A0Au;
         break;
     case IM_MATERIAL_ACRYLIC_BACKDROP:
+        /* Pinned AcrylicBrush_themeresources.xaml: SystemChromeAltHighColor at opacity 0.8 (#CC1C1C1C Dark, #CCFFFFFF Light). */
         out->fallback_argb = im_resources_resolve_brush(node, window_palette, IM_BRUSH_SystemControlAcrylicWindowBrush, 0, IM_ONE, IM_ONE);
-        out->tint_argb = (th == IM_LIGHT) ? 0xD9FCFCFCu : 0xCC2C2C2Cu;
+        out->tint_argb = (th == IM_LIGHT) ? 0xCCFFFFFFu : 0xCC1C1C1Cu;
         break;
     case IM_MATERIAL_ACRYLIC_IN_APP:
         out->fallback_argb = im_resources_resolve_brush(node, window_palette, IM_BRUSH_SystemControlAcrylicElementBrush, 0, IM_ONE, IM_ONE);
-        out->tint_argb = (th == IM_LIGHT) ? 0xC8FCFCFCu : 0xB82C2C2Cu;
+        out->tint_argb = (th == IM_LIGHT) ? 0xCCFFFFFFu : 0xCC1C1C1Cu;
         break;
-    case IM_MATERIAL_NONE:
     default:
         out->fallback_argb = 0u;
         out->tint_argb = 0u;

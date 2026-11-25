@@ -31,6 +31,7 @@ Add an `event` function. Return `true` and the window is painted again. This is 
 
 ```c from=samples/window/main.c
 static bool event(im_window *window, const im_event *event) {
+    if (event->kind == IM_THEME_CHANGED) return true;
     if (event->kind != IM_POINTER_MOVE) return false;
     state *at = window->user;
     at->x = event->x;

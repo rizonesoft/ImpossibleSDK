@@ -175,8 +175,71 @@ int im_main(void) {
               list.items[0].kind == IM_MATERIAL_MICA && !list.items[0].uses_fallback &&
               list.items[1].kind == IM_MATERIAL_MICA_ALT && !list.items[1].uses_fallback &&
               list.items[2].kind == IM_MATERIAL_ACRYLIC_BACKDROP && !list.items[2].uses_fallback &&
-              list.items[0].tint_argb != 0u && list.items[0].fallback_argb != 0u,
-              "Recording host receives Mica, Mica Alt, and Acrylic regions with tint and fallback");
+              list.items[0].tint_argb != 0u && list.items[0].fallback_argb != 0u &&
+              list.items[2].tint_argb == 0xCC1C1C1Cu,
+              "Recording host receives Mica, Mica Alt, and pinned #CC1C1C1C Dark Acrylic tint");
+
+        /* Light Acrylic tint matches pinned SystemChromeAltHighColor@0.8 (#CCFFFFFF),
+           unsupported host forces fallback even for in-app Acrylic, and NONE returns 0 in Contrast. */
+        im_palette pal_light = { .theme = IM_LIGHT };
+        im_material_region lr_ac, lr_inapp, lr_none;
+        im_material_resolve(IM_MATERIAL_ACRYLIC_BACKDROP, NULL, &pal_light, true, true, &lr_ac);
+        CHECK(lr_ac.tint_argb == 0xCCFFFFFFu && !lr_ac.uses_fallback, "Light Acrylic tint matches pinned #CCFFFFFF");
+        im_material_resolve(IM_MATERIAL_ACRYLIC_IN_APP, NULL, &pal_dark, true, false, &lr_inapp);
+        CHECK(lr_inapp.uses_fallback, "Unsupported host forces fallback for in-app Acrylic");
+        im_palette phc0;
+        im_palette_init_contrast(&phc0, IM_CONTRAST_AQUATIC, 0xFF0078D7u);
+        im_material_resolve(IM_MATERIAL_NONE, NULL, &phc0, true, true, &lr_none);
+        CHECK(lr_none.tint_argb == 0u && lr_none.fallback_argb == 0u, "IM_MATERIAL_NONE returns 0 even in Contrast");
+
+        /* Exact Gaussian shadow check at Translation.Z=4 (sigma=1px, opacity=66):
+           straight exterior pixels 0, 1, 2 must match double Gaussian (20, 4, 0) within <= 3/255,
+           AND zero pixels outside im_shadow_outset may be darkened, AND translated shadow follows transform,
+           AND cache==NULL works, AND bounded LRU evicts the oldest entry while keeping refreshed entry warm! */
+        {
+            im_surface sg = { pix, 160, 100, 160, pal_dark, IM_ONE, NULL, NULL };
+            for (int i = 0; i < 160 * 100; i++) pix[i] = 0x00FFFFFFu;
+            im_rect cb = { FX(40), FX(20), FX(80), FX(60) };
+            im_radii cr = { 0, 0, 0, 0 };
+            CHECK(im_shadow_draw(&sg, NULL, cb, cr, FX(4)), "Uncached (cache=NULL) shadow draw succeeds");
+            int d0 = 255 - (int)(pix[40 * 160 + 80] & 0xFFu);
+            int d1 = 255 - (int)(pix[40 * 160 + 81] & 0xFFu);
+            int d2 = 255 - (int)(pix[40 * 160 + 82] & 0xFFu);
+            CHECK(d0 >= 17 && d0 <= 23 && d1 >= 1 && d1 <= 7 && d2 <= 3,
+                  "Translation.Z=4 exact Gaussian edge darkening matches double oracle (20, 4, 0) within <= 3/255");
+            im_thickness out = im_shadow_outset(FX(4), IM_DARK);
+            int max_x_out = 80 + (out.right >> 16);
+            CHECK((pix[40 * 160 + max_x_out] & 0xFFFFFFu) == 0x00FFFFFFu,
+                  "Zero pixels darkened outside im_shadow_outset");
+
+            /* Translated shadow follows surface->transform */
+            for (int i = 0; i < 160 * 100; i++) pix[i] = 0x00FFFFFFu;
+            im_transform tr = im_transform_translate(FX(30), FX(10));
+            sg.transform = &tr;
+            CHECK(im_shadow_draw(&sg, NULL, cb, cr, FX(4)), "Translated shadow draw succeeds");
+            CHECK((pix[50 * 160 + 110] & 0xFFu) < 250u && (pix[40 * 160 + 80] & 0xFFFFFFu) == 0x00FFFFFFu,
+                  "Translated shadow renders at moved caster edge and leaves old position untouched");
+            sg.transform = NULL;
+
+            /* Bounded LRU eviction: cache holds 2 entries (~900B each); touching A before inserting C evicts B, not A! */
+            im_shadow_cache lru;
+            im_shadow_cache_init(&lru, alloc, 2000u);
+            im_rect ra = { FX(10), FX(10), FX(30), FX(30) };
+            im_rect rb = { FX(10), FX(10), FX(32), FX(30) };
+            im_rect rc = { FX(10), FX(10), FX(34), FX(30) };
+            CHECK(im_shadow_draw(&sg, &lru, ra, cr, FX(4)), "LRU insert A");
+            CHECK(im_shadow_draw(&sg, &lru, rb, cr, FX(4)), "LRU insert B");
+            CHECK(im_shadow_draw(&sg, &lru, ra, cr, FX(4)), "LRU touch A");
+            uint64_t blurs_before_c = lru.blur_computations;
+            CHECK(im_shadow_draw(&sg, &lru, rc, cr, FX(4)), "LRU insert C (evicts B)");
+            uint64_t blurs_after_c = lru.blur_computations;
+            CHECK(im_shadow_draw(&sg, &lru, ra, cr, FX(4)), "LRU hit A (still warm)");
+            CHECK(lru.blur_computations == blurs_after_c && blurs_after_c == blurs_before_c + 1u,
+                  "LRU kept refreshed A warm after C evicted B");
+            CHECK(im_shadow_draw(&sg, &lru, rb, cr, FX(4)), "LRU re-blur evicted B");
+            CHECK(lru.blur_computations == blurs_after_c + 1u, "Evicted B required fresh blur");
+            im_shadow_cache_destroy(&lru);
+        }
 
         /* Transparency-off forces exact theme fallback colour! */
         im_material_list_reset(&list);

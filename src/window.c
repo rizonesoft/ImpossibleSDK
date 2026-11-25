@@ -203,10 +203,14 @@ static void fit(HWND handle, int width, int height) {
 typedef HRESULT (WINAPI *dwm_set_attr_fn)(HWND, DWORD, LPCVOID, DWORD);
 
 static bool apply_native_backdrop(HWND handle, im_backdrop_kind backdrop) {
-    /* Dynamically resolve DwmSetWindowAttribute so Tier 1 PE imports stay clean and older OSes fall back cleanly. */
-    HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
-    if (!dwm) return false;
-    dwm_set_attr_fn set_attr = (dwm_set_attr_fn)(void *)GetProcAddress(dwm, "DwmSetWindowAttribute");
+    /* Resolve DwmSetWindowAttribute once (cached across calls -> zero refcount leak and Tier 1 clean). */
+    static bool probed = false;
+    static dwm_set_attr_fn set_attr = NULL;
+    if (!probed) {
+        probed = true;
+        HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+        if (dwm) set_attr = (dwm_set_attr_fn)(void *)GetProcAddress(dwm, "DwmSetWindowAttribute");
+    }
     if (!set_attr) return false;
     DWORD val = 1u; /* DWMSBT_NONE */
     if (backdrop == IM_BACKDROP_MICA) val = 2u;          /* DWMSBT_MAINWINDOW */
@@ -222,8 +226,8 @@ bool im_window_set_backdrop(im_window *window, im_backdrop_kind backdrop) {
         backdrop != IM_BACKDROP_MICA_ALT && backdrop != IM_BACKDROP_ACRYLIC) {
         return false;
     }
-    window->backdrop = backdrop;
     if (!window->native) {
+        window->backdrop = backdrop;
         window->backdrop_active = false;
         window->applied_backdrop = IM_BACKDROP_NONE;
         return true;
@@ -232,6 +236,7 @@ bool im_window_set_backdrop(im_window *window, im_backdrop_kind backdrop) {
     if (!apply_native_backdrop(handle, backdrop)) {
         return false;
     }
+    window->backdrop = backdrop;
     window->applied_backdrop = backdrop;
     window->backdrop_active = (backdrop != IM_BACKDROP_NONE);
     window->pending_count = 0;
@@ -271,6 +276,8 @@ bool im_window_run(im_window *window, bool one_frame) {
     }
     DestroyWindow(handle);
     window->native = NULL;
+    window->applied_backdrop = IM_BACKDROP_NONE;
+    window->backdrop_active = false;
     window->frame_timer_active = false;
     window->frame_timer_is_posted = false;
     window->pending_count = 0;
