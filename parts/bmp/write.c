@@ -33,6 +33,17 @@ im_image_error im_bmp_encode(const im_image *img,
     uint64_t req_bytes = (uint64_t)img->stride * (uint64_t)img->height;
     if (req_bytes > (uint64_t)img->byte_size) return IM_IMAGE_BAD_ARG;
 
+    /* Reject dimensions whose minimum possible BMP file size exceeds the 32-bit bfSize ceiling
+       BEFORE scanning any pixel memory. */
+    {
+        bool min_32 = (mode == IM_BMP_WRITE_32);
+        uint64_t min_hdr = min_32 ? 138ULL : 54ULL;
+        uint64_t min_row = min_32 ? ((uint64_t)img->width * 4ULL) : ((((uint64_t)img->width * 3ULL) + 3ULL) & ~3ULL);
+        if (min_row > (0xFFFFFFFFULL - min_hdr) / (uint64_t)img->height) return IM_IMAGE_TOO_LARGE;
+        uint64_t min_total = min_hdr + min_row * (uint64_t)img->height;
+        if (min_total > 0xFFFFFFFFULL || min_total > (uint64_t)SIZE_MAX) return IM_IMAGE_TOO_LARGE;
+    }
+
     bool has_alpha = false;
     if (mode != IM_BMP_WRITE_32) {
         for (uint32_t y = 0; y < img->height && !has_alpha; ++y) {

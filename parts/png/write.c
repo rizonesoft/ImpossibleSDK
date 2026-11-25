@@ -59,32 +59,18 @@ static bool grow_reserve(grow_buf *gb, size_t need_extra) {
     return true;
 }
 
-static bool grow_append(grow_buf *gb, const uint8_t *src, size_t n) {
-    if (n == 0u) return true;
-    if (!grow_reserve(gb, n)) return false;
-    for (size_t i = 0; i < n; ++i) gb->data[gb->len + i] = src[i];
-    gb->len += n;
-    return true;
-}
-
-static bool append_chunk(grow_buf *gb, const uint8_t type[4], const uint8_t *payload, size_t payload_len) {
-    if (payload_len > 0x7FFFFFFFu) return false;
-    uint8_t hdr[8];
-    put_u32_be(hdr, (uint32_t)payload_len);
-    hdr[4] = type[0];
-    hdr[5] = type[1];
-    hdr[6] = type[2];
-    hdr[7] = type[3];
+static size_t write_chunk_into(uint8_t *dst, const uint8_t type[4], const uint8_t *payload, size_t payload_len) {
+    put_u32_be(dst, (uint32_t)payload_len);
+    dst[4] = type[0];
+    dst[5] = type[1];
+    dst[6] = type[2];
+    dst[7] = type[3];
+    for (size_t i = 0; i < payload_len; ++i) dst[8u + i] = payload[i];
     uint32_t crc = im_crc32_init();
     crc = im_crc32_update(crc, type, 4u);
     if (payload_len > 0u) crc = im_crc32_update(crc, payload, payload_len);
-    uint8_t crc_b[4];
-    put_u32_be(crc_b, crc);
-    if (!grow_reserve(gb, 12u + payload_len)) return false;
-    (void)grow_append(gb, hdr, 8u);
-    if (payload_len > 0u) (void)grow_append(gb, payload, payload_len);
-    (void)grow_append(gb, crc_b, 4u);
-    return true;
+    put_u32_be(dst + 8u + payload_len, crc);
+    return 12u + payload_len;
 }
 
 typedef struct pal_state {
@@ -152,35 +138,21 @@ static void pal_add(pal_state *ps, uint32_t rgba) {
     }
 }
 
-/* Sort palette: translucent entries (a < 255) first (minimizing tRNS), then ascending RGBA. */
+/* Stable partition: translucent entries (a < 255) first in appearance order (minimizing tRNS),
+ * followed by opaque entries in appearance order (preserving spatial index locality for row filters). */
 static void pal_sort_and_rehash(pal_state *ps, uint32_t *out_trns_len) {
-    for (uint32_t i = 1u; i < ps->count; ++i) {
-        uint32_t v = ps->colors[i];
-        uint8_t va = (uint8_t)v;
-        uint32_t j = i;
-        while (j > 0u) {
-            uint32_t u = ps->colors[j - 1u];
-            uint8_t ua = (uint8_t)u;
-            bool u_trans = (ua < 255u);
-            bool v_trans = (va < 255u);
-            bool swap = false;
-            if (u_trans != v_trans) {
-                swap = (!u_trans && v_trans);
-            } else if (u_trans) {
-                swap = (ua > va) || (ua == va && u > v);
-            } else {
-                swap = (u > v);
-            }
-            if (!swap) break;
-            ps->colors[j] = u;
-            --j;
-        }
-        ps->colors[j] = v;
-    }
-    for (uint32_t i = 0; i < 512u; ++i) ps->hash_slot[i] = 0u;
     uint32_t trns = 0u;
-    for (uint32_t i = 0; i < ps->count; ++i) {
-        if (((uint8_t)ps->colors[i]) < 255u) trns = i + 1u;
+    for (uint32_t i = 0u; i < ps->count; ++i) {
+        uint32_t v = ps->colors[i];
+        if (((uint8_t)v) < 255u) {
+            for (uint32_t j = i; j > trns; --j) {
+                ps->colors[j] = ps->colors[j - 1u];
+            }
+            ps->colors[trns++] = v;
+        }
+    }
+    for (uint32_t i = 0u; i < 512u; ++i) ps->hash_slot[i] = 0u;
+    for (uint32_t i = 0u; i < ps->count; ++i) {
         uint32_t h = rgba_hash(ps->colors[i]);
         while (ps->hash_slot[h] != 0u) h = (h + 1u) & 511u;
         ps->hash_slot[h] = (uint16_t)(i + 1u);
@@ -467,7 +439,6 @@ im_image_error im_png_encode(const im_image *img,
     uint8_t *cand_row = (uint8_t *)alloc->alloc(alloc->ctx, row_bytes + 1u);
     uint8_t *best_row = (uint8_t *)alloc->alloc(alloc->ctx, row_bytes + 1u);
     grow_buf idat = { NULL, 0u, 0u, alloc };
-    grow_buf png = { NULL, 0u, 0u, alloc };
     im_image_error err = IM_IMAGE_NO_MEMORY;
 
     if (!def || !cur_row || !prev_row || !cand_row || !best_row) goto cleanup;
@@ -490,42 +461,44 @@ im_image_error im_png_encode(const im_image *img,
         cur_row = tmp;
     }
 
-    /* In AUTO mode for small indexed images (color_type == 3), compare adaptive min-SAD IDAT
-       against filter-0 (None) IDAT and keep whichever yields the strictly smaller compressed payload. */
-    if (mode == IM_PNG_WRITE_AUTO && color_type == 3u && idat.len < 4096u) {
-        grow_buf idat_none = { NULL, 0u, 0u, alloc };
-        if (im_deflate_init(def, IM_DEFLATE_ZLIB, effort) == IM_DEFLATE_OK) {
-            bool none_ok = true;
-            for (uint32_t y = 0; y < img->height && none_ok; ++y) {
-                const uint8_t *src_row = img->pixels + (size_t)y * (size_t)img->stride;
-                best_row[0] = 0u;
-                pack_row(src_row, img->width, img->format, color_type, bit_depth, ps, best_row + 1u, row_bytes);
-                bool last_row = (y + 1u == img->height);
-                if (!deflate_feed_all(def, best_row, row_bytes + 1u, last_row, &idat_none)) {
-                    none_ok = false;
-                }
-            }
-            if (!none_ok) {
-                if (idat_none.data) alloc->free(alloc->ctx, idat_none.data, idat_none.cap);
-                err = IM_IMAGE_NO_MEMORY;
-                goto cleanup;
-            }
-            if (idat_none.len < idat.len) {
-                if (idat.data) alloc->free(alloc->ctx, idat.data, idat.cap);
-                idat = idat_none;
-            } else if (idat_none.data) {
-                alloc->free(alloc->ctx, idat_none.data, idat_none.cap);
-            }
-        }
+    /* Release deflater and row scratch BEFORE allocating the single exact-size output PNG buffer. */
+    alloc->free(alloc->ctx, best_row, row_bytes + 1u); best_row = NULL;
+    alloc->free(alloc->ctx, cand_row, row_bytes + 1u); cand_row = NULL;
+    alloc->free(alloc->ctx, prev_row, row_bytes); prev_row = NULL;
+    alloc->free(alloc->ctx, cur_row, row_bytes); cur_row = NULL;
+    alloc->free(alloc->ctx, def, sizeof(im_deflate)); def = NULL;
+
+    /* Compute exact final PNG size (splitting IDAT into <= 0x7FFFFFFF-byte chunks if needed). */
+    const size_t k_max_chunk = (size_t)0x7FFFFFFFu;
+    size_t num_idat = (idat.len == 0u) ? 1u : ((idat.len - 1u) / k_max_chunk + 1u);
+    size_t plte_bytes = (color_type == 3u) ? (12u + (size_t)ps->count * 3u) : 0u;
+    size_t trns_bytes = (color_type == 3u && trns_len > 0u) ? (12u + (size_t)trns_len) : 0u;
+    if (num_idat > (SIZE_MAX - 8u - 25u - plte_bytes - trns_bytes - 12u) / 12u) {
+        err = IM_IMAGE_TOO_LARGE;
+        goto cleanup;
+    }
+    size_t overhead = 8u + 25u + plte_bytes + trns_bytes + num_idat * 12u + 12u;
+    if (idat.len > SIZE_MAX - overhead) {
+        err = IM_IMAGE_TOO_LARGE;
+        goto cleanup;
+    }
+    size_t exact_len = overhead + idat.len;
+
+    uint8_t *out = (uint8_t *)alloc->alloc(alloc->ctx, exact_len);
+    if (!out) {
+        err = IM_IMAGE_NO_MEMORY;
+        goto cleanup;
     }
 
-    /* Assemble minimal PNG: signature + IHDR + optional PLTE/tRNS + IDAT + IEND. */
     static const uint8_t k_sig[8] = { 137u, 80u, 78u, 71u, 13u, 10u, 26u, 10u };
     static const uint8_t k_ihdr[4] = { 'I', 'H', 'D', 'R' };
     static const uint8_t k_plte[4] = { 'P', 'L', 'T', 'E' };
     static const uint8_t k_trns[4] = { 't', 'R', 'N', 'S' };
     static const uint8_t k_idat[4] = { 'I', 'D', 'A', 'T' };
     static const uint8_t k_iend[4] = { 'I', 'E', 'N', 'D' };
+
+    size_t pos = 0;
+    for (size_t i = 0; i < 8u; ++i) out[pos++] = k_sig[i];
 
     uint8_t ihdr[13];
     put_u32_be(ihdr, img->width);
@@ -535,9 +508,7 @@ im_image_error im_png_encode(const im_image *img,
     ihdr[10] = 0u;
     ihdr[11] = 0u;
     ihdr[12] = 0u;
-
-    if (!grow_append(&png, k_sig, 8u)) goto cleanup;
-    if (!append_chunk(&png, k_ihdr, ihdr, 13u)) goto cleanup;
+    pos += write_chunk_into(out + pos, k_ihdr, ihdr, 13u);
 
     if (color_type == 3u) {
         uint8_t plte[256u * 3u];
@@ -546,39 +517,28 @@ im_image_error im_png_encode(const im_image *img,
             plte[i * 3u + 1u] = (uint8_t)(ps->colors[i] >> 16);
             plte[i * 3u + 2u] = (uint8_t)(ps->colors[i] >> 8);
         }
-        if (!append_chunk(&png, k_plte, plte, (size_t)ps->count * 3u)) goto cleanup;
+        pos += write_chunk_into(out + pos, k_plte, plte, (size_t)ps->count * 3u);
         if (trns_len > 0u) {
             uint8_t trns[256];
             for (uint32_t i = 0; i < trns_len; ++i) trns[i] = (uint8_t)(ps->colors[i]);
-            if (!append_chunk(&png, k_trns, trns, (size_t)trns_len)) goto cleanup;
+            pos += write_chunk_into(out + pos, k_trns, trns, (size_t)trns_len);
         }
     }
 
-    if (idat.len > 0x7FFFFFFFu) {
-        err = IM_IMAGE_TOO_LARGE;
-        goto cleanup;
+    size_t idat_off = 0;
+    for (size_t c = 0; c < num_idat; ++c) {
+        size_t rem = idat.len - idat_off;
+        size_t take = rem > k_max_chunk ? k_max_chunk : rem;
+        pos += write_chunk_into(out + pos, k_idat, idat.data + idat_off, take);
+        idat_off += take;
     }
-    if (!append_chunk(&png, k_idat, idat.data, idat.len)) goto cleanup;
-    if (!append_chunk(&png, k_iend, NULL, 0u)) goto cleanup;
+    pos += write_chunk_into(out + pos, k_iend, NULL, 0u);
 
-    /* Shrink to exact *out_len allocation so caller's size-aware alloc->free(ctx, *out_data, *out_len) matches! */
-    if (png.cap != png.len) {
-        uint8_t *exact = (uint8_t *)alloc->alloc(alloc->ctx, png.len);
-        if (!exact) goto cleanup;
-        for (size_t i = 0; i < png.len; ++i) exact[i] = png.data[i];
-        alloc->free(alloc->ctx, png.data, png.cap);
-        png.data = exact;
-        png.cap = png.len;
-    }
-
-    *out_data = png.data;
-    *out_len = png.len;
-    png.data = NULL;
-    png.cap = 0u;
+    *out_data = out;
+    *out_len = exact_len;
     err = IM_IMAGE_OK;
 
 cleanup:
-    if (png.data) alloc->free(alloc->ctx, png.data, png.cap);
     if (idat.data) alloc->free(alloc->ctx, idat.data, idat.cap);
     if (best_row) alloc->free(alloc->ctx, best_row, row_bytes + 1u);
     if (cand_row) alloc->free(alloc->ctx, cand_row, row_bytes + 1u);

@@ -55,7 +55,7 @@ im_image_error im_png_decode(const uint8_t *data, size_t len,
 
 /* Color-type selection mode for im_png_encode. */
 typedef enum im_png_write_mode {
-    /* Losslessly select the smallest representation among Gray (0), RGB (2), Indexed (3), Gray+Alpha (4), and RGBA (6). */
+    /* Losslessly select among Gray (0), RGB (2), Indexed (3), Gray+Alpha (4), and RGBA (6) by smallest estimated uncompressed row bytes plus PLTE/tRNS chunk overhead. */
     IM_PNG_WRITE_AUTO = 0,
     /* Force Grayscale (color type 0; 1/2/4/8-bit); refuses non-gray or translucent pixels with IM_IMAGE_INVALID. */
     IM_PNG_WRITE_GRAY = 1,

@@ -44,6 +44,9 @@ static void *track_alloc(void *vctx, size_t size) {
     if (size == 0u) return NULL;
     void *p = HeapAlloc(c->heap, 0, size);
     if (!p) return NULL;
+    /* Poison newly allocated memory so any uninitialized padding byte disclosure is caught immediately. */
+    uint8_t *pb = (uint8_t *)p;
+    for (size_t k = 0; k < size; ++k) pb[k] = 0xA5u;
     for (uint32_t i = 0; i < 1024u; ++i) {
         if (c->slots[i].ptr == NULL) {
             c->slots[i].ptr = p;
@@ -160,6 +163,31 @@ static void test_boundaries_and_oom(void) {
     check(im_bmp_encode(&huge_img, IM_BMP_WRITE_AUTO, &ba, &out_p, &out_n) == IM_IMAGE_TOO_LARGE,
           "bmp_encode width=0x80000000 -> TOO_LARGE");
 
+    /* BMP pre-scan ceiling check: 65536x32768 exceeds 32-bit bfSize even at 24-bpp; must return
+       IM_IMAGE_TOO_LARGE BEFORE reading pixels (px4 is only 16 bytes, so scanning would crash!). */
+    im_image bmp_over_bfsize = { 65536u, 32768u, 65536u * 4u, IM_PIXEL_RGBA8, px4, (size_t)65536u * 4u * 32768u };
+    check(im_bmp_encode(&bmp_over_bfsize, IM_BMP_WRITE_AUTO, &ba, &out_p, &out_n) == IM_IMAGE_TOO_LARGE,
+          "bmp_encode 65536x32768 rejects TOO_LARGE before pixel scan");
+
+    /* Odd-width (5x3) 24-bpp BMP with 0xA5-poisoned allocator must zero all row padding bytes! */
+    {
+        uint8_t px5x3[5u * 3u * 4u];
+        for (size_t i = 0; i < sizeof(px5x3); i += 4u) {
+            px5x3[i + 0u] = 0x11u; px5x3[i + 1u] = 0x22u; px5x3[i + 2u] = 0x33u; px5x3[i + 3u] = 0xFFu;
+        }
+        im_image img5x3 = { 5u, 3u, 20u, IM_PIXEL_RGBA8, px5x3, sizeof(px5x3) };
+        uint8_t *bp = NULL;
+        size_t bn = 0;
+        check(im_bmp_encode(&img5x3, IM_BMP_WRITE_AUTO, &ba, &bp, &bn) == IM_IMAGE_OK && bn == 54u + 3u * 16u,
+              "bmp_encode 5x3 24-bpp succeeds with expected 102B length");
+        bool pad_zero = (bp != NULL && bn == 102u);
+        for (size_t y = 0; pad_zero && y < 3u; ++y) {
+            if (bp[54u + y * 16u + 15u] != 0x00u) pad_zero = false;
+        }
+        check(pad_zero, "bmp_encode 5x3 24-bpp zeroes every row padding byte (no 0xA5 poison leak)");
+        if (bp) ba.free(ba.ctx, bp, bn);
+    }
+
     /* 3. Lossless mode refusals return IM_IMAGE_INVALID with 0 leaks. */
     im_png_write_options og = { IM_PNG_WRITE_GRAY, IM_DEFLATE_BALANCED };
     im_png_write_options orgb = { IM_PNG_WRITE_RGB, IM_DEFLATE_BALANCED };
@@ -203,25 +231,34 @@ static void test_boundaries_and_oom(void) {
     if (p2) pa.free(pa.ctx, p2, n2);
     check(tc.live == 0u && tc.mismatch_or_double_free == 0u, "png_encode exact-size free verified");
 
-    /* 5. Exhaustive allocation-ordinal OOM sweep on im_png_encode (including growth & final exact-size shrink)
-       and im_bmp_encode: every injected failure returns NO_MEMORY with 0 leaks & 0 size mismatches. */
+    /* 5. Exhaustive allocation-ordinal OOM sweep on im_png_encode using an incompressible 64x64 RGBA
+       image (16 KiB raw -> forces multiple IDAT grow_buf doublings & OUT_FULL retries!) plus im_bmp_encode:
+       every injected failure returns NO_MEMORY with 0 leaks & 0 size mismatches. */
+    static uint8_t noisy64[64u * 64u * 4u];
+    uint32_t rng = 0xCAFEBABEu;
+    for (size_t i = 0; i < sizeof(noisy64); ++i) {
+        rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+        noisy64[i] = (uint8_t)(rng & 0xFFu);
+    }
+    im_image img_noisy = { 64u, 64u, 64u * 4u, IM_PIXEL_RGBA8, noisy64, sizeof(noisy64) };
     uint32_t png_allocs = 0;
     {
         track_init(&tc, false, 0);
-        check(im_png_encode(&img300, NULL, &pa, &p1, &n1) == IM_IMAGE_OK, "OOM baseline png_encode OK");
+        check(im_png_encode(&img_noisy, NULL, &pa, &p1, &n1) == IM_IMAGE_OK && n1 > 12000u,
+              "OOM baseline 64x64 noisy png_encode OK (>12 KiB IDAT exercises multi-growth)");
         png_allocs = tc.total_allocs;
         if (p1) pa.free(pa.ctx, p1, n1);
         check(tc.live == 0u && tc.mismatch_or_double_free == 0u, "OOM baseline exact-size free OK");
     }
-    check(png_allocs >= 6u, "png_encode performs >= 6 tracked allocations");
+    check(png_allocs >= 9u, "64x64 noisy png_encode performs >= 9 tracked allocations (including IDAT growth)");
     for (uint32_t ord = 0; ord < png_allocs; ++ord) {
         track_init(&tc, true, ord);
         out_p = &dummy_byte;
         out_n = 123u;
-        im_image_error e = im_png_encode(&img300, NULL, &pa, &out_p, &out_n);
+        im_image_error e = im_png_encode(&img_noisy, NULL, &pa, &out_p, &out_n);
         check(e == IM_IMAGE_NO_MEMORY && out_p == NULL && out_n == 0u &&
               tc.live == 0u && tc.mismatch_or_double_free == 0u,
-              "png_encode OOM ordinal returns NO_MEMORY with 0 leaks & exact free sizes");
+              "png_encode noisy OOM ordinal returns NO_MEMORY with 0 leaks & exact free sizes");
     }
     {
         track_init(&tc, true, 0u);

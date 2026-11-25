@@ -4513,7 +4513,11 @@ class Drawing(unittest.TestCase):
 @unittest.skipUnless(os.name == "nt" or "microsoft" in platform.release().lower(), "needs Windows, directly or through WSL")
 class PngAndBmpWriters(unittest.TestCase):
     @staticmethod
-    def _parse_and_verify_png_chunks(data: bytes, expected_unique_colors: int | None = None):
+    def _parse_and_verify_png_chunks(
+        data: bytes,
+        expected_unique_colors: int | None = None,
+        expected_translucent_colors: int | None = None,
+    ):
         import struct
         import zlib
 
@@ -4561,7 +4565,11 @@ class PngAndBmpWriters(unittest.TestCase):
                 trns = chunks[idx][1]
                 if not trns or trns[-1] == 255 or len(trns) > len(plte) // 3:
                     raise AssertionError(f"tRNS is not shortest necessary: len={len(trns)}")
+                if expected_translucent_colors is not None and len(trns) != expected_translucent_colors:
+                    raise AssertionError(f"tRNS len={len(trns)} != distinct translucent count={expected_translucent_colors}")
                 idx += 1
+            elif expected_translucent_colors is not None and expected_translucent_colors > 0:
+                raise AssertionError(f"missing tRNS for {expected_translucent_colors} translucent colors")
             for t, p in chunks[idx:-1]:
                 if t != b"IDAT":
                     raise AssertionError(f"unexpected chunk {t!r} in indexed PNG: {names}")
@@ -4690,17 +4698,22 @@ class PngAndBmpWriters(unittest.TestCase):
             im.save(buf, format="PNG", compress_level=6)
             candidates.append(buf.getvalue())
 
-        if len(uniq) <= 256 and all_opaque:
-            pal_list = sorted(uniq)
+        if len(uniq) <= 256:
+            # Lossless Pillow indexed P mode for BOTH opaque and translucent palettes (translucent sorted first).
+            pal_list = sorted(uniq, key=lambda c: (c[3] == 255, c[3], c[0], c[1], c[2]))
             cmap = {c: idx for idx, c in enumerate(pal_list)}
-            idx_bytes = bytes(cmap[(rgba[i], rgba[i + 1], rgba[i + 2], 255)] for i in range(0, len(rgba), 4))
+            idx_bytes = bytes(cmap[(rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3])] for i in range(0, len(rgba), 4))
             pim = Image.frombytes("P", (w, h), idx_bytes)
             flat_pal = []
             for r, g, b, _ in pal_list:
                 flat_pal.extend([r, g, b])
             pim.putpalette(flat_pal)
+            trns_len = sum(1 for c in pal_list if c[3] < 255)
             buf = io.BytesIO()
-            pim.save(buf, format="PNG", compress_level=6)
+            if trns_len > 0:
+                pim.save(buf, format="PNG", compress_level=6, transparency=bytes(c[3] for c in pal_list[:trns_len]))
+            else:
+                pim.save(buf, format="PNG", compress_level=6)
             candidates.append(buf.getvalue())
 
         return min(candidates, key=len)
@@ -4793,55 +4806,61 @@ class PngAndBmpWriters(unittest.TestCase):
                 b[3::4] = rgba[3::4]
                 return bytes(b)
 
-            # 2. All 5 PNG color types (0, 2, 3, 4, 6) + exact chunks + min-SAD filter check + Pillow + Windows WIC.
+            # 2. All 5 PNG color types (0, 2, 3 including 1-bit odd-width, 4, 6) + exact chunks + min-SAD + Pillow + Windows WIC.
+            import PIL
+            self.assertTrue(bool(getattr(PIL, "__version__", "")), "Pillow reference version missing")
             w_t, h_t = 32, 24
-            def mk_rgba(fn):
+            def mk_rgba_wh(w_in, h_in, fn):
                 buf = bytearray()
-                for y in range(h_t):
-                    for x in range(w_t):
+                for y in range(h_in):
+                    for x in range(w_in):
                         buf.extend(fn(x, y))
                 return bytes(buf)
 
             cases_png = [
-                ("gray1", 1, 0, 1, mk_rgba(lambda x, y: (255, 255, 255, 255) if ((x // 2 + y // 2) & 1) else (0, 0, 0, 255))),
-                ("gray8", 1, 0, 8, mk_rgba(lambda x, y: ((x * 7 + y * 5) & 255, (x * 7 + y * 5) & 255, (x * 7 + y * 5) & 255, 255))),
-                ("rgb", 2, 2, 8, mk_rgba(lambda x, y: ((x * 8) & 255, (y * 10) & 255, ((x + y) * 5) & 255, 255))),
-                ("idx_opaque", 3, 3, 2, mk_rgba(lambda x, y: ([(220, 30, 40, 255), (30, 180, 70, 255), (40, 80, 230, 255), (240, 210, 50, 255)][(x // 4 + y // 4) & 3]))),
-                ("idx_trns", 3, 3, 2, mk_rgba(lambda x, y: ([(220, 30, 40, 0), (30, 180, 70, 127), (40, 80, 230, 255), (240, 210, 50, 255)][(x // 4 + y // 4) & 3]))),
-                ("gray_alpha", 4, 4, 8, mk_rgba(lambda x, y: ((x * 8) & 255, (x * 8) & 255, (x * 8) & 255, [0, 127, 255][(x + y) % 3]))),
-                ("rgba", 5, 6, 8, mk_rgba(lambda x, y: ((x * 8) & 255, (y * 10) & 255, ((x ^ y) * 7) & 255, [0, 127, 255][(x + y) % 3]))),
+                ("gray1", 1, 0, 1, w_t, h_t, mk_rgba_wh(w_t, h_t, lambda x, y: (255, 255, 255, 255) if ((x // 2 + y // 2) & 1) else (0, 0, 0, 255))),
+                ("gray8", 1, 0, 8, w_t, h_t, mk_rgba_wh(w_t, h_t, lambda x, y: ((x * 7 + y * 5) & 255, (x * 7 + y * 5) & 255, (x * 7 + y * 5) & 255, 255))),
+                ("rgb", 2, 2, 8, w_t, h_t, mk_rgba_wh(w_t, h_t, lambda x, y: ((x * 8) & 255, (y * 10) & 255, ((x + y) * 5) & 255, 255))),
+                ("idx1_odd", 3, 3, 1, 31, h_t, mk_rgba_wh(31, h_t, lambda x, y: (220, 30, 40, 255) if ((x + y) & 1) else (30, 180, 70, 255))),
+                ("idx_opaque", 3, 3, 2, w_t, h_t, mk_rgba_wh(w_t, h_t, lambda x, y: ([(220, 30, 40, 255), (30, 180, 70, 255), (40, 80, 230, 255), (240, 210, 50, 255)][(x // 4 + y // 4) & 3]))),
+                ("idx_trns", 3, 3, 2, w_t, h_t, mk_rgba_wh(w_t, h_t, lambda x, y: ([(220, 30, 40, 0), (30, 180, 70, 127), (40, 80, 230, 255), (240, 210, 50, 255)][(x // 4 + y // 4) & 3]))),
+                ("gray_alpha", 4, 4, 8, w_t, h_t, mk_rgba_wh(w_t, h_t, lambda x, y: ((x * 8) & 255, (x * 8) & 255, (x * 8) & 255, [0, 127, 255][(x + y) % 3]))),
+                ("rgba", 5, 6, 8, w_t, h_t, mk_rgba_wh(w_t, h_t, lambda x, y: ((x * 8) & 255, (y * 10) & 255, ((x ^ y) * 7) & 255, [0, 127, 255][(x + y) % 3]))),
             ]
 
             wic_files = []
             with tempfile.TemporaryDirectory() as td:
                 tdir = Path(td)
-                for name, mode, want_ct, want_bd, rgba in cases_png:
+                for name, mode, want_ct, want_bd, cw, ch, rgba in cases_png:
+                    uniq_set = {rgba[i : i + 4] for i in range(0, len(rgba), 4)}
+                    trans_cnt = sum(1 for c in uniq_set if c[3] < 255)
                     for fmt_id, px_in in ((1, rgba), (0, rgba_to_bgra(rgba))):
-                        err, leak, png_bytes = encode_req(0, mode, 1, fmt_id, w_t, h_t, px_in, f"png:{name}:fmt={fmt_id}")
+                        err, leak, png_bytes = encode_req(0, mode, 1, fmt_id, cw, ch, px_in, f"png:{name}:fmt={fmt_id}")
                         self.assertEqual((err, leak), (0, 0), f"png {name} fmt={fmt_id} failed")
-                        uniq_cnt = len({rgba[i : i + 4] for i in range(0, len(rgba), 4)})
                         pw, ph, bd, ct, raw_f = self._parse_and_verify_png_chunks(
-                            png_bytes, expected_unique_colors=(uniq_cnt if want_ct == 3 else None)
+                            png_bytes,
+                            expected_unique_colors=(len(uniq_set) if want_ct == 3 else None),
+                            expected_translucent_colors=(trans_cnt if want_ct == 3 else None),
                         )
-                        self.assertEqual((pw, ph, ct, bd), (w_t, h_t, want_ct, want_bd), f"{name}: IHDR mismatch")
+                        self.assertEqual((pw, ph, ct, bd), (cw, ch, want_ct, want_bd), f"{name}: IHDR mismatch")
                         self._verify_min_sad_filters(pw, ph, bd, ct, raw_f)
                         # Verify Pillow decodes to exact straight RGBA bytes.
                         pil_rgba = Image.open(io.BytesIO(png_bytes)).convert("RGBA").tobytes()
                         self.assertEqual(pil_rgba, rgba, f"{name}: Pillow RGBA mismatch")
                     fp = tdir / f"{name}.png"
                     fp.write_bytes(png_bytes)
-                    wic_files.append(("png", name, fp, rgba_to_bgra(rgba)))
+                    wic_files.append(("png", name, fp, cw, ch, rgba_to_bgra(rgba)))
 
                 # Self-test chunk checker: planting an unnecessary PLTE into an RGB PNG must be rejected!
-                _, _, rgb_png = encode_req(0, 2, 1, 1, w_t, h_t, cases_png[2][4], "png:plte_selftest")
+                _, _, rgb_png = encode_req(0, 2, 1, 1, w_t, h_t, cases_png[2][6], "png:plte_selftest")
                 fake_plte = struct.pack(">I", 3) + b"PLTE\x01\x02\x03" + struct.pack(">I", zlib.crc32(b"PLTE\x01\x02\x03") & 0xFFFFFFFF)
                 bad_rgb = rgb_png[:33] + fake_plte + rgb_png[33:]
                 with self.assertRaises(AssertionError):
                     self._parse_and_verify_png_chunks(bad_rgb)
 
                 # 3. BMP with and without transparency (opaque 24-bpp BI_RGB + translucent 32-bpp V5 BI_BITFIELDS).
-                bmp_opaque = cases_png[2][4]
-                bmp_alpha = cases_png[6][4]
+                bmp_opaque = cases_png[2][6]
+                bmp_alpha = cases_png[7][6]
                 for bname, bmode, want_dib, want_bpp, want_comp, rgba in (
                     ("bmp_opaque_auto", 0, 40, 24, 0, bmp_opaque),
                     ("bmp_opaque_24", 1, 40, 24, 0, bmp_opaque),
@@ -4857,30 +4876,36 @@ class PngAndBmpWriters(unittest.TestCase):
                         self.assertEqual((dib_sz, bpp, comp), (want_dib, want_bpp, want_comp), f"{bname}: DIB mismatch")
                     fp = tdir / f"{bname}.bmp"
                     fp.write_bytes(bmp_bytes)
-                    wic_files.append(("bmp", bname, fp, rgba_to_bgra(rgba)))
+                    wic_files.append(("bmp", bname, fp, w_t, h_t, rgba_to_bgra(rgba)))
 
                 # Verify ALL PNG color types AND both opaque/translucent BMPs in Windows WIC (straight Bgra32)!
+                # Pass paths as JSON data on stdin (never interpolated into single-quoted PowerShell literals).
                 pwsh = "powershell.exe" if os.name != "nt" else "powershell"
-                ps_lines = [
+                wic_payload = json.dumps(
+                    [{"kind": kind, "name": name, "path": win_path(fp)} for kind, name, fp, _, _, _ in wic_files]
+                )
+                ps_script = "\n".join([
                     "Add-Type -AssemblyName PresentationCore",
                     "$sha = [System.Security.Cryptography.SHA256]::Create()",
-                ]
-                for kind, name, fp, _ in wic_files:
-                    wp = win_path(fp)
-                    dec_cls = "PngBitmapDecoder" if kind == "png" else "BmpBitmapDecoder"
-                    ps_lines.append(
-                        f"$fs = [System.IO.File]::OpenRead('{wp}'); "
-                        f"try {{ "
-                        f"$d = New-Object System.Windows.Media.Imaging.{dec_cls}($fs, [System.Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat, [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad); "
-                        f"$f = $d.Frames[0]; "
-                        f"$conv = New-Object System.Windows.Media.Imaging.FormatConvertedBitmap($f, [System.Windows.Media.PixelFormats]::Bgra32, $null, 0); "
-                        f"$stride = $conv.PixelWidth * 4; $buf = New-Object byte[] ($stride * $conv.PixelHeight); "
-                        f"$conv.CopyPixels($buf, $stride, 0); "
-                        f"$h = ([BitConverter]::ToString($sha.ComputeHash($buf)) -replace '-', '').ToLower(); "
-                        f"Write-Output ('WIC {name} ' + $conv.PixelWidth + ' ' + $conv.PixelHeight + ' ' + $h) "
-                        f"}} finally {{ $fs.Dispose() }}"
-                    )
-                wic_res = subprocess.run([pwsh, "-NoProfile", "-Command", "\n".join(ps_lines)], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+                    "$items = [Console]::In.ReadToEnd() | ConvertFrom-Json",
+                    "foreach ($it in $items) {",
+                    "  $fs = [System.IO.File]::OpenRead($it.path)",
+                    "  try {",
+                    "    if ($it.kind -eq 'png') {",
+                    "      $d = New-Object System.Windows.Media.Imaging.PngBitmapDecoder($fs, [System.Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat, [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)",
+                    "    } else {",
+                    "      $d = New-Object System.Windows.Media.Imaging.BmpBitmapDecoder($fs, [System.Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat, [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)",
+                    "    }",
+                    "    $f = $d.Frames[0]",
+                    "    $conv = New-Object System.Windows.Media.Imaging.FormatConvertedBitmap($f, [System.Windows.Media.PixelFormats]::Bgra32, $null, 0)",
+                    "    $stride = $conv.PixelWidth * 4; $buf = New-Object byte[] ($stride * $conv.PixelHeight)",
+                    "    $conv.CopyPixels($buf, $stride, 0)",
+                    "    $h = ([BitConverter]::ToString($sha.ComputeHash($buf)) -replace '-', '').ToLower()",
+                    "    Write-Output ('WIC ' + $it.name + ' ' + $conv.PixelWidth + ' ' + $conv.PixelHeight + ' ' + $h)",
+                    "  } finally { $fs.Dispose() }",
+                    "}",
+                ])
+                wic_res = subprocess.run([pwsh, "-NoProfile", "-Command", ps_script], input=wic_payload, capture_output=True, text=True, timeout=60)
                 self.assertEqual(wic_res.returncode, 0, wic_res.stdout + wic_res.stderr)
                 wic_map = {}
                 for line in wic_res.stdout.splitlines():
@@ -4888,32 +4913,40 @@ class PngAndBmpWriters(unittest.TestCase):
                     if len(toks) == 5 and toks[0] == "WIC":
                         wic_map[toks[1]] = (int(toks[2]), int(toks[3]), toks[4])
                 self.assertEqual(len(wic_map), len(wic_files))
-                for _, name, _, exp_bgra in wic_files:
+                for _, name, _, cw, ch, exp_bgra in wic_files:
                     exp_sha = hashlib.sha256(exp_bgra).hexdigest()
-                    self.assertEqual(wic_map[name], (w_t, h_t, exp_sha), f"Windows WIC Bgra32 mismatch for {name}")
+                    self.assertEqual(wic_map[name], (cw, ch, exp_sha), f"Windows WIC Bgra32 mismatch for {name}")
 
-            # 4. 200 diverse deterministic pictures: per-picture 100 * sdk_bytes <= 103 * ref_bytes against Pillow (L6).
+            # 4. 200 strictly distinct deterministic pictures: BOTH min-SAD filter compliance AND
+            #    per-picture 100 * sdk_bytes <= 103 * ref_bytes against Pillow (L6, including translucent P).
             rng = random.Random(20261125)
             seen_color_types = set()
+            seen_digests = set()
             for idx in range(200):
                 kind = idx % 8
-                w = rng.choice([16, 24, 32, 48, 64])
-                h = rng.choice([16, 24, 32, 48, 64])
+                w = rng.choice([24, 32, 48, 64])
+                h = rng.choice([24, 32, 48, 64])
                 buf = bytearray(w * h * 4)
                 if kind == 0:
-                    # 1-bit B&W icon
+                    # 1-bit B&W icon with per-idx period, phase, and stripe/checker mode (25 strictly distinct)
+                    k = idx // 8
+                    p = 2 * (1 + (k % 4))
+                    ys = 1 + (k // 4)
                     for y in range(h):
                         for x in range(w):
-                            v = 255 if (((x // 2) ^ (y // 2)) & 1) else 0
+                            v = 255 if ((((x + k) // p) ^ ((y // (p + ys)))) & 1) else 0
                             o = (y * w + x) * 4
                             buf[o : o + 4] = bytes((v, v, v, 255))
                 elif kind == 1:
-                    # 2-bit or 4-bit grayscale badge
-                    step = 85 if (idx % 16 == 1) else 17
+                    # 2-bit or 4-bit grayscale badge with per-idx slope and phase (25 strictly distinct)
+                    k = idx // 8
+                    step = 85 if (k % 2 == 0) else 17
                     levels = 255 // step + 1
+                    sx = 1 + (k % 5)
+                    sy = 1 + ((k // 5) % 5)
                     for y in range(h):
                         for x in range(w):
-                            v = ((x + y) % levels) * step
+                            v = (((x // sx) + (y // sy) + k) % levels) * step
                             o = (y * w + x) * 4
                             buf[o : o + 4] = bytes((v, v, v, 255))
                 elif kind == 2:
@@ -4928,25 +4961,30 @@ class PngAndBmpWriters(unittest.TestCase):
                     for y in range(h):
                         for x in range(w):
                             v = (x * 5 + y * 2 + idx) & 255
-                            a = (x * 7 + y * 4) & 255
+                            a = (x * 7 + y * 4 + idx) & 255
                             o = (y * w + x) * 4
                             buf[o : o + 4] = bytes((v, v, v, a))
                 elif kind == 4:
-                    # Small opaque palette (4..16 colors)
-                    n_c = rng.choice([3, 4, 8, 16])
+                    # Opaque palette UI sprite (4..32 colors, realistic smooth/banded regions)
+                    n_c = rng.choice([4, 8, 16, 32])
                     pal = [(rng.randrange(256), rng.randrange(256), rng.randrange(256), 255) for _ in range(n_c)]
                     for y in range(h):
                         for x in range(w):
-                            c = pal[((x // 3) + (y // 3) * 2) % n_c]
+                            c = pal[((x // 4) + (y // 4) + (idx // 8)) % n_c]
                             o = (y * w + x) * 4
                             buf[o : o + 4] = bytes(c)
                 elif kind == 5:
-                    # Translucent palette (8..64 colors with alpha)
-                    n_c = rng.choice([8, 16, 48])
-                    pal = [(rng.randrange(256), rng.randrange(256), rng.randrange(256), rng.choice([0, 64, 128, 255])) for _ in range(n_c)]
+                    # Translucent palette UI badge/sprite (8..32 colors: translucent outer ring + opaque inner bands)
+                    n_c = rng.choice([8, 16, 32])
+                    n_t = n_c // 2
+                    pal_t = [(rng.randrange(256), rng.randrange(256), rng.randrange(256), rng.choice([0, 64, 128, 192])) for _ in range(n_t)]
+                    pal_o = [(rng.randrange(256), rng.randrange(256), rng.randrange(256), 255) for _ in range(n_c - n_t)]
                     for y in range(h):
                         for x in range(w):
-                            c = pal[((x // 2) + (y // 2) * 3) % n_c]
+                            if y < h // 3:
+                                c = pal_t[((x // 4) + (y // 4) + (idx // 8)) % n_t]
+                            else:
+                                c = pal_o[((x // 4) + (y // 4) + (idx // 8)) % (n_c - n_t)]
                             o = (y * w + x) * 4
                             buf[o : o + 4] = bytes(c)
                 elif kind == 6:
@@ -4960,12 +4998,20 @@ class PngAndBmpWriters(unittest.TestCase):
                     for y in range(h):
                         for x in range(w):
                             o = (y * w + x) * 4
-                            buf[o : o + 4] = bytes(((x * 7 + idx) & 255, (y * 9) & 255, ((x ^ y) * 5) & 255, (x * 4 + y * 5) & 255))
+                            buf[o : o + 4] = bytes(((x * 7 + idx) & 255, (y * 9 + idx) & 255, ((x ^ y) * 5) & 255, (x * 4 + y * 5) & 255))
 
                 rgba = bytes(buf)
+                seen_digests.add((w, h, hashlib.sha256(rgba).digest()))
                 err, leak, sdk_png = encode_req(0, 0, 1, 1, w, h, rgba, f"corpus200:{idx}")
                 self.assertEqual((err, leak), (0, 0), f"pic {idx} failed")
-                pw, ph, bd, ct, _ = self._parse_and_verify_png_chunks(sdk_png)
+                uniq_set = {rgba[i : i + 4] for i in range(0, len(rgba), 4)}
+                trans_cnt = sum(1 for c in uniq_set if c[3] < 255)
+                pw, ph, bd, ct, raw_f = self._parse_and_verify_png_chunks(
+                    sdk_png,
+                    expected_unique_colors=(len(uniq_set) if len(uniq_set) <= 256 else None),
+                    expected_translucent_colors=(trans_cnt if len(uniq_set) <= 256 else None),
+                )
+                self._verify_min_sad_filters(pw, ph, bd, ct, raw_f)
                 seen_color_types.add(ct)
                 self.assertEqual((pw, ph), (w, h))
                 self.assertEqual(Image.open(io.BytesIO(sdk_png)).convert("RGBA").tobytes(), rgba, f"pic {idx} Pillow mismatch")
@@ -4977,6 +5023,7 @@ class PngAndBmpWriters(unittest.TestCase):
                     f"pic {idx} (kind={kind}, {w}x{h}, ct={ct}, bd={bd}): sdk={len(sdk_png)} > 1.03 * ref={len(ref_png)} ({len(sdk_png)/len(ref_png):.4f}x)",
                 )
 
+            self.assertEqual(len(seen_digests), 200, f"expected 200 distinct pictures, got {len(seen_digests)}")
             # Confirm AUTO actually exercised Gray (0), RGB (2), Indexed (3), Gray+Alpha (4), and RGBA (6).
             self.assertEqual(seen_color_types, {0, 2, 3, 4, 6}, f"AUTO missed color types: {seen_color_types}")
         except Exception:
