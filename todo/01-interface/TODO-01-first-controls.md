@@ -39,7 +39,7 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | 5 | §5 | Text in fixed point | §1, §17 | [ ] |
 | 6 | §6 | Input, focus and the Windows layer | §4, §5 | [ ] |
 | 7 | §7 | Button, toggle switch, text box and list view | §6, §8, §9, §14, §17, T02 §2, T02 §5, T02 §6, D07 T01 §2 | [ ] |
-| 8 | §8 | Host callback table | §3 | [ ] |
+| 8 | §8 | Host callback table | §3 | [x] |
 | 9 | §9 | Dirty rectangles and frame timing | §4, §8 | [ ] |
 | 10 | §10 | Clips, opacity and layers | §1, §17 | [x] |
 | 11 | §11 | Transforms and pictures | §10 | [ ] |
@@ -262,6 +262,9 @@ The portable engine asks its host for everything the system owns: memory, time, 
 - [x] Commit: `ui: the host callback table`
 
 **Test checkpoint:** `python3 tools/build.py`, `python3 tools/check_parts.py`, and `python3 tools/site/build.py --check` exit 0, and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-25 | §8 | d4a96fa3364f8cccac2e8f6f3e14f74cf1f5797a
+> **Review:** `docs/reviews/d01-t01-s8.json`
 
 ## 9. Dirty rectangles and frame timing
 
