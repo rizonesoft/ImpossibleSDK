@@ -708,18 +708,31 @@ bool im_states_go_to(im_state_machine *sm, const char *state_name, uint32_t now_
         }
     }
 
-    /* Add destination state storyboard animations using pre-removal captured start values. */
+    /* Add destination state storyboard animations using pre-removal captured start values.
+       Install non-DragItem tracks first so DragItem opacity composition is independent of storyboard order. */
     if (sm->tables.anims) {
         for (uint32_t i = 0; i < n_state_anims; i++) {
-            add_anim_entries_captured(sm, (uint8_t)target_group, false,
-                &sm->tables.anims[st->anim_start + i], state_caps[i], now_ms);
+            const im_template_anim *a = &sm->tables.anims[st->anim_start + i];
+            if (a->kind == IM_ANIM_DRAG_ITEM_THEME) continue;
+            add_anim_entries_captured(sm, (uint8_t)target_group, false, a, state_caps[i], now_ms);
+        }
+        for (uint32_t i = 0; i < n_state_anims; i++) {
+            const im_template_anim *a = &sm->tables.anims[st->anim_start + i];
+            if (a->kind != IM_ANIM_DRAG_ITEM_THEME) continue;
+            add_anim_entries_captured(sm, (uint8_t)target_group, false, a, state_caps[i], now_ms);
         }
     }
 
-    /* Add explicit transition storyboard animations. */
+    /* Add explicit transition storyboard animations (same order-independent DragItem pass). */
     for (uint32_t i = 0; i < n_trans_anims; i++) {
-        add_anim_entries_captured(sm, (uint8_t)target_group, true,
-            &sm->tables.anims[tr->anim_start + i], trans_caps[i], now_ms);
+        const im_template_anim *a = &sm->tables.anims[tr->anim_start + i];
+        if (a->kind == IM_ANIM_DRAG_ITEM_THEME) continue;
+        add_anim_entries_captured(sm, (uint8_t)target_group, true, a, trans_caps[i], now_ms);
+    }
+    for (uint32_t i = 0; i < n_trans_anims; i++) {
+        const im_template_anim *a = &sm->tables.anims[tr->anim_start + i];
+        if (a->kind != IM_ANIM_DRAG_ITEM_THEME) continue;
+        add_anim_entries_captured(sm, (uint8_t)target_group, true, a, trans_caps[i], now_ms);
     }
 
     /* Zero-track generated transition: interpolate snapshotted outgoing properties toward the
