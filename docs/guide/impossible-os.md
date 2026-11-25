@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=5 sources=docs/specs/2026-11-23-interface-and-apps-design.md,abi/tiers.json reviewed=2026-11-24 -->
+<!-- page: group="Guide" order=5 sources=docs/specs/2026-11-23-interface-and-apps-design.md,abi/tiers.json reviewed=2026-11-25 -->
 # With Impossible OS
 
 How do the two projects fit together? The SDK keeps the list of functions, the controls and the shared parts; [Impossible OS](https://impossibleos.co/) builds every function on that list and imports programs at a pinned commit.
