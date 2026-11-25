@@ -968,6 +968,7 @@ class PngDecoder(unittest.TestCase):
         import hashlib
         import json
         import os
+        import signal
         import struct
         import threading
         import zlib
@@ -999,6 +1000,7 @@ class PngDecoder(unittest.TestCase):
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            start_new_session=(os.name != "nt"),
         )
         killed = False
         timed_out = False
@@ -1013,7 +1015,12 @@ class PngDecoder(unittest.TestCase):
                     stdin=subprocess.DEVNULL,
                 )
             else:
-                proc.kill()
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    proc.kill()
 
         def on_deadline():
             nonlocal timed_out, killed
@@ -1264,6 +1271,7 @@ class BmpDecoder(unittest.TestCase):
         import hashlib
         import json
         import os
+        import signal
         import struct
         import threading
 
@@ -1294,6 +1302,7 @@ class BmpDecoder(unittest.TestCase):
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            start_new_session=(os.name != "nt"),
         )
         killed = False
         timed_out = False
@@ -1308,7 +1317,12 @@ class BmpDecoder(unittest.TestCase):
                     stdin=subprocess.DEVNULL,
                 )
             else:
-                proc.kill()
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    proc.kill()
 
         def on_deadline():
             nonlocal timed_out, killed
@@ -1373,7 +1387,9 @@ class BmpDecoder(unittest.TestCase):
                 bad_cnt, first_bad, _ = check_all_prefixes(raw, label=f"prefixes:{sub}/{name}")
                 self.assertEqual(bad_cnt, 0, f"{sub}/{name}: {bad_cnt} bad prefixes (first={first_bad})")
 
-            # 2a. All 27 g/ good files + all 15 q/ positive dialect/bitfield/RLE files.
+            # 2a. Verify manifest covers EVERY .bmp file in bmpsuite's g/ directory, then decode all g/ and q/ files.
+            disk_good = {p.name for p in (suite_dir / "g").glob("*.bmp")}
+            self.assertEqual(set(manifest["good"].keys()), disk_good, "manifest good set drifted from bmpsuite g/")
             for name, meta in sorted(manifest["good"].items()):
                 verify_accepted("g", name, meta)
             for name, meta in sorted(manifest["questionable"].items()):
@@ -1401,12 +1417,15 @@ class BmpDecoder(unittest.TestCase):
                 bad_cnt, first_bad, ok_pre = check_all_prefixes(raw, label=f"prefixes:q/{name}")
                 self.assertEqual((bad_cnt, ok_pre), (0, 0), f"q/{name}: bad={bad_cnt} ok_pre={ok_pre} first={first_bad}")
 
-            # 2d. Exact 54-byte prefix of g/pal8.bmp: probe -> OK (127x64), decode -> TRUNCATED (3).
+            # 2d. Exact 54-byte prefix of g/pal8.bmp: probe -> OK (127x64), decode -> TRUNCATED (3);
+            #     54-byte prefix of b/badbitssize.bmp: probe -> INVALID (2), matching decode!
             pal8_54 = (suite_dir / "g" / "pal8.bmp").read_bytes()[:54]
             pe, pw, ph, pbsz = probe_buf(pal8_54, label="probe:pal8_54")
             self.assertEqual((pe, pw, ph, pbsz), (0, 127, 64, 127 * 64 * 4))
             de, _, _, _, leak, _ = decode_buf(pal8_54, label="decode:pal8_54")
             self.assertEqual((de, leak), (3, 0))
+            badbs_54 = (suite_dir / "b" / "badbitssize.bmp").read_bytes()[:54]
+            self.assertEqual(probe_buf(badbs_54, label="probe:badbitssize_54")[0], 2)
 
             # 2e. Synthetic edge cases: bfSize=0 inner truncation, trailing bytes beyond bfSize,
             #     RLE4 odd-byte padding (count 3 & 5), RLE8 draw bounds & final EOL+EOB,
@@ -1431,9 +1450,12 @@ class BmpDecoder(unittest.TestCase):
             self.assertEqual(decode_buf(mk_v3(1, 1, 24, 0, b"\x01\x02\x03", bf_size=0), label="trunc:scanline")[0], 3)
             self.assertEqual(decode_buf(mk_v3(2, 1, 8, 1, b"\x02\x00", pal=pal2, bf_size=0), label="trunc:rle_no_eob")[0], 3)
 
-            # Trailing bytes beyond bfSize (bfSize == bfOffBits) must NOT be consumed as pixel payload -> TRUNCATED (3).
+            # Declared bfSize too small for uncompressed payload -> INVALID (2) in header check;
+            # RLE8 with EOB placed past declared bfSize must NOT read trailing bytes -> TRUNCATED (3).
             trail = mk_v3(1, 1, 24, 0, b"\x56\x34\x12\x00", bf_size=54)
-            self.assertEqual(decode_buf(trail, label="bfsize:bound")[0], 3)
+            self.assertEqual(decode_buf(trail, label="bfsize:uncomp_too_small")[0], 2)
+            rle_trail = mk_v3(2, 1, 8, 1, b"\x02\x00\x00\x01", pal=pal2, bf_size=54 + len(pal2) + 2)
+            self.assertEqual(decode_buf(rle_trail, label="bfsize:rle_bound")[0], 3)
 
             # RLE4 absolute runs: count 3 (2 packed bytes, 0 pad) + count 5 (3 packed bytes, 1 pad) + encoded run 1 (idx 2=B)!
             # Width 9, height 1: 3 pixels (0,1,2) + 5 pixels (0,1,2,0,1) + 1 pixel (2) = 9 pixels.
@@ -1480,6 +1502,41 @@ class BmpDecoder(unittest.TestCase):
 
             self.assertEqual(decode_buf(mk_v5_profile(124 + 4), label="v5:prof_exact")[0], 0)
             self.assertEqual(decode_buf(mk_v5_profile(124 + 3), label="v5:prof_overlap")[0], 2)
+
+            # V5 24-bpp with truecolor optimization palette (bV5ClrUsed=4 -> 16 bytes at [138, 154)):
+            # embedded profile overlapping palette (at 124+12=136 from DIB -> byte 150) -> INVALID (2),
+            # adjacent after palette (at 124+16=140 from DIB -> byte 154, before pixels at 158) -> OK (0).
+            def mk_v5_tc_pal(prof_off_from_dib):
+                pal_b = b"\x00" * 16
+                prof = b"PROF"
+                pix = b"\x56\x34\x12\x00"
+                bf_off = 14 + 124 + len(pal_b) + len(prof)
+                total = bf_off + len(pix)
+                fh = struct.pack("<2sIHHI", b"BM", total, 0, 0, bf_off)
+                dib = bytearray(124)
+                struct.pack_into("<IiiHHIIiiII", dib, 0, 124, 1, 1, 1, 24, 0, 4, 0, 0, 4, 0)
+                struct.pack_into("<I", dib, 56, 0x4D424544)
+                struct.pack_into("<II", dib, 112, prof_off_from_dib, 4)
+                return fh + bytes(dib) + pal_b + prof + pix
+
+            self.assertEqual(decode_buf(mk_v5_tc_pal(124 + 12), label="v5:tc_pal_overlap")[0], 2)
+            self.assertEqual(decode_buf(mk_v5_tc_pal(124 + 16), label="v5:tc_pal_adjacent")[0], 0)
+
+            # 32-bpp V5 with standard masks populated and pixel 0x00123456:
+            # under BI_RGB (comp=0) -> opaque alpha 0xFF; under BI_BITFIELDS (comp=3) -> alpha 0x00.
+            def mk_v5_32(comp):
+                bf_off = 14 + 124
+                pix = struct.pack("<I", 0x00123456)
+                fh = struct.pack("<2sIHHI", b"BM", bf_off + 4, 0, 0, bf_off)
+                dib = bytearray(124)
+                struct.pack_into("<IiiHHIIiiII", dib, 0, 124, 1, 1, 1, 32, comp, 4, 0, 0, 0, 0)
+                struct.pack_into("<IIII", dib, 40, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
+                return fh + bytes(dib) + pix
+
+            e0, _, _, _, l0, px0 = decode_buf(mk_v5_32(0), label="v5:32_birgb")
+            e3, _, _, _, l3, px3 = decode_buf(mk_v5_32(3), label="v5:32_bibf")
+            self.assertEqual((e0, l0, px0), (0, 0, b"\x12\x34\x56\xFF"))
+            self.assertEqual((e3, l3, px3), (0, 0, b"\x12\x34\x56\x00"))
         except Exception:
             killed = True
             reap_proc()

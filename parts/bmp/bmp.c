@@ -32,20 +32,57 @@ static void write_pixel(uint8_t *dst, im_pixel_format fmt, uint8_t r, uint8_t g,
     }
 }
 
-/* Extract bits selected by an arbitrary (contiguous or non-contiguous) mask and scale to 0..255
-   using rounded 64-bit integer arithmetic: (v * 255 + max_v / 2) / max_v. */
-static uint8_t scale_masked(uint32_t word, uint32_t mask, uint8_t default_if_zero) {
-    if (mask == 0u) return default_if_zero;
-    uint32_t v = 0u;
-    uint32_t bits = 0u;
+typedef struct bmp_chan {
+    uint32_t mask;
+    uint8_t shift;
+    uint8_t bits;
+    bool contiguous;
+    uint64_t max_v;
+    uint8_t def_zero;
+} bmp_chan;
+
+static void init_chan(bmp_chan *c, uint32_t mask, uint8_t default_if_zero) {
+    c->mask = mask;
+    c->def_zero = default_if_zero;
+    if (mask == 0u) {
+        c->shift = 0u;
+        c->bits = 0u;
+        c->contiguous = true;
+        c->max_v = 1u;
+        return;
+    }
+    uint8_t shift = 0u;
+    while (((mask >> shift) & 1u) == 0u) shift++;
+    uint32_t shifted = mask >> shift;
+    uint8_t bits = 0u;
     for (uint32_t i = 0u; i < 32u; i++) {
-        if ((mask >> i) & 1u) {
-            if ((word >> i) & 1u) v |= (1u << bits);
-            bits++;
-        }
+        if ((mask >> i) & 1u) bits++;
     }
     uint64_t max_v = ((uint64_t)1u << bits) - 1u;
-    return (uint8_t)(((uint64_t)v * 255u + (max_v >> 1)) / max_v);
+    c->shift = shift;
+    c->bits = bits;
+    c->contiguous = ((uint64_t)shifted == max_v);
+    c->max_v = max_v;
+}
+
+/* Extract bits selected by a precomputed channel descriptor and scale to 0..255
+   using rounded 64-bit integer arithmetic: (v * 255 + max_v / 2) / max_v. */
+static uint8_t scale_chan(uint32_t word, const bmp_chan *c) {
+    if (c->mask == 0u) return c->def_zero;
+    uint32_t v;
+    if (c->contiguous) {
+        v = (word & c->mask) >> c->shift;
+    } else {
+        v = 0u;
+        uint32_t b = 0u;
+        for (uint32_t i = 0u; i < 32u; i++) {
+            if ((c->mask >> i) & 1u) {
+                if ((word >> i) & 1u) v |= (1u << b);
+                b++;
+            }
+        }
+    }
+    return (uint8_t)(((uint64_t)v * 255u + (c->max_v >> 1)) / c->max_v);
 }
 
 typedef struct bmp_parsed {
@@ -57,6 +94,7 @@ typedef struct bmp_parsed {
     uint32_t palette_entries;
     uint32_t palette_entry_size;
     uint32_t palette_offset;
+    uint64_t palette_byte_len;
     uint32_t extra_masks_size;
     bool use_bitfields;
     uint32_t r_mask;
@@ -187,20 +225,8 @@ static im_image_error parse_header(const uint8_t *data, size_t len,
                 b_mask = rd_le32(data + 62u);
                 a_mask = (hdr_size >= 56u) ? rd_le32(data + 66u) : 0u;
             }
-        } else if (comp == 0u && hdr_size >= 56u) {
-            /* V3/V4/V5 with BI_RGB: use standard RGB masks, plus alpha mask if header declares one?
-               Per Microsoft BMP / bmpsuite (rgba32-1.bmp, rgba32h56.bmp), BI_RGB 16-bit is 5-5-5
-               and BI_RGB 32-bit is 8-8-8-0 unless BI_BITFIELDS/BI_ALPHABITFIELDS or V4/V5 alpha mask. */
-            uint32_t hdr_a = rd_le32(data + 66u);
-            if (bpp == 32u && hdr_a == 0xFF000000u && rd_le32(data + 54u) == 0x00FF0000u &&
-                rd_le32(data + 58u) == 0x0000FF00u && rd_le32(data + 62u) == 0x000000FFu) {
-                use_bf = true;
-                r_mask = 0x00FF0000u;
-                g_mask = 0x0000FF00u;
-                b_mask = 0x000000FFu;
-                a_mask = 0xFF000000u;
-            }
         }
+        /* BI_RGB (comp == 0) is always opaque (5-5-5 for 16-bpp, BGRX for 32-bpp). */
     }
 
     if (use_bf) {
@@ -217,6 +243,7 @@ static im_image_error parse_header(const uint8_t *data, size_t len,
 
     uint32_t pal_entry_size = is_os2_1 ? 3u : 4u;
     uint32_t pal_entries = 0u;
+    uint64_t pal_bytes = 0u;
     if (bpp <= 8u) {
         uint32_t max_entries = 1u << bpp;
         if (clr_used > max_entries) return IM_IMAGE_INVALID;
@@ -230,15 +257,30 @@ static im_image_error parse_header(const uint8_t *data, size_t len,
                 pal_entries = max_entries;
             }
         }
-        uint64_t pal_bytes = (uint64_t)pal_entries * (uint64_t)pal_entry_size;
+        pal_bytes = (uint64_t)pal_entries * (uint64_t)pal_entry_size;
         if (pal_off + pal_bytes > (uint64_t)bf_off) return IM_IMAGE_INVALID;
     } else if (clr_used > 0u) {
-        uint64_t pal_bytes = (uint64_t)clr_used * (uint64_t)pal_entry_size;
+        pal_bytes = (uint64_t)clr_used * (uint64_t)pal_entry_size;
         if (pal_off + pal_bytes > (uint64_t)bf_off) return IM_IMAGE_INVALID;
     }
 
-    bool os2_hdr_size_conv = (is_os2_1 && bf_size == 26u);
-    if (bf_size != 0u && !os2_hdr_size_conv && bf_size < bf_off) return IM_IMAGE_INVALID;
+    /* OS/2 1.x and 2.x headers may store the combined header size in bfSize (14 + hdr_size). */
+    bool os2_hdr_size_conv = ((is_os2_1 || is_os2_2) && bf_size == 14u + hdr_size);
+    if (bf_size != 0u && !os2_hdr_size_conv) {
+        if (bf_size < bf_off) return IM_IMAGE_INVALID;
+        uint64_t decl_payload = (uint64_t)bf_size - (uint64_t)bf_off;
+        bool is_rle_hdr = (comp == 1u || comp == 2u);
+        if (!is_rle_hdr) {
+            if (raw_bytes64 > decl_payload) return IM_IMAGE_INVALID;
+            if (img_size != 0u && ((uint64_t)img_size < raw_bytes64 || (uint64_t)img_size > decl_payload)) {
+                return IM_IMAGE_INVALID;
+            }
+        } else if (img_size != 0u && (uint64_t)img_size > decl_payload) {
+            return IM_IMAGE_INVALID;
+        }
+    } else if (comp != 1u && comp != 2u && img_size != 0u && (uint64_t)img_size < raw_bytes64) {
+        return IM_IMAGE_INVALID;
+    }
 
     out->info.width = width;
     out->info.height = height;
@@ -255,6 +297,7 @@ static im_image_error parse_header(const uint8_t *data, size_t len,
     out->palette_entries = pal_entries;
     out->palette_entry_size = pal_entry_size;
     out->palette_offset = (uint32_t)pal_off;
+    out->palette_byte_len = pal_bytes;
     out->extra_masks_size = extra_masks;
     out->use_bitfields = use_bf;
     out->r_mask = r_mask;
@@ -428,7 +471,7 @@ static im_image_error validate_v5_profile(const bmp_parsed *p, size_t file_end, 
     if (pend > (uint64_t)file_end) return IM_IMAGE_INVALID;
 
     uint64_t pal_start = (uint64_t)p->palette_offset;
-    uint64_t pal_end = pal_start + (uint64_t)p->palette_entries * (uint64_t)p->palette_entry_size;
+    uint64_t pal_end = pal_start + p->palette_byte_len;
     if (pal_end > pal_start && pstart < pal_end && pend > pal_start) return IM_IMAGE_INVALID;
 
     uint64_t pix_start = (uint64_t)p->bf_off_bits;
@@ -450,7 +493,8 @@ im_image_error im_bmp_decode(const uint8_t *data, size_t len,
     if (err != IM_IMAGE_OK) return err;
 
     /* Determine logical file_end (bounding all payload and profile reads). */
-    bool os2_hdr_size_conv = (p.info.header_size == 12u && p.bf_size == 26u);
+    bool is_os2 = (p.info.header_size == 12u || p.info.header_size == 16u || p.info.header_size == 64u);
+    bool os2_hdr_size_conv = (is_os2 && p.bf_size == 14u + p.info.header_size);
     size_t file_end = len;
     if (p.bf_size != 0u && !os2_hdr_size_conv) {
         if ((size_t)p.bf_size > len) return IM_IMAGE_TRUNCATED;
@@ -531,6 +575,13 @@ im_image_error im_bmp_decode(const uint8_t *data, size_t len,
         uint16_t bpp = p.info.bit_count;
         size_t dst_stride = (size_t)w * 4u;
         const uint8_t *pix_src = data + p.bf_off_bits;
+        bmp_chan rc, gc, bc, ac;
+        if (p.use_bitfields) {
+            init_chan(&rc, p.r_mask, 0u);
+            init_chan(&gc, p.g_mask, 0u);
+            init_chan(&bc, p.b_mask, 0u);
+            init_chan(&ac, p.a_mask, 255u);
+        }
 
         for (uint32_t row_idx = 0u; row_idx < h; row_idx++) {
             uint32_t dst_y = p.info.top_down ? row_idx : (h - 1u - row_idx);
@@ -555,10 +606,10 @@ im_image_error im_bmp_decode(const uint8_t *data, size_t len,
                     uint32_t word = rd_le16(srow + (size_t)x * 2u);
                     uint8_t r, g, b, a;
                     if (p.use_bitfields) {
-                        r = scale_masked(word, p.r_mask, 0u);
-                        g = scale_masked(word, p.g_mask, 0u);
-                        b = scale_masked(word, p.b_mask, 0u);
-                        a = scale_masked(word, p.a_mask, 255u);
+                        r = scale_chan(word, &rc);
+                        g = scale_chan(word, &gc);
+                        b = scale_chan(word, &bc);
+                        a = scale_chan(word, &ac);
                     } else {
                         uint32_t rv = (word >> 10) & 0x1Fu;
                         uint32_t gv = (word >> 5) & 0x1Fu;
@@ -580,10 +631,10 @@ im_image_error im_bmp_decode(const uint8_t *data, size_t len,
                     uint32_t word = rd_le32(srow + (size_t)x * 4u);
                     uint8_t r, g, b, a;
                     if (p.use_bitfields) {
-                        r = scale_masked(word, p.r_mask, 0u);
-                        g = scale_masked(word, p.g_mask, 0u);
-                        b = scale_masked(word, p.b_mask, 0u);
-                        a = scale_masked(word, p.a_mask, 255u);
+                        r = scale_chan(word, &rc);
+                        g = scale_chan(word, &gc);
+                        b = scale_chan(word, &bc);
+                        a = scale_chan(word, &ac);
                     } else {
                         b = (uint8_t)(word & 0xFFu);
                         g = (uint8_t)((word >> 8) & 0xFFu);

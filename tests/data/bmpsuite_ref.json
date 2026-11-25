@@ -306,6 +306,13 @@
       "height": 64,
       "rgba8_sha256": "71ff34dcb94a17b8a7b939e98c897776799cbf55ae74d724387fbd4f32fa584c",
       "oracle": "python_exact_bitfield_straight_rgba8"
+    },
+    "pal8os2v2-sz.bmp": {
+      "file_sha256": "b9a82cd840393cd8be16e838ef9778e986b57ca2b7d82c1b81bd1ee756c5b6ee",
+      "ref_png": "pal8.png",
+      "width": 127,
+      "height": 64,
+      "rgba8_sha256": "9f33d52c158d285928d5c27e5b59b84aaa26a53ab5d204383d72889c6f6d9051"
     }
   },
   "bad": {
