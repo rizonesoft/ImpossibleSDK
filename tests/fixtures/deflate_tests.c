@@ -142,7 +142,15 @@ static void test_api_contracts(void) {
         rc = im_deflate_step(&g_def1, NULL, 0, false, &in_used, gz_empty + gz_pos, 1u, &out_used);
         gz_pos += out_used;
     }
-    check(rc == IM_DEFLATE_OK && gz_pos == 20u, "empty gzip 1B drain finishes with is_eof=false retries after BAD_ARG");
+    uint8_t gz_ref[64];
+    size_t gz_ref_len = 0;
+    check(im_deflate_all(&g_def2, IM_DEFLATE_GZIP, IM_DEFLATE_BALANCED, NULL, 0, gz_ref, sizeof(gz_ref), &gz_ref_len) == IM_DEFLATE_OK,
+          "empty gzip 1B drain: reference one-shot succeeds");
+    bool gz_match = (rc == IM_DEFLATE_OK && gz_pos == 20u && gz_pos == gz_ref_len);
+    for (size_t i = 0; gz_match && i < gz_pos; ++i) {
+        if (gz_empty[i] != gz_ref[i]) gz_match = false;
+    }
+    check(gz_match, "empty gzip 1B drain matches fresh one-shot empty gzip byte-for-byte after BAD_ARG");
 
     /* NULL/0 empty input succeeds in all 3 formats. */
     for (int f = 0; f < 3; ++f) {
@@ -162,22 +170,25 @@ static uint8_t g_big_out1[128u * 1024u];
 static uint8_t g_big_out2[128u * 1024u];
 static uint8_t g_big_dec[96u * 1024u];
 
-static bool stream_compress(im_deflate *st, im_deflate_format fmt, im_deflate_effort effort,
-                            const uint8_t *in, size_t in_len, size_t in_chunk, size_t out_chunk,
-                            bool separate_eof, uint8_t *out, size_t out_cap, size_t *out_len) {
+static bool stream_compress_ex(im_deflate *st, im_deflate_format fmt, im_deflate_effort effort,
+                               const uint8_t *in, size_t in_len, size_t in_chunk, size_t out_chunk,
+                               bool separate_eof, bool vary_chunks, uint8_t *out, size_t out_cap, size_t *out_len) {
     if (im_deflate_init(st, fmt, effort) != IM_DEFLATE_OK) return false;
     size_t ip = 0, op = 0;
+    uint32_t rng = 0x517CC1B7u ^ (uint32_t)in_chunk ^ ((uint32_t)out_chunk << 16);
+    if (rng == 0u) rng = 1u;
     for (;;) {
-        size_t avail = in_len - ip;
-        size_t give = avail > in_chunk ? in_chunk : avail;
-        bool eof_now = false;
-        if (separate_eof) {
-            eof_now = (avail == 0u);
-        } else {
-            eof_now = (ip + give == in_len);
+        size_t cur_ic = in_chunk;
+        size_t cur_oc = out_chunk;
+        if (vary_chunks) {
+            cur_ic = 1u + (size_t)(xorshift32(&rng) % (uint32_t)(in_chunk ? in_chunk : 1u));
+            cur_oc = 1u + (size_t)(xorshift32(&rng) % (uint32_t)(out_chunk ? out_chunk : 1u));
         }
+        size_t avail = in_len - ip;
+        size_t give = avail > cur_ic ? cur_ic : avail;
+        bool eof_now = separate_eof ? (avail == 0u) : (ip + give == in_len);
         size_t cap_now = out_cap - op;
-        if (cap_now > out_chunk) cap_now = out_chunk;
+        if (cap_now > cur_oc) cap_now = cur_oc;
         size_t ui = 0, uo = 0;
         im_deflate_status rc = im_deflate_step(
             st, (give > 0u) ? (in + ip) : NULL, give, eof_now, &ui,
@@ -199,6 +210,12 @@ static bool stream_compress(im_deflate *st, im_deflate_format fmt, im_deflate_ef
         }
         return false;
     }
+}
+
+static bool stream_compress(im_deflate *st, im_deflate_format fmt, im_deflate_effort effort,
+                            const uint8_t *in, size_t in_len, size_t in_chunk, size_t out_chunk,
+                            bool separate_eof, uint8_t *out, size_t out_cap, size_t *out_len) {
+    return stream_compress_ex(st, fmt, effort, in, in_len, in_chunk, out_chunk, separate_eof, false, out, out_cap, out_len);
 }
 
 /* Minimal bounds-checked RFC 1951 wire-level inspector for verifying stored blocks, BFINAL, and matches. */
@@ -508,7 +525,7 @@ static void test_window_slide_and_boundary_determinism(void) {
 }
 
 /* Stream 10 GiB (10,737,418,240 bytes) through im_deflate_step -> im_inflate_step in fixed < 1 MB memory,
-   independently verifying source CRC-32, decoded CRC-32, full 64-bit byte count, and gzip trailer. */
+   independently verifying source vs decoded Adler-32, full 64-bit byte count, and gzip trailer CRC-32 + ISIZE. */
 static uint8_t g_10g_src[65536];
 static uint8_t g_10g_cmp[65536];
 static uint8_t g_10g_dec[65536];
@@ -663,11 +680,11 @@ static int run_batch(void) {
                                 in_len ? g_batch_in : NULL, in_len,
                                 g_batch_out, sizeof(g_batch_out), &out_len);
         } else if (op == 1u) {
-            bool ok = stream_compress(&g_def1, fmt, eff,
-                                      in_len ? g_batch_in : NULL, in_len,
-                                      in_chunk ? in_chunk : 1u, out_chunk ? out_chunk : 1u,
-                                      (flags & 1u) != 0u,
-                                      g_batch_out, sizeof(g_batch_out), &out_len);
+            bool ok = stream_compress_ex(&g_def1, fmt, eff,
+                                         in_len ? g_batch_in : NULL, in_len,
+                                         in_chunk ? in_chunk : 1u, out_chunk ? out_chunk : 1u,
+                                         (flags & 1u) != 0u, (flags & 2u) != 0u,
+                                         g_batch_out, sizeof(g_batch_out), &out_len);
             rc = ok ? IM_DEFLATE_OK : IM_DEFLATE_BAD_ARG;
         }
         uint8_t resp[8];

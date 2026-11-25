@@ -1934,9 +1934,9 @@ class DeflatePart(unittest.TestCase):
                     buf.extend(chunk)
                 return bytes(buf)
 
-            def compress_req(op: int, fmt: int, eff: int, data: bytes, in_chunk: int = 0, out_chunk: int = 0, sep_eof: bool = False, label: str = ""):
+            def compress_req(op: int, fmt: int, eff: int, data: bytes, in_chunk: int = 0, out_chunk: int = 0, sep_eof: bool = False, vary: bool = False, label: str = ""):
                 active_op[0] = label
-                flags = 1 if sep_eof else 0
+                flags = (1 if sep_eof else 0) | (2 if vary else 0)
                 proc.stdin.write(struct.pack("<BBBBIII", op, fmt, eff, flags, in_chunk, out_chunk, len(data)) + data)
                 proc.stdin.flush()
                 rc, out_len = struct.unpack("<II", read_exact(8))
@@ -2028,7 +2028,8 @@ class DeflatePart(unittest.TestCase):
                 for name, raw, _ in zip_entries:
                     self.assertEqual(zf.read(name), raw, f"zipfile mismatch for {name}")
 
-            # 3b. Arbitrary input/output streaming cuts give exact byte-identical output.
+            # 3b. Arbitrary input/output streaming cuts (both fixed and varying per-call sizes, both EOF schedules)
+            #     give exact byte-identical output.
             for idx in range(60):
                 eff = idx % 3
                 fmt = (idx // 3) % 3
@@ -2042,12 +2043,12 @@ class DeflatePart(unittest.TestCase):
                 self.assertEqual(rc0, 0)
                 in_c = rng.choice([1, 2, 3, 7, 64, 257, 1024, 4099])
                 out_c = rng.choice([1, 2, 5, 19, 256, 4096])
-                sep_eof = (idx % 2 == 1)
-                rc1, streamed = compress_req(1, fmt, eff, raw, in_chunk=in_c, out_chunk=out_c, sep_eof=sep_eof, label=f"cut_st:{idx}")
-                self.assertEqual(rc1, 0, f"stream cut {idx} failed")
-                self.assertEqual(streamed, one_shot, f"stream cut {idx} (in={in_c}, out={out_c}, sep={sep_eof}) differed from one-shot")
+                for sep_eof in (False, True):
+                    rc1, streamed = compress_req(1, fmt, eff, raw, in_chunk=in_c, out_chunk=out_c, sep_eof=sep_eof, vary=(idx % 2 == 1), label=f"cut_st:{idx}:{sep_eof}")
+                    self.assertEqual(rc1, 0, f"stream cut {idx} sep={sep_eof} failed")
+                    self.assertEqual(streamed, one_shot, f"stream cut {idx} (in={in_c}, out={out_c}, sep={sep_eof}) differed from one-shot")
 
-            # 3c. Pinned corpus size benchmark: within 3% of zlib levels 1, 6, and 9 independently.
+            # 3c. Pinned corpus size benchmark: within 3% of both pinned and live zlib levels 1, 6, and 9 independently.
             corpus_dir = ROOT / "tests" / "data" / "deflate_corpus"
             manifest = json.loads((ROOT / "tests" / "data" / "deflate_ref.json").read_text(encoding="utf-8"))
             disk_files = {p.name for p in corpus_dir.iterdir() if p.is_file()}
@@ -2064,6 +2065,7 @@ class DeflatePart(unittest.TestCase):
             for eff, zlvl in ((0, 1), (1, 6), (2, 9)):
                 sdk_sum = 0
                 ref_sum = 0
+                pinned_sum = 0
                 for name, raw in sorted(corpus_bytes.items()):
                     rc, comp = compress_req(0, 1, eff, raw, label=f"corpus:{name}:e{eff}")
                     self.assertEqual(rc, 0, f"corpus {name} eff={eff} failed")
@@ -2071,11 +2073,17 @@ class DeflatePart(unittest.TestCase):
                     ref = zlib.compress(raw, zlvl)
                     sdk_sum += len(comp)
                     ref_sum += len(ref)
+                    pinned_sum += manifest["files"][name][f"zlib_l{zlvl}"]
                 self.assertLess(sdk_sum * 100, total_raw * 40, f"effort {eff} did not genuinely compress corpus")
                 self.assertLessEqual(
                     sdk_sum * 100,
                     ref_sum * 103,
-                    f"effort {eff} (zlib L{zlvl}): sdk={sdk_sum} > 1.03 * ref={ref_sum} ({sdk_sum / ref_sum:.4f}x)",
+                    f"effort {eff} (live zlib L{zlvl}): sdk={sdk_sum} > 1.03 * ref={ref_sum} ({sdk_sum / ref_sum:.4f}x)",
+                )
+                self.assertLessEqual(
+                    sdk_sum * 100,
+                    pinned_sum * 103,
+                    f"effort {eff} (pinned zlib L{zlvl}): sdk={sdk_sum} > 1.03 * pinned={pinned_sum} ({sdk_sum / pinned_sum:.4f}x)",
                 )
         except Exception:
             killed = True
