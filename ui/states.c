@@ -378,7 +378,22 @@ static const im_template_transition *select_transition(const im_state_machine *s
 }
 
 static bool add_entry(im_state_machine *sm, im_state_entry entry) {
-    if (!sm || sm->entry_count >= IM_MAX_STATE_ENTRIES) return false;
+    if (!sm) return false;
+    /* Replace any shadowed entry in the same group/target/property/phase so repeated setters
+       or DragItem composition never waste capacity or get dropped at IM_MAX_STATE_ENTRIES. */
+    for (uint32_t i = 0; i < sm->entry_count; i++) {
+        if (sm->entries[i].group_index == entry.group_index &&
+            sm->entries[i].from_transition == entry.from_transition &&
+            str_eq(sm->entries[i].target, entry.target) &&
+            prop_matches(sm->entries[i].property, entry.property)) {
+            for (uint32_t j = i + 1u; j < sm->entry_count; j++) {
+                sm->entries[j - 1u] = sm->entries[j];
+            }
+            sm->entries[sm->entry_count - 1u] = entry;
+            return true;
+        }
+    }
+    if (sm->entry_count >= IM_MAX_STATE_ENTRIES) return false;
     sm->entries[sm->entry_count++] = entry;
     return true;
 }
@@ -485,22 +500,24 @@ static void add_anim_entries_captured(im_state_machine *sm, uint8_t group_index,
             add_entry(sm, e);
         }
         /* DragItemThemeAnimation composes its 0.65 opacity multiplier against the winning
-           settled Opacity in this group (scanned newest-first, matching sample_raw_value_no_bt)
-           and appends its own entry at the tail so setters, multiple animations, and storyboard
-           declaration order can never shadow it. */
-        im_fixed base_end_op = cap.f2;
+           surviving destination Opacity (newest-first in this group, else surviving other groups
+           or element base, NEVER the removed outgoing state), while starting from cap.f2 for
+           continuity. add_entry reuses any same-group Opacity slot so capacity cannot drop it. */
+        im_fixed base_end_op = default_base_fixed(sm, anim->target_name, "Opacity");
+        bool found_dest_op = false;
         for (uint32_t i = sm->entry_count; i > 0u; i--) {
             const im_state_entry *prev = &sm->entries[i - 1u];
-            if (prev->group_index == group_index &&
-                target_matches(prev->target, anim->target_name) &&
+            if (target_matches(prev->target, anim->target_name) &&
                 str_eq(prev->property, "Opacity")) {
                 im_template_value end_v;
                 if (entry_eval_value(sm, prev, now_ms + prev->duration_ms, &end_v)) {
                     base_end_op = im_template_value_to_fixed(&end_v, &sm->palette, base_end_op);
+                    found_dest_op = true;
                 }
                 break;
             }
         }
+        (void)found_dest_op;
         im_fixed comp_end = (im_fixed)(((int64_t)base_end_op * (int64_t)IM_DRAG_ITEM_OPACITY_MULT + (IM_ONE / 2)) >> 16);
         im_state_entry op_e = {
             .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,

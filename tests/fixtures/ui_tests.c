@@ -1591,6 +1591,41 @@ static int test_visual_states_and_animation(void) {
         im_states_init_custom(&dsm, &di_ord_tpl, &di_ord_tbls, &pal);
         im_states_go_to(&dsm, "Drag", 0u);
         if (im_states_sample_fixed(&dsm, "ContentBorder", "Opacity", 240u, 0) != want_drag_op) return 276;
+
+        /* Outgoing Opacity=0.8 state -> DragItem-only state on base 1.0 element:
+           must start from 0.8 for continuity and settle at 1.0 * 0.65 (NOT 0.8 * 0.65!). */
+        static const im_template_anim di_out_anims[] = {
+            {IM_ANIM_DOUBLE, "ContentBorder", "Opacity", 0, IM_DIR_NONE, false, false, true,
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
+             {IM_TVAL_THEME_VALUE, IM_VALUE_ListViewItemDragThemeOpacity, 0, 0, 0, NULL, NULL}, 0, 0},
+            {IM_ANIM_DRAG_ITEM_THEME, "ContentBorder", NULL, 0, IM_DIR_NONE, false, false, false,
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL},
+             {IM_TVAL_NONE, 0, 0, 0, 0, NULL, NULL}, 0, 0},
+        };
+        static const im_template_state di_out_states[] = {
+            {"Dimmed", 0, 0, 0, 1},
+            {"DragOnly", 0, 0, 1, 1},
+        };
+        static const im_template_group di_out_groups[] = {{"G", 0, 2, 0, 0}};
+        static const im_template di_out_tpl = {"DragOut", "Grid", 0, 0, 0, 0, 0, 1};
+        im_template_tables di_out_tbls = {NULL, NULL, NULL, di_out_groups, di_out_states, NULL, di_out_anims, NULL};
+        im_state_machine dosm;
+        im_states_init_custom(&dosm, &di_out_tpl, &di_out_tbls, &pal);
+        im_states_go_to(&dosm, "Dimmed", 0u);
+        im_states_go_to(&dosm, "DragOnly", 100u);
+        if (im_states_sample_fixed(&dosm, "ContentBorder", "Opacity", 100u, 0) != drag_theme_op) return 276;
+        if (im_states_sample_fixed(&dosm, "ContentBorder", "Opacity", 340u, 0) != IM_DRAG_ITEM_OPACITY_MULT) return 276;
+
+        /* Near entry capacity (62 live entries): DragItem composing an existing Opacity entry reuses its slot
+           so settled opacity still equals 0.8 * 0.65 (~0.52) instead of being dropped. */
+        im_states_init_custom(&dsm, &di_ord_tpl, &di_ord_tbls, &pal);
+        for (uint32_t k = 0; k < 61u; k++) {
+            dsm.entries[dsm.entry_count++] = (im_state_entry){
+                .kind = IM_SENTRY_SETTER, .group_index = 7, .target = "Pad", .property = "Tag", .snapped = true
+            };
+        }
+        im_states_go_to(&dsm, "Drag", 0u);
+        if (im_states_sample_fixed(&dsm, "ContentBorder", "Opacity", 240u, 0) != want_drag_op) return 276;
     }
 
     /* 9. im_states_apply_to_tree connects layout-affecting visual states to im_tree without losing local values. */
