@@ -683,14 +683,14 @@ public partial class App : Application
                         $"<Geometry xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>{System.Security.SecurityElement.Escape(pathData)}</Geometry>");
                     pi.Data = geom;
                 }
-                else if (el is Microsoft.UI.Xaml.Shapes.Path sp)
+                else if (el is Microsoft.UI.Xaml.Shapes.Path shapePath)
                 {
                     string pathData = val.GetString() ?? "";
                     var tmp = (Microsoft.UI.Xaml.Shapes.Path)XamlReader.Load(
                         $"<Path xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Data='{System.Security.SecurityElement.Escape(pathData)}'/>");
                     var geom = tmp.Data;
                     tmp.Data = null;
-                    sp.Data = geom;
+                    shapePath.Data = geom;
                 }
                 else throw new InvalidOperationException($"{caseId}.{prop}: not supported on {el.GetType().Name}");
                 break;
