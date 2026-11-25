@@ -194,7 +194,7 @@ Sections: 35 | Checklist items: 184
 | [ ]    | D06 T01 §8  | Lossy sound                            | none                          | 5     |
 | [ ]    | D06 T01 §9  | SSH transport                          | windows-host                  | 7     |
 | [x]    | D06 T01 §10 | PNG and BMP writers                    | windows-host                  | 5     |
-| [ ]    | D02 T01 §11 | ICO and CUR, both ways                 | windows-host                  | 6     |
+| [x]    | D02 T01 §11 | ICO and CUR, both ways                 | windows-host                  | 6     |
 | [ ]    | D06 T01 §11 | Picture scaler                         | none                          | 5     |
 | [ ]    | D07 T01 §12 | Sound playback                         | windows-host                  | 8     |
 | [ ]    | D07 T01 §13 | Sound recording                        | windows-host, display-session | 5     |
@@ -244,6 +244,6 @@ Sections: 2 | Checklist items: 6
 | [ ]    | D01 T01 §20 | Native 150% DPI fractional layout | windows-host, display-session, operator | 3     |
 | [ ]    | D08 T01 §13 | First public release              | operator                                | 3     |
 
-Progress: 18/189 verified sections, 22 ready to run now.
+Progress: 19/189 verified sections, 21 ready to run now.
 
 Checklist: 99/1547 items completed (includes Commit items).

@@ -1,0 +1,93 @@
+{
+  "ref": "D02 T01 \u00a711",
+  "title": "ICO and CUR, both ways",
+  "implementation_sha": "829ba2aaa136bd3ec84e7d85c8f8d72deb9a83af",
+  "date": "2026-11-25",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-formats/D02-T01-s11.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "tools/check_parts.py",
+    "tools/build.py",
+    "tools/site/build.py --check",
+    "Windows python.exe IcoAndCur",
+    "121s ASan/UBSan libFuzzer (337,503 runs, 0 findings)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-formats/D02-T01-s11.md",
+    "verdict": "filed",
+    "candidate": "829ba2aaa136bd3ec84e7d85c8f8d72deb9a83af",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D02 T01 \u00a712"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-formats/D02-T01-s11.md",
+    "candidate": "14ca48eb87b484c44abbd54da14e38fc5717445e",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "14ca48eb87b484c44abbd54da14e38fc5717445e",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "lenses": {
+      "thread-safety": "Which state is reached from two threads (UI, worker, callback, timer) without one lock or atomic owning it, and which lock order, wait, cancellation or teardown can deadlock or run after its owner is gone?",
+      "memory-safety": "Which pointer, reference, view, handle or iterator can outlive what it refers to, and which size, index or cast is trusted unchecked?"
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}

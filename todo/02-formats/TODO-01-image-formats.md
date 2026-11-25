@@ -42,7 +42,7 @@ title: "TODO-01 -- Image Formats"
 | 8 | §8 | WebP lossy decoder and alpha | §7 | [ ] |
 | 9 | §9 | Animated WebP and GIF playback | §6, §8 | [ ] |
 | 10 | §10 | JPEG writer | §4 | [ ] |
-| 11 | §11 | ICO and CUR, both ways | §3, §5, D06 T01 §10 | [ ] |
+| 11 | §11 | ICO and CUR, both ways | §3, §5, D06 T01 §10 | [x] |
 | 12 | §12 | Picture orientation and facts | §3, §4, §8 | [ ] |
 
 ## 1. Part layout and image type
@@ -307,6 +307,9 @@ Icons and cursors with every size and depth, for Icon Editor and programs.
 - [x] Commit: `formats: ICO and CUR`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-25 | §11 | 829ba2aaa136bd3ec84e7d85c8f8d72deb9a83af
+> **Review:** `docs/reviews/d02-t01-s11.json`
 
 ## 12. Picture orientation and facts
 
