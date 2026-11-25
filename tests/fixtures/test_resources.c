@@ -223,13 +223,28 @@ int im_main(void) {
         im_states_draw_button(&sm_ref, &sb, bnd, 200u);
         CHECK(buf_eq(pix_a, pix_b, 160 * 64), "im_states_draw_button on Light subtree matches Light window");
 
-        /* Mid-BrushTransition theme flip updates target to new theme cleanly. */
+        /* Mid-BrushTransition theme flip updates target to new theme cleanly without jumping at now_ms. */
         im_states_go_to(&sm_l, "Pressed", 300u);
+        uint32_t before_flip = im_states_sample_color(&sm_l, "ContentPresenter", "Background", 340u, 0u);
         im_node_set_requested_theme(lpanel, IM_REQ_THEME_DARK);
         im_states_refresh_theme(&sm_l, &win_dark, 340u);
-        uint32_t settled = im_states_sample_color(&sm_l, "ContentPresenter", "Background", 600u, 0u);
+        uint32_t at_flip = im_states_sample_color(&sm_l, "ContentPresenter", "Background", 340u, 0u);
+        uint32_t settled = im_states_sample_color(&sm_l, "ContentPresenter", "Background", 700u, 0u);
         uint32_t dark_pressed = im_brush_over(&win_dark, IM_BRUSH_ButtonBackgroundPressed, 0, IM_ONE, IM_ONE);
-        CHECK(settled == dark_pressed, "Mid-BrushTransition theme flip settles at new Dark Pressed color");
+        CHECK(at_flip == before_flip && settled == dark_pressed,
+              "Mid-BrushTransition theme flip has zero jump at flip instant and settles at new Dark Pressed color");
+
+        /* Node RequestedTheme rejects IM_REQ_THEME_CONTRAST; subtree accent override isolates panel and reverts cleanly. */
+        CHECK(!im_node_set_requested_theme(lpanel, IM_REQ_THEME_CONTRAST),
+              "im_node_set_requested_theme refuses IM_REQ_THEME_CONTRAST (contrast is system-wide)");
+        im_node_set_subtree_accent(lpanel, true, 0xFFE81123u);
+        im_palette eff_sub = im_resources_effective_palette(lbtn, &win_dark);
+        im_palette eff_sib = im_resources_effective_palette(dbtn, &win_dark);
+        CHECK(eff_sub.slot[IM_SLOT_ACCENT] == 0xFFE81123u && eff_sib.slot[IM_SLOT_ACCENT] == 0xFF0078D7u,
+              "Subtree accent override applies to panel subtree only and leaves sibling at window accent");
+        im_node_set_subtree_accent(lpanel, false, 0u);
+        CHECK(im_resources_effective_palette(lbtn, &win_dark).slot[IM_SLOT_ACCENT] == 0xFF0078D7u,
+              "Clearing subtree accent restores window accent");
 
         /* Contrast precedence & reversal: preserve requested_theme through IM_CONTRAST and restore when contrast ends! */
         im_node_set_requested_theme(lpanel, IM_REQ_THEME_LIGHT);
@@ -354,6 +369,7 @@ int im_main(void) {
         root->orientation = IM_ORIENT_HORIZONTAL;
         im_node *left = im_tree_create_node(&t, IM_ELEM_BORDER, "Left");
         im_node_set_size(left, FX(50), FX(30));
+        im_node_set_alignment(left, IM_ALIGN_START, IM_ALIGN_START);
         im_node_bind_theme_brushes(left, true, IM_BRUSH_ButtonBackground, false, IM_BRUSH_COUNT);
         im_node_bind_theme_values(left, true, IM_VALUE_ButtonPadding, false, IM_VALUE_COUNT);
         left->is_focused = true;
@@ -361,7 +377,8 @@ int im_main(void) {
         left->selection_end = 7u;
         left->scroll_x = FX(12);
         left->scroll_y = FX(40);
-        left->text[0] = 'H'; left->text[1] = 'i'; left->text[2] = '\0';
+        const char *sample_txt = "Hello World";
+        for (int ci = 0; sample_txt[ci]; ci++) { left->text[ci] = sample_txt[ci]; left->text[ci + 1] = '\0'; }
 
         im_node *right = im_tree_create_node(&t, IM_ELEM_BORDER, "Right");
         im_node_set_size(right, FX(50), FX(30));
@@ -383,48 +400,90 @@ int im_main(void) {
         im_dirty_collect_tree(&dl, &t, root, IM_ONE);
         CHECK(dl.count == 0u, "Identical restyle produces 0 dirty rects");
 
-        /* Color-only override on Left -> restyle updates ONLY Left, dirty rect excludes Right, state stays intact! */
-        im_resources_set_brush_override(&t, left, IM_REQ_THEME_DEFAULT, IM_BRUSH_ButtonBackground, 0xFF336699u);
-        CHECK(im_resources_restyle_tree(&t, root, &win_dark, 0u) == 1u, "Color override on Left restyles exactly 1 node");
+        /* Unused accent change on non-accent-consuming bound borders produces 0 dirty rects! */
+        im_palette win_dark_alt = win_dark;
+        im_accent_fill_palette(&win_dark_alt, 0xFFE81123u);
+        im_resources_restyle_tree(&t, root, &win_dark_alt, 0u);
         im_dirty_init(&dl, 120, 60);
         im_dirty_collect_tree(&dl, &t, root, IM_ONE);
-        CHECK(dl.count == 1u && dl.rects[0].left == 0 && dl.rects[0].right == 50,
-              "Color override dirty rect covers Left [0,50) only and excludes Right [50,100)");
-        CHECK(left->is_focused && left->selection_start == 2u && left->selection_end == 7u &&
-              left->scroll_x == FX(12) && left->scroll_y == FX(40) &&
-              left->text[0] == 'H' && left->text[1] == 'i' && left->text[2] == '\0',
-              "In-place restyle preserves focus, selection, scroll position, and text");
+        CHECK(dl.count == 0u, "Changing unused accent on non-accent nodes produces 0 dirty rects");
 
-        /* Layout-affecting value override (ButtonPadding) marks measure_dirty without rebuilding node! */
+        /* Color-only override on Left -> restyle updates ONLY Left, all 4 dirty edges match [0,50)x[0,30) excluding Right! */
+        im_resources_set_brush_override(&t, left, IM_REQ_THEME_DEFAULT, IM_BRUSH_ButtonBackground, 0xFF336699u);
+        CHECK(im_resources_restyle_tree(&t, root, &win_dark_alt, 0u) == 1u, "Color override on Left restyles exactly 1 node");
+        im_dirty_init(&dl, 120, 60);
+        im_dirty_collect_tree(&dl, &t, root, IM_ONE);
+        CHECK(dl.count == 1u && dl.rects[0].left == 0 && dl.rects[0].top == 0 &&
+              dl.rects[0].right == 50 && dl.rects[0].bottom == 30,
+              "Color override dirty rect covers Left [0,50)x[0,30) only and excludes Right [50,100)");
+
+        /* Reverse Dark -> Light -> Dark restyle and re-lookup by name confirms node identity & state preserved! */
+        im_palette win_light = { .theme = IM_LIGHT };
+        im_accent_fill_palette(&win_light, 0xFF0078D7u);
+        im_resources_restyle_tree(&t, root, &win_light, 0u);
+        im_resources_restyle_tree(&t, root, &win_dark, 0u);
+        im_node *found = im_tree_find_by_name(root, "Left");
+        CHECK(found == left && found->is_focused && found->selection_start == 2u && found->selection_end == 7u &&
+              found->scroll_x == FX(12) && found->scroll_y == FX(40) &&
+              found->text[0] == 'H' && found->text[6] == 'W',
+              "In-place restyle and reversal preserve node pointer, focus, selection, scroll position, and text");
+
+        /* Local padding survives restyle; clearing local padding reveals latest restyled theme override! */
+        im_node_set_padding(left, (im_thickness){ FX(3), FX(3), FX(3), FX(3) });
         im_fixed big_pad[4] = { FX(10), FX(10), FX(10), FX(10) };
         im_resources_set_value_override(&t, left, IM_REQ_THEME_DEFAULT, IM_VALUE_ButtonPadding, big_pad);
-        CHECK(im_resources_restyle_tree(&t, root, &win_dark, 0u) == 1u && left->measure_dirty,
-              "Layout-affecting value override marks measure_dirty in place");
+        im_resources_restyle_tree(&t, root, &win_dark, 0u);
+        CHECK(left->padding.left == FX(3), "Restyle preserves explicit local Padding override");
+        im_node_clear_local_padding(left);
+        CHECK(left->padding.left == FX(10) && left->measure_dirty,
+              "Clearing local Padding immediately reveals newest restyled ButtonPadding override");
         im_tree_destroy(&t);
     }
 
-    /* 5. All four Windows 11 built-in contrast themes + accent independence + rendered contrast button! */
+    /* 5. All four Windows 11 built-in contrast themes: all 40 preset/slot combinations + accent independence + rendered brushes! */
     {
-        static const uint32_t want_face[4] = { 0xFF202020u, 0xFFFFFAEFu, 0xFF2D3236u, 0xFF000000u };
-        static const uint32_t want_text[4] = { 0xFFFFFFFFu, 0xFF202020u, 0xFFB6F6F0u, 0xFFFFEE32u };
+        /* Exact independent expected values for all 4 presets x 8 Windows .theme roles:
+           { window, window_text, button_face, button_text, highlight, highlight_text, hotlight, gray_text } */
+        static const uint32_t want[4][8] = {
+            /* Aquatic (hcblack) */
+            { 0xFF202020u, 0xFFFFFFFFu, 0xFF202020u, 0xFFFFFFFFu, 0xFF8EE3F0u, 0xFF263B50u, 0xFF75E9FCu, 0xFFA6A6A6u },
+            /* Desert (hcwhite) */
+            { 0xFFFFFAEFu, 0xFF3D3D3Du, 0xFFFFFAEFu, 0xFF202020u, 0xFF903909u, 0xFFFFF5E3u, 0xFF1C5E75u, 0xFF676767u },
+            /* Dusk (hc1) */
+            { 0xFF2D3236u, 0xFFFFFFFFu, 0xFF2D3236u, 0xFFB6F6F0u, 0xFFA1BFDEu, 0xFF212D3Bu, 0xFF70EBDEu, 0xFFA6A6A6u },
+            /* Night Sky (hc2) */
+            { 0xFF000000u, 0xFFFFFFFFu, 0xFF000000u, 0xFFFFEE32u, 0xFFD6B4FDu, 0xFF2B2B2Bu, 0xFF8080FFu, 0xFFA6A6A6u },
+        };
         static uint32_t pix[160 * 64];
         for (int ci = 0; ci < 4; ci++) {
             im_palette p1, p2;
             im_palette_init_contrast(&p1, (im_contrast_theme)ci, 0xFF0078D7u);
             im_palette_init_contrast(&p2, (im_contrast_theme)ci, 0xFFE81123u);
             CHECK(p1.theme == IM_CONTRAST &&
-                  p1.slot[IM_SLOT_COLOR_BUTTON_FACE] == want_face[ci] &&
-                  p1.slot[IM_SLOT_COLOR_BUTTON_TEXT] == want_text[ci] &&
-                  p1.slot[IM_SLOT_COLOR_DISABLED_TEXT] == p1.slot[IM_SLOT_COLOR_GRAY_TEXT] &&
+                  p1.slot[IM_SLOT_COLOR_WINDOW]         == want[ci][0] &&
+                  p1.slot[IM_SLOT_COLOR_WINDOW_TEXT]    == want[ci][1] &&
+                  p1.slot[IM_SLOT_COLOR_BUTTON_FACE]    == want[ci][2] &&
+                  p1.slot[IM_SLOT_COLOR_BUTTON_TEXT]    == want[ci][3] &&
+                  p1.slot[IM_SLOT_COLOR_HIGHLIGHT]      == want[ci][4] &&
+                  p1.slot[IM_SLOT_COLOR_HIGHLIGHT_TEXT] == want[ci][5] &&
+                  p1.slot[IM_SLOT_COLOR_HOTLIGHT]       == want[ci][6] &&
+                  p1.slot[IM_SLOT_COLOR_GRAY_TEXT]      == want[ci][7] &&
+                  p1.slot[IM_SLOT_COLOR_DISABLED_TEXT]  == want[ci][7] &&
                   p1.slot[IM_SLOT_COLOR_CONTROL_ACCENT] == 0xFF0078D7u &&
                   p2.slot[IM_SLOT_COLOR_CONTROL_ACCENT] == 0xFFE81123u &&
-                  p2.slot[IM_SLOT_COLOR_BUTTON_FACE] == want_face[ci],
+                  p2.slot[IM_SLOT_COLOR_BUTTON_FACE]    == want[ci][2],
                   "Contrast preset populates all 10 slots accurately and keeps ControlAccent independent");
             for (int i = 0; i < 160 * 64; i++) pix[i] = 0x00111111u;
             im_surface s = { pix, 160, 64, 160, p1, IM_ONE, NULL, NULL };
             im_draw_button(&s, (im_rect){ FX(20), FX(16), FX(140), FX(48) }, IM_BUTTON, IM_REST);
-            CHECK((pix[32 * 160 + 80] & 0xFFFFFFu) == (want_face[ci] & 0xFFFFFFu),
+            CHECK((pix[32 * 160 + 80] & 0xFFFFFFu) == (want[ci][2] & 0xFFFFFFu),
                   "Rendered contrast button center pixel matches preset ButtonFace");
+            /* Verify Hover/Accent/Disabled brushes consume Highlight, ButtonText, DisabledText, and Hotlight! */
+            CHECK(im_brush_over(&p1, IM_BRUSH_AccentButtonBackground, 0, IM_ONE, IM_ONE) == want[ci][4] &&
+                  im_brush_over(&p1, IM_BRUSH_ButtonForeground, 0, IM_ONE, IM_ONE) == want[ci][3] &&
+                  im_brush_over(&p1, IM_BRUSH_ButtonForegroundDisabled, 0, IM_ONE, IM_ONE) == want[ci][7] &&
+                  im_brush_over(&p1, IM_BRUSH_HyperlinkButtonForeground, 0, IM_ONE, IM_ONE) == want[ci][6],
+                  "Contrast theme brushes consume Highlight, ButtonText, DisabledText, and Hotlight accurately");
         }
     }
 

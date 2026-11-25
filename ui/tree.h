@@ -331,24 +331,33 @@ typedef struct im_node {
     bool is_group_header;
     bool layout_overflowed;
 
-    /* Per-subtree theme, resource overrides, resource-backed bindings, and live interactive state. */
+    /* Per-subtree theme, subtree accent, resource overrides, resource-backed bindings, and live interactive state. */
     im_requested_theme requested_theme;
+    bool has_subtree_accent;
+    uint32_t subtree_accent_argb;
     bool has_resolved_theme;
     im_theme resolved_theme;
     uint32_t resolved_palette_hash;
+    uint32_t resolved_button_geom_hash;
     im_resource_override *res_overrides;
     uint32_t res_override_count;
     uint32_t res_override_cap;
     bool has_theme_bg_brush;
     enum im_brush_id theme_bg_brush;
     uint32_t resolved_bg_argb;
+    uint32_t resolved_bg_argb_end;
     bool has_theme_border_brush;
     enum im_brush_id theme_border_brush;
     uint32_t resolved_border_argb;
+    uint32_t resolved_border_argb_end;
     bool has_theme_padding_val;
     enum im_value_id theme_padding_val;
+    bool has_local_padding;
+    im_thickness theme_padding_cache;
     bool has_theme_border_val;
     enum im_value_id theme_border_val;
+    bool has_local_border_thickness;
+    im_thickness theme_border_cache;
     void *bound_sm;
 
     bool is_focused;
@@ -522,8 +531,17 @@ void im_node_set_group_padding(im_node *node, im_thickness group_padding);
 /* Mark a child inside ItemsStackPanel / ItemsWrapGrid as a group header container. Invalidates parent measure. */
 void im_node_set_group_header(im_node *node, bool is_group_header);
 
-/* Set per-subtree RequestedTheme (IM_REQ_THEME_DEFAULT inherits from parent/window). Invalidates paint on change. */
-void im_node_set_requested_theme(im_node *node, im_requested_theme theme);
+/* Set per-subtree RequestedTheme (DEFAULT, DARK, or LIGHT; IM_REQ_THEME_CONTRAST is rejected on nodes). */
+bool im_node_set_requested_theme(im_node *node, im_requested_theme theme);
+
+/* Set or clear a per-subtree accent colour override (derives the 6 shades for this subtree only). */
+void im_node_set_subtree_accent(im_node *node, bool active, uint32_t accent_argb);
+
+/* Clear local Padding override so any theme-resource Padding value takes effect immediately. */
+void im_node_clear_local_padding(im_node *node);
+
+/* Clear local BorderThickness override so any theme-resource BorderThickness value takes effect immediately. */
+void im_node_clear_local_border_thickness(im_node *node);
 
 /* Bind a node's background and/or border brush IDs for in-place restyling via im_resources_restyle_tree. */
 void im_node_bind_theme_brushes(im_node *node, bool has_bg, enum im_brush_id bg_brush,

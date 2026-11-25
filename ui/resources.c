@@ -144,6 +144,15 @@ im_palette im_resources_effective_palette(const im_node *node, const im_palette 
         p.theme = IM_DARK;
     }
     p.theme = im_resources_effective_theme(node, window_palette);
+    /* Honour nearest ancestor per-subtree accent override (unless overridden by High Contrast). */
+    if (p.theme != IM_CONTRAST) {
+        for (const im_node *cur = node; cur; cur = cur->parent) {
+            if (cur->has_subtree_accent) {
+                im_accent_fill_palette(&p, cur->subtree_accent_argb);
+                break;
+            }
+        }
+    }
     return p;
 }
 
@@ -335,9 +344,14 @@ static uint32_t restyle_recursive(im_tree *tree, im_node *node, const im_palette
     uint32_t ph = hash_palette(&eff);
     bool paint_changed = false;
     bool layout_changed = false;
+    bool has_explicit_bindings = node->has_theme_bg_brush || node->has_theme_border_brush ||
+        node->has_theme_padding_val || node->has_theme_border_val ||
+        node->bound_sm != NULL || node->kind == IM_ELEM_BUTTON;
 
     if (!node->has_resolved_theme || node->resolved_theme != eff.theme || node->resolved_palette_hash != ph) {
-        if (node->has_resolved_theme) {
+        /* Fallback nodes without explicit bindings dirty on theme-mode changes (Dark/Light/Contrast),
+           never on unrelated accent-slot changes; bound nodes dirty strictly when consumed brushes/values change. */
+        if (node->has_resolved_theme && !has_explicit_bindings && node->resolved_theme != eff.theme) {
             paint_changed = true;
         }
         node->resolved_theme = eff.theme;
@@ -346,26 +360,45 @@ static uint32_t restyle_recursive(im_tree *tree, im_node *node, const im_palette
     }
 
     if (node->has_theme_bg_brush) {
-        uint32_t bg = im_resources_resolve_brush(node, window_palette, node->theme_bg_brush, 0, IM_ONE, IM_ONE);
-        if (bg != node->resolved_bg_argb) {
-            node->resolved_bg_argb = bg;
+        uint32_t bg0 = im_resources_resolve_brush(node, window_palette, node->theme_bg_brush, 0, IM_ONE, IM_ONE);
+        uint32_t bg1 = im_resources_resolve_brush(node, window_palette, node->theme_bg_brush, IM_ONE, IM_ONE, IM_ONE);
+        if (bg0 != node->resolved_bg_argb || bg1 != node->resolved_bg_argb_end) {
+            node->resolved_bg_argb = bg0;
+            node->resolved_bg_argb_end = bg1;
             paint_changed = true;
         }
     }
     if (node->has_theme_border_brush) {
-        uint32_t bd = im_resources_resolve_brush(node, window_palette, node->theme_border_brush, 0, IM_ONE, IM_ONE);
-        if (bd != node->resolved_border_argb) {
-            node->resolved_border_argb = bd;
+        uint32_t bd0 = im_resources_resolve_brush(node, window_palette, node->theme_border_brush, 0, IM_ONE, IM_ONE);
+        uint32_t bd1 = im_resources_resolve_brush(node, window_palette, node->theme_border_brush, IM_ONE, IM_ONE, IM_ONE);
+        if (bd0 != node->resolved_border_argb || bd1 != node->resolved_border_argb_end) {
+            node->resolved_border_argb = bd0;
+            node->resolved_border_argb_end = bd1;
             paint_changed = true;
         }
+    }
+    if (node->kind == IM_ELEM_BUTTON) {
+        im_fixed cr[4], bt[4];
+        im_resources_resolve_value(node, window_palette, IM_VALUE_ControlCornerRadius, cr);
+        im_resources_resolve_value(node, window_palette, IM_VALUE_ButtonBorderThemeThickness, bt);
+        uint32_t gh = 2166136261u;
+        for (int k = 0; k < 4; k++) { gh ^= (uint32_t)cr[k]; gh *= 16777619u; gh ^= (uint32_t)bt[k]; gh *= 16777619u; }
+        if (node->resolved_button_geom_hash != 0u && node->resolved_button_geom_hash != gh) {
+            paint_changed = true;
+        }
+        node->resolved_button_geom_hash = gh ? gh : 1u;
     }
     if (node->has_theme_padding_val) {
         im_fixed v[4];
         im_resources_resolve_value(node, window_palette, node->theme_padding_val, v);
         im_thickness np = { v[0], v[1], v[2], v[3] };
-        if (np.left != node->padding.left || np.top != node->padding.top ||
-            np.right != node->padding.right || np.bottom != node->padding.bottom) {
-            im_node_set_padding(node, np);
+        node->theme_padding_cache = np;
+        node->default_padding = np;
+        if (!(node->local_mask & IM_PBIT_PADDING) &&
+            (np.left != node->padding.left || np.top != node->padding.top ||
+             np.right != node->padding.right || np.bottom != node->padding.bottom)) {
+            node->padding = np;
+            im_tree_invalidate_measure(node);
             layout_changed = true;
             paint_changed = true;
         }
@@ -374,9 +407,13 @@ static uint32_t restyle_recursive(im_tree *tree, im_node *node, const im_palette
         im_fixed v[4];
         im_resources_resolve_value(node, window_palette, node->theme_border_val, v);
         im_thickness nb = { v[0], v[1], v[2], v[3] };
-        if (nb.left != node->border_thickness.left || nb.top != node->border_thickness.top ||
-            nb.right != node->border_thickness.right || nb.bottom != node->border_thickness.bottom) {
-            im_node_set_border_thickness(node, nb);
+        node->theme_border_cache = nb;
+        node->default_border_thickness = nb;
+        if (!(node->local_mask & IM_PBIT_BORDER_THICKNESS) &&
+            (nb.left != node->border_thickness.left || nb.top != node->border_thickness.top ||
+             nb.right != node->border_thickness.right || nb.bottom != node->border_thickness.bottom)) {
+            node->border_thickness = nb;
+            im_tree_invalidate_measure(node);
             layout_changed = true;
             paint_changed = true;
         }

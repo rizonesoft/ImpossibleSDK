@@ -895,13 +895,14 @@ bool im_states_refresh_theme(im_state_machine *sm, const im_palette *window_pale
     }
     sm->palette = next;
 
-    /* Update any in-flight BrushTransition target so mid-transition theme or override changes converge cleanly. */
+    /* Update any in-flight BrushTransition target without jumping at now_ms. */
     if (sm->has_bg_transition && !sm->bg_transition.is_solid_color && sm->bg_transition.target_brush < IM_BRUSH_COUNT) {
         uint32_t new_to = resolve_sm_brush_argb(sm, sm->bg_transition.target_brush);
         if (new_to != sm->bg_transition.to_argb) {
             uint32_t cur = im_brush_transition_sample(&sm->bg_transition, now_ms, sm->reduced_motion);
             sm->bg_transition.from_argb = cur;
             sm->bg_transition.to_argb = new_to;
+            sm->bg_transition.start_ms = now_ms;
             changed = true;
         }
     }
@@ -970,14 +971,21 @@ static bool parse_align_str(const char *s, im_align *out) {
     return false;
 }
 
-static bool value_to_thickness(const im_template_value *v, const im_palette *palette, im_thickness *out) {
+static bool value_to_thickness(const im_state_machine *sm, const im_template_value *v, im_thickness *out) {
     if (!v || !out) return false;
     if (v->kind == IM_TVAL_QUAD) {
         *out = (im_thickness){v->a, v->b, v->c, v->d};
         return true;
     }
-    if (v->kind == IM_TVAL_THEME_VALUE && palette && v->a >= 0 && v->a < IM_VALUE_COUNT) {
-        const im_fixed *q = im_value(palette, (enum im_value_id)v->a);
+    if (v->kind == IM_TVAL_THEME_VALUE && sm && v->a >= 0 && v->a < IM_VALUE_COUNT) {
+        if (sm->res_node) {
+            const im_palette *wp = sm->window_palette ? sm->window_palette : &sm->palette;
+            im_fixed q[4];
+            im_resources_resolve_value(sm->res_node, wp, (enum im_value_id)v->a, q);
+            *out = (im_thickness){q[0], q[1], q[2], q[3]};
+            return true;
+        }
+        const im_fixed *q = im_value(&sm->palette, (enum im_value_id)v->a);
         *out = (im_thickness){q[0], q[1], q[2], q[3]};
         return true;
     }
@@ -1004,7 +1012,7 @@ void im_states_apply_to_tree(const im_state_machine *sm, im_node *root, uint32_t
 
         im_thickness thick;
         if (sample_raw_value_no_bt(sm, root->name, "Margin", now_ms, &val, &from_state) && from_state &&
-            value_to_thickness(&val, &sm->palette, &thick)) {
+            value_to_thickness(sm, &val, &thick)) {
             im_node_set_state_margin(root, true, thick);
         } else {
             im_node_set_state_margin(root, false, (im_thickness){0, 0, 0, 0});
@@ -1034,7 +1042,7 @@ void im_states_apply_to_tree(const im_state_machine *sm, im_node *root, uint32_t
         }
 
         if (sample_raw_value_no_bt(sm, root->name, "BorderThickness", now_ms, &val, &from_state) && from_state &&
-            value_to_thickness(&val, &sm->palette, &thick)) {
+            value_to_thickness(sm, &val, &thick)) {
             im_node_set_state_border_thickness(root, true, thick);
         } else {
             im_node_set_state_border_thickness(root, false, (im_thickness){0, 0, 0, 0});

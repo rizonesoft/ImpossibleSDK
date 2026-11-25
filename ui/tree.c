@@ -879,11 +879,42 @@ void im_node_set_group_header(im_node *node, bool is_group_header) {
     im_tree_invalidate_measure(node->parent ? node->parent : node);
 }
 
-void im_node_set_requested_theme(im_node *node, im_requested_theme theme) {
-    if (!node) return;
-    if (node->requested_theme == theme) return;
+bool im_node_set_requested_theme(im_node *node, im_requested_theme theme) {
+    if (!node) return false;
+    if (theme != IM_REQ_THEME_DEFAULT && theme != IM_REQ_THEME_DARK && theme != IM_REQ_THEME_LIGHT) {
+        return false; /* High Contrast is system-wide, never a node RequestedTheme */
+    }
+    if (node->requested_theme == theme) return true;
     node->requested_theme = theme;
     im_tree_invalidate_paint(node);
+    return true;
+}
+
+void im_node_set_subtree_accent(im_node *node, bool active, uint32_t accent_argb) {
+    if (!node) return;
+    uint32_t c = active ? (0xFF000000u | (accent_argb & 0x00FFFFFFu)) : 0u;
+    if (node->has_subtree_accent == active && node->subtree_accent_argb == c) return;
+    node->has_subtree_accent = active;
+    node->subtree_accent_argb = c;
+    im_tree_invalidate_paint(node);
+}
+
+void im_node_clear_local_padding(im_node *node) {
+    if (!node || !(node->local_mask & IM_PBIT_PADDING)) return;
+    node->local_mask &= ~IM_PBIT_PADDING;
+    if (!thickness_eq(node->padding, node->default_padding)) {
+        node->padding = node->default_padding;
+        im_tree_invalidate_measure(node);
+    }
+}
+
+void im_node_clear_local_border_thickness(im_node *node) {
+    if (!node || !(node->local_mask & IM_PBIT_BORDER_THICKNESS)) return;
+    node->local_mask &= ~IM_PBIT_BORDER_THICKNESS;
+    if (!thickness_eq(node->border_thickness, node->default_border_thickness)) {
+        node->border_thickness = node->default_border_thickness;
+        im_tree_invalidate_measure(node);
+    }
 }
 
 void im_node_bind_theme_brushes(im_node *node, bool has_bg, enum im_brush_id bg_brush,
@@ -1054,6 +1085,11 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
     } else if (str_eq(prop, "Margin") && resolve_thickness_val(palette, v, &th)) {
         node->margin = th;
     } else if (str_eq(prop, "Padding") && resolve_thickness_val(palette, v, &th)) {
+        if (v->kind == IM_TVAL_THEME_VALUE && v->a >= 0 && v->a < IM_VALUE_COUNT) {
+            node->has_theme_padding_val = true;
+            node->theme_padding_val = (enum im_value_id)v->a;
+            node->theme_padding_cache = th;
+        }
         if (is_style_default) {
             node->default_padding = th;
             if (!(node->local_mask & IM_PBIT_PADDING)) node->padding = th;
@@ -1062,6 +1098,11 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
             node->default_padding = th;
         }
     } else if (str_eq(prop, "BorderThickness") && resolve_thickness_val(palette, v, &th)) {
+        if (v->kind == IM_TVAL_THEME_VALUE && v->a >= 0 && v->a < IM_VALUE_COUNT) {
+            node->has_theme_border_val = true;
+            node->theme_border_val = (enum im_value_id)v->a;
+            node->theme_border_cache = th;
+        }
         if (is_style_default) {
             node->default_border_thickness = th;
             if (!(node->local_mask & IM_PBIT_BORDER_THICKNESS)) node->border_thickness = th;

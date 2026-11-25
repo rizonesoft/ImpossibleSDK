@@ -44,9 +44,8 @@ static const uint32_t k_srgb_to_lin_q24[256] = {
 
 static int64_t mul_q24(int64_t a, int64_t b) {
     __int128 p = (__int128)a * (__int128)b;
-    if (p >= 0) p += Q24_HALF;
-    else p -= Q24_HALF;
-    return (int64_t)(p >> 24);
+    if (p >= 0) return (int64_t)((p + Q24_HALF) >> 24);
+    return -(int64_t)(((-p) + Q24_HALF) >> 24);
 }
 
 /* Exact integer cube root of x in Q24 (x >= 0): returns cbrt(x / 2^24) * 2^24. */

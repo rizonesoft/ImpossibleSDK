@@ -33,6 +33,8 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 PASS = "tests/live-pass.json"
 COVERED = (
+    "include/impossible/window.h",
+    "src/window.c",
     "tests/test_live.py",
     "tests/frames.py",
     "tests/layout_cases.py",
