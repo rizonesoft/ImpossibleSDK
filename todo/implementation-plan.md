@@ -15,13 +15,13 @@ Sections: 26 | Checklist items: 142
 | [x]    | D01 T01 §1  | Exact corner smoothing                           | windows-host, display-session | 5     |
 | [x]    | D01 T01 §2  | Template compiler                                | none                          | 4     |
 | [x]    | D01 T01 §17 | Reference program for any control                | windows-host, display-session | 10    |
-| [ ]    | D01 T01 §3  | Element tree and layout                          | windows-host                  | 4     |
+| [x]    | D01 T01 §3  | Element tree and layout                          | windows-host                  | 4     |
 | [ ]    | D01 T01 §4  | Visual states and animation                      | none                          | 4     |
 | [ ]    | D01 T01 §5  | Text in fixed point                              | windows-host                  | 4     |
 | [ ]    | D01 T01 §6  | Input, focus and the Windows layer               | windows-host                  | 4     |
 | [ ]    | D01 T01 §8  | Host callback table                              | none                          | 6     |
 | [ ]    | D01 T01 §9  | Dirty rectangles and frame timing                | windows-host                  | 6     |
-| [ ]    | D01 T01 §10 | Clips, opacity and layers                        | windows-host                  | 5     |
+| [x]    | D01 T01 §10 | Clips, opacity and layers                        | windows-host                  | 5     |
 | [ ]    | D01 T01 §11 | Transforms and pictures                          | windows-host                  | 6     |
 | [ ]    | D01 T01 §12 | Shadows and materials                            | windows-host, display-session | 6     |
 | [ ]    | D01 T01 §13 | Paths, arcs and gradients                        | windows-host                  | 6     |
@@ -244,6 +244,6 @@ Sections: 2 | Checklist items: 6
 | [ ]    | D01 T01 §20 | Native 150% DPI fractional layout | windows-host, display-session, operator | 3     |
 | [ ]    | D08 T01 §13 | First public release              | operator                                | 3     |
 
-Progress: 6/189 verified sections, 19 ready to run now.
+Progress: 8/189 verified sections, 21 ready to run now.
 
 Checklist: 41/1547 items completed (includes Commit items).

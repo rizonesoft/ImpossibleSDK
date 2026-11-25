@@ -34,14 +34,14 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Exact corner smoothing | -- | [x] |
 | 2 | §2 | Template compiler | -- | [x] |
-| 3 | §3 | Element tree and layout | §2, §17 | [ ] |
+| 3 | §3 | Element tree and layout | §2, §17 | [x] |
 | 4 | §4 | Visual states and animation | §3 | [ ] |
 | 5 | §5 | Text in fixed point | §1, §17 | [ ] |
 | 6 | §6 | Input, focus and the Windows layer | §4, §5 | [ ] |
 | 7 | §7 | Button, toggle switch, text box and list view | §6, §8, §9, §14, §17, T02 §2, T02 §5, T02 §6, D07 T01 §2 | [ ] |
 | 8 | §8 | Host callback table | §3 | [ ] |
 | 9 | §9 | Dirty rectangles and frame timing | §4, §8 | [ ] |
-| 10 | §10 | Clips, opacity and layers | §1, §17 | [ ] |
+| 10 | §10 | Clips, opacity and layers | §1, §17 | [x] |
 | 11 | §11 | Transforms and pictures | §10 | [ ] |
 | 12 | §12 | Shadows and materials | §8, §10 | [ ] |
 | 13 | §13 | Paths, arcs and gradients | §1, §17 | [ ] |
@@ -134,6 +134,9 @@ The engine that measures and arranges the compiled elements: Grid, StackPanel, B
 - [x] Commit: `ui: element tree and layout`
 
 **Test checkpoint:** `python3 tools/build.py`, `python3 tools/winvm/live.py --check`, and `python3 tools/site/build.py --check` exit 0, and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-25 | §3 | 66c68845104c2efa45e9813370571578800b37d1
+> **Review:** `docs/reviews/d01-t01-s3.json`
 
 ## 4. Visual states and animation
 
@@ -295,6 +298,9 @@ Rounded clips, opacity over a group and nested layers, as pop-ups, cards and dis
 - [x] Commit: `ui: clips, opacity and layers`
 
 **Test checkpoint:** `python3 tools/build.py`, `python3 tools/winvm/live.py`, `python3 tools/winvm/live.py --check`, and `python3 tools/site/build.py --check` exit 0, and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-25 | §10 | 66c68845104c2efa45e9813370571578800b37d1
+> **Review:** `docs/reviews/d01-t01-s10.json`
 
 ## 11. Transforms and pictures
 
