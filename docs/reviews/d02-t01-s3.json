@@ -1,0 +1,90 @@
+{
+  "ref": "D02 T01 \u00a73",
+  "title": "PNG decoder",
+  "implementation_sha": "cd07fe1d785adff7b0cdce0b2e285bba3170f424",
+  "date": "2026-11-25",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-formats/D02-T01-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "tools/check_parts.py",
+    "tools/build.py",
+    "tools/site/build.py --check",
+    "tools/prove.py ."
+  ],
+  "completion": {
+    "report": "docs/reviews/02-formats/D02-T01-s3.md",
+    "verdict": "reconciled",
+    "candidate": "cd07fe1d785adff7b0cdce0b2e285bba3170f424",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-formats/D02-T01-s3.md",
+    "candidate": "49bc16def11fdc432e5d70b86e14ba67a81677c5",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "49bc16def11fdc432e5d70b86e14ba67a81677c5",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "lenses": {
+      "thread-safety": "Which state is reached from two threads (UI, worker, callback, timer) without one lock or atomic owning it, and which lock order, wait, cancellation or teardown can deadlock or run after its owner is gone?",
+      "memory-safety": "Which pointer, reference, view, handle or iterator can outlive what it refers to, and which size, index or cast is trusted unchecked?"
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

@@ -34,7 +34,7 @@ title: "TODO-01 -- Image Formats"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Part layout and image type | -- | [x] |
 | 2 | §2 | Inflate and checksums | §1 | [x] |
-| 3 | §3 | PNG decoder | §2 | [ ] |
+| 3 | §3 | PNG decoder | §2 | [x] |
 | 4 | §4 | JPEG decoder | §1 | [ ] |
 | 5 | §5 | BMP decoder | §1 | [ ] |
 | 6 | §6 | GIF decoder | §1 | [ ] |
@@ -111,13 +111,16 @@ All colour types, bit depths, interlacing, palettes, transparency and gamma-free
 1. Write `parts/png/png.c` with `png.h`. Done when: every valid file of the corpus decodes to the same pixels as the pinned reference library and every invalid file returns its named error.
 2. Add `tests/fixtures/png_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
-- [ ] Parse the header of PNG in `parts/png/png.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
-- [ ] Decode every variant the specification requires in `parts/png/png.c`. Done when: every valid file of PngSuite gives the pixels of a pinned reference decoder, and every invalid one its named error. Cheaper substitute: the common variant only.
-- [ ] Return a named error for truncated and damaged data with no partial picture in `parts/png/png.c`. Done when: every proper prefix of every corpus file returns a named error and a zeroed image. Cheaper substitute: a half picture.
-- [ ] Fuzz `parts/png/png.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
-- [ ] Commit: `formats: PNG decoder`
+- [x] Parse the header of PNG in `parts/png/png.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.
+- [x] Decode every variant the specification requires in `parts/png/png.c`. Done when: every valid file of PngSuite gives the pixels of a pinned reference decoder, and every invalid one its named error. Cheaper substitute: the common variant only.
+- [x] Return a named error for truncated and damaged data with no partial picture in `parts/png/png.c`. Done when: every proper prefix of every corpus file returns a named error and a zeroed image. Cheaper substitute: a half picture.
+- [x] Fuzz `parts/png/png.c`. Done when: A native Linux libFuzzer run with address and undefined-behaviour checking for 120 seconds at `-rss_limit_mb=800` finds nothing. Cheaper substitute: a few broken files.
+- [x] Commit: `formats: PNG decoder`
 
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when the decoder is reverted.
+
+> **Verified:** 2026-11-25 | §3 | cd07fe1d785adff7b0cdce0b2e285bba3170f424
+> **Review:** `docs/reviews/d02-t01-s3.json`
 
 ## 4. JPEG decoder
 
