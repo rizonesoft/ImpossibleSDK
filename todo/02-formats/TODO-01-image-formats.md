@@ -171,6 +171,8 @@ All header versions, 1 to 32 bits, RLE4, RLE8 and bit fields. The decoder takes 
 
 ## 6. GIF decoder
 
+> **Started:** 2026-11-25T14:46Z
+
 Animation, local palettes, transparency and disposal. The decoder takes bytes and gives 32-bit pixels or a named error, uses no floating point, and never reads outside its input.
 
 **Phase:** 4
@@ -179,7 +181,7 @@ Animation, local palettes, transparency and disposal. The decoder takes bytes an
 
 **Build order:**
 
-1. Write `parts/gif/gif.c` with `gif.h`. Done when: every file of the corpus decodes to the same pixels as the reference library.
+1. Write `parts/gif/gif.c` with `gif.h`. Done when: every valid file of the corpus decodes to the same pixels as the pinned reference and every invalid file returns its named error.
 2. Add `tests/fixtures/gif_tests.c` and the corpus list. Done when: `python3 tools/build.py` passes.
 
 - [ ] Parse the header of GIF in `parts/gif/gif.c` with width, height and size limits checked before any allocation. Done when: the largest header the format can hold, against a 16 MB limit, is refused with `IM_IMAGE_TOO_LARGE` and no allocation is made. Cheaper substitute: allocating and failing.

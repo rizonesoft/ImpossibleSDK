@@ -1563,5 +1563,223 @@ class BmpDecoder(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, err_text)
 
 
+class GifDecoder(unittest.TestCase):
+    def test_gif_decoder_corpus_animation_limits_and_all_prefixes(self):
+        import hashlib
+        import json
+        import os
+        import signal
+        import struct
+        import threading
+
+        exe = BUILD / "gif-tests.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+
+        # 1. Unit tests (max 65535x65535 header 0 allocs, independent limits, 13B probe, NULL limits, OOM, BAD_ARG).
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("gif_tests: ALL PASSED", res.stdout)
+
+        # 2. Load pinned corpus manifest and verify completeness + SHA-256 of every file on disk.
+        corpus_dir = ROOT / "tests" / "data" / "gif_corpus"
+        manifest = json.loads((ROOT / "tests" / "data" / "gif_ref.json").read_text(encoding="utf-8"))
+        disk_files = {p.name for p in corpus_dir.glob("*.gif")}
+        self.assertEqual(set(manifest["valid"].keys()) | set(manifest["invalid"].keys()), disk_files)
+
+        err_enum = {
+            "IM_IMAGE_OK": 0,
+            "IM_IMAGE_BAD_ARG": 1,
+            "IM_IMAGE_INVALID": 2,
+            "IM_IMAGE_TRUNCATED": 3,
+            "IM_IMAGE_UNSUPPORTED": 4,
+            "IM_IMAGE_TOO_LARGE": 5,
+            "IM_IMAGE_NO_MEMORY": 6,
+        }
+
+        proc = subprocess.Popen(
+            [str(exe), "--batch"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=(os.name != "nt"),
+        )
+        killed = False
+        timed_out = False
+        active_op = ["startup"]
+
+        def reap_proc():
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                )
+            else:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    proc.kill()
+
+        def on_deadline():
+            nonlocal timed_out, killed
+            timed_out = True
+            killed = True
+            reap_proc()
+
+        watchdog = threading.Timer(120.0, on_deadline)
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            def read_exact(n: int) -> bytes:
+                buf = bytearray()
+                while len(buf) < n:
+                    chunk = proc.stdout.read(n - len(buf))
+                    if not chunk:
+                        if timed_out:
+                            raise TimeoutError(f"gif-tests timed out during {active_op[0]}")
+                        raise RuntimeError(f"EOF from gif-tests during {active_op[0]}")
+                    buf.extend(chunk)
+                return bytes(buf)
+
+            def decode_single(data: bytes, bgra: bool = False, max_bytes: int = 0, label: str = "single"):
+                active_op[0] = label
+                op = 2 if bgra else 1
+                proc.stdin.write(struct.pack("<IIII", op, len(data), 0, max_bytes) + data)
+                proc.stdin.flush()
+                err, w, h, stride, bsz, leak = struct.unpack("<IIIIII", read_exact(24))
+                px = read_exact(bsz) if (err == 0 and bsz > 0) else b""
+                return err, w, h, stride, bsz, leak, px
+
+            def decode_anim(data: bytes, bgra: bool = False, max_frames: int = 0, max_bytes: int = 0, label: str = "anim"):
+                active_op[0] = label
+                op = 4 if bgra else 3
+                proc.stdin.write(struct.pack("<IIII", op, len(data), max_frames, max_bytes) + data)
+                proc.stdin.flush()
+                err, w, h, fcnt, has_loop, loop_cnt, leak = struct.unpack("<IIIIIII", read_exact(28))
+                frames = []
+                if err == 0:
+                    for _ in range(fcnt):
+                        delay_ms, disp, left, top, fw, fh, stride, bsz = struct.unpack("<IIIIIIII", read_exact(32))
+                        px = read_exact(bsz) if bsz > 0 else b""
+                        frames.append((delay_ms, disp, left, top, fw, fh, stride, bsz, px))
+                    (post_free,) = struct.unpack("<I", read_exact(4))
+                    leak |= post_free
+                return err, w, h, fcnt, bool(has_loop), loop_cnt, leak, frames
+
+            def check_prefixes(data: bytes, allowed_ok_plen: int = 0xFFFFFFFF, label: str = "prefixes"):
+                active_op[0] = label
+                proc.stdin.write(struct.pack("<IIII", 6, len(data), allowed_ok_plen, 0) + data)
+                proc.stdin.flush()
+                return struct.unpack("<II", read_exact(8))
+
+            def swap_rb(rgba: bytes) -> bytes:
+                out = bytearray(len(rgba))
+                out[0::4] = rgba[2::4]
+                out[1::4] = rgba[1::4]
+                out[2::4] = rgba[0::4]
+                out[3::4] = rgba[3::4]
+                return bytes(out)
+
+            # 2a. Valid corpus files: verify single-frame & full animation in BOTH RGBA8 and BGRA8 + all prefixes.
+            for name, meta in sorted(manifest["valid"].items()):
+                raw = (corpus_dir / name).read_bytes()
+                self.assertEqual(hashlib.sha256(raw).hexdigest(), meta["file_sha256"], f"{name}: file SHA mismatch")
+                f0 = meta["frames"][0]
+
+                # Single-frame decode (RGBA8 & BGRA8)
+                e, w, h, st, bsz, leak, px_r = decode_single(raw, bgra=False, label=f"single_r:{name}")
+                self.assertEqual((e, w, h, st, bsz, leak), (0, f0["width"], f0["height"], f0["width"] * 4, f0["width"] * f0["height"] * 4, 0), name)
+                self.assertEqual(hashlib.sha256(px_r).hexdigest(), f0["rgba8_sha256"], f"{name}: single RGBA8 mismatch")
+
+                eb, wb, hb, stb, bszb, lb, px_b = decode_single(raw, bgra=True, label=f"single_b:{name}")
+                self.assertEqual((eb, wb, hb, stb, bszb, lb), (0, w, h, st, bsz, 0), name)
+                self.assertEqual(px_b, swap_rb(px_r), f"{name}: single BGRA8 mismatch")
+
+                # Full animation decode (RGBA8 & BGRA8)
+                ea, wa, ha, fcnt, has_loop, loop_cnt, la, frames_r = decode_anim(raw, bgra=False, label=f"anim_r:{name}")
+                self.assertEqual((ea, wa, ha, fcnt, has_loop, loop_cnt, la), (0, f0["width"], f0["height"], len(meta["frames"]), meta["has_loop_count"], meta["loop_count"], 0), name)
+                eab, wab, hab, fcntb, hlb, lcb, lab, frames_b = decode_anim(raw, bgra=True, label=f"anim_b:{name}")
+                self.assertEqual((eab, wab, hab, fcntb, hlb, lcb, lab), (0, wa, ha, fcnt, has_loop, loop_cnt, 0), name)
+
+                for idx, (exp_f, got_r, got_b) in enumerate(zip(meta["frames"], frames_r, frames_b)):
+                    delay_ms, disp, left, top, fw, fh, stride, bsz_f, fpx_r = got_r
+                    self.assertEqual(
+                        (delay_ms, disp, left, top, fw, fh, stride, bsz_f),
+                        (exp_f["delay_ms"], exp_f["disposal"], exp_f["left"], exp_f["top"],
+                         exp_f["frame_width"], exp_f["frame_height"], exp_f["width"] * 4, exp_f["width"] * exp_f["height"] * 4),
+                        f"{name} frame {idx}: metadata mismatch",
+                    )
+                    self.assertEqual(hashlib.sha256(fpx_r).hexdigest(), exp_f["rgba8_sha256"], f"{name} frame {idx}: RGBA8 mismatch")
+                    self.assertEqual(got_b[8], swap_rb(fpx_r), f"{name} frame {idx}: BGRA8 mismatch")
+
+                bad_cnt, first_bad = check_prefixes(raw, label=f"prefixes:{name}")
+                self.assertEqual(bad_cnt, 0, f"{name}: {bad_cnt} bad prefixes (first={first_bad})")
+
+            # 2b. Invalid corpus files: exact error in single & anim (RGBA8 & BGRA8) + exhaustive prefixes.
+            for name, meta in sorted(manifest["invalid"].items()):
+                raw = (corpus_dir / name).read_bytes()
+                self.assertEqual(hashlib.sha256(raw).hexdigest(), meta["file_sha256"], f"{name}: file SHA mismatch")
+                want = err_enum[meta["expected_error"]]
+                for bgra in (False, True):
+                    e1, _, _, _, _, l1, _ = decode_single(raw, bgra=bgra, label=f"inv_s:{name}:{bgra}")
+                    e2, _, _, _, _, _, l2, _ = decode_anim(raw, bgra=bgra, label=f"inv_a:{name}:{bgra}")
+                    self.assertEqual((e1, l1), (want, 0), f"{name}: single expected {meta['expected_error']} ({want}), got {e1}")
+                    self.assertEqual((e2, l2), (want, 0), f"{name}: anim expected {meta['expected_error']} ({want}), got {e2}")
+
+                allowed_ok = meta.get("allowed_ok_prefix_len", 0xFFFFFFFF)
+                bad_cnt, first_bad = check_prefixes(raw, allowed_ok_plen=allowed_ok, label=f"prefixes:{name}")
+                self.assertEqual(bad_cnt, 0, f"{name}: {bad_cnt} bad prefixes (first={first_bad})")
+                if allowed_ok != 0xFFFFFFFF:
+                    ref_meta = manifest["valid"][meta["prefix_ref_name"]]
+                    ep, _, _, _, _, lp, pxp = decode_single(raw[:allowed_ok], bgra=False, label=f"ok_pre:{name}")
+                    self.assertEqual((ep, lp, hashlib.sha256(pxp).hexdigest()), (0, 0, ref_meta["frames"][0]["rgba8_sha256"]))
+
+            # 2c. Animation frame cap (default 1024 OK vs 1025 TOO_LARGE) and cumulative byte budget!
+            one_frame_block = struct.pack("<BHHHHB", 0x2C, 0, 0, 1, 1, 0) + bytes([2, 2, 0x44, 0x01, 0])
+            hdr_1x1 = b"GIF89a" + struct.pack("<HHBBB", 1, 1, 0x80, 0, 0) + b"\x12\x34\x56\x00\x00\x00"
+            gif_1024 = hdr_1x1 + (one_frame_block * 1024) + b"\x3B"
+            gif_1025 = hdr_1x1 + (one_frame_block * 1025) + b"\x3B"
+
+            ea, _, _, fcnt, _, _, la, _ = decode_anim(gif_1024, max_frames=0, label="anim:1024_ok")
+            self.assertEqual((ea, fcnt, la), (0, 1024, 0))
+            ea2, _, _, _, _, _, la2, _ = decode_anim(gif_1025, max_frames=0, label="anim:1025_too_large")
+            self.assertEqual((ea2, la2), (5, 0))  # IM_IMAGE_TOO_LARGE (5) with 0 leaks!
+            # Single-frame decode of 1025-frame GIF succeeds (validates all frames without retaining them).
+            es, _, _, _, _, ls, pxs = decode_single(gif_1025, label="single:1025_ok")
+            self.assertEqual((es, ls, pxs), (0, 0, b"\x12\x34\x56\xFF"))
+
+            # Cumulative byte budget: 3-frame 1x1 GIF = 12 bytes total. max_bytes=12 -> OK, max_bytes=11 -> TOO_LARGE (5),
+            # non-NULL limits with max_bytes=0 (0xFFFFFFFF sentinel) -> resolves to 16 MiB -> OK!
+            gif_3 = hdr_1x1 + (one_frame_block * 3) + b"\x3B"
+            self.assertEqual(decode_anim(gif_3, max_bytes=12, label="anim:bytes_exact")[0], 0)
+            self.assertEqual(decode_anim(gif_3, max_bytes=11, label="anim:bytes_over")[0], 5)
+            self.assertEqual(decode_anim(gif_3, max_bytes=0xFFFFFFFF, label="anim:bytes_zero_default")[0], 0)
+        except Exception:
+            killed = True
+            reap_proc()
+            raise
+        finally:
+            watchdog.cancel()
+            if proc.stdin:
+                proc.stdin.close()
+            if proc.stdout:
+                proc.stdout.close()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                killed = True
+                reap_proc()
+                proc.wait(timeout=5)
+                raise
+            err_text = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+            if proc.stderr:
+                proc.stderr.close()
+            if not killed:
+                self.assertEqual(proc.returncode, 0, err_text)
+
+
 if __name__ == "__main__":
     unittest.main()

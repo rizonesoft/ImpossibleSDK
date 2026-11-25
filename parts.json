@@ -55,6 +55,16 @@
       ]
     },
     {
+      "name": "gif",
+      "folder": "parts/gif",
+      "depends": [
+        "image"
+      ],
+      "sources": [
+        "parts/gif/gif.c"
+      ]
+    },
+    {
       "name": "checksum",
       "folder": "parts/checksum",
       "depends": [],
