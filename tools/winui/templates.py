@@ -740,6 +740,7 @@ OWNER_NAMESPACE = {
     "ListViewItemPresenter": "using:Microsoft.UI.Xaml.Controls.Primitives",
     "Shape": "using:Microsoft.UI.Xaml.Shapes",
     "Rectangle": "using:Microsoft.UI.Xaml.Shapes",
+    "Path": "using:Microsoft.UI.Xaml.Shapes",
     "Geometry": "using:Microsoft.UI.Xaml.Media",
     "RectangleGeometry": "using:Microsoft.UI.Xaml.Media",
     "Transform": "using:Microsoft.UI.Xaml.Media",
