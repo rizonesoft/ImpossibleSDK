@@ -484,17 +484,30 @@ static void add_anim_entries_captured(im_state_machine *sm, uint8_t group_index,
             };
             add_entry(sm, e);
         }
-        /* DragItemThemeAnimation also multiplies target opacity by 0.65 (unless state already explicitly animates Opacity). */
-        bool has_explicit_opacity = false;
+        /* DragItemThemeAnimation multiplies target opacity by 0.65 (composing with any explicit
+           state Opacity target like ListViewItemDragThemeOpacity = 0.8 -> ~0.52). */
+        im_fixed base_end_op = cap.f2;
+        bool replaced_op = false;
         for (uint32_t i = 0; i < sm->entry_count; i++) {
             if (sm->entries[i].group_index == group_index &&
                 target_matches(sm->entries[i].target, anim->target_name) &&
                 str_eq(sm->entries[i].property, "Opacity")) {
-                has_explicit_opacity = true;
+                im_template_value end_v;
+                if (entry_eval_value(sm, &sm->entries[i], now_ms + sm->entries[i].duration_ms, &end_v)) {
+                    base_end_op = im_template_value_to_fixed(&end_v, &sm->palette, base_end_op);
+                }
+                im_fixed comp_end = (im_fixed)(((int64_t)base_end_op * (int64_t)IM_DRAG_ITEM_OPACITY_MULT + (IM_ONE / 2)) >> 16);
+                sm->entries[i] = (im_state_entry){
+                    .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
+                    .snapped = sm->reduced_motion, .target = anim->target_name, .property = "Opacity",
+                    .anim = anim, .start_fixed = cap.f2, .end_fixed = comp_end,
+                    .start_ms = now_ms, .duration_ms = dur
+                };
+                replaced_op = true;
                 break;
             }
         }
-        if (!has_explicit_opacity) {
+        if (!replaced_op) {
             im_fixed end_op = (im_fixed)(((int64_t)cap.f2 * (int64_t)IM_DRAG_ITEM_OPACITY_MULT + (IM_ONE / 2)) >> 16);
             im_state_entry op_e = {
                 .kind = IM_SENTRY_ANIM, .group_index = group_index, .from_transition = from_transition,
@@ -639,8 +652,10 @@ bool im_states_go_to(im_state_machine *sm, const char *state_name, uint32_t now_
         for (uint32_t i = 0; i < sm->entry_count; i++) {
             const im_state_entry *e = &sm->entries[i];
             if (e->group_index != (uint8_t)target_group) continue;
+            /* Sample the visible presentation value across all groups (not the shadowed outgoing entry
+               directly), so ending a drag while Disabled stays active does not jump away from Disabled. */
             im_template_value sv;
-            if (!entry_eval_value(sm, e, now_ms, &sv)) continue;
+            if (!sample_raw_value_no_bt(sm, e->target, e->property, now_ms, &sv, NULL)) continue;
             if (sv.kind == IM_TVAL_FIXED) {
                 snaps[snap_count++] = (out_snap){e->target, e->property, false, sv.a, 0u};
             } else if (sv.kind == IM_TVAL_COLOR || sv.kind == IM_TVAL_BRUSH) {
