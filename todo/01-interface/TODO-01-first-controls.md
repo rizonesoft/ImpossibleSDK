@@ -40,7 +40,7 @@ title: "TODO-01 -- Interface Engine and First Controls"
 | 6 | §6 | Input, focus and the Windows layer | §4, §5 | [ ] |
 | 7 | §7 | Button, toggle switch, text box and list view | §6, §8, §9, §14, §17, T02 §2, T02 §5, T02 §6, D07 T01 §2 | [ ] |
 | 8 | §8 | Host callback table | §3 | [x] |
-| 9 | §9 | Dirty rectangles and frame timing | §4, §8 | [ ] |
+| 9 | §9 | Dirty rectangles and frame timing | §4, §8 | [x] |
 | 10 | §10 | Clips, opacity and layers | §1, §17 | [x] |
 | 11 | §11 | Transforms and pictures | §10 | [ ] |
 | 12 | §12 | Shadows and materials | §8, §10 | [ ] |
@@ -291,6 +291,9 @@ A frame redraws only what changed, and nothing runs when nothing changes.
 - [x] Commit: `ui: dirty rectangles and frame timing`
 
 **Test checkpoint:** `python3 tools/build.py`, `python3 tools/check_parts.py`, and `python3 tools/site/build.py --check` exit 0, and the new tests fail when their production change is reverted.
+
+> **Verified:** 2026-11-25 | §9 | ce0d5b83fe1761976a498a33a61fc079a828bdfe
+> **Review:** `docs/reviews/d01-t01-s9.json`
 
 ## 10. Clips, opacity and layers
 
