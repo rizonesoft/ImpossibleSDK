@@ -81,8 +81,8 @@ Windows or WSL on 64-bit x86, with Python 3.12 or newer. In WSL the command is `
 <!-- site:start -->
 
 ```
-git clone https://github.com/rizonesoft/ImpossibleSDK.git
-cd ImpossibleSDK
+git clone https://github.com/rizonesoft/ImpossibleSDK.git SDK
+cd SDK
 python tools/bootstrap.py    # installs the pinned toolchain, once per machine
 python tools/build.py        # builds into build/<host> and runs the tests
 ```

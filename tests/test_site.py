@@ -157,7 +157,7 @@ class Site(unittest.TestCase):
     def test_the_readme_has_another_size_or_start(self):
         self.change("README.md", "The console sample is 3 KB", "The console sample is 300 KB")
         self.refused("README.md: the small part")
-        self.change("README.md", "cd ImpossibleSDK", "cd impossible")
+        self.change("README.md", "cd SDK", "cd impossible")
         self.refused("README.md: the start part")
 
     def test_a_partial_site_is_not_written(self):

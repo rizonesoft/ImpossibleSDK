@@ -8,8 +8,8 @@ What if your program needs something a second program could use? Build it in the
 `contribute.py` gives you a folder of your own with the newest SDK, so that you never work in a checkout another session may be using. Run it from your program's folder.
 
 ```sh
-python3 ../ImpossibleSDK/tools/contribute.py start
-python3 ../ImpossibleSDK/tools/contribute.py finish <folder>
+python3 ../SDK/tools/contribute.py start
+python3 ../SDK/tools/contribute.py finish <folder>
 ```
 
 Make and commit the change in the folder that `start` prints. `finish` brings it onto the newest main, builds and tests that very commit, pushes it and pins your program to it.

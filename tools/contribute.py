@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Add to Impossible SDK from a program's run, while other runs work on it too.
 
-    python3 ../ImpossibleSDK/tools/contribute.py start            prints a folder
-    python3 ../ImpossibleSDK/tools/contribute.py finish <folder>  from the program's folder
+    python3 ../SDK/tools/contribute.py start            prints a folder
+    python3 ../SDK/tools/contribute.py finish <folder>  from the program's folder
 
 `start` gives a folder of your own with the SDK's newest main: make, commit and
 have Codex review the change there, and never in the SDK's own folder, where its
