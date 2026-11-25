@@ -15,14 +15,16 @@ typedef struct im_radii {
     im_fixed top_left, top_right, bottom_right, bottom_left;
 } im_radii;
 
-/* Where drawing goes, with the colours, scale and optional clip/layer stack to use. */
+/* Where drawing goes, with the colours, scale and optional clip/layer/transform state to use. */
 struct im_layer_ctx;
+struct im_transform;
 typedef struct im_surface {
     uint32_t *pixels; /* 0x00RRGGBB, top row first */
     int width, height, stride;
     im_palette palette;
     im_fixed scale; /* 1.0 at 96 DPI */
     struct im_layer_ctx *layers; /* NULL when drawing directly without clips or layers */
+    const struct im_transform *transform; /* NULL for identity; when set, shapes and masks transform through it */
 } im_surface;
 
 /* Pixel coverage (0 to IM_ONE) of a rounded rectangle at integer pixel (x, y),
@@ -44,6 +46,11 @@ void im_stroke(im_surface *surface, im_rect shape, im_radii radii, im_fixed thic
 
 /* Stroke a rounded rectangle with a straight (non-premultiplied) 0xAARRGGBB color. */
 void im_stroke_argb(im_surface *surface, im_rect shape, im_radii radii, im_fixed thickness, uint32_t argb);
+
+/* Draw an 8-bit alpha mask (e.g. a rasterized glyph) tinted with straight 0xAARRGGBB argb into dst_rect,
+   honouring surface->transform (bilinear sampling) and surface->layers. */
+void im_draw_alpha_mask(im_surface *surface, im_rect dst_rect, const uint8_t *alpha,
+                        int width, int height, int stride_bytes, uint32_t argb);
 
 /* The shape with every edge moved in by a distance. */
 im_rect im_inset(im_rect shape, im_fixed by);

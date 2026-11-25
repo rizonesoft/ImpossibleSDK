@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,ui/tree.h,ui/layout.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/states.h,ui/host.h,ui/dirty.h,ui/frame.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
+<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,ui/tree.h,ui/layout.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/states.h,ui/host.h,ui/dirty.h,ui/frame.h,ui/transform.h,ui/picture.h,ui/input.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
 # Drawing
 
 How do you draw Windows 11's shapes and colours? Describe your canvas as a surface, then fill shapes with the brushes of the theme.
@@ -53,6 +53,10 @@ Every system-owned service (memory, monotonic clock, clipboard, pointer cursor, 
 ## How do dirty rectangles and frame timing work?
 
 Collect damaged device-pixel regions from an `im_tree` with `im_dirty_collect_tree` (`ui/dirty.h`, `ui/dirty.c`), which drains detached or destroyed subtree bounds from `tree->pending_damage`, scales logical bounds by the display scale with outward pixel rounding before clipping, marks the full viewport dirty on scale changes, and merges rectangles down to at most `IM_DIRTY_MAX_RECTS` (16) using exact minimum added waste area. Drive repaint scheduling with `im_frame_scheduler` (`ui/frame.h`, `ui/frame.c`): `im_frame_step` requests a one-shot frame (`im_frame_request_fn`, returning `true` when accepted by the host) only while damage, an active animation, or a settled final frame is owed, acknowledges only the painted generation via `im_frame_begin_paint` and `im_frame_on_painted` so damage or settlement queued during paint is never lost, and makes zero calls while the window is idle.
+
+## How do transforms, pictures, and pointer hit-testing work?
+
+Construct 2D affine transforms in Q30 signed 64-bit fixed point with `ui/transform.h` (`im_transform_translate`, `im_transform_scale`, `im_transform_rotate`, `im_transform_skew`, `im_transform_composite`, `im_transform_multiply`, `im_transform_invert`). Set `surface->transform` to rasterize filled shapes, gradient strokes, alpha-mask glyphs (`im_draw_alpha_mask`), and premultiplied pictures (`im_picture_draw`, `im_picture_draw_nine_slice` in `ui/picture.h`) through any invertible transform while honouring `surface->layers` clips and group opacity via `im_layer_blend_premul_pixel`. Attach a `RenderTransform` to an `im_node` with `im_node_set_render_transform` so painting (`im_node_device_transform`), dirty-rectangle collection (`im_dirty_collect_tree`), and device-pixel pointer hit-testing (`im_input_hit_test`, `im_input_to_local` in `ui/input.h`) share the exact same transform chain.
 
 | Call | What it does |
 | --- | --- |

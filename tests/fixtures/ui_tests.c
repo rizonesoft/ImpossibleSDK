@@ -9,7 +9,7 @@
 
 enum { W = 64, H = 64 };
 static uint32_t pixels[W * H];
-static im_surface surface = {pixels, W, H, W, {IM_DARK, {0}}, IM_ONE, NULL};
+static im_surface surface = {pixels, W, H, W, {IM_DARK, {0}}, IM_ONE, NULL, NULL};
 
 static void clear(void) {
     for (int i = 0; i < W * H; i++) pixels[i] = 0;
@@ -990,7 +990,7 @@ static int test_clips_and_layers(void) {
     static uint32_t actual_16[16 * 16];
     static uint32_t expected_16[16 * 16];
     for (int i = 0; i < 16 * 16; i++) actual_16[i] = expected_16[i] = 0x00182430;
-    im_surface s16 = {actual_16, 16, 16, 16, {IM_DARK, {0}}, IM_ONE, NULL};
+    im_surface s16 = {actual_16, 16, 16, 16, {IM_DARK, {0}}, IM_ONE, NULL, NULL};
     ref_op ops[72];
     uint32_t seed = 0xCAFEBABEu;
     for (int d = 0; d < 72; d++) {

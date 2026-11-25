@@ -275,6 +275,33 @@ void im_tree_invalidate_paint(im_node *node) {
     node->paint_dirty = true;
 }
 
+static void mark_subtree_paint_dirty(im_node *node) {
+    if (!node) return;
+    node->paint_dirty = true;
+    for (uint32_t i = 0; i < node->child_count; i++) {
+        mark_subtree_paint_dirty(node->children[i]);
+    }
+}
+
+void im_node_set_render_transform(im_node *node, const im_transform *transform, im_fixed origin_x, im_fixed origin_y) {
+    if (!node || !transform) return;
+    node->has_render_transform = true;
+    node->render_transform = *transform;
+    node->render_transform_origin_x = origin_x;
+    node->render_transform_origin_y = origin_y;
+    mark_subtree_paint_dirty(node);
+}
+
+void im_node_clear_render_transform(im_node *node) {
+    if (!node) return;
+    if (!node->has_render_transform) return;
+    node->has_render_transform = false;
+    node->render_transform = im_transform_identity();
+    node->render_transform_origin_x = 0;
+    node->render_transform_origin_y = 0;
+    mark_subtree_paint_dirty(node);
+}
+
 static void invalidate_template_bindings(im_node *root, im_node *templated_parent, uint32_t bit) {
     if (!root) return;
     if (root->templated_parent == templated_parent && (root->bind_mask & bit)) {

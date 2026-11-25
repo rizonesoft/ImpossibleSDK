@@ -377,3 +377,54 @@ void im_layer_blend_pixel(im_layer_ctx *ctx, int x, int y, uint32_t argb, uint32
         *dp = blend_premul_over_opaque(*dp, sa, sr, sg, sb);
     }
 }
+
+void im_layer_blend_premul_pixel(im_layer_ctx *ctx, int x, int y, uint32_t premul_argb, uint32_t coverage) {
+    if (!ctx || !ctx->target || coverage == 0) return;
+    if (ctx->frame_count > 0) {
+        const im_layer_frame *top_f = &ctx->frames[ctx->frame_count - 1u];
+        if (top_f->empty_bounds || x < top_f->x || x >= top_f->x + top_f->width ||
+            y < top_f->y || y >= top_f->y + top_f->height) {
+            return;
+        }
+    }
+    int32_t off = active_offscreen_index(ctx);
+    if (off >= 0 && ctx->frames[off].empty_bounds) return;
+
+    uint32_t clip_from = (off >= 0) ? ctx->frames[off].clip_base : 0u;
+    uint32_t clip_cov = im_clip_pixel_coverage_range(&ctx->clips, clip_from, ctx->clips.count, x, y);
+    if (clip_cov == 0) return;
+    uint32_t eff_cov = (clip_cov == IM_ONE) ? coverage : (uint32_t)(((uint64_t)coverage * clip_cov + IM_ONE / 2) >> 16);
+    if (eff_cov == 0) return;
+
+    uint32_t sa = (premul_argb >> 24) & 255u;
+    uint32_t sr = (premul_argb >> 16) & 255u;
+    uint32_t sg = (premul_argb >> 8) & 255u;
+    uint32_t sb = premul_argb & 255u;
+
+    if (ctx->frame_count > 0 && ctx->frames[ctx->frame_count - 1u].is_fallback) {
+        uint32_t op = (uint32_t)ctx->frames[ctx->frame_count - 1u].fallback_opacity;
+        sa = (sa * op + 127u) / 255u;
+        sr = (sr * op + 127u) / 255u;
+        sg = (sg * op + 127u) / 255u;
+        sb = (sb * op + 127u) / 255u;
+    }
+
+    if (eff_cov != IM_ONE) {
+        sa = (uint32_t)(((uint64_t)sa * eff_cov + IM_ONE / 2) >> 16);
+        sr = (uint32_t)(((uint64_t)sr * eff_cov + IM_ONE / 2) >> 16);
+        sg = (uint32_t)(((uint64_t)sg * eff_cov + IM_ONE / 2) >> 16);
+        sb = (uint32_t)(((uint64_t)sb * eff_cov + IM_ONE / 2) >> 16);
+    }
+    if (sa == 0 && sr == 0 && sg == 0 && sb == 0) return;
+
+    if (off >= 0) {
+        im_layer_frame *f = &ctx->frames[off];
+        if (!f->pixels || x < f->x || x >= f->x + f->width || y < f->y || y >= f->y + f->height) return;
+        uint32_t *dp = f->pixels + (size_t)(y - f->y) * (size_t)f->width + (size_t)(x - f->x);
+        *dp = blend_premul_over_premul(*dp, sa, sr, sg, sb);
+    } else {
+        if (x < 0 || x >= ctx->target->width || y < 0 || y >= ctx->target->height) return;
+        uint32_t *dp = ctx->target->pixels + (size_t)y * (size_t)ctx->target->stride + (size_t)x;
+        *dp = blend_premul_over_opaque(*dp, sa, sr, sg, sb);
+    }
+}

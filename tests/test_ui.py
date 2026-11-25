@@ -3268,6 +3268,121 @@ class Drawing(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("ALL PASSED", res.stdout)
 
+    def test_transforms_pictures_and_input_match_exact_oracle(self):
+        import math
+        res = subprocess.run(
+            [str(BUILD / "test-transform.exe")],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("ALL PASSED", res.stdout)
+
+        rot30_seen = False
+        tr_count = 0
+        pic_modes = {}
+        for line in res.stdout.splitlines():
+            parts = line.split()
+            if not parts:
+                continue
+            if parts[0] == "ROT30":
+                gx, gy = int(parts[1]) / 65536.0, int(parts[2]) / 65536.0
+                wx = 1920.0 * math.cos(math.radians(30.0))
+                wy = 1920.0 * math.sin(math.radians(30.0))
+                self.assertLessEqual(abs(gx - wx), 1.0 / 256.0, f"ROT30 x: got={gx} want={wx}")
+                self.assertLessEqual(abs(gy - wy), 1.0 / 256.0, f"ROT30 y: got={gy} want={wy}")
+                rot30_seen = True
+            elif parts[0] == "TR":
+                vals = [int(v) / 65536.0 for v in parts[1:]]
+                cx, cy, sx, sy, skx, sky, rot, tx, ty, px, py, gx, gy = vals
+                # WinUI CompositeTransform order: Translate(-c) -> Scale -> Skew -> Rotate -> Translate(+c) -> Translate(t)
+                x = (px - cx) * sx
+                y = (py - cy) * sy
+                x_sk = x + y * math.tan(math.radians(skx))
+                y_sk = x * math.tan(math.radians(sky)) + y
+                rad = math.radians(rot)
+                c, s = math.cos(rad), math.sin(rad)
+                wx = (x_sk * c - y_sk * s) + cx + tx
+                wy = (x_sk * s + y_sk * c) + cy + ty
+                self.assertLessEqual(abs(gx - wx), 1.0 / 256.0, f"TR#{tr_count} x: got={gx} want={wx}")
+                self.assertLessEqual(abs(gy - wy), 1.0 / 256.0, f"TR#{tr_count} y: got={gy} want={wy}")
+                tr_count += 1
+            elif parts[0] == "PIC":
+                mode = int(parts[1])
+                pic_modes[mode] = [int(h, 16) for h in parts[2:]]
+
+        self.assertTrue(rot30_seen, "ROT30 oracle line missing")
+        self.assertEqual(tr_count, 1000, "expected 1000 TR oracle lines")
+        self.assertEqual(sorted(pic_modes.keys()), [0, 1, 2, 3], "expected all 4 picture stretch modes")
+
+        # Independent double-precision bilinear premultiplied oracle for the 6x4 translucent image at 150% DPI.
+        sw, sh = 6, 4
+        cw, ch = 18, 14
+        dl, dt, dr, db = 2.0, 2.0, 16.0, 12.0
+        dw, dh = dr - dl, db - dt
+        scale = 1.5
+        sentinel = 0x00192837
+        sr, sg, sb = (sentinel >> 16) & 255, (sentinel >> 8) & 255, sentinel & 255
+
+        src = []
+        for y in range(sh):
+            row = []
+            for x in range(sw):
+                b = 20 + x * 35 + y * 15
+                g = 40 + x * 18 + y * 35
+                r = 180 - x * 20 + y * 20
+                a = 110 + x * 18 + y * 12
+                row.append((a, r * a / 255.0, g * a / 255.0, b * a / 255.0))
+            src.append(row)
+
+        for mode in range(4):
+            if mode == 0:
+                mw, mh = sw * scale, sh * scale
+            elif mode == 1:
+                mw, mh = dw, dh
+            elif mode == 2:
+                k = min(dw / sw, dh / sh)
+                mw, mh = sw * k, sh * k
+            else:
+                k = max(dw / sw, dh / sh)
+                mw, mh = sw * k, sh * k
+            ml = dl + (dw - mw) / 2.0
+            mt = dt + (dh - mh) / 2.0
+            cl, ct = max(dl, ml), max(dt, mt)
+            cr, cb = min(dr, ml + mw), min(db, mt + mh)
+            got = pic_modes[mode]
+            self.assertEqual(len(got), cw * ch)
+            for y in range(ch):
+                for x in range(cw):
+                    px_c, py_c = x + 0.5, y + 0.5
+                    gval = got[y * cw + x]
+                    if not (cl <= px_c < cr and ct <= py_c < cb):
+                        self.assertEqual(gval, sentinel, f"mode {mode} outside sentinel modified at ({x},{y})")
+                        continue
+                    u = (px_c - ml) * sw / mw - 0.5
+                    v = (py_c - mt) * sh / mh - 0.5
+                    u = max(0.0, min(sw - 1.0, u))
+                    v = max(0.0, min(sh - 1.0, v))
+                    x0, y0 = int(math.floor(u)), int(math.floor(v))
+                    x1, y1 = min(sw - 1, x0 + 1), min(sh - 1, y0 + 1)
+                    fx, fy = u - x0, v - y0
+                    sa = sr_p = sg_p = sb_p = 0.0
+                    for iy, wy in ((y0, 1.0 - fy), (y1, fy)):
+                        for ix, wx in ((x0, 1.0 - fx), (x1, fx)):
+                            w = wx * wy
+                            pa, pr, pg, pb = src[iy][ix]
+                            sa += pa * w
+                            sr_p += pr * w
+                            sg_p += pg * w
+                            sb_p += pb * w
+                    inv_a = (255.0 - sa) / 255.0
+                    wr = min(255.0, sr_p + sr * inv_a)
+                    wg = min(255.0, sg_p + sg * inv_a)
+                    wb = min(255.0, sb_p + sb * inv_a)
+                    gr, gg, gb = (gval >> 16) & 255, (gval >> 8) & 255, gval & 255
+                    self.assertLessEqual(abs(gr - wr), 2.0, f"mode {mode} R at ({x},{y}): got={gr} want={wr}")
+                    self.assertLessEqual(abs(gg - wg), 2.0, f"mode {mode} G at ({x},{y}): got={gg} want={wg}")
+                    self.assertLessEqual(abs(gb - wb), 2.0, f"mode {mode} B at ({x},{y}): got={gb} want={wb}")
+
 
 if __name__ == "__main__":
     unittest.main()

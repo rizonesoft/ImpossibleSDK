@@ -71,5 +71,9 @@ void im_layer_pop(im_layer_ctx *ctx);
    through the active clip stack and active layer (or target surface). Used by ui/draw.c. */
 void im_layer_blend_pixel(im_layer_ctx *ctx, int x, int y, uint32_t argb, uint32_t coverage);
 
+/* Blend one premultiplied 0xAARRGGBB color with coverage (0..IM_ONE) at target-space pixel (x, y)
+   through the active clip stack and active layer (or target surface) without double-premultiplication. */
+void im_layer_blend_premul_pixel(im_layer_ctx *ctx, int x, int y, uint32_t premul_argb, uint32_t coverage);
+
 /* Return the effective integer pixel bounds [left, right) x [top, bottom) for drawing into ctx. */
 void im_layer_draw_bounds(const im_layer_ctx *ctx, int *left, int *top, int *right, int *bottom);

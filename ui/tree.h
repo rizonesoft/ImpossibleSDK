@@ -6,6 +6,7 @@
 #include "draw.h"
 #include "template.h"
 #include "theme.h"
+#include "transform.h"
 
 /* Sentinel for an unset/Auto dimension (width or height). */
 #define IM_FIXED_AUTO ((im_fixed)INT32_MIN)
@@ -185,6 +186,12 @@ typedef struct im_node {
     bool paint_dirty;
     bool had_prev_rect;
     im_rect prev_absolute_rect;
+
+    /* Optional RenderTransform applied around (render_transform_origin_x * w, render_transform_origin_y * h). */
+    bool has_render_transform;
+    im_transform render_transform;
+    im_fixed render_transform_origin_x;
+    im_fixed render_transform_origin_y;
 } im_node;
 
 /* Maximum number of detached/destroyed subtree bounds buffered before overflowing to a full repaint. */
@@ -235,6 +242,12 @@ void im_tree_invalidate_arrange(im_node *node);
 
 /* Mark node as needing a visual repaint (e.g. brush/color/state change without geometry change). */
 void im_tree_invalidate_paint(im_node *node);
+
+/* Set or replace node's RenderTransform and normalized origin [0..IM_ONE]; marks node and subtree paint-dirty. */
+void im_node_set_render_transform(im_node *node, const im_transform *transform, im_fixed origin_x, im_fixed origin_y);
+
+/* Clear node's RenderTransform back to identity; marks node and subtree paint-dirty. */
+void im_node_clear_render_transform(im_node *node);
 
 /* Set Grid row definitions transactionally; on allocation failure, existing rows remain intact. */
 bool im_tree_set_grid_rows(im_tree *tree, im_node *grid, const im_grid_def *defs, uint32_t count);

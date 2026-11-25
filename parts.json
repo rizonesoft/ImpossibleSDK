@@ -12,12 +12,15 @@
         "ui/draw.c",
         "ui/frame.c",
         "ui/host.c",
+        "ui/input.c",
         "ui/layer.c",
         "ui/layout.c",
+        "ui/picture.c",
         "ui/states.c",
         "ui/template_data.c",
         "ui/theme.c",
         "ui/theme_data.c",
+        "ui/transform.c",
         "ui/tree.c"
       ]
     },

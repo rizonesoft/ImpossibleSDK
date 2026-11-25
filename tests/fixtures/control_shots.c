@@ -107,7 +107,7 @@ static int emit_clip_shots(HANDLE out) {
         int left = (w - bw) / 2, top = (h - bh) / 2;
         im_fixed sc = (im_fixed)((int64_t)IM_ONE * scales[i].num / scales[i].den);
         im_fixed rad = (im_fixed)(8LL * sc);
-        im_surface s = {big, w, h, w, {IM_DARK, {0}}, sc, NULL};
+        im_surface s = {big, w, h, w, {IM_DARK, {0}}, sc, NULL, NULL};
         for (int p = 0; p < w * h; p++) big[p] = 0;
         shot_arena_used = 0;
         im_layer_ctx ctx;
@@ -125,7 +125,7 @@ static int emit_clip_shots(HANDLE out) {
         int h = 64 * scales[i].num / scales[i].den;
         im_fixed sc = (im_fixed)((int64_t)IM_ONE * scales[i].num / scales[i].den);
         im_fixed rad = (im_fixed)(8LL * sc);
-        im_surface s = {big, w, h, w, {IM_DARK, {0}}, sc, NULL};
+        im_surface s = {big, w, h, w, {IM_DARK, {0}}, sc, NULL, NULL};
         for (int p = 0; p < w * h; p++) big[p] = 0x00202020;
         shot_arena_used = 0;
         im_layer_ctx ctx;
@@ -149,7 +149,7 @@ static int emit_clip_shots(HANDLE out) {
         int h = 64 * scales[i].num / scales[i].den;
         im_fixed sc = (im_fixed)((int64_t)IM_ONE * scales[i].num / scales[i].den);
         im_fixed rad = (im_fixed)(8LL * sc);
-        im_surface s = {big, w, h, w, {IM_DARK, {0}}, sc, NULL};
+        im_surface s = {big, w, h, w, {IM_DARK, {0}}, sc, NULL, NULL};
         for (int p = 0; p < w * h; p++) big[p] = 0x00202020;
         shot_arena_used = 0;
         im_layer_ctx ctx;
@@ -178,7 +178,7 @@ int im_main(void) {
         for (int style = 0; style < 2; style++)
             for (int state = 0; state < 4; state++) {
                 enum { W = 160, H = 64 };
-                im_surface surface = {pixels, W, H, W, {theme ? IM_LIGHT : IM_DARK, {0}}, IM_ONE, NULL};
+                im_surface surface = {pixels, W, H, W, {theme ? IM_LIGHT : IM_DARK, {0}}, IM_ONE, NULL, NULL};
                 for (int k = 0; k < 7; k++) surface.palette.slot[k] = accents[k];
                 for (int i = 0; i < W * H; i++) pixels[i] = theme ? 0xF3F3F3 : 0x202020;
                 im_draw_button(&surface, (im_rect){20 * pad, 16 * pad, 140 * pad, 48 * pad}, (im_button_style)style, (im_button_state)state);
@@ -210,7 +210,7 @@ int im_main(void) {
         int left = (w - bw) / 2;
         int top = (h - bh) / 2;
         im_fixed scale = (im_fixed)((int64_t)IM_ONE * probes[idx].scale_num / probes[idx].scale_den);
-        im_surface surface = {pixels, w, h, w, {IM_DARK, {0}}, scale, NULL};
+        im_surface surface = {pixels, w, h, w, {IM_DARK, {0}}, scale, NULL, NULL};
         for (int i = 0; i < w * h; i++) pixels[i] = 0;
         im_radii radii = {
             (im_fixed)((int64_t)probes[idx].radii[0] * scale),

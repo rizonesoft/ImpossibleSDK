@@ -232,8 +232,8 @@ static void test_random_tree_mutations(void) {
         im_tree_destroy_subtree(&dirty_storage, r);
     }
 
-    im_surface s_part = {pix_part, W, H, W, pal, IM_ONE, NULL};
-    im_surface s_full = {pix_full, W, H, W, pal, IM_ONE, NULL};
+    im_surface s_part = {pix_part, W, H, W, pal, IM_ONE, NULL, NULL};
+    im_surface s_full = {pix_full, W, H, W, pal, IM_ONE, NULL, NULL};
     im_layer_ctx layers_part;
     im_layer_ctx layers_full;
     CHECK(im_layer_init(&layers_part, &s_part, alloc, 1024 * 1024), "init part layers");
@@ -380,7 +380,7 @@ static void test_dirty_list_properties(void) {
     test_alloc_ctx actx = {false};
     im_allocator alloc = {test_alloc_fn, test_realloc_fn, test_free_fn, &actx};
     im_palette pal = make_dark_palette();
-    im_surface surf = {pix, W, H, W, pal, IM_ONE, NULL};
+    im_surface surf = {pix, W, H, W, pal, IM_ONE, NULL, NULL};
     im_layer_ctx layers;
     CHECK(im_layer_init(&layers, &surf, alloc, 1024 * 1024), "init distant layers");
 

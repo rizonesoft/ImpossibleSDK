@@ -1,5 +1,6 @@
 /* Impossible UI: dirty-rectangle collection, bounded merging, and scaled damage conversion. Portable. */
 #include "dirty.h"
+#include "input.h"
 
 static bool rect_empty(im_irect r) {
     return r.left >= r.right || r.top >= r.bottom;
@@ -173,11 +174,22 @@ static bool fixed_rect_eq(im_rect a, im_rect b) {
     return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
 }
 
-static void collect_node_recursive(im_dirty_list *list, im_node *node, im_fixed scale, bool ancestor_collapsed) {
+static void collect_node_recursive(im_dirty_list *list, im_node *node, im_fixed scale,
+                                   bool ancestor_collapsed, bool ancestor_transformed) {
     if (!node) return;
     bool visible = !ancestor_collapsed && node->visibility != IM_VIS_COLLAPSED;
-    im_rect cur = visible ? node->absolute_rect : (im_rect){0, 0, 0, 0};
-    bool cur_nonempty = visible && cur.left < cur.right && cur.top < cur.bottom;
+    bool transformed = ancestor_transformed || node->has_render_transform;
+    im_rect cur = {0, 0, 0, 0};
+    bool cur_nonempty = false;
+    if (visible) {
+        if (transformed) {
+            cur_nonempty = im_node_transformed_logical_bounds(node, &cur) &&
+                           cur.left < cur.right && cur.top < cur.bottom;
+        } else {
+            cur = node->absolute_rect;
+            cur_nonempty = cur.left < cur.right && cur.top < cur.bottom;
+        }
+    }
 
     bool changed = node->paint_dirty || (cur_nonempty != node->had_prev_rect) ||
                    (cur_nonempty && !fixed_rect_eq(cur, node->prev_absolute_rect));
@@ -194,7 +206,7 @@ static void collect_node_recursive(im_dirty_list *list, im_node *node, im_fixed 
     node->paint_dirty = false;
 
     for (uint32_t i = 0; i < node->child_count; i++) {
-        collect_node_recursive(list, node->children[i], scale, !visible);
+        collect_node_recursive(list, node->children[i], scale, !visible, transformed);
     }
 }
 
@@ -222,7 +234,7 @@ void im_dirty_collect_tree(im_dirty_list *list, im_tree *tree, im_node *root, im
     }
 
     if (root) {
-        collect_node_recursive(list, root, scale, false);
+        collect_node_recursive(list, root, scale, false, false);
     }
 }
 

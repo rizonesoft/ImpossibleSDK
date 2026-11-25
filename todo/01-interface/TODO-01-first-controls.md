@@ -340,12 +340,12 @@ Moving, scaling and turning elements, and drawing a picture held in memory.
 1. Write `ui/transform.{h,c}`, `ui/picture.{h,c}`, `ui/input.{h,c}`, add `im_layer_blend_premul_pixel` in `ui/layer.{h,c}`, extend `ui/draw.{h,c}`, `ui/tree.{h,c}`, and `ui/dirty.c`, update positional `im_surface` initializers in `tests/fixtures/`, register new sources in `parts.json`, and update `docs/guide/drawing.md`. Done when: `python3 tools/check_parts.py` and `python3 tools/site/build.py --check` pass and `ui/` builds freestanding without floats or OS calls.
 2. Add `tests/fixtures/test_transform.c` in `CMakeLists.txt` and wire `test-transform.exe` + exact double-precision Python oracle checks in `tests/test_ui.py`. Done when: `python3 tools/build.py`, `python3 tools/check_parts.py`, `python3 tools/site/build.py --check`, and `python3 tools/winvm/live.py` exit 0.
 
-- [ ] Apply translate, scale, rotate and skew in fixed point in `ui/transform.h`/`ui/transform.c`. Done when: points agree with exact arithmetic within 1/256 pixel. Cheaper substitute: translate only.
-- [ ] Draw shapes and alpha-mask text glyphs through a transform in `ui/draw.h`/`ui/draw.c`. Done when: a chevron turned 90 degrees equals the reference within the corner limit. Cheaper substitute: a second drawing.
-- [ ] Draw premultiplied pictures with the filter WinUI uses, in `ui/picture.h`/`ui/picture.c`. Done when: reference frames for none, fill, uniform and uniform-to-fill match within 2 of 255. Cheaper substitute: nearest pixel.
-- [ ] Cut nine-part pictures in `ui/picture.h`/`ui/picture.c`. Done when: corners keep their size at every scale. Cheaper substitute: stretching.
-- [ ] Map pointer positions back through transforms in `ui/input.h`/`ui/input.c` and `ui/tree.h`. Done when: random transforms hit the element a plain inverse hits. Cheaper substitute: untransformed hit tests.
-- [ ] Commit: `ui: transforms and pictures`
+- [x] Apply translate, scale, rotate and skew in fixed point in `ui/transform.h`/`ui/transform.c`. Done when: points agree with exact arithmetic within 1/256 pixel. Cheaper substitute: translate only.
+- [x] Draw shapes and alpha-mask text glyphs through a transform in `ui/draw.h`/`ui/draw.c`. Done when: a chevron turned 90 degrees equals the reference within the corner limit. Cheaper substitute: a second drawing.
+- [x] Draw premultiplied pictures with the filter WinUI uses, in `ui/picture.h`/`ui/picture.c`. Done when: reference frames for none, fill, uniform and uniform-to-fill match within 2 of 255. Cheaper substitute: nearest pixel.
+- [x] Cut nine-part pictures in `ui/picture.h`/`ui/picture.c`. Done when: corners keep their size at every scale. Cheaper substitute: stretching.
+- [x] Map pointer positions back through transforms in `ui/input.h`/`ui/input.c` and `ui/tree.h`. Done when: random transforms hit the element a plain inverse hits. Cheaper substitute: untransformed hit tests.
+- [x] Commit: `ui: transforms and pictures`
 
 **Test checkpoint:** `python3 tools/build.py`, `python3 tools/check_parts.py`, `python3 tools/site/build.py --check`, and `python3 tools/winvm/live.py` exit 0, and the new tests fail when their production change is reverted.
 

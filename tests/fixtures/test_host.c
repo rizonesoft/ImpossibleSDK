@@ -377,7 +377,7 @@ int im_main(void) {
             im_tree_destroy(&t);
 
             uint32_t px[16] = {0};
-            im_surface s = {px, 4, 4, 4, {IM_DARK, {0}}, IM_ONE, NULL};
+            im_surface s = {px, 4, 4, 4, {IM_DARK, {0}}, IM_ONE, NULL, NULL};
             im_layer_ctx lctx;
             if (!im_layer_init(&lctx, &s, im_host_allocator(h), 1024u)) return 34;
             if (im_layer_push(&lctx, (im_rect){0, 0, 4 * IM_ONE, 4 * IM_ONE}, 128u, false, (im_radii){0}) != IM_LAYER_ERR) return 35;
@@ -426,7 +426,7 @@ int im_main(void) {
 
         /* Layer consumer backed by recording host allocator: push IM_LAYER_OK, fill, pop, zero leaks. */
         uint32_t lpx[64] = {0};
-        im_surface lsurf = {lpx, 8, 8, 8, {IM_DARK, {0}}, IM_ONE, NULL};
+        im_surface lsurf = {lpx, 8, 8, 8, {IM_DARK, {0}}, IM_ONE, NULL, NULL};
         im_layer_ctx lctx;
         if (!im_layer_init(&lctx, &lsurf, alloc, 4096u)) return 47;
         if (im_layer_push(&lctx, (im_rect){0, 0, 8 * IM_ONE, 8 * IM_ONE}, 128u, false, (im_radii){0}) != IM_LAYER_OK) return 47;
