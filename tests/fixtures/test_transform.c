@@ -294,6 +294,16 @@ static void test_transformed_drawing(void) {
     CHECK(p0 >= 126 && p0 <= 130 && p1 >= 126 && p1 <= 130,
           "half-pixel translated 1x1 A8 glyph splits coverage ~128/128 across outer pixels");
 
+    /* Magnified 1x1 opaque A8 glyph into [8,16)x[8,16) through 8x scale:
+       at (x=6, y=12), u=-0.6875 (0.3125) and v=+0.0625 (0.9375) => round(0.3125 * 0.9375 * 255) = 75. */
+    memset(sing_buf, 0, (size_t)(S * S) * sizeof(uint32_t));
+    im_transform mag8 = im_transform_scale(FX(8), FX(8));
+    im_surface s_mag = {sing_buf, S, S, S, pal, IM_ONE, NULL, &mag8};
+    im_draw_alpha_mask(&s_mag, (im_rect){FX(1), FX(1), FX(2), FX(2)}, one_px, 1, 1, 1, 0xFFFFFFFFu);
+    int mag_edge = (int)(sing_buf[12 * S + 6] & 255u);
+    CHECK(mag_edge >= 73 && mag_edge <= 77,
+          "magnified 1x1 A8 glyph preserves half-texel outer-edge coverage at x=6 (~75/255)");
+
     /* 30-degree rotated gradient STROKE: compare two stroke points at the SAME device Y (y=32)
        so a device-space gradient (same device Y => identical color) cannot pass! */
     const int GS = 64;
@@ -780,6 +790,33 @@ static void test_shared_transform_and_input(void) {
                   "ToggleSwitch On applies KnobTranslateTransform to SwitchKnob");
             im_dirty_collect_tree(&ts_dirty, &ts_tree, ts_root, IM_ONE);
             CHECK(ts_dirty.count > 0u, "ToggleSwitch animated transform emits dirty damage");
+
+            /* Regression: clearing a RenderTransform on identity must preserve RenderTransformOrigin=(0.5,0.5)
+               across replay of a scale animation. */
+            if (knob_on) {
+                im_fixed kw = knob_on->absolute_rect.right - knob_on->absolute_rect.left;
+                im_fixed kh = knob_on->absolute_rect.bottom - knob_on->absolute_rect.top;
+                im_transform dev_base;
+                im_fixed base_cx = 0, base_cy = 0;
+                CHECK(im_node_device_transform(knob_on, IM_ONE, &dev_base) &&
+                      im_transform_point(&dev_base, kw / 2, kh / 2, &base_cx, &base_cy),
+                      "baseline center maps before scale playback");
+
+                im_transform sc2 = im_transform_scale(FX(2), FX(2));
+                im_node_set_render_transform(knob_on, &sc2, knob_on->render_transform_origin_x, knob_on->render_transform_origin_y);
+                im_node_clear_render_transform(knob_on);
+                CHECK(knob_on->render_transform_origin_x == IM_ONE / 2 &&
+                      knob_on->render_transform_origin_y == IM_ONE / 2,
+                      "im_node_clear_render_transform preserves declared RenderTransformOrigin (0.5, 0.5)");
+                im_node_set_render_transform(knob_on, &sc2, knob_on->render_transform_origin_x, knob_on->render_transform_origin_y);
+                im_transform dev2;
+                im_fixed px_c = 0, py_c = 0;
+                CHECK(im_node_device_transform(knob_on, IM_ONE, &dev2) &&
+                      im_transform_point(&dev2, kw / 2, kh / 2, &px_c, &py_c),
+                      "center maps on second playback");
+                CHECK(px_c == base_cx && py_c == base_cy,
+                      "second scale playback pivots around preserved (0.5, 0.5) center");
+            }
             im_tree_destroy_subtree(&ts_tree, ts_root);
         }
     }

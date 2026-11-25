@@ -297,8 +297,6 @@ void im_node_clear_render_transform(im_node *node) {
     if (!node->has_render_transform) return;
     node->has_render_transform = false;
     node->render_transform = (im_transform){IM_TR_ONE, 0, 0, IM_TR_ONE, 0, 0};
-    node->render_transform_origin_x = 0;
-    node->render_transform_origin_y = 0;
     mark_subtree_paint_dirty(node);
 }
 

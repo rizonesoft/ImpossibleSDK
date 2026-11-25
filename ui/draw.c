@@ -381,20 +381,31 @@ void im_draw_alpha_mask(im_surface *surface, im_rect dst_rect, const uint8_t *al
         if (bound_l >= bound_r || bound_t >= bound_b) return;
     }
 
+    /* Zero-padded bilinear filter has non-zero support for u in (-1, width), which maps to
+       local dst_rect expanded by half a source texel (dw / (2 * width), dh / (2 * height)) on each side. */
+    int64_t dw_fx = (int64_t)dst_rect.right - dst_rect.left;
+    int64_t dh_fx = (int64_t)dst_rect.bottom - dst_rect.top;
+    int64_t pad_x = (dw_fx + 2LL * width - 1) / (2LL * width);
+    int64_t pad_y = (dh_fx + 2LL * height - 1) / (2LL * height);
+    im_rect padded_local = {
+        held((int64_t)dst_rect.left - pad_x),
+        held((int64_t)dst_rect.top - pad_y),
+        held((int64_t)dst_rect.right + pad_x),
+        held((int64_t)dst_rect.bottom + pad_y)
+    };
+
     im_transform inv;
     bool has_tr = (surface->transform != NULL);
-    im_rect dev_bounds = dst_rect;
+    im_rect dev_bounds = padded_local;
     if (has_tr) {
         if (!im_transform_invert(surface->transform, &inv)) return;
-        if (!im_transform_rect_bounds(surface->transform, dst_rect, &dev_bounds)) return;
+        if (!im_transform_rect_bounds(surface->transform, padded_local, &dev_bounds)) return;
     }
 
-    /* Expand device bounds by 1 pixel on each side so zero-padded bilinear outer edges
-       (e.g. half-pixel translated glyphs) always render full edge antialiasing. */
-    int from = pixel((int64_t)dev_bounds.left - IM_ONE, surface->width);
-    int to = pixel((int64_t)dev_bounds.right + 2 * IM_ONE - 1, surface->width);
-    int top = pixel((int64_t)dev_bounds.top - IM_ONE, surface->height);
-    int bottom = pixel((int64_t)dev_bounds.bottom + 2 * IM_ONE - 1, surface->height);
+    int from = pixel(dev_bounds.left, surface->width);
+    int to = pixel((int64_t)dev_bounds.right + IM_ONE - 1, surface->width);
+    int top = pixel(dev_bounds.top, surface->height);
+    int bottom = pixel((int64_t)dev_bounds.bottom + IM_ONE - 1, surface->height);
     if (from < bound_l) from = bound_l;
     if (to > bound_r) to = bound_r;
     if (top < bound_t) top = bound_t;
