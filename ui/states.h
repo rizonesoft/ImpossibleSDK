@@ -83,6 +83,10 @@ typedef struct im_state_machine {
     bool has_bg_transition;
     const char *bg_target;
     im_brush_transition bg_transition;
+
+    /* Optional subtree resource context (node + window palette) for per-subtree theme and named overrides. */
+    const im_node *res_node;
+    const im_palette *window_palette;
 } im_state_machine;
 
 /* Initialize a state machine for a compiled template from ui/template_data.c. */
@@ -90,6 +94,13 @@ void im_states_init(im_state_machine *sm, im_template_id id, const im_palette *p
 
 /* Initialize a state machine for a custom template and tables (for custom fixtures and tests). */
 void im_states_init_custom(im_state_machine *sm, const im_template *tmpl, const im_template_tables *tables, const im_palette *palette);
+
+/* Attach a subtree node and window palette so every state brush/value resolves through ui/resources.c. */
+void im_states_set_resource_context(im_state_machine *sm, const im_node *node, const im_palette *window_palette);
+
+/* Refresh a state machine's effective palette and any in-flight BrushTransition target after a theme or override change.
+   Returns true if the effective palette or active transition target changed. */
+bool im_states_refresh_theme(im_state_machine *sm, const im_palette *window_palette, uint32_t now_ms);
 
 /* Set or update a caller-supplied binding (e.g. TemplateSettings.KnobOffToOnOffset or PlaceholderForeground). */
 bool im_states_set_binding(im_state_machine *sm, const char *name, im_template_value value);

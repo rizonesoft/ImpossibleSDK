@@ -39,11 +39,17 @@ COVERED = (
     "tests/fixtures/layout_reference.json",
     "tests/fixtures/layout_dump.c",
     "tests/fixtures/test_panels.c",
+    "tests/fixtures/test_resources.c",
     "tests/fixtures/control_shots.c",
     "tests/test_ui.py",
     "tools/winui/check_package.py",
     "tools/winui/pin.json",
+    "tools/winui/resources.py",
     "tools/winvm/needs.json",
+    "ui/accent.c",
+    "ui/accent.h",
+    "ui/button.c",
+    "ui/button.h",
     "ui/clip.c",
     "ui/clip.h",
     "ui/dirty.c",
@@ -62,7 +68,15 @@ COVERED = (
     "ui/panels.h",
     "ui/path.c",
     "ui/path.h",
+    "ui/resources.c",
+    "ui/resources.h",
+    "ui/states.c",
+    "ui/states.h",
     "ui/template_data.c",
+    "ui/theme.c",
+    "ui/theme.h",
+    "ui/theme_data.c",
+    "ui/theme_data.h",
     "ui/tree.c",
     "ui/tree.h",
 )
@@ -205,8 +219,8 @@ def pack(root):
     packed = fingerprint(job / "repo", names)
     if not (root / "build/linux/build.ninja").is_file() or not shutil.which("cmake"):
         raise RuntimeError("pack requires cmake and configured build/linux to rebuild control-shots.exe")
-    _run_with_tree_kill(["cmake", "--build", str(root / "build/linux"), "--target", "control-shots", "test-panels"], cwd=root, timeout=300, check=True)
-    for bin_name in ("control-shots.exe", "test-panels.exe"):
+    _run_with_tree_kill(["cmake", "--build", str(root / "build/linux"), "--target", "control-shots", "test-panels", "test-resources"], cwd=root, timeout=300, check=True)
+    for bin_name in ("control-shots.exe", "test-panels.exe", "test-resources.exe"):
         src_bin = root / "build/linux" / bin_name
         if not src_bin.is_file():
             raise RuntimeError(f"{bin_name} missing after rebuild: {src_bin}")

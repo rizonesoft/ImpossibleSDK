@@ -21,8 +21,14 @@ typedef struct im_canvas {
     bool full_redraw; /* true on first paint, resize, scale change, or full-client invalidation */
 } im_canvas;
 
-/* What the user did. */
-typedef enum im_event_kind { IM_POINTER_MOVE, IM_POINTER_DOWN, IM_POINTER_UP, IM_KEY_DOWN } im_event_kind;
+/* What the user or system did. */
+typedef enum im_event_kind {
+    IM_POINTER_MOVE,
+    IM_POINTER_DOWN,
+    IM_POINTER_UP,
+    IM_KEY_DOWN,
+    IM_THEME_CHANGED
+} im_event_kind;
 
 /* One thing the user did, where, or with which key. */
 typedef struct im_event {

@@ -207,7 +207,9 @@ def emit(brushes, values):
     h += [f"    IM_SLOT_{re.sub(r'(?<!^)(?=[A-Z0-9])', '_', s.removeprefix('System').removesuffix('Color') or s).upper()},\n" for s in SLOTS]
     h += ["    IM_SLOT_COUNT\n};\n\nenum im_brush_id {\n"]
     h += [f"    IM_BRUSH_{key},\n" for key in brushes] + ["    IM_BRUSH_COUNT\n};\n\nenum im_value_id {\n"]
-    h += [f"    IM_VALUE_{key},\n" for key in values] + ["    IM_VALUE_COUNT\n};\n"]
+    h += [f"    IM_VALUE_{key},\n" for key in values] + ["    IM_VALUE_COUNT\n};\n\n"]
+    h += ["extern const char *const im_brush_names[IM_BRUSH_COUNT];\n"]
+    h += ["extern const char *const im_value_names[IM_VALUE_COUNT];\n"]
 
     pool, where = [], {}
     def stops_at(stops):
@@ -232,6 +234,10 @@ def emit(brushes, values):
         c += [f"{{ /* {THEMES[theme]} */\n"]
         c += ["    {" + ", ".join(map(str, by_theme[theme])) + f"}}, /* {key} */\n" for key, by_theme in values.items()]
         c += ["},\n"]
+    c += ["};\n\nconst char *const im_brush_names[IM_BRUSH_COUNT] = {\n"]
+    c += [f'    "{key}",\n' for key in brushes]
+    c += ["};\n\nconst char *const im_value_names[IM_VALUE_COUNT] = {\n"]
+    c += [f'    "{key}",\n' for key in values]
     c += ["};\n"]
     return {"theme_data.h": "".join(h), "theme_data.c": "".join(c)}
 

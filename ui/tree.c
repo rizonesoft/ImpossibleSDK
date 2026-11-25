@@ -66,6 +66,9 @@ static void destroy_node_recursive(im_tree *tree, im_node *node) {
     if (node->cols) {
         tree->alloc.free(tree->alloc.ctx, node->cols, (size_t)node->col_count * sizeof(im_grid_def));
     }
+    if (node->res_overrides) {
+        tree->alloc.free(tree->alloc.ctx, node->res_overrides, (size_t)node->res_override_cap * sizeof(im_resource_override));
+    }
     tree->alloc.free(tree->alloc.ctx, node, sizeof(im_node));
     if (tree->node_count > 0) tree->node_count--;
 }
@@ -874,6 +877,36 @@ void im_node_set_group_header(im_node *node, bool is_group_header) {
     if (node->is_group_header == is_group_header) return;
     node->is_group_header = is_group_header;
     im_tree_invalidate_measure(node->parent ? node->parent : node);
+}
+
+void im_node_set_requested_theme(im_node *node, im_requested_theme theme) {
+    if (!node) return;
+    if (node->requested_theme == theme) return;
+    node->requested_theme = theme;
+    im_tree_invalidate_paint(node);
+}
+
+void im_node_bind_theme_brushes(im_node *node, bool has_bg, enum im_brush_id bg_brush,
+                                bool has_border, enum im_brush_id border_brush) {
+    if (!node) return;
+    node->has_theme_bg_brush = has_bg;
+    node->theme_bg_brush = bg_brush;
+    node->has_theme_border_brush = has_border;
+    node->theme_border_brush = border_brush;
+}
+
+void im_node_bind_theme_values(im_node *node, bool has_padding, enum im_value_id padding_val,
+                               bool has_border, enum im_value_id border_val) {
+    if (!node) return;
+    node->has_theme_padding_val = has_padding;
+    node->theme_padding_val = padding_val;
+    node->has_theme_border_val = has_border;
+    node->theme_border_val = border_val;
+}
+
+void im_node_bind_state_machine(im_node *node, void *sm) {
+    if (!node) return;
+    node->bound_sm = sm;
 }
 
 im_thickness im_node_effective_padding(const im_node *node) {

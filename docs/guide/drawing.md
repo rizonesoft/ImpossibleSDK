@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/button.h,ui/tree.h,ui/layout.h,ui/panels.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/states.h,ui/host.h,ui/dirty.h,ui/frame.h,ui/transform.h,ui/picture.h,ui/input.h,ui/path.h,ui/gradient.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
+<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/accent.h,ui/resources.h,ui/button.h,ui/tree.h,ui/layout.h,ui/panels.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/states.h,ui/host.h,ui/dirty.h,ui/frame.h,ui/transform.h,ui/picture.h,ui/input.h,ui/path.h,ui/gradient.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
 # Drawing
 
 How do you draw Windows 11's shapes and colours? Describe your canvas as a surface, then fill shapes with the brushes of the theme.
@@ -36,7 +36,7 @@ Positions are `im_fixed`: 16 bits before the point and 16 after, so `IM_ONE` is 
 
 ## Where do the colours come from?
 
-From WinUI's own theme, as [brushes](site:api-theme.html) for dark, light and contrast. The user chooses the accent and the contrast colours, so the program puts them in the palette's slots. A brush you name takes the right one.
+From WinUI's own theme, as [brushes](site:api-theme.html) for dark, light and contrast. The user chooses the accent and the contrast colours, so the program puts them in the palette's slots (either verbatim from Windows via `im_accent_set_os_shades` or derived perceptually in fixed-point D65 CIELAB via `im_accent_derive` / `im_accent_fill_palette` in `ui/accent.h`, and with all four Windows 11 contrast presets `Aquatic`, `Desert`, `Dusk`, and `Night Sky` via `im_palette_init_contrast` in `ui/resources.h`). Set per-subtree `RequestedTheme` with `im_node_set_requested_theme`, override individual WinUI brush or numeric value keys per subtree with `im_resources_set_brush_override_by_name` / `im_resources_set_value_override_by_name`, attach resource context to state machines via `im_states_set_resource_context`, and restyle a live tree in place on `IM_THEME_CHANGED` with `im_resources_restyle_tree` without losing focus, selection, scroll position, or text.
 
 ## How do clips and opacity layers work?
 

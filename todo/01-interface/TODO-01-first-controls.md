@@ -403,6 +403,8 @@ Filled and stroked curves for check marks, rings, icons and charts of any kind, 
 
 ## 14. Theme, accent and contrast changes while running
 
+> **Started:** 2026-11-25T10:12Z
+
 Light, dark, contrast and accent change at any moment, on the whole window or on one subtree.
 
 **Phase:** 1
@@ -411,8 +413,9 @@ Light, dark, contrast and accent change at any moment, on the whole window or on
 
 **Build order:**
 
-1. Write `ui/resources.c` with its first item. Done when: the first item below passes.
-2. Cover it in `tests/test_ui.py`. Done when: the checks fail on a planted fault.
+1. Add portable fixed-point perceptual accent-shade derivation in `ui/accent.{h,c}` (`im_accent_derive`, `im_accent_fill_palette` using exact D65 16.16 integer sRGB/linear/CIELAB math with documented lightness targets, gamut-preserving chroma bisection, and half-up rounding, while accepting all 7 OS values verbatim when following Windows) and register `ui/accent.c` + `ui/resources.c` in `parts.json` and `ui/accent.{h,c}`, `ui/resources.{h,c}`, `ui/states.{h,c}`, `ui/theme_data.{h,c}`, `tests/fixtures/test_resources.c` in `tools/winvm/live.py` `COVERED` + `pack()` (`test-resources.exe`). Done when: `ui/accent.c` compiles freestanding with zero floats/libc, matches stored/live Windows `UISettings` families and pinned `SystemThemingInterop.cpp`, and agrees within tolerance against an independent double-precision CIELAB oracle across 1,000 deterministic RGB inputs including black, white, near-neutral, and saturated colors.
+2. Extend `tools/winui/resources.py` to emit `im_brush_id_from_name` and `im_value_id_from_name` into `ui/theme_data.{h,c}`; add `im_requested_theme` (`DEFAULT`/`DARK`/`LIGHT`), node-owned typed resource override table (unified enum ID + exact WinUI string key, ancestor + theme-scope precedence, atomic refusal on unknown key/wrong kind/out-of-range ID/OOM without mutating prior entries, removal revealing previous value), and live state fields (`is_focused`, `selection_start`, `selection_end`, `scroll_x`, `scroll_y`, `text`) to `ui/tree.{h,c}`; implement `ui/resources.{h,c}` (subtree effective-theme resolution preserving `requested_theme` through `IM_CONTRAST` and restoring it when contrast ends, `im_resources_resolve_brush`/`im_resources_resolve_value`, in-place `im_resources_restyle_tree` preserving node identity/local edits/state with minimal dirty damage and zero damage on no-op updates, and `im_palette_init_contrast` for Aquatic/Desert/Dusk/Night Sky populating all 10 `IM_SLOT_COLOR_*` slots including `DisabledText=GrayText` and independent `ControlAccent`); wire effective resource context through `ui/states.{h,c}` and `ui/button.{h,c}` (geometry, gradient stops, fill, stroke, mid-transition updates); and handle `WM_SETTINGCHANGE`/`WM_SYSCOLORCHANGE`/`WM_DWMCOLORIZATIONCOLORCHANGED` in `src/window.c` delivering `IM_THEME_CHANGED` and scheduling repaint. Done when: Light-in-Dark Button pixels match Light reference across Standard/Accent/Subtle and all visual states, overrides isolate affected states and shared-stop brushes, restyling preserves state with exact dirty rects, and all four contrast themes render accurately.
+3. Add `tests/fixtures/test_resources.c` (`test-resources` in `CMakeLists.txt`), `tests/test_ui.py` checks, `tests/test_live.py` live WinUI Light-panel-in-Dark-window (inheriting Button + Dark sibling) pixel comparison against `test-resources.exe --live-shots`, and update `docs/guide/drawing.md`. Done when: `tools/check_parts.py`, `tools/site/build.py --check`, `tools/build.py`, and `tools/winvm/live.py --check` exit 0 and checks fail on planted reversions.
 
 - [ ] Resolve theme resources per subtree in `ui/resources.c`. Done when: a light panel inside a dark window matches the reference. Cheaper substitute: one theme for the window.
 - [ ] Let a program override a named resource in `ui/resources.c`. Done when: the override changes every state that names it and nothing else. Cheaper substitute: editing the table.

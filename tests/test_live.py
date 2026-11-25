@@ -1680,3 +1680,88 @@ class LiveReference(unittest.TestCase):
                 self.assertAlmostEqual(r0["Rect"]["Height"], sdk_r0[3], delta=1.0, msg=f"{lv_cid} Row0 height")
                 self.assertAlmostEqual(r1["Rect"]["Height"], sdk_r1[3], delta=1.0, msg=f"{lv_cid} Row1 height")
                 self.assertGreater(r1["Rect"]["Y"], r0["Rect"]["Y"] + r0["Rect"]["Height"] - 0.5, f"{lv_cid} stacked order")
+
+    def test_live_light_panel_in_dark_window_matches_sdk(self):
+        sys.path.insert(0, str(ROOT / "reference"))
+        import run as ref_run
+
+        res_exe = ROOT / "build" / "linux" / "test-resources.exe"
+        if not res_exe.exists():
+            res_exe = ROOT / "build" / "test-resources.exe"
+        self.assertTrue(res_exe.exists(), f"missing test-resources.exe at {res_exe}")
+        sdk_raw = subprocess.check_output([str(res_exe), "--live-shots"], stdin=subprocess.DEVNULL)
+        frame_bytes = 160 * 64 * 4
+        self.assertEqual(len(sdk_raw), 2 * frame_bytes)
+        sdk_light_in_dark = sdk_raw[:frame_bytes]
+        sdk_dark_sib = sdk_raw[frame_bytes:]
+
+        cases = [
+            {
+                "id": "subtree-light-in-dark",
+                "case_group": "theme",
+                "control": "Border",
+                "theme": "Dark",
+                "scale": 1.0,
+                "frame": {"width": 160, "height": 64, "background": "#FF202020"},
+                "properties": {"Width": 160, "Height": 64, "RequestedTheme": "Light"},
+                "children": [
+                    {
+                        "id": "inheriting-btn",
+                        "control": "Button",
+                        "state": "Normal",
+                        "properties": {
+                            "Width": 120,
+                            "Height": 32,
+                            "IsTabStop": False,
+                            "HorizontalAlignment": "Center",
+                            "VerticalAlignment": "Center",
+                        },
+                    }
+                ],
+            },
+            {
+                "id": "subtree-dark-sibling",
+                "case_group": "theme",
+                "control": "Border",
+                "theme": "Dark",
+                "scale": 1.0,
+                "frame": {"width": 160, "height": 64, "background": "#FF202020"},
+                "properties": {"Width": 160, "Height": 64},
+                "children": [
+                    {
+                        "id": "dark-btn",
+                        "control": "Button",
+                        "state": "Normal",
+                        "properties": {
+                            "Width": 120,
+                            "Height": 32,
+                            "IsTabStop": False,
+                            "HorizontalAlignment": "Center",
+                            "VerticalAlignment": "Center",
+                        },
+                    }
+                ],
+            },
+        ]
+
+        with tempfile.TemporaryDirectory(dir=ref_run.host_temp_root(), prefix="impossible-live-theme-") as build_tmp:
+            exe = ref_run.build_reference(build_tmp)
+            cf = Path(build_tmp) / "theme_cases.json"
+            cf.write_text(json.dumps({"cases": cases}), encoding="utf-8")
+            out_dir = Path(build_tmp) / "out"
+            ref_run.run_reference(exe, out_dir, cases_path=cf, work_dir=build_tmp)
+
+            for cid, sdk_buf in (("subtree-light-in-dark", sdk_light_in_dark), ("subtree-dark-sibling", sdk_dark_sib)):
+                winui = (out_dir / f"{cid}.bgra").read_bytes()
+                self.assertEqual(len(winui), frame_bytes, cid)
+                worst_edge = 0
+                worst_corner = 0
+                for p in range(160 * 64):
+                    x, y = p % 160, p // 160
+                    off = max(abs(sdk_buf[p * 4 + c] - winui[p * 4 + c]) for c in range(3))
+                    if (x < 25 or x >= 135) and (y < 21 or y >= 43):
+                        worst_corner = max(worst_corner, off)
+                    else:
+                        worst_edge = max(worst_edge, off)
+                self.assertLessEqual(worst_edge, 2, f"{cid} straight edge diff={worst_edge} > 2")
+                self.assertLessEqual(worst_corner, 40, f"{cid} corner diff={worst_corner} > 40")

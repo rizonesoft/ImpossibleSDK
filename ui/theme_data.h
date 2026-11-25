@@ -2408,3 +2408,6 @@ enum im_value_id {
     IM_VALUE_WindowCaptionButtonStrokeWidth,
     IM_VALUE_COUNT
 };
+
+extern const char *const im_brush_names[IM_BRUSH_COUNT];
+extern const char *const im_value_names[IM_VALUE_COUNT];

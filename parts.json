@@ -5,6 +5,7 @@
       "folder": "ui",
       "depends": [],
       "sources": [
+        "ui/accent.c",
         "ui/animate.c",
         "ui/button.c",
         "ui/clip.c",
@@ -19,6 +20,7 @@
         "ui/panels.c",
         "ui/path.c",
         "ui/picture.c",
+        "ui/resources.c",
         "ui/states.c",
         "ui/template_data.c",
         "ui/theme.c",

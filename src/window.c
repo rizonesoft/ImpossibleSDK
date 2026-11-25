@@ -177,6 +177,14 @@ static LRESULT CALLBACK procedure(HWND handle, UINT message, WPARAM wide, LPARAM
                      SWP_NOZORDER | SWP_NOACTIVATE);
         return 0;
     }
+    case WM_SETTINGCHANGE:
+    case WM_SYSCOLORCHANGE:
+    case 0x0320: /* WM_DWMCOLORIZATIONCOLORCHANGED */
+        window->pending_count = 0;
+        window->pending_overflow = true;
+        send(window, handle, (im_event){.kind = IM_THEME_CHANGED});
+        InvalidateRect(handle, NULL, FALSE);
+        return 0;
     case WM_DESTROY: PostQuitMessage(window->failed ? 1 : 0); return 0;
     default: return DefWindowProcW(handle, message, wide, longer);
     }

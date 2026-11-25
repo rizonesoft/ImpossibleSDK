@@ -1,5 +1,6 @@
 /* Impossible UI: compiled WinUI visual state groups, transitions and setters. Portable. */
 #include "states.h"
+#include "resources.h"
 #include "button.h"
 #include "input.h"
 #include "layer.h"
@@ -806,7 +807,10 @@ bool im_states_go_to(im_state_machine *sm, const char *state_name, uint32_t now_
         im_template_value bg_val;
         if (sample_raw_value_no_bt(sm, sm->bg_target, "Background", now_ms, &bg_val, NULL)) {
             if (bg_val.kind == IM_TVAL_BRUSH) {
-                uint32_t new_argb = im_template_value_to_argb(&bg_val, &sm->palette);
+                const im_palette *wp = sm->window_palette ? sm->window_palette : &sm->palette;
+                uint32_t new_argb = sm->res_node
+                    ? im_resources_resolve_brush(sm->res_node, wp, (enum im_brush_id)bg_val.a, 0, IM_ONE, IM_ONE)
+                    : im_template_value_to_argb(&bg_val, &sm->palette);
                 im_brush_transition_set(&sm->bg_transition, false, (enum im_brush_id)bg_val.a, new_argb, now_ms, sm->reduced_motion);
             } else if (bg_val.kind == IM_TVAL_COLOR) {
                 uint32_t new_argb = im_template_value_to_argb(&bg_val, &sm->palette);
@@ -852,10 +856,65 @@ bool im_states_sample_value(const im_state_machine *sm, const char *target, cons
     return sample_raw_value_no_bt(sm, target, property, now_ms, out_val, NULL);
 }
 
+static uint32_t resolve_sm_brush_argb(const im_state_machine *sm, enum im_brush_id id) {
+    if (sm->res_node) {
+        const im_palette *wp = sm->window_palette ? sm->window_palette : &sm->palette;
+        return im_resources_resolve_brush(sm->res_node, wp, id, 0, IM_ONE, IM_ONE);
+    }
+    return im_brush_over(&sm->palette, id, 0, IM_ONE, IM_ONE);
+}
+
+static im_fixed resolve_sm_value_fixed(const im_state_machine *sm, enum im_value_id id, im_fixed fallback) {
+    if (id < 0 || id >= IM_VALUE_COUNT) return fallback;
+    if (sm->res_node) {
+        const im_palette *wp = sm->window_palette ? sm->window_palette : &sm->palette;
+        im_fixed v[4];
+        im_resources_resolve_value(sm->res_node, wp, id, v);
+        return v[0];
+    }
+    return im_value(&sm->palette, id)[0];
+}
+
+void im_states_set_resource_context(im_state_machine *sm, const im_node *node, const im_palette *window_palette) {
+    if (!sm) return;
+    sm->res_node = node;
+    sm->window_palette = window_palette;
+    if (node || window_palette) {
+        sm->palette = im_resources_effective_palette(node, window_palette ? window_palette : &sm->palette);
+    }
+}
+
+bool im_states_refresh_theme(im_state_machine *sm, const im_palette *window_palette, uint32_t now_ms) {
+    if (!sm) return false;
+    const im_palette *wp = window_palette ? window_palette : (sm->window_palette ? sm->window_palette : &sm->palette);
+    sm->window_palette = window_palette ? window_palette : sm->window_palette;
+    im_palette next = im_resources_effective_palette(sm->res_node, wp);
+    bool changed = (next.theme != sm->palette.theme);
+    for (int i = 0; i < IM_SLOT_COUNT && !changed; i++) {
+        if (next.slot[i] != sm->palette.slot[i]) changed = true;
+    }
+    sm->palette = next;
+
+    /* Update any in-flight BrushTransition target so mid-transition theme or override changes converge cleanly. */
+    if (sm->has_bg_transition && !sm->bg_transition.is_solid_color && sm->bg_transition.target_brush < IM_BRUSH_COUNT) {
+        uint32_t new_to = resolve_sm_brush_argb(sm, sm->bg_transition.target_brush);
+        if (new_to != sm->bg_transition.to_argb) {
+            uint32_t cur = im_brush_transition_sample(&sm->bg_transition, now_ms, sm->reduced_motion);
+            sm->bg_transition.from_argb = cur;
+            sm->bg_transition.to_argb = new_to;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 im_fixed im_states_sample_fixed(const im_state_machine *sm, const char *target, const char *property,
     uint32_t now_ms, im_fixed fallback) {
     im_template_value val;
     if (!sample_raw_value_no_bt(sm, target, property, now_ms, &val, NULL)) return fallback;
+    if (val.kind == IM_TVAL_THEME_VALUE) {
+        return resolve_sm_value_fixed(sm, (enum im_value_id)val.a, fallback);
+    }
     return im_template_value_to_fixed(&val, &sm->palette, fallback);
 }
 
@@ -867,7 +926,10 @@ uint32_t im_states_sample_color(const im_state_machine *sm, const char *target, 
     }
     im_template_value val;
     if (!sample_raw_value_no_bt(sm, target, property, now_ms, &val, NULL)) return fallback;
-    if (val.kind == IM_TVAL_COLOR || val.kind == IM_TVAL_BRUSH) {
+    if (val.kind == IM_TVAL_BRUSH) {
+        return resolve_sm_brush_argb(sm, (enum im_brush_id)val.a);
+    }
+    if (val.kind == IM_TVAL_COLOR) {
         return im_template_value_to_argb(&val, &sm->palette);
     }
     return fallback;
@@ -888,7 +950,7 @@ bool im_states_sample_brush(const im_state_machine *sm, const char *target, cons
     if (out_is_transitioning) *out_is_transitioning = false;
     if (val.kind == IM_TVAL_BRUSH) {
         if (out_brush) *out_brush = (enum im_brush_id)val.a;
-        if (out_argb) *out_argb = im_template_value_to_argb(&val, &sm->palette);
+        if (out_argb) *out_argb = resolve_sm_brush_argb(sm, (enum im_brush_id)val.a);
         return true;
     }
     if (val.kind == IM_TVAL_COLOR) {
@@ -1119,21 +1181,34 @@ void im_states_draw_button(const im_state_machine *sm, im_surface *surface, im_r
         under_border = true;
     }
 
+    im_surface local = *surface;
+    const im_palette *wp = sm->window_palette ? sm->window_palette : &sm->palette;
+    if (sm->res_node) {
+        local.palette = im_resources_effective_palette(sm->res_node, wp);
+    } else {
+        local.palette = sm->palette;
+    }
+
     im_rect fill_rect;
     im_radii fill_radii, stroke_radii;
     im_fixed thickness;
-    im_button_geometry(surface, bounds, under_border, &fill_rect, &fill_radii, &stroke_radii, &thickness);
+    im_button_geometry_for_node(&local, sm->res_node, wp, bounds, under_border, &fill_rect, &fill_radii, &stroke_radii, &thickness);
 
+    uint32_t ov = 0u;
     if (bg_transitioning || bg_brush >= IM_BRUSH_COUNT) {
-        im_fill_argb(surface, fill_rect, fill_radii, bg_argb);
+        im_fill_argb(&local, fill_rect, fill_radii, bg_argb);
+    } else if (sm->res_node && im_resources_lookup_brush_override(sm->res_node, wp, bg_brush, &ov)) {
+        im_fill_argb(&local, fill_rect, fill_radii, ov);
     } else {
-        im_fill(surface, fill_rect, fill_radii, bg_brush);
+        im_fill(&local, fill_rect, fill_radii, bg_brush);
     }
     if (has_border) {
         if (border_transitioning || border_brush >= IM_BRUSH_COUNT) {
-            im_stroke_argb(surface, bounds, stroke_radii, thickness, border_argb);
+            im_stroke_argb(&local, bounds, stroke_radii, thickness, border_argb);
+        } else if (sm->res_node && im_resources_lookup_brush_override(sm->res_node, wp, border_brush, &ov)) {
+            im_stroke_argb(&local, bounds, stroke_radii, thickness, ov);
         } else {
-            im_stroke(surface, bounds, stroke_radii, thickness, border_brush);
+            im_stroke(&local, bounds, stroke_radii, thickness, border_brush);
         }
     }
 }

@@ -74,6 +74,23 @@ typedef enum im_wrap_stretch {
     IM_WRAP_STRETCH_LAST = 1
 } im_wrap_stretch;
 
+/* Per-subtree requested theme (Default inherits from parent/window; High Contrast always overrides Light/Dark). */
+typedef enum im_requested_theme {
+    IM_REQ_THEME_DEFAULT = 0,
+    IM_REQ_THEME_DARK,
+    IM_REQ_THEME_LIGHT,
+    IM_REQ_THEME_CONTRAST
+} im_requested_theme;
+
+/* One per-node named resource override (kind 1 = brush ARGB, kind 2 = 4-component value). */
+typedef struct im_resource_override {
+    uint8_t kind;
+    uint8_t scope;
+    uint16_t id;
+    uint32_t argb;
+    im_fixed val[4];
+} im_resource_override;
+
 /* Sibling-relative constraint slots on RelativePanel children (name-resolved at layout time). */
 typedef enum im_rel_slot {
     IM_REL_LEFT_OF = 0,
@@ -313,6 +330,33 @@ typedef struct im_node {
     im_thickness group_padding;
     bool is_group_header;
     bool layout_overflowed;
+
+    /* Per-subtree theme, resource overrides, resource-backed bindings, and live interactive state. */
+    im_requested_theme requested_theme;
+    bool has_resolved_theme;
+    im_theme resolved_theme;
+    uint32_t resolved_palette_hash;
+    im_resource_override *res_overrides;
+    uint32_t res_override_count;
+    uint32_t res_override_cap;
+    bool has_theme_bg_brush;
+    enum im_brush_id theme_bg_brush;
+    uint32_t resolved_bg_argb;
+    bool has_theme_border_brush;
+    enum im_brush_id theme_border_brush;
+    uint32_t resolved_border_argb;
+    bool has_theme_padding_val;
+    enum im_value_id theme_padding_val;
+    bool has_theme_border_val;
+    enum im_value_id theme_border_val;
+    void *bound_sm;
+
+    bool is_focused;
+    uint32_t selection_start;
+    uint32_t selection_end;
+    im_fixed scroll_x;
+    im_fixed scroll_y;
+    char text[64];
 } im_node;
 
 /* Maximum number of detached/destroyed subtree bounds buffered before overflowing to a full repaint. */
@@ -477,6 +521,20 @@ void im_node_set_group_padding(im_node *node, im_thickness group_padding);
 
 /* Mark a child inside ItemsStackPanel / ItemsWrapGrid as a group header container. Invalidates parent measure. */
 void im_node_set_group_header(im_node *node, bool is_group_header);
+
+/* Set per-subtree RequestedTheme (IM_REQ_THEME_DEFAULT inherits from parent/window). Invalidates paint on change. */
+void im_node_set_requested_theme(im_node *node, im_requested_theme theme);
+
+/* Bind a node's background and/or border brush IDs for in-place restyling via im_resources_restyle_tree. */
+void im_node_bind_theme_brushes(im_node *node, bool has_bg, enum im_brush_id bg_brush,
+                                bool has_border, enum im_brush_id border_brush);
+
+/* Bind a node's padding and/or border-thickness value IDs for in-place restyling via im_resources_restyle_tree. */
+void im_node_bind_theme_values(im_node *node, bool has_padding, enum im_value_id padding_val,
+                               bool has_border, enum im_value_id border_val);
+
+/* Attach an optional im_state_machine to node so im_resources_restyle_tree refreshes it in place. */
+void im_node_bind_state_machine(im_node *node, void *sm);
 
 /* Apply or clear a visual-state presentation override for Width without losing the local value. */
 void im_node_set_state_width(im_node *node, bool active, im_fixed width);

@@ -4123,6 +4123,104 @@ class Drawing(unittest.TestCase):
             r_res = subprocess.run([str(exe_p)], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
             self.assertEqual(r_res.returncode, 0, f"compiled panel template failed rc={r_res.returncode}")
 
+    def test_theme_resources_accent_and_contrast(self):
+        exe = BUILD / "test-resources.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("test_resources: ALL PASSED", res.stdout)
+
+        # Independent double-precision D65 CIELAB oracle for all 1,000 derived accent colors.
+        def srgb_to_lin(u8):
+            c = u8 / 255.0
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+        def lin_to_srgb(lin):
+            lin = max(0.0, min(1.0, lin))
+            c = lin * 12.92 if lin <= 0.0031308 else 1.055 * (lin ** (1.0 / 2.4)) - 0.055
+            return max(0, min(255, int(round(c * 255.0))))
+
+        def rgb_to_lab(r, g, b):
+            rl, gl, bl = srgb_to_lin(r), srgb_to_lin(g), srgb_to_lin(b)
+            xn = (0.4124564 * rl + 0.3575761 * gl + 0.1804375 * bl) / 0.95047
+            yn = (0.2126729 * rl + 0.7151522 * gl + 0.0721750 * bl) / 1.00000
+            zn = (0.0193339 * rl + 0.1191920 * gl + 0.9503041 * bl) / 1.08883
+            f = lambda t: t ** (1.0 / 3.0) if t > 216.0 / 24389.0 else (24389.0 / 27.0 * t + 16.0) / 116.0
+            fx, fy, fz = f(xn), f(yn), f(zn)
+            return 116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)
+
+        def lab_to_lin(L, a, b):
+            fy = (L + 16.0) / 116.0
+            fx = fy + a / 500.0
+            fz = fy - b / 200.0
+            finv = lambda u: u ** 3 if u > 6.0 / 29.0 else 3.0 * ((6.0 / 29.0) ** 2) * (u - 4.0 / 29.0)
+            X, Y, Z = finv(fx) * 0.95047, finv(fy) * 1.00000, finv(fz) * 1.08883
+            return (
+                3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z,
+                -0.9692660 * X + 1.8760108 * Y + 0.0415560 * Z,
+                0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z,
+            )
+
+        def lab_to_gamut(L, a, b):
+            if L <= 0.0:
+                return (0, 0, 0)
+            if L >= 100.0:
+                return (255, 255, 255)
+            rl, gl, bl = lab_to_lin(L, a, b)
+            if min(rl, gl, bl) < 0.0 or max(rl, gl, bl) > 1.0:
+                lo, hi = 0.0, 1.0
+                for _ in range(32):
+                    mid = 0.5 * (lo + hi)
+                    tr, tg, tb = lab_to_lin(L, a * mid, b * mid)
+                    if min(tr, tg, tb) >= 0.0 and max(tr, tg, tb) <= 1.0:
+                        lo = mid
+                    else:
+                        hi = mid
+                rl, gl, bl = lab_to_lin(L, a * lo, b * lo)
+            return (lin_to_srgb(rl), lin_to_srgb(gl), lin_to_srgb(bl))
+
+        accent_count = 0
+        worst_err = 0
+        for line in res.stdout.splitlines():
+            if line.startswith("ACCENT "):
+                vals = [int(x) for x in line.split()[1:]]
+                base = vals[0]
+                r, g, b = (base >> 16) & 255, (base >> 8) & 255, base & 255
+                L, a, bv = rgb_to_lab(r, g, b)
+                up, dn = 100.0 - L, L
+                targets = [
+                    L + (10.0 if up > 34.0 else up * 0.294),
+                    L + (22.0 if up > 34.0 else up * 0.647),
+                    L + (34.0 if up > 34.0 else up * 0.900),
+                    L - (10.0 if dn > 34.0 else dn * 0.294),
+                    L - (22.0 if dn > 34.0 else dn * 0.647),
+                    L - (34.0 if dn > 34.0 else dn * 0.900),
+                ]
+                for si, tL in enumerate(targets):
+                    wr, wg, wb = lab_to_gamut(tL, a, bv)
+                    got = vals[1 + si]
+                    gr, gg, gb = (got >> 16) & 255, (got >> 8) & 255, got & 255
+                    err = max(abs(gr - wr), abs(gg - wg), abs(gb - wb))
+                    if err > worst_err:
+                        worst_err = err
+                    self.assertLessEqual(err, 2, f"ACCENT base={base:#08x} shade={si} got=({gr},{gg},{gb}) want=({wr},{wg},{wb})")
+                accent_count += 1
+        self.assertEqual(accent_count, 1000)
+
+        # Verify --live-shots emits 2 exact 160x64 BGRA frames where Light-panel Button differs from Dark sibling.
+        raw = subprocess.check_output([str(exe), "--live-shots"], stdin=subprocess.DEVNULL)
+        self.assertEqual(len(raw), 2 * 160 * 64 * 4)
+        self.assertNotEqual(raw[:160 * 64 * 4], raw[160 * 64 * 4:])
+
+        # Verify generated theme_data.{h,c} matches pinned WinUI checkout when cached locally.
+        winui_cache = Path.home() / ".cache/impossible-sdk/winui"
+        if (winui_cache / ".git").exists():
+            chk = subprocess.run(
+                [sys.executable, str(ROOT / "tools/winui/resources.py"), str(winui_cache), "--check"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(chk.returncode, 0, chk.stdout + chk.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
