@@ -30,13 +30,29 @@ class Portable(unittest.TestCase):
     @staticmethod
     def _portable_unresolved_symbols(ui_dir: Path) -> set[str]:
         allowed = {"memcpy", "memmove", "memset", "memcmp"}
+        parts_manifest = json.loads((ROOT / "parts.json").read_text(encoding="utf-8"))
+        parts_by_name = {p["name"]: p for p in parts_manifest["parts"]}
+        dep_dirs = []
+        dep_sources = []
+        seen = set()
+        queue = list(parts_by_name.get("ui", {}).get("depends", []))
+        while queue:
+            name = queue.pop(0)
+            if name in seen or name not in parts_by_name:
+                continue
+            seen.add(name)
+            part = parts_by_name[name]
+            dep_dirs.append(ROOT / part["folder"])
+            dep_sources.extend(ROOT / s for s in part["sources"])
+            queue.extend(part.get("depends", []))
+        inc_flags = [f"-I{ui_dir}", *(f"-I{d}" for d in dep_dirs)]
         with tempfile.TemporaryDirectory() as temp:
             objects = []
-            for source in sorted(ui_dir.glob("*.c")):
-                objects.append(Path(temp, source.stem + ".o"))
+            for idx, source in enumerate([*sorted(ui_dir.glob("*.c")), *dep_sources]):
+                objects.append(Path(temp, f"{idx}_{source.stem}.o"))
                 subprocess.run([str(LLVM / f"clang{EXE}"), "--target=x86_64-elf", "-std=gnu23", "-ffreestanding", "-O2",
                                 "-Wall", "-Wextra", "-Werror", "-mno-red-zone", "-mno-mmx", "-mno-sse", "-mno-sse2", "-mno-80387",
-                                f"-I{ui_dir}", "-c", str(source), "-o", str(objects[-1])], check=True, timeout=120)
+                                *inc_flags, "-c", str(source), "-o", str(objects[-1])], check=True, timeout=120)
             defined, wanted = set(), set()
             for line in subprocess.run([str(LLVM / f"llvm-nm{EXE}"), *map(str, objects)], capture_output=True, text=True,
                                        check=True, timeout=60).stdout.splitlines():
@@ -4317,6 +4333,133 @@ class Drawing(unittest.TestCase):
         res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("test_shadow_material: ALL PASSED", res.stdout)
+
+    def test_fixed_point_text_and_fonts(self):
+        exe = BUILD / "test-text.exe"
+        self.assertTrue(exe.exists(), f"missing {exe}; run tools/build.py first")
+
+        # 1. Synthetic CFF v1 (gsubr+lsubr+hintmask+cubic), CFF2 refusal, 2-face TTC,
+        #    TTF off-curve start & point-attached composite, OOM+retry, UTF-8, UAX #14/#29 breaks.
+        res = subprocess.run([str(exe)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("test_text: ALL PASSED", res.stdout)
+
+        def win_path(p: Path) -> str:
+            if os.name == "nt":
+                return str(p)
+            return subprocess.run(["wslpath", "-w", str(p)], capture_output=True, text=True, check=True).stdout.strip()
+
+        # 2. Required Selawik face (pinned SHA-256) + Cascadia Code + Segoe UI: every glyph must draw.
+        selawik = Path.home() / ".cache/impossible-sdk/fonts/selawk.ttf"
+        self.assertTrue(selawik.is_file(), f"missing required Selawik test face at {selawik}")
+        self.assertEqual(
+            hashlib.sha256(selawik.read_bytes()).hexdigest(),
+            "e9d98518d8ac2817782a9a382430463a2e0793ea68350b695bb727d9a830ee1c",
+        )
+        font_checks = [
+            (win_path(selawik), 352, 3),
+            (r"C:\Windows\Fonts\CascadiaCode.ttf", 1780, 7),
+            (r"C:\Windows\Fonts\segoeui.ttf", 5395, 29),
+        ]
+        for fpath, expected_total, expected_empty in font_checks:
+            r = subprocess.run([str(exe), "--all-glyphs", fpath], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+            self.assertEqual(r.returncode, 0, f"{fpath}: {r.stdout}{r.stderr}")
+            self.assertIn(f"total={expected_total} ok={expected_total} empty={expected_empty}", r.stdout)
+            self.assertIn("clip_ok=1 leaked=0", r.stdout)
+
+        # 3. DirectWrite / WPF GlyphTypeface exact nominal advance width comparison (Segoe UI 14px & 13.5px, Cascadia 14px)
+        #    and Segoe UI wrapped paragraph word-break comparison.
+        pwsh = "powershell.exe" if os.name != "nt" else "powershell"
+        ps_script = r"""
+Add-Type -AssemblyName PresentationCore
+foreach ($f in @("C:\Windows\Fonts\segoeui.ttf", "C:\Windows\Fonts\CascadiaCode.ttf")) {
+  $gt = New-Object System.Windows.Media.GlyphTypeface($f)
+  for ($cp = 32; $cp -le 126; $cp++) {
+    $gid = $gt.CharacterToGlyphMap[$cp]
+    $adv = $gt.AdvanceWidths[$gid]
+    Write-Output ("DW $f $cp $gid " + $adv.ToString("R", [System.Globalization.CultureInfo]::InvariantCulture))
+  }
+}
+"""
+        dw_res = subprocess.run([pwsh, "-NoProfile", "-Command", ps_script], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(dw_res.returncode, 0, dw_res.stderr)
+        dw_adv = {}
+        for line in dw_res.stdout.splitlines():
+            parts = line.strip().split()
+            if len(parts) == 5 and parts[0] == "DW":
+                dw_adv[(parts[1], int(parts[2]))] = (int(parts[3]), float(parts[4]))
+        self.assertEqual(len(dw_adv), 95 * 2)
+
+        for fpath, size_px in [
+            (r"C:\Windows\Fonts\segoeui.ttf", 14.0),
+            (r"C:\Windows\Fonts\segoeui.ttf", 13.5),
+            (r"C:\Windows\Fonts\CascadiaCode.ttf", 14.0),
+        ]:
+            size_fx = int(round(size_px * 65536.0))
+            mr = subprocess.run([str(exe), "--metrics", fpath, str(size_fx)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+            self.assertEqual(mr.returncode, 0, mr.stdout + mr.stderr)
+            checked = 0
+            for line in mr.stdout.splitlines():
+                if line.startswith("CP "):
+                    kv = line.split()
+                    cp = int(kv[1])
+                    gid = int(kv[2].split("=")[1])
+                    adv_fx = int(kv[4].split("=")[1])
+                    dw_gid, dw_em = dw_adv[(fpath, cp)]
+                    self.assertEqual(gid, dw_gid, f"{fpath} cp={cp} gid")
+                    expected_fx = int(round(dw_em * size_px * 65536.0))
+                    self.assertLessEqual(abs(adv_fx - expected_fx), 1, f"{fpath} size={size_px} cp={cp}")
+                    checked += 1
+            self.assertEqual(checked, 95)
+            if fpath.endswith("segoeui.ttf"):
+                self.assertIn("KERN AV=-140", mr.stdout)
+                self.assertIn("TAIL 5394 adv_u=1104", mr.stdout)
+
+        # 4. Paragraph wrapping & alignment (Left/Center/Right) with Segoe UI:
+        #    verify UAX #14 hyphen break, word breaks matching DirectWrite ideal advances, and alignment origins.
+        para = "Fixed-point text shapes Segoe UI paragraphs with self-contained line breaks across narrow widths."
+        with tempfile.TemporaryDirectory() as td:
+            tf = Path(td) / "para.txt"
+            tf.write_text(para, encoding="utf-8")
+            win_tf = win_path(tf)
+            size_fx = 14 * 65536
+            max_w_fx = 220 * 65536
+            lines_by_align = {}
+            for align in (0, 1, 2):
+                lr = subprocess.run(
+                    [str(exe), "--layout", r"C:\Windows\Fonts\segoeui.ttf", str(size_fx), str(max_w_fx), str(align), "1", win_tf],
+                    capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                )
+                self.assertEqual(lr.returncode, 0, lr.stdout + lr.stderr)
+                lns = []
+                for line in lr.stdout.splitlines():
+                    if line.startswith("LINE "):
+                        toks = {kv.split("=")[0]: int(kv.split("=")[1]) for kv in line.split()[2:]}
+                        lns.append(toks)
+                self.assertGreaterEqual(len(lns), 3)
+                lines_by_align[align] = lns
+
+            # All 3 alignments produce identical line breaks and visible widths, with exact Left/Center/Right origins.
+            for l0, l1, l2 in zip(lines_by_align[0], lines_by_align[1], lines_by_align[2]):
+                self.assertEqual((l0["bs"], l0["be"], l0["w"]), (l1["bs"], l1["be"], l1["w"]))
+                self.assertEqual((l0["bs"], l0["be"], l0["w"]), (l2["bs"], l2["be"], l2["w"]))
+                self.assertEqual(l0["x"], 0)
+                self.assertEqual(l1["x"], (max_w_fx - l0["w"]) // 2)
+                self.assertEqual(l2["x"], max_w_fx - l0["w"])
+                self.assertLessEqual(l0["w"], max_w_fx)
+            # Reconstructed slices cover the full paragraph without dropping bytes.
+            rebuilt = "".join(para[ln["bs"]:ln["be"]] for ln in lines_by_align[0])
+            self.assertEqual(rebuilt, para)
+            # Verify UAX #14 breaks after hyphen when a hyphenated word straddles the margin.
+            narrow_w = 60 * 65536
+            hr = subprocess.run(
+                [str(exe), "--layout", r"C:\Windows\Fonts\segoeui.ttf", str(size_fx), str(narrow_w), "0", "1", win_tf],
+                capture_output=True, text=True, stdin=subprocess.DEVNULL,
+            )
+            self.assertEqual(hr.returncode, 0, hr.stdout + hr.stderr)
+            first_line = next(line for line in hr.stdout.splitlines() if line.startswith("LINE 0 "))
+            toks0 = {kv.split("=")[0]: int(kv.split("=")[1]) for kv in first_line.split()[2:]}
+            self.assertEqual(para[toks0["bs"]:toks0["be"]], "Fixed-")
 
 
 if __name__ == "__main__":

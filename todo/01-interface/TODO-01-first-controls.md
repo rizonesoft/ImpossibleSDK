@@ -167,6 +167,8 @@ States, transitions and storyboards run from a caller-supplied clock, so a frame
 
 ## 5. Text in fixed point
 
+> **Started:** 2026-11-25T11:06Z
+
 Glyph outlines, hinting-free smoothing, shaping order for left-to-right text and line layout, with no floating point.
 
 **Phase:** 1

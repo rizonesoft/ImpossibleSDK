@@ -3,7 +3,9 @@
     {
       "name": "ui",
       "folder": "ui",
-      "depends": [],
+      "depends": [
+        "unicode"
+      ],
       "sources": [
         "ui/accent.c",
         "ui/animate.c",
@@ -11,6 +13,7 @@
         "ui/clip.c",
         "ui/dirty.c",
         "ui/draw.c",
+        "ui/font.c",
         "ui/frame.c",
         "ui/gradient.c",
         "ui/host.c",
@@ -25,6 +28,7 @@
         "ui/shadow.c",
         "ui/states.c",
         "ui/template_data.c",
+        "ui/text.c",
         "ui/theme.c",
         "ui/theme_data.c",
         "ui/transform.c",

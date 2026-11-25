@@ -15,6 +15,7 @@ impossible_add_program(test-panels CONSOLE TIER 0 SOURCES tests/fixtures/test_pa
 impossible_add_program(test-resources CONSOLE TIER 0 SOURCES tests/fixtures/test_resources.c)
 impossible_add_program(test-transition CONSOLE TIER 0 SOURCES tests/fixtures/test_transition.c)
 impossible_add_program(test-shadow-material CONSOLE TIER 0 SOURCES tests/fixtures/test_shadow_material.c)
+impossible_add_program(test-text CONSOLE TIER 0 SOURCES tests/fixtures/test_text.c)
 impossible_add_program(anim-dump CONSOLE TIER 0 SOURCES tests/fixtures/anim_dump.c)
 impossible_add_program(layout-dump CONSOLE TIER 0 SOURCES tests/fixtures/layout_dump.c)
 impossible_add_program(image-tests CONSOLE TIER 0 SOURCES tests/fixtures/image_tests.c)

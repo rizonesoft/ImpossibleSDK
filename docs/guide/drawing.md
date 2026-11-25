@@ -1,4 +1,4 @@
-<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/accent.h,ui/resources.h,ui/shadow.h,ui/material.h,ui/button.h,ui/tree.h,ui/layout.h,ui/panels.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/transition.h,ui/states.h,ui/host.h,ui/dirty.h,ui/frame.h,ui/transform.h,ui/picture.h,ui/input.h,ui/path.h,ui/gradient.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
+<!-- page: group="Guide" order=2 sources=ui/draw.h,ui/theme.h,ui/accent.h,ui/resources.h,ui/shadow.h,ui/material.h,ui/button.h,ui/tree.h,ui/layout.h,ui/panels.h,ui/clip.h,ui/layer.h,ui/animate.h,ui/transition.h,ui/states.h,ui/host.h,ui/dirty.h,ui/frame.h,ui/transform.h,ui/picture.h,ui/input.h,ui/path.h,ui/gradient.h,ui/font.h,ui/text.h,cmake/ImpossibleSDK.cmake reviewed=2026-11-25 -->
 # Drawing
 
 How do you draw Windows 11's shapes and colours? Describe your canvas as a surface, then fill shapes with the brushes of the theme.
@@ -70,6 +70,10 @@ Build fixed-point vector paths with `ui/path.h` (`im_path_move_to`, `im_path_lin
 | [`im_stroke`](site:api-draw.html#im_stroke) | Draws the line between a shape and the same shape moved in (`im_stroke_argb` takes a straight ARGB colour) |
 | [`im_inset`](site:api-draw.html#im_inset) | Moves a shape's edges in |
 | [`im_value`](site:api-theme.html#im_value) | A number of the theme, such as a corner radius |
+
+## Fixed-point text
+
+`ui/font.h` parses TrueType (`glyf`/`loca`, simple and composite glyphs), TrueType Collections (`ttcf`), and OpenType CFF v1 (`OTTO`, Type 2 charstrings with local/global subroutines and hint masks) directly from caller-owned memory with bounds checks and per-glyph complexity limits, scaling outlines in 64-bit integer fixed point and rasterising them through `im_path_fill_argb`. `ui/text.h` decodes UTF-8, shapes left-to-right runs with nominal advances and GPOS/legacy `kern` adjustments, breaks lines with UAX #14 (`im_unicode_line_breaks`) and UAX #29 grapheme-cluster emergency fallback, aligns lines Left/Center/Right, and draws into any `im_surface`.
 
 ## Can Impossible OS take it?
 

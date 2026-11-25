@@ -31,15 +31,6 @@ if(NOT TARGET ImpossibleSDK)
     set_source_files_properties("${IMPOSSIBLE_SDK_DIR}/src/mem.c" PROPERTIES COMPILE_OPTIONS -fno-builtin)
 endif()
 
-if(NOT TARGET ImpossibleUI)
-    file(GLOB _ui CONFIGURE_DEPENDS "${IMPOSSIBLE_SDK_DIR}/ui/*.c")
-    add_library(ImpossibleUI STATIC ${_ui})
-    target_include_directories(ImpossibleUI PUBLIC "${IMPOSSIBLE_SDK_DIR}/include" "${IMPOSSIBLE_SDK_DIR}/ui")
-    _impossible_compile(ImpossibleUI)
-    # As Impossible OS compiles it: floating point does not build.
-    target_compile_options(ImpossibleUI PRIVATE -mno-mmx -mno-sse -mno-sse2 -mno-80387)
-endif()
-
 if(NOT TARGET ImpossibleParts)
     add_library(ImpossibleParts STATIC
         "${IMPOSSIBLE_SDK_DIR}/parts/image/image.c"
@@ -49,6 +40,16 @@ if(NOT TARGET ImpossibleParts)
     _impossible_compile(ImpossibleParts)
     # As Impossible OS compiles it: floating point does not build.
     target_compile_options(ImpossibleParts PRIVATE -mno-mmx -mno-sse -mno-sse2 -mno-80387)
+endif()
+
+if(NOT TARGET ImpossibleUI)
+    file(GLOB _ui CONFIGURE_DEPENDS "${IMPOSSIBLE_SDK_DIR}/ui/*.c")
+    add_library(ImpossibleUI STATIC ${_ui})
+    target_include_directories(ImpossibleUI PUBLIC "${IMPOSSIBLE_SDK_DIR}/include" "${IMPOSSIBLE_SDK_DIR}/ui")
+    target_link_libraries(ImpossibleUI PUBLIC ImpossibleParts)
+    _impossible_compile(ImpossibleUI)
+    # As Impossible OS compiles it: floating point does not build.
+    target_compile_options(ImpossibleUI PRIVATE -mno-mmx -mno-sse -mno-sse2 -mno-80387)
 endif()
 
 function(impossible_add_program name)
