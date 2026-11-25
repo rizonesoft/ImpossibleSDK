@@ -10,6 +10,8 @@ typedef enum im_icon_id {
     IM_ICON_NONE = 0,
     IM_ICON_DISMISS,
     IM_ICON_CHECKMARK,
+    IM_ICON_WINDOW_MAXIMIZE,
+    IM_ICON_WINDOW_RESTORE,
     IM_ICON_COUNT
 } im_icon_id;
 

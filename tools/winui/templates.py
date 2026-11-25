@@ -799,9 +799,13 @@ def clean_target_property(prop, file, line):
     raise TemplateError(f"{file}:{line}: unknown TargetProperty {prop!r}")
 
 
-# Pinned Microsoft checkmark Path Data literal mapped to SDK-owned IM_ICON_CHECKMARK geometry
-# (never emitted verbatim into ui/template_data.c, per the SDK asset rule).
-PINNED_MICROSOFT_CHECKMARK_DATA = "M0,123 L39,93 L124,164 L256,18 L295,49 L124,240 z"
+# Pinned Microsoft Path Data literals mapped to SDK-owned icon identifiers
+# (validated through parse_path_markup, never emitted verbatim into ui/template_data.c, per the SDK asset rule).
+PINNED_MICROSOFT_PATH_ICONS = {
+    "M0,123 L39,93 L124,164 L256,18 L295,49 L124,240 z": "IM_ICON_CHECKMARK",
+    "M 1.516 -0.001 L 7.451 0.009 C 8.751 0.019 9 1 8.981 1.477 L 9.002 7.558 M 9.002 7.547 C 8.929 8.669 8 9 7.43 9.015 L 1.464 9.005 C 0.374 8.973 0 8 -0.004 7.484 L -0.004 1.477 C 0 1 0.415 0.009 1.527 -0.001": "IM_ICON_WINDOW_MAXIMIZE",
+    "M 1.516 -0.001 L 7.451 0.009 C 8.751 0.019 9 1 8.981 1.477 L 9.002 7.558 M 11 6 L 11 2 C 11 0 10 -2 8.011 -1.946 L 7.06 -1.969 L 3 -2 M 9.002 7.547 C 8.929 8.669 8 9 7.43 9.015 L 1.464 9.005 C 0.374 8.973 0 8 -0.004 7.484 L -0.004 1.477 C 0 1 0.415 0.009 1.527 -0.001": "IM_ICON_WINDOW_RESTORE",
+}
 
 _PATH_NUM_RE = re.compile(r"[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?")
 _PATH_CMDS = set("MmLlHhVvCcSsQqTtAaZz")
@@ -1273,8 +1277,9 @@ class Compiler:
         if prop_name == "Data":
             parsed = parse_path_markup(text, file, line)
             norm = " ".join(text.strip().split())
-            if norm == PINNED_MICROSOFT_CHECKMARK_DATA:
-                return {"kind": "IM_TVAL_ICON", "a": 0, "b": 0, "c": 0, "d": 0, "text": "IM_ICON_CHECKMARK", "fallback": None}
+            mapped_icon = PINNED_MICROSOFT_PATH_ICONS.get(norm)
+            if mapped_icon is not None:
+                return {"kind": "IM_TVAL_ICON", "a": 0, "b": 0, "c": 0, "d": 0, "text": mapped_icon, "fallback": None}
             start = len(self.path_segs)
             self.path_segs.extend(parsed["segs"])
             return {"kind": "IM_TVAL_PATH", "a": start, "b": len(parsed["segs"]), "c": parsed["fill_rule"], "d": 0, "text": None, "fallback": None}

@@ -130,6 +130,12 @@ bool im_path_bounds(const im_path_data *path, im_rect *out_bounds);
 /* Return the SDK-owned geometric checkmark path (normalized to [0, 16] x [0, 16]). */
 im_path_data im_path_sdk_checkmark(void);
 
+/* Return the SDK-owned geometric window maximize icon path (normalized to [0, 10] x [0, 10]). */
+im_path_data im_path_sdk_window_maximize(void);
+
+/* Return the SDK-owned geometric window restore icon path (normalized to [0, 10] x [0, 10]). */
+im_path_data im_path_sdk_window_restore(void);
+
 /* Fill path with a straight 0xAARRGGBB color using 16-subscanline analytic horizontal coverage,
    honouring surface->transform and surface->layers. Returns false on allocation failure without
    modifying surface pixels. */

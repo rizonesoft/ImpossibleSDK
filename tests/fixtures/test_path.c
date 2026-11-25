@@ -123,6 +123,19 @@ int im_main(void) {
         CHECK(r0 == 7, "analytic horizontal coverage of 7/256 sliver equals 7 (not 0)");
         CHECK((pix[1] & 0x00FFFFFFu) == 0u, "pixel right of 7/256 sliver stays 0");
         im_path_destroy(&p);
+
+        /* Subtle quadratic curve M0,0 Q0.0625,0.5 0,1 Z: chord has 0 coverage, curve has exact 5/255. */
+        for (int i = 0; i < 8; i++) pix[i] = 0x00000000u;
+        im_path pq;
+        im_path_init(&pq, alloc, IM_FILL_NON_ZERO);
+        im_path_move_to(&pq, 0, 0);
+        im_path_quad_to(&pq, IM_ONE / 16, IM_ONE / 2, 0, IM_ONE);
+        im_path_close(&pq);
+        im_path_data pdq = im_path_view(&pq);
+        CHECK(im_path_fill_argb(&s, alloc, &pdq, 0xFFFFFFFFu), "fill subtle quadratic M0,0 Q0.0625,0.5 0,1 Z");
+        int rq0 = (int)((pix[0] >> 16) & 0xFFu);
+        CHECK(rq0 == 5, "subtle quadratic M0,0 Q0.0625,0.5 0,1 Z covers exact 5/255");
+        im_path_destroy(&pq);
     }
 
     /* 2. 1,000 random cubic and quadratic paths (500 EvenOdd, 500 NonZero) dumped on 16x16 for Python oracle. */
@@ -555,7 +568,7 @@ int im_main(void) {
             im_layout_run(&tree, root, FX(32), FX(32), IM_ONE);
             im_node *chk = im_tree_find_by_name(root, "CheckGlyph");
             im_node *bnd = im_tree_find_by_name(root, "BoundPath");
-            CHECK(chk != NULL && chk->path_is_sdk_checkmark && chk->path_stretch == 1,
+            CHECK(chk != NULL && chk->path_icon_id == IM_ICON_CHECKMARK && chk->path_stretch == 1,
                   "compiled Path node binds SDK-owned checkmark and Stretch=Fill");
             CHECK(bnd != NULL && bnd->path_data_binding != NULL && bnd->path_data_binding[0] == 'C',
                   "compiled Path node preserves Data={TemplateBinding Content} for readback");
@@ -594,6 +607,114 @@ int im_main(void) {
 
             im_tree_destroy_subtree(&tree, root);
         }
+    }
+
+    /* 10. Stroke-only compiled Path (WindowCaptionButton pattern): bound Data + visual-state Path.Data
+       (WindowStateNormal <-> WindowStateMaximized) + Pressed/Normal Stroke color change + replace & clear. */
+    {
+        static const im_template_element elems[2] = {
+            { IM_ELEM_GRID, "Root", -1, 0, 0 },
+            { IM_ELEM_PATH, "CaptionPath", 0, 0, 7 }
+        };
+        static const im_template_prop props[7] = {
+            { "Width", { IM_TVAL_FIXED, FX(16), 0, 0, 0, NULL, NULL } },
+            { "Height", { IM_TVAL_FIXED, FX(16), 0, 0, 0, NULL, NULL } },
+            { "Stretch", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Fill", NULL } },
+            { "StrokeThickness", { IM_TVAL_FIXED, FX(2), 0, 0, 0, NULL, NULL } },
+            { "StrokeStartLineCap", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Round", NULL } },
+            { "StrokeEndLineCap", { IM_TVAL_ENUM_STR, 0, 0, 0, 0, "Round", NULL } },
+            { "Data", { IM_TVAL_TEMPLATE_BINDING, 0, 0, 0, 0, "Content", NULL } }
+        };
+        static const im_template_setter state_setters[4] = {
+            /* 0: Normal stroke white */
+            { "CaptionPath", "Stroke", { IM_TVAL_COLOR, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, (int32_t)0xFFFFFFFFu, -1, NULL, NULL } },
+            /* 1: Pressed stroke red */
+            { "CaptionPath", "Stroke", { IM_TVAL_COLOR, (int32_t)0xFFFF2020u, (int32_t)0xFFFF2020u, (int32_t)0xFFFF2020u, -1, NULL, NULL } },
+            /* 2: WindowStateNormal -> IM_ICON_WINDOW_MAXIMIZE */
+            { "CaptionPath", "Data", { IM_TVAL_ICON, IM_ICON_WINDOW_MAXIMIZE, 0, 0, 0, NULL, NULL } },
+            /* 3: WindowStateMaximized -> IM_ICON_WINDOW_RESTORE */
+            { "CaptionPath", "Data", { IM_TVAL_ICON, IM_ICON_WINDOW_RESTORE, 0, 0, 0, NULL, NULL } }
+        };
+        static const im_template_state states[4] = {
+            { "Normal", 0, 1, 0, 0 },
+            { "Pressed", 1, 1, 0, 0 },
+            { "WindowStateNormal", 2, 1, 0, 0 },
+            { "WindowStateMaximized", 3, 1, 0, 0 }
+        };
+        static const im_template_group groups[2] = {
+            { "CommonStates", 0, 2, 0, 0 },
+            { "MinMaxStates", 2, 2, 0, 0 }
+        };
+        static const im_template tpl = { "CaptionBtnTest", "Control", 0, 0, 0, 2, 0, 2 };
+        im_template_tables tbl = { state_setters, elems, props, groups, states, NULL, NULL, NULL };
+
+        im_tree tree;
+        im_tree_init(&tree, alloc);
+        im_node *root = im_tree_instantiate_custom_template(&tree, &pal, &tpl, NULL, elems, props, "root");
+        im_layout_run(&tree, root, FX(24), FX(24), IM_ONE);
+        im_node *cp = im_tree_find_by_name(root, "CaptionPath");
+        im_state_machine sm;
+        im_states_init_custom(&sm, &tpl, &tbl, &pal);
+
+        uint32_t pix_n[24 * 24], pix_p[24 * 24], pix_m[24 * 24], pix_b[24 * 24];
+        im_surface s_n = { pix_n, 24, 24, 24, pal, IM_ONE, NULL, NULL };
+        im_surface s_p = { pix_p, 24, 24, 24, pal, IM_ONE, NULL, NULL };
+        im_surface s_m = { pix_m, 24, 24, 24, pal, IM_ONE, NULL, NULL };
+        im_surface s_b = { pix_b, 24, 24, 24, pal, IM_ONE, NULL, NULL };
+
+        /* 10a: Stroke-only path bound via Content (before MinMaxStates overrides Data): Normal -> Pressed -> Normal -> Clear. */
+        im_states_go_to(&sm, "Normal", 0);
+        im_states_set_binding(&sm, "Content", (im_template_value){ IM_TVAL_ICON, IM_ICON_WINDOW_MAXIMIZE, 0, 0, 0, NULL, NULL });
+        for (int i = 0; i < 576; i++) pix_n[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, cp, &s_n, alloc, NULL, 0), "draw stroke-only bound path Normal");
+        int lit_n = 0;
+        for (int i = 0; i < 576; i++) if ((pix_n[i] & 0x00FFFFFFu) != 0u) lit_n++;
+        CHECK(lit_n > 20, "stroke-only bound path draws visible pixels in Normal");
+
+        im_states_go_to(&sm, "Pressed", 10);
+        for (int i = 0; i < 576; i++) pix_p[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, cp, &s_p, alloc, NULL, 10), "draw stroke-only bound path Pressed");
+        int red_p = 0;
+        for (int i = 0; i < 576; i++) {
+            uint32_t r = (pix_p[i] >> 16) & 0xFFu, b = pix_p[i] & 0xFFu;
+            if (r > 200u && b < 50u) red_p++;
+        }
+        CHECK(red_p > 20, "Pressed state changes stroke-only Path color to red");
+
+        /* Restore Normal and replace bound Content with IM_ICON_WINDOW_RESTORE, then clear Content -> 0 pixels. */
+        im_states_go_to(&sm, "Normal", 20);
+        im_states_set_binding(&sm, "Content", (im_template_value){ IM_TVAL_ICON, IM_ICON_WINDOW_RESTORE, 0, 0, 0, NULL, NULL });
+        for (int i = 0; i < 576; i++) pix_b[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, cp, &s_b, alloc, NULL, 20), "draw replaced bound Content");
+        int diff_nb = 0;
+        for (int i = 0; i < 576; i++) if (pix_b[i] != pix_n[i]) diff_nb++;
+        CHECK(diff_nb > 10, "replacing bound Content changes rendered stroke pixels");
+
+        im_states_clear_binding(&sm, "Content");
+        for (int i = 0; i < 576; i++) pix_b[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, cp, &s_b, alloc, NULL, 30), "draw cleared bound Content");
+        int lit_clr = 0;
+        for (int i = 0; i < 576; i++) if ((pix_b[i] & 0x00FFFFFFu) != 0u) lit_clr++;
+        CHECK(lit_clr == 0, "clearing bound Content clears all stroke pixels");
+
+        /* 10b: Visual-state Path.Data setter transitions: WindowStateNormal -> WindowStateMaximized -> WindowStateNormal. */
+        im_states_go_to(&sm, "WindowStateNormal", 40);
+        for (int i = 0; i < 576; i++) pix_n[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, cp, &s_n, alloc, NULL, 40), "draw WindowStateNormal");
+        im_states_go_to(&sm, "WindowStateMaximized", 50);
+        for (int i = 0; i < 576; i++) pix_m[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, cp, &s_m, alloc, NULL, 50), "draw WindowStateMaximized");
+        int diff_nm = 0;
+        for (int i = 0; i < 576; i++) if (pix_n[i] != pix_m[i]) diff_nm++;
+        CHECK(diff_nm > 10, "WindowStateMaximized Path.Data setter changes rendered glyph");
+        im_states_go_to(&sm, "WindowStateNormal", 60);
+        for (int i = 0; i < 576; i++) pix_b[i] = 0u;
+        CHECK(im_states_draw_path_node(&sm, cp, &s_b, alloc, NULL, 60), "draw returned WindowStateNormal");
+        int diff_back = 0;
+        for (int i = 0; i < 576; i++) if (pix_n[i] != pix_b[i]) diff_back++;
+        CHECK(diff_back == 0, "returning to WindowStateNormal restores exact maximize pixels");
+
+        im_tree_destroy_subtree(&tree, root);
     }
 
     if (g_failures > 0) {

@@ -271,6 +271,37 @@ im_path_data im_path_sdk_checkmark(void) {
     return d;
 }
 
+/* SDK-owned geometric window maximize icon (single rounded-feel square outline in [1, 9] x [1, 9]). */
+static const im_path_seg SDK_MAXIMIZE_SEGS[5] = {
+    { IM_PATH_MOVE, 1 * IM_ONE, 1 * IM_ONE, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_LINE, 9 * IM_ONE, 1 * IM_ONE, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_LINE, 9 * IM_ONE, 9 * IM_ONE, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_LINE, 1 * IM_ONE, 9 * IM_ONE, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_CLOSE, 0, 0, 0, 0, 0, 0, 0, false, false }
+};
+
+im_path_data im_path_sdk_window_maximize(void) {
+    im_path_data d = { SDK_MAXIMIZE_SEGS, 5u, IM_FILL_NON_ZERO };
+    return d;
+}
+
+/* SDK-owned geometric window restore icon (overlapping front square + rear L-frame in [1, 10] x [0, 9]). */
+static const im_path_seg SDK_RESTORE_SEGS[8] = {
+    { IM_PATH_MOVE, 1 * IM_ONE, 2 * IM_ONE, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_LINE, 8 * IM_ONE, 2 * IM_ONE, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_LINE, 8 * IM_ONE, 9 * IM_ONE, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_LINE, 1 * IM_ONE, 9 * IM_ONE, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_CLOSE, 0, 0, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_MOVE, 3 * IM_ONE, 0, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_LINE, 10 * IM_ONE, 0, 0, 0, 0, 0, 0, false, false },
+    { IM_PATH_LINE, 10 * IM_ONE, 7 * IM_ONE, 0, 0, 0, 0, 0, false, false }
+};
+
+im_path_data im_path_sdk_window_restore(void) {
+    im_path_data d = { SDK_RESTORE_SEGS, 8u, IM_FILL_NON_ZERO };
+    return d;
+}
+
 /* ---------- Polyline & Edge buffers (all-or-nothing allocation) ---------- */
 
 typedef struct pt_q30 {
@@ -934,7 +965,7 @@ bool im_path_fill_shaded(im_surface *surface, im_allocator alloc, const im_path_
 
     subpath_list sl;
     subpaths_init(&sl, alloc);
-    bool ok = flatten_path_to_subpaths(path, surface->transform, IM_TR_ONE / 128, &sl);
+    bool ok = flatten_path_to_subpaths(path, surface->transform, IM_TR_ONE / 256, &sl);
     if (ok) {
         ok = rasterize_subpaths(surface, alloc, &sl, path->fill_rule, 0xFFFFFFFFu, shader, shader_ctx);
     }
@@ -950,7 +981,7 @@ bool im_path_fill_argb(im_surface *surface, im_allocator alloc, const im_path_da
 
     subpath_list sl;
     subpaths_init(&sl, alloc);
-    bool ok = flatten_path_to_subpaths(path, surface->transform, IM_TR_ONE / 128, &sl);
+    bool ok = flatten_path_to_subpaths(path, surface->transform, IM_TR_ONE / 256, &sl);
     if (ok) {
         ok = rasterize_subpaths(surface, alloc, &sl, path->fill_rule, argb, NULL, NULL);
     }

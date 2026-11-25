@@ -1472,20 +1472,39 @@ class LiveReference(unittest.TestCase):
             out_dir = Path(build_tmp) / "out"
             ref_run.run_reference(exe, out_dir, cases_path=cf, work_dir=build_tmp)
 
-            # 1. Stroked Path: compare against WinUI within corner limit (40 on AA edge pixels, <=2 on solid interior/bg).
+            # 1. Stroked Path: classify pixels independently from polyline geometry (12,48)-(28,16)-(52,44),
+            # half-width 3.0: enforce <= 2 on solid interior (dist < 1.5) & background (dist > 4.5),
+            # and <= 40 on the antialiased edge/cap/join band (1.5 <= dist <= 4.5).
+            import math
+            def seg_dist(px, py, x0, y0, x1, y1):
+                vx, vy = x1 - x0, y1 - y0
+                l2 = vx * vx + vy * vy
+                t = max(0.0, min(1.0, ((px - x0) * vx + (py - y0) * vy) / l2))
+                return math.hypot(px - (x0 + t * vx), py - (y0 + t * vy))
+
             w_path = (out_dir / "path-stroke-joins.bgra").read_bytes()
             s_path = sdk_frames["path-stroke-joins"]
             self.assertEqual(len(w_path), len(s_path))
-            worst_path = 0
+            worst_solid = 0
+            worst_edge = 0
             fg_count = 0
-            for i in range(0, len(w_path), 4):
-                d = max(abs(w_path[i + c] - s_path[i + c]) for c in range(3))
-                if d > worst_path:
-                    worst_path = d
-                if s_path[i] > 0xE0 and w_path[i] > 0xE0:
-                    fg_count += 1
-            self.assertGreater(fg_count, 100, "stroked path must have substantial matching foreground pixels")
-            self.assertLessEqual(worst_path, 40, f"stroked path worst pixel diff={worst_path} > corner limit 40")
+            for y in range(64):
+                for x in range(64):
+                    cx, cy = x + 0.5, y + 0.5
+                    dist = min(seg_dist(cx, cy, 12.0, 48.0, 28.0, 16.0), seg_dist(cx, cy, 28.0, 16.0, 52.0, 44.0))
+                    idx = (y * 64 + x) * 4
+                    d = max(abs(w_path[idx + c] - s_path[idx + c]) for c in range(3))
+                    if dist < 1.5 or dist > 4.5:
+                        if d > worst_solid:
+                            worst_solid = d
+                    else:
+                        if d > worst_edge:
+                            worst_edge = d
+                    if dist < 1.5 and s_path[idx] > 0xE0 and w_path[idx] > 0xE0:
+                        fg_count += 1
+            self.assertGreater(fg_count, 80, "stroked path must have substantial matching solid interior pixels")
+            self.assertLessEqual(worst_solid, 2, f"stroked path solid interior/bg diff={worst_solid} > 2")
+            self.assertLessEqual(worst_edge, 40, f"stroked path edge/cap/join diff={worst_edge} > corner limit 40")
 
             # 2. Linear & Radial Gradients: compare every pixel within 2 of 255!
             for cid in ("grad-linear-diag", "grad-radial-offcenter"):

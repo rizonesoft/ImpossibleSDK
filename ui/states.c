@@ -132,6 +132,12 @@ static bool find_element_base_prop(const im_state_machine *sm, const char *targe
             const im_template_prop *pr = &sm->tables.props[e->prop_start + p];
             if (!prop_matches(pr->name, property)) continue;
             if (pr->value.kind == IM_TVAL_TEMPLATE_BINDING && pr->value.text) {
+                for (uint32_t bi = 0; bi < sm->binding_count; bi++) {
+                    if (str_eq(sm->bindings[bi].name, pr->value.text)) {
+                        *out_val = sm->bindings[bi].value;
+                        return true;
+                    }
+                }
                 return find_style_setter(sm, pr->value.text, out_val);
             }
             if (pr->value.kind == IM_TVAL_BINDING) {
@@ -1066,6 +1072,21 @@ void im_states_draw_button(const im_state_machine *sm, im_surface *surface, im_r
     }
 }
 
+static uint32_t apply_node_opacity(uint32_t argb, im_fixed opacity) {
+    if (opacity >= IM_ONE) return argb;
+    if (opacity <= 0) return 0u;
+    uint32_t a = (argb >> 24) & 0xFFu;
+    uint32_t sa = (uint32_t)(((uint64_t)a * (uint64_t)opacity + (IM_ONE / 2)) >> 16);
+    return (sa << 24) | (argb & 0x00FFFFFFu);
+}
+
+static bool resolve_sdk_icon_path(im_icon_id id, im_path_data *out) {
+    if (id == IM_ICON_CHECKMARK) { *out = im_path_sdk_checkmark(); return true; }
+    if (id == IM_ICON_WINDOW_MAXIMIZE) { *out = im_path_sdk_window_maximize(); return true; }
+    if (id == IM_ICON_WINDOW_RESTORE) { *out = im_path_sdk_window_restore(); return true; }
+    return false;
+}
+
 bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, im_surface *surface,
                               im_allocator alloc, const im_template_path_seg *path_segs, uint32_t now_ms) {
     if (!sm || !node || !surface || node->kind != IM_ELEM_PATH) return true;
@@ -1074,53 +1095,86 @@ bool im_states_draw_path_node(const im_state_machine *sm, const im_node *node, i
     int64_t h = (int64_t)node->absolute_rect.bottom - node->absolute_rect.top;
     if (w <= 0 || h <= 0) return true;
 
-    enum im_brush_id fill_brush = IM_BRUSH_COUNT;
-    uint32_t fill_argb = 0u;
-    bool fill_trans = false;
+    im_fixed sc = (surface->scale > 0) ? surface->scale : IM_ONE;
+    enum im_brush_id fill_brush = IM_BRUSH_COUNT, stroke_brush = IM_BRUSH_COUNT;
+    uint32_t fill_argb = 0u, stroke_argb = 0u;
+    bool fill_trans = false, stroke_trans = false;
     if (node->name && im_states_sample_brush(sm, node->name, "Fill", now_ms, &fill_brush, &fill_argb, &fill_trans)) {
         if (!fill_trans && fill_brush < IM_BRUSH_COUNT) {
-            fill_argb = im_brush_over(&sm->palette, fill_brush, 0, h, (surface->scale > 0) ? surface->scale : IM_ONE);
+            fill_argb = im_brush_over(&sm->palette, fill_brush, 0, h, sc);
         }
+        fill_argb = apply_node_opacity(fill_argb, node->opacity);
     }
-    if ((fill_argb >> 24) == 0u) return true;
+    if (node->name && im_states_sample_brush(sm, node->name, "Stroke", now_ms, &stroke_brush, &stroke_argb, &stroke_trans)) {
+        if (!stroke_trans && stroke_brush < IM_BRUSH_COUNT) {
+            stroke_argb = im_brush_over(&sm->palette, stroke_brush, 0, h, sc);
+        }
+        stroke_argb = apply_node_opacity(stroke_argb, node->opacity);
+    }
+    bool has_fill = ((fill_argb >> 24) != 0u);
+    bool has_stroke = ((stroke_argb >> 24) != 0u && node->path_stroke_thickness > 0);
+    if (!has_fill && !has_stroke) return true;
 
-    if (node->opacity < IM_ONE) {
-        uint32_t a = (fill_argb >> 24) & 0xFFu;
-        uint32_t scaled_a = (uint32_t)(((uint64_t)a * (uint64_t)node->opacity + (IM_ONE / 2)) >> 16);
-        if (scaled_a == 0u) return true;
-        fill_argb = (scaled_a << 24) | (fill_argb & 0x00FFFFFFu);
+    /* Resolve dynamic Data from visual-state setters or caller bindings first; fall back to static node geometry. */
+    im_icon_id icon_id = node->path_icon_id;
+    uint32_t seg_start = node->path_seg_start;
+    uint32_t seg_count = node->path_seg_count;
+    uint8_t fill_rule = node->path_fill_rule;
+    im_template_value dval;
+    if (node->name && im_states_sample_value(sm, node->name, "Data", now_ms, &dval)) {
+        if (dval.kind == IM_TVAL_ICON) {
+            icon_id = (im_icon_id)dval.a;
+            seg_count = 0u;
+        } else if (dval.kind == IM_TVAL_PATH && dval.b > 0) {
+            icon_id = IM_ICON_NONE;
+            seg_start = (uint32_t)dval.a;
+            seg_count = (uint32_t)dval.b;
+            fill_rule = (uint8_t)dval.c;
+        } else if (dval.kind == IM_TVAL_NULL || dval.kind == IM_TVAL_NONE || dval.kind == IM_TVAL_TEMPLATE_BINDING) {
+            /* Unbound or explicitly cleared Data paints nothing. */
+            return true;
+        }
     }
 
     im_transform dev_tr;
-    im_fixed sc = (surface->scale > 0) ? surface->scale : IM_ONE;
     if (!im_node_device_transform(node, sc, &dev_tr)) return true;
 
     im_path_data pd = { NULL, 0u, IM_FILL_EVEN_ODD };
     im_path_seg *tmp = NULL;
     size_t tmp_bytes = 0u;
-    if (node->path_is_sdk_checkmark) {
-        pd = im_path_sdk_checkmark();
-    } else if (path_segs && node->path_seg_count > 0u) {
+    if (resolve_sdk_icon_path(icon_id, &pd)) {
+        /* SDK-owned icon path ready. */
+    } else if (path_segs && seg_count > 0u) {
         if (!alloc.alloc || !alloc.free) return false;
-        tmp_bytes = (size_t)node->path_seg_count * sizeof(im_path_seg);
+        tmp_bytes = (size_t)seg_count * sizeof(im_path_seg);
         tmp = (im_path_seg *)alloc.alloc(alloc.ctx, tmp_bytes);
         if (!tmp) return false;
-        for (uint32_t i = 0; i < node->path_seg_count; i++) {
-            const im_template_path_seg *s = &path_segs[node->path_seg_start + i];
+        for (uint32_t i = 0; i < seg_count; i++) {
+            const im_template_path_seg *s = &path_segs[seg_start + i];
             tmp[i] = (im_path_seg){
                 (im_path_cmd)s->cmd, s->x1, s->y1, s->x2, s->y2, s->x3, s->y3,
                 s->angle_deg, s->large_arc, s->sweep
             };
         }
-        pd = (im_path_data){ tmp, node->path_seg_count, (im_fill_rule)node->path_fill_rule };
+        pd = (im_path_data){ tmp, seg_count, (im_fill_rule)fill_rule };
     } else {
         return true;
     }
 
+    im_stroke_style st = {
+        node->path_stroke_thickness,
+        (im_line_cap)node->path_start_cap,
+        (im_line_cap)node->path_end_cap,
+        IM_CAP_FLAT,
+        (im_line_join)node->path_line_join,
+        (node->path_miter_limit > 0) ? node->path_miter_limit : (10 * IM_ONE),
+        NULL, 0u, 0
+    };
     const im_transform *saved = surface->transform;
     surface->transform = &dev_tr;
     bool ok = im_path_draw_stretched(surface, alloc, &pd, (im_rect){0, 0, (im_fixed)w, (im_fixed)h},
-                                     node->path_stretch, fill_argb, NULL, 0u);
+                                     node->path_stretch, has_fill ? fill_argb : 0u,
+                                     has_stroke ? &st : NULL, has_stroke ? stroke_argb : 0u);
     surface->transform = saved;
     if (tmp) alloc.free(alloc.ctx, tmp, tmp_bytes);
     return ok;

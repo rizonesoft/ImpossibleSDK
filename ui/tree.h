@@ -204,8 +204,13 @@ typedef struct im_node {
     uint32_t path_seg_start;
     uint32_t path_seg_count;
     uint8_t path_fill_rule;
-    bool path_is_sdk_checkmark;
+    im_icon_id path_icon_id;
     int path_stretch;
+    im_fixed path_stroke_thickness;
+    uint8_t path_start_cap;
+    uint8_t path_end_cap;
+    uint8_t path_line_join;
+    im_fixed path_miter_limit;
     const char *path_data_binding;
 } im_node;
 

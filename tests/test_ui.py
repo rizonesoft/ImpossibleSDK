@@ -3629,8 +3629,8 @@ class Drawing(unittest.TestCase):
             self.assertIn("bad_path.xaml:42:", str(ctx.exception), desc)
 
         # 3. Independent scan of pin-filtered WinUI XAML corpus (pin.json base + controls minus skip):
-        # verify all 7 <Path Data="..."> occurrences (6 literals + 1 {TemplateBinding Content}) compile,
-        # and verify Microsoft checkmark coordinates are NOT emitted into ui/template_data.c.
+        # verify all 9 path geometry occurrences (7 <Path Data="..."> + 2 <Setter Target="Path.Data" Value="...">)
+        # compile, and verify Microsoft checkmark and caption glyph coordinates are NOT emitted into ui/template_data.c.
         pin = json.loads((ROOT / "tools" / "winui" / "pin.json").read_text(encoding="utf-8"))
         winui = Path(os.environ.get("IMPOSSIBLE_WINUI", Path.home() / ".cache" / "impossible-sdk" / "winui"))
         if winui.is_dir():
@@ -3641,6 +3641,7 @@ class Drawing(unittest.TestCase):
             compiler = tpl_mod.Compiler()
             literals = 0
             bindings = 0
+            setter_literals = 0
             for xf in files:
                 root_el = ET.fromstring(xf.read_text(encoding="utf-8-sig"))
                 for el in root_el.iter():
@@ -3654,15 +3655,24 @@ class Drawing(unittest.TestCase):
                         else:
                             self.assertIn(res_v["kind"], ("IM_TVAL_PATH", "IM_TVAL_ICON"))
                             literals += 1
+                    elif tag == "Setter" and el.attrib.get("Target", "").endswith(".Data") and "Value" in el.attrib:
+                        val = el.attrib["Value"]
+                        res_v = compiler.parse_value(val, "Data", str(xf.name), 1)
+                        self.assertEqual(res_v["kind"], "IM_TVAL_ICON")
+                        self.assertIn(res_v["text"], ("IM_ICON_WINDOW_MAXIMIZE", "IM_ICON_WINDOW_RESTORE"))
+                        setter_literals += 1
             self.assertEqual(literals, 6, "pin-filtered corpus must have 6 literal Path.Data elements")
             self.assertEqual(bindings, 1, "pin-filtered corpus must have 1 bound Path.Data element")
+            self.assertEqual(setter_literals, 2, "pin-filtered corpus must have 2 Target=Path.Data visual-state setters")
 
-        # Verify Microsoft checkmark literal coordinates are never emitted in ui/template_data.c.
+        # Verify Microsoft checkmark & caption literal coordinates are never emitted in ui/template_data.c.
         tpl_c = (ROOT / "ui" / "template_data.c").read_text(encoding="utf-8")
         self.assertNotIn("123 * 65536", tpl_c)
         self.assertNotIn("8060928", tpl_c)  # 123 * 65536
+        self.assertNotIn("488309", tpl_c)   # 7.451 * 65536 (caption glyph)
 
-        # 4. Malformed Path literal in a standalone style outside TARGET_STYLES is refused with file:line.
+        # 4. Malformed Path literal in a standalone style (both direct attribute and visual-state Setter)
+        # outside TARGET_STYLES is refused with file:line.
         with tempfile.TemporaryDirectory() as td:
             bad_xaml = Path(td) / "extra_style.xaml"
             bad_xaml.write_text(
@@ -3688,6 +3698,40 @@ class Drawing(unittest.TestCase):
             )
             self.assertNotEqual(p_bad.returncode, 0)
             self.assertIn("extra_style.xaml:7:", p_bad.stderr + p_bad.stdout)
+
+            bad_setter = Path(td) / "bad_setter.xaml"
+            bad_setter.write_text(
+                '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+                ' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">\n'
+                '  <Style x:Key="BadSetterStyle" TargetType="Button">\n'
+                '    <Setter Property="Template">\n'
+                '      <Setter.Value>\n'
+                '        <ControlTemplate TargetType="Button">\n'
+                '          <Grid>\n'
+                '            <VisualStateManager.VisualStateGroups>\n'
+                '              <VisualStateGroup x:Name="G">\n'
+                '                <VisualState x:Name="S">\n'
+                '                  <VisualState.Setters>\n'
+                '                    <Setter Target="P.Data" Value="M0,0 Q10" />\n'
+                '                  </VisualState.Setters>\n'
+                '                </VisualState>\n'
+                '              </VisualStateGroup>\n'
+                '            </VisualStateManager.VisualStateGroups>\n'
+                '            <Path x:Name="P" Data="M0,0 L1,1" />\n'
+                '          </Grid>\n'
+                '        </ControlTemplate>\n'
+                '      </Setter.Value>\n'
+                '    </Setter>\n'
+                '  </Style>\n'
+                '</ResourceDictionary>\n',
+                encoding="utf-8",
+            )
+            p_bs = subprocess.run(
+                [sys.executable, str(ROOT / "tools" / "winui" / "templates.py"), "--parse-file", str(bad_setter)],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(p_bs.returncode, 0)
+            self.assertIn("bad_setter.xaml:11:", p_bs.stderr + p_bs.stdout)
 
 
 if __name__ == "__main__":

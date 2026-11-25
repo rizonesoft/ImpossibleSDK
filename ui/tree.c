@@ -791,6 +791,21 @@ static bool parse_align(const char *s, im_align *out) {
     return false;
 }
 
+static uint8_t parse_line_cap_str(const char *s) {
+    if (!s) return 0u;
+    if (str_eq(s, "Square")) return 1u;
+    if (str_eq(s, "Round")) return 2u;
+    if (str_eq(s, "Triangle")) return 3u;
+    return 0u;
+}
+
+static uint8_t parse_line_join_str(const char *s) {
+    if (!s) return 0u;
+    if (str_eq(s, "Bevel")) return 1u;
+    if (str_eq(s, "Round")) return 2u;
+    return 0u;
+}
+
 static void apply_template_prop(im_node *node, const im_palette *palette, const char *prop, const im_template_value *v, bool is_style_default) {
     if (!node || !prop || !v) return;
     if (v->kind == IM_TVAL_TEMPLATE_BINDING) {
@@ -892,15 +907,25 @@ static void apply_template_prop(im_node *node, const im_palette *palette, const 
         else if (str_eq(v->text, "Uniform")) node->path_stretch = 2;
         else if (str_eq(v->text, "UniformToFill")) node->path_stretch = 3;
         else node->path_stretch = 0;
+    } else if (str_eq(prop, "StrokeThickness") && resolve_fixed_val(palette, v, &fx)) {
+        node->path_stroke_thickness = fx;
+    } else if (str_eq(prop, "StrokeStartLineCap") && v->kind == IM_TVAL_ENUM_STR) {
+        node->path_start_cap = parse_line_cap_str(v->text);
+    } else if (str_eq(prop, "StrokeEndLineCap") && v->kind == IM_TVAL_ENUM_STR) {
+        node->path_end_cap = parse_line_cap_str(v->text);
+    } else if (str_eq(prop, "StrokeLineJoin") && v->kind == IM_TVAL_ENUM_STR) {
+        node->path_line_join = parse_line_join_str(v->text);
+    } else if (str_eq(prop, "StrokeMiterLimit") && resolve_fixed_val(palette, v, &fx)) {
+        node->path_miter_limit = fx;
     } else if (str_eq(prop, "Data") && v->kind == IM_TVAL_PATH && v->b > 0) {
         node->path_seg_start = (uint32_t)v->a;
         node->path_seg_count = (uint32_t)v->b;
         node->path_fill_rule = (uint8_t)v->c;
-        node->path_is_sdk_checkmark = false;
-    } else if (str_eq(prop, "Data") && v->kind == IM_TVAL_ICON && v->a == IM_ICON_CHECKMARK) {
-        node->path_is_sdk_checkmark = true;
-        node->intrinsic_width = 16 * IM_ONE;
-        node->intrinsic_height = 16 * IM_ONE;
+        node->path_icon_id = IM_ICON_NONE;
+    } else if (str_eq(prop, "Data") && v->kind == IM_TVAL_ICON && v->a > IM_ICON_NONE && v->a < IM_ICON_COUNT) {
+        node->path_icon_id = (im_icon_id)v->a;
+        node->intrinsic_width = (v->a == IM_ICON_CHECKMARK) ? (16 * IM_ONE) : (10 * IM_ONE);
+        node->intrinsic_height = (v->a == IM_ICON_CHECKMARK) ? (16 * IM_ONE) : (10 * IM_ONE);
     }
 }
 
