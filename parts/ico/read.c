@@ -622,9 +622,9 @@ int32_t im_ico_choose_entry(const im_ico_entry_info *entries,
         uint64_t sdiff = dx + dy;
 
         uint32_t ebpp = entry_dir_bpp(&entries[i]);
-        /* Prefer entries at or below display depth (Microsoft LookupIconIdFromDirectoryEx criteria):
-           exceeding want_bpp incurs a steep penalty so any entry <= want_bpp wins on equal size. */
-        uint64_t cdiff = (ebpp > want_bpp) ? (1000ULL + (uint64_t)(ebpp - want_bpp) * 2ULL) : ((uint64_t)(want_bpp - ebpp) * 2ULL);
+        /* Prefer entries at or below display depth (max under-depth penalty for 32-bpp is 62,
+           so +64 ensures any <= want_bpp entry wins on equal size without overriding large size gaps). */
+        uint64_t cdiff = (ebpp > want_bpp) ? (64ULL + (uint64_t)(ebpp - want_bpp) * 2ULL) : ((uint64_t)(want_bpp - ebpp) * 2ULL);
         uint64_t score = sdiff + cdiff;
 
         if (score < best_score || (score == best_score && cdiff < best_color_diff)) {

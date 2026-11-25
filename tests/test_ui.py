@@ -5590,19 +5590,21 @@ elif cmd == "load_verify":
             scales = [100, 125, 150, 175, 200, 250, 300]
             lookup_cases = []
             seen_targets = set()
-            # Generate 100 strictly distinct (tw, th) target sizes across all 4 directories and scales.
-            cand_pairs = []
+            # Generate 100 strictly distinct (tw, th) target sizes across all 4 directories and scales,
+            # placing rectangular ICO targets first so non-square dimensions are always exercised.
+            cand_pairs = [
+                (16, 12), (24, 16), (32, 16), (16, 32), (48, 24), (24, 48), (64, 32), (32, 64), (96, 48), (48, 96),
+            ]
             for base in range(8, 220):
                 cand_pairs.append((base, base))
-            for rw, rh in [(16, 12), (24, 16), (32, 16), (16, 32), (48, 24), (24, 48), (64, 32), (32, 64), (96, 48), (48, 96)]:
-                cand_pairs.append((rw, rh))
             for idx_p, (lw, lh) in enumerate(cand_pairs):
                 if len(lookup_cases) >= 100:
                     break
                 ds_idx = len(lookup_cases)
                 is_icon, ents = dir_sets[ds_idx % len(dir_sets)]
                 if not is_icon and lw != lh:
-                    continue
+                    # Use the rectangular ICO directory (index 2) for non-square targets
+                    is_icon, ents = dir_sets[2]
                 sc = scales[ds_idx % len(scales)]
                 tw = max(1, (lw * sc + 50) // 100)
                 th = max(1, (lh * sc + 50) // 100)
@@ -5612,15 +5614,17 @@ elif cmd == "load_verify":
                 lookup_cases.append({"is_icon": is_icon, "entries": ents, "lw": lw, "lh": lh, "sc": sc, "tw": tw, "th": th})
             self.assertEqual(len(lookup_cases), 100)
             self.assertEqual(len(seen_targets), 100, "chooser oracle must exercise 100 strictly distinct target sizes")
+            self.assertTrue(any(c["tw"] != c["th"] for c in lookup_cases), "chooser oracle must include rectangular targets")
             win_choices = call_win_oracle({"cmd": "lookup100", "cases": lookup_cases})
             self.assertEqual(len(win_choices), 100)
             for i_c, case in enumerate(lookup_cases):
                 sdk_c = sdk_choose_scaled(case["entries"], case["lw"], case["lh"], case["sc"], sbpp=32)
                 self.assertEqual(sdk_c, win_choices[i_c], f"chooser case {i_c} ({case['lw']}x{case['lh']}@{case['sc']}%): sdk={sdk_c} != win={win_choices[i_c]}")
-            # Also verify non-32 screen_bpp preference: exact 8-bpp, 16-bpp (8 over 24), and 24-bpp (4 over 32).
+            # Also verify non-32 screen_bpp preference: equal-size lower-depth wins, while large size match still wins.
             self.assertEqual(sdk_choose_scaled([(32, 32, 0, 1, 32), (32, 32, 0, 1, 8)], 32, 32, 100, sbpp=8), 1)
             self.assertEqual(sdk_choose_scaled([(32, 32, 0, 1, 24), (32, 32, 0, 1, 8)], 32, 32, 100, sbpp=16), 1)
             self.assertEqual(sdk_choose_scaled([(32, 32, 0, 1, 4), (32, 32, 0, 1, 32)], 32, 32, 100, sbpp=24), 0)
+            self.assertEqual(sdk_choose_scaled([(256, 256, 0, 1, 32), (32, 32, 0, 1, 24)], 256, 256, 100, sbpp=24), 0)
 
             # 6. Writer verification: multi-size ICO (distinct patterns per size, DIB + 256x256 opaque low-color PNG +
             #    256x256 translucent PNG with color-type-6 8-bit IHDR), multi-entry CUR with distinct hotspots,
