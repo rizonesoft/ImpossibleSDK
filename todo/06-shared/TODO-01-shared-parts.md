@@ -65,7 +65,9 @@ Impossible OS keeps its own element tree, layout, states, input and automation e
 **Test checkpoint:** `python3 tools/build.py` exits 0 and the new tests fail when their production change is reverted.
 
 ## 2. Deflate
-> **Started:** 2026-11-25T15:18Z
+> **Started:** 2026-11-25T16:49Z
+
+**Corrected 2026-11-25:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-25T15:18Z; its review chain is kept as `docs/reviews/06-shared/D06-T01-s2-chain1.md`.
 
 Deflate and the zlib and gzip wrappers. Zip, Paint, Stillframe, Icon Editor, the package builder and PNG writing need it.
 
