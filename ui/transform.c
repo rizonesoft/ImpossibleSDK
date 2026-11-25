@@ -330,3 +330,54 @@ bool im_transform_rect_bounds(const im_transform *t, im_rect rect, im_rect *out)
     *out = res;
     return true;
 }
+
+bool im_transform_viewport_bounds_q30(const im_transform *t,
+                                      int64_t l_q30, int64_t t_q30, int64_t r_q30, int64_t b_q30,
+                                      int bound_l, int bound_t, int bound_r, int bound_b,
+                                      int *out_from, int *out_top, int *out_to, int *out_bottom) {
+    if (!out_from || !out_top || !out_to || !out_bottom) return false;
+    if (l_q30 >= r_q30 || t_q30 >= b_q30 || bound_l >= bound_r || bound_t >= bound_b) return false;
+
+    __int128 min_x = (__int128)l_q30, max_x = (__int128)r_q30;
+    __int128 min_y = (__int128)t_q30, max_y = (__int128)b_q30;
+    if (t) {
+        int64_t cx[4] = {l_q30, r_q30, r_q30, l_q30};
+        int64_t cy[4] = {t_q30, t_q30, b_q30, b_q30};
+        for (int i = 0; i < 4; i++) {
+            __int128 sx = (__int128)cx[i] * t->m11 + (__int128)cy[i] * t->m21;
+            __int128 sy = (__int128)cx[i] * t->m12 + (__int128)cy[i] * t->m22;
+            __int128 rx = ((sx >= 0) ? (sx >> IM_TR_SHIFT) : -(((-sx) + IM_TR_ONE - 1) >> IM_TR_SHIFT)) + t->dx;
+            __int128 ry = ((sy >= 0) ? (sy >> IM_TR_SHIFT) : -(((-sy) + IM_TR_ONE - 1) >> IM_TR_SHIFT)) + t->dy;
+            if (i == 0 || rx < min_x) min_x = rx;
+            if (i == 0 || rx > max_x) max_x = rx;
+            if (i == 0 || ry < min_y) min_y = ry;
+            if (i == 0 || ry > max_y) max_y = ry;
+        }
+    }
+
+    __int128 bl = (__int128)bound_l * IM_TR_ONE;
+    __int128 br = (__int128)bound_r * IM_TR_ONE;
+    __int128 bt = (__int128)bound_t * IM_TR_ONE;
+    __int128 bb = (__int128)bound_b * IM_TR_ONE;
+    if (max_x <= bl || min_x >= br || max_y <= bt || min_y >= bb) return false;
+    if (min_x < bl) min_x = bl;
+    if (max_x > br) max_x = br;
+    if (min_y < bt) min_y = bt;
+    if (max_y > bb) max_y = bb;
+
+    int from = (int)(min_x >> IM_TR_SHIFT);
+    int to = (int)((max_x + IM_TR_ONE - 1) >> IM_TR_SHIFT);
+    int top = (int)(min_y >> IM_TR_SHIFT);
+    int bottom = (int)((max_y + IM_TR_ONE - 1) >> IM_TR_SHIFT);
+    if (from < bound_l) from = bound_l;
+    if (to > bound_r) to = bound_r;
+    if (top < bound_t) top = bound_t;
+    if (bottom > bound_b) bottom = bound_b;
+    if (from >= to || top >= bottom) return false;
+
+    *out_from = from;
+    *out_top = top;
+    *out_to = to;
+    *out_bottom = bottom;
+    return true;
+}

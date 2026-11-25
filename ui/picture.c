@@ -86,28 +86,22 @@ static bool draw_subrect_q30(im_surface *surface, const im_picture *pic,
 
     im_transform inv;
     bool has_tr = (surface->transform != NULL);
-    im_rect dev_bounds = clip_rect;
-    if (has_tr) {
-        if (!im_transform_invert(surface->transform, &inv)) return false;
-        if (!im_transform_rect_bounds(surface->transform, clip_rect, &dev_bounds)) return false;
-    }
+    if (has_tr && !im_transform_invert(surface->transform, &inv)) return false;
 
-    int64_t fl = (int64_t)dev_bounds.left >> 16;
-    int64_t ft = (int64_t)dev_bounds.top >> 16;
-    int64_t fr = ((int64_t)dev_bounds.right + IM_ONE - 1) >> 16;
-    int64_t fb = ((int64_t)dev_bounds.bottom + IM_ONE - 1) >> 16;
-    if (fl < bound_l) fl = bound_l;
-    if (ft < bound_t) ft = bound_t;
-    if (fr > bound_r) fr = bound_r;
-    if (fb > bound_b) fb = bound_b;
-    if (fl >= fr || ft >= fb) return true;
-
-    int64_t src_w = (int64_t)(src_r - src_l);
-    int64_t src_h = (int64_t)(src_b - src_t);
     int64_t clip_l_q30 = im_fixed_to_q30(clip_rect.left);
     int64_t clip_t_q30 = im_fixed_to_q30(clip_rect.top);
     int64_t clip_r_q30 = im_fixed_to_q30(clip_rect.right);
     int64_t clip_b_q30 = im_fixed_to_q30(clip_rect.bottom);
+    int fl_i = 0, ft_i = 0, fr_i = 0, fb_i = 0;
+    if (!im_transform_viewport_bounds_q30(surface->transform,
+            clip_l_q30, clip_t_q30, clip_r_q30, clip_b_q30,
+            bound_l, bound_t, bound_r, bound_b, &fl_i, &ft_i, &fr_i, &fb_i)) {
+        return true;
+    }
+    int64_t fl = (int64_t)fl_i, ft = (int64_t)ft_i, fr = (int64_t)fr_i, fb = (int64_t)fb_i;
+
+    int64_t src_w = (int64_t)(src_r - src_l);
+    int64_t src_h = (int64_t)(src_b - src_t);
 
     /* Linear step vectors in Q30 for both local coordinates and source UV coordinates. */
     int64_t m11 = has_tr ? inv.m11 : IM_TR_ONE;

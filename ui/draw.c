@@ -199,18 +199,13 @@ static void shade_transformed(im_surface *surface, im_rect outer, const fitted_r
                               int bound_l, int bound_t, int bound_r, int bound_b) {
     im_transform inv;
     if (!im_transform_invert(surface->transform, &inv)) return;
-    im_rect dev_bounds;
-    if (!im_transform_rect_bounds(surface->transform, outer, &dev_bounds)) return;
-
-    int from = pixel(dev_bounds.left, surface->width);
-    int to = pixel((int64_t)dev_bounds.right + IM_ONE - 1, surface->width);
-    int top = pixel(dev_bounds.top, surface->height);
-    int bottom = pixel((int64_t)dev_bounds.bottom + IM_ONE - 1, surface->height);
-    if (from < bound_l) from = bound_l;
-    if (to > bound_r) to = bound_r;
-    if (top < bound_t) top = bound_t;
-    if (bottom > bound_b) bottom = bound_b;
-    if (from >= to || top >= bottom) return;
+    int from = 0, top = 0, to = 0, bottom = 0;
+    if (!im_transform_viewport_bounds_q30(surface->transform,
+            im_fixed_to_q30(outer.left), im_fixed_to_q30(outer.top),
+            im_fixed_to_q30(outer.right), im_fixed_to_q30(outer.bottom),
+            bound_l, bound_t, bound_r, bound_b, &from, &top, &to, &bottom)) {
+        return;
+    }
 
     int64_t height = (int64_t)outer.bottom - outer.top;
     const int64_t sub_off[4] = {
@@ -399,47 +394,13 @@ void im_draw_alpha_mask(im_surface *surface, im_rect dst_rect, const uint8_t *al
 
     im_transform inv;
     bool has_tr = (surface->transform != NULL);
-    /* Compute forward bounds in __int128 Q30 (unbounded across all representable im_rect * im_transform,
-       since |c| <= 2^47 and |m| <= 2^58 => product <= 2^105 << 2^126) and clamp directly to the
-       integer viewport in __int128 so no visible mask can ever be dropped by forward-bounds overflow. */
-    __int128 min_x_128 = (__int128)pl_q30, max_x_128 = (__int128)pr_q30;
-    __int128 min_y_128 = (__int128)pt_q30, max_y_128 = (__int128)pb_q30;
-    if (has_tr) {
-        if (!im_transform_invert(surface->transform, &inv)) return;
-        const im_transform *tr = surface->transform;
-        int64_t cx[4] = {pl_q30, pr_q30, pr_q30, pl_q30};
-        int64_t cy[4] = {pt_q30, pt_q30, pb_q30, pb_q30};
-        for (int i = 0; i < 4; i++) {
-            __int128 sx = (__int128)cx[i] * tr->m11 + (__int128)cy[i] * tr->m21;
-            __int128 sy = (__int128)cx[i] * tr->m12 + (__int128)cy[i] * tr->m22;
-            __int128 rx = ((sx >= 0) ? (sx >> IM_TR_SHIFT) : -(((-sx) + IM_TR_ONE - 1) >> IM_TR_SHIFT)) + tr->dx;
-            __int128 ry = ((sy >= 0) ? (sy >> IM_TR_SHIFT) : -(((-sy) + IM_TR_ONE - 1) >> IM_TR_SHIFT)) + tr->dy;
-            if (i == 0 || rx < min_x_128) min_x_128 = rx;
-            if (i == 0 || rx > max_x_128) max_x_128 = rx;
-            if (i == 0 || ry < min_y_128) min_y_128 = ry;
-            if (i == 0 || ry > max_y_128) max_y_128 = ry;
-        }
+    if (has_tr && !im_transform_invert(surface->transform, &inv)) return;
+    int from = 0, top = 0, to = 0, bottom = 0;
+    if (!im_transform_viewport_bounds_q30(surface->transform,
+            pl_q30, pt_q30, pr_q30, pb_q30,
+            bound_l, bound_t, bound_r, bound_b, &from, &top, &to, &bottom)) {
+        return;
     }
-
-    __int128 bl_128 = (__int128)bound_l * IM_TR_ONE;
-    __int128 br_128 = (__int128)bound_r * IM_TR_ONE;
-    __int128 bt_128 = (__int128)bound_t * IM_TR_ONE;
-    __int128 bb_128 = (__int128)bound_b * IM_TR_ONE;
-    if (max_x_128 <= bl_128 || min_x_128 >= br_128 || max_y_128 <= bt_128 || min_y_128 >= bb_128) return;
-    if (min_x_128 < bl_128) min_x_128 = bl_128;
-    if (max_x_128 > br_128) max_x_128 = br_128;
-    if (min_y_128 < bt_128) min_y_128 = bt_128;
-    if (max_y_128 > bb_128) max_y_128 = bb_128;
-
-    int from = (int)(min_x_128 >> IM_TR_SHIFT);
-    int to = (int)((max_x_128 + IM_TR_ONE - 1) >> IM_TR_SHIFT);
-    int top = (int)(min_y_128 >> IM_TR_SHIFT);
-    int bottom = (int)((max_y_128 + IM_TR_ONE - 1) >> IM_TR_SHIFT);
-    if (from < bound_l) from = bound_l;
-    if (to > bound_r) to = bound_r;
-    if (top < bound_t) top = bound_t;
-    if (bottom > bound_b) bottom = bound_b;
-    if (from >= to || top >= bottom) return;
 
     /* Precompute linear UV stepping per pixel in Q16 (eliminating per-pixel 128-bit division). */
     int64_t m11 = has_tr ? inv.m11 : IM_TR_ONE;

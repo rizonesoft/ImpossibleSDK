@@ -324,6 +324,20 @@ static void test_transformed_drawing(void) {
     CHECK(huge_px >= 125 && huge_px <= 131,
           "extreme magnified A8 mask (padded right=402M > IM_TR_MAX_COEFF) clips in __int128 and renders (0,0) ~128/255");
 
+    /* Wide zoomed shape AND picture: [0, 4096) x [0, 1) at 8x horizontal zoom (right = 32768 > 16.16 max)
+       must render pixel (0, 0) fully opaque through both im_fill_argb and im_picture_draw. */
+    memset(sing_buf, 0, (size_t)(S * S) * sizeof(uint32_t));
+    im_surface s_zoom8 = {sing_buf, S, S, S, pal, IM_ONE, NULL, &mag8x};
+    im_fill_argb(&s_zoom8, (im_rect){0, 0, FX(4096), IM_ONE}, (im_radii){0, 0, 0, 0}, 0xFF336699u);
+    CHECK(sing_buf[0] == 0x00336699u, "wide 8x zoomed shape (right=32768) renders pixel (0,0) opaque");
+
+    memset(sing_buf, 0, (size_t)(S * S) * sizeof(uint32_t));
+    uint32_t opq_px[1] = {0xFF44AA22u};
+    im_picture opq_pic = {opq_px, 1, 1, 1};
+    CHECK(im_picture_draw(&s_zoom8, &opq_pic, (im_rect){0, 0, FX(4096), IM_ONE}, IM_STRETCH_FILL),
+          "wide 8x zoomed picture (right=32768) succeeds");
+    CHECK(sing_buf[0] == 0x0044AA22u, "wide 8x zoomed picture (right=32768) renders pixel (0,0) opaque");
+
     /* 30-degree rotated gradient STROKE: compare two stroke points at the SAME device Y (y=32)
        so a device-space gradient (same device Y => identical color) cannot pass! */
     const int GS = 64;

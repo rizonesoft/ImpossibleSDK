@@ -87,3 +87,11 @@ bool im_transform_point_q30(const im_transform *t, int64_t qx, int64_t qy, int64
 /* Compute the outward-rounded axis-aligned bounding im_rect of all 4 corners of rect transformed by t.
    Returns false without mutating out on overflow or empty input rect. */
 bool im_transform_rect_bounds(const im_transform *t, im_rect rect, im_rect *out);
+
+/* Compute viewport-clipped integer pixel bounds [from, to) x [top, bottom) for a Q30 local rectangle
+   transformed by t (or identity if t == NULL) using unbounded __int128 arithmetic before clamping
+   to [bound_l, bound_r) x [bound_t, bound_b). Returns false if the clipped bounds are empty. */
+bool im_transform_viewport_bounds_q30(const im_transform *t,
+                                      int64_t l_q30, int64_t t_q30, int64_t r_q30, int64_t b_q30,
+                                      int bound_l, int bound_t, int bound_r, int bound_b,
+                                      int *out_from, int *out_top, int *out_to, int *out_bottom);
