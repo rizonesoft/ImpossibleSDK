@@ -128,8 +128,9 @@ void im_ico_composite_onto(uint8_t *dst_pixels,
 
 /* Choose the best entry index (0..count-1) for target_w x target_h at screen_bpp (0 defaults to 32),
    matching Windows user32 LookupIconIdFromDirectoryEx using directory fields (minimizing combined
-   size distance with 2x upscale penalty plus 2x color-depth distance, preferring closer color depth
-   and earlier directory order on ties). Returns -1 on invalid arguments. */
+   size distance with 2x upscale penalty plus 2x color-depth distance, with an additional 64-point
+   penalty when an entry's bit depth exceeds screen_bpp so entries <= screen_bpp win on equal size,
+   preferring closer color depth and earlier directory order on ties). Returns -1 on invalid arguments. */
 int32_t im_ico_choose_entry(const im_ico_entry_info *entries,
                             uint16_t count,
                             uint32_t target_w,
