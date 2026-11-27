@@ -85,6 +85,7 @@ One checked format for what every program says about itself.
 - [ ] Check fixed copies of every kind of `app.json` in `tests/fixtures/apps/`. Done when: they pass or fail as listed, in a clone with nothing beside it. Cheaper substitute: the sibling folders.
 - [ ] Measure that the tier equals the program's imports in `tools/app_build.py`. Done when: a program above or below its tier is named. Cheaper substitute: trusting it.
 - [ ] Read `needs` as `tools/new_app.py` documents it, `id` and `what`, with an optional `fallback`, in `tools/app_json.py`. Done when: an existing declaration passes the package builder unchanged and a wrong id is refused. Cheaper substitute: a new format.
+- [ ] Let one `app.json` declare more than one program, each with its own name, entry executable and tier, as Recto ships `Recto.exe` and `recto-cli.exe` from one package (design record `docs/specs/2026-11-27-sdk-as-platform-design.md`), in `tools/app_json.py`. Done when: a two-program fixture in `tests/fixtures/apps/` passes, each program's tier is measured from its own executable, and a declaration naming a missing executable is refused. Cheaper substitute: one `app.json` per program.
 - [ ] Report on the programs of a named folder by `tools/app_json.py --all <folder>`, as a tool and not a test. Done when: each fault is named with file and field, and none changes this repository's result. Cheaper substitute: a build step.
 - [ ] Commit: `tools: the app.json format`
 

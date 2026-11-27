@@ -218,12 +218,12 @@ Sections: 7 | Checklist items: 43
 
 ### Phase 6: Parts and release
 
-Sections: 12 | Checklist items: 68
+Sections: 12 | Checklist items: 69
 
 | Status | Reference   | Deliverable                          | Needs                         | Items |
 | ------ | ----------- | ------------------------------------ | ----------------------------- | ----- |
 | [ ]    | D08 T01 §1  | Parts for drawing, text and controls | none                          | 5     |
-| [ ]    | D08 T01 §2  | The `app.json` format                | none                          | 6     |
+| [ ]    | D08 T01 §2  | The `app.json` format                | none                          | 7     |
 | [ ]    | D08 T01 §3  | Package builder                      | windows-host                  | 5     |
 | [ ]    | D08 T01 §4  | Installer                            | windows-host, display-session | 9     |
 | [ ]    | D08 T01 §5  | File types                           | windows-host, display-session | 5     |
@@ -301,4 +301,4 @@ Sections: 2 | Checklist items: 6
 
 Progress: 19/237 verified sections, 29 ready to run now.
 
-Checklist: 99/1798 items completed (includes Commit items).
+Checklist: 99/1799 items completed (includes Commit items).
