@@ -307,3 +307,42 @@ LENS quality: findings
 LENS optimization: clean  
 HIGHEST: P1  
 OVERALL: needs-attention
+
+## Round 8: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-27T09:11:51Z
+- Candidate: 86351b8cb082123a721abae7f2590d2987d15a10
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 28
+- Digest: a19a95498763b8ae
+
+## adversarial: needs-attention
+
+1. **P2 | `docs/specs/2026-11-27-sdk-as-platform-design.md:88` | GPU startup can fail after both loader checks succeed.** **Path:** Isotone opens its canvas on a machine where the D3D DLL and creation export are present, but no available adapter supports the requested device. **Evidence: traced** Line 88 tests a missing DLL, a missing export and loss of an already-created device. A device-creation failure occurs between those cases, before there is a presenting call to report device loss. All three tests can pass while this startup path exits without a canvas. Require the ordinary `im_gpu_open` path to reach the usable CPU canvas when device creation fails.
+
+## integration: needs-attention
+
+2. **P2 | `docs/specs/2026-11-27-sdk-as-platform-design.md:106` | The OS import has no way to verify that it received the executable proven on Windows.** **Path:** Recto publishes a Windows release and the OS lane imports that executable for the launcher tests at line 112. **Evidence: traced** At the pinned OS commit `180284002`, `scripts/imports.py:215` derives the expected tree from files in the source commit, and `scripts/imports.py:280` checks the copied tree. A release executable produced by CI has no identity in that comparison. The reference Inkeys import explicitly excludes build output at `todo/11-apps/TODO-14-inkeys.md:61`. Define how the published executable is bound to the proven source commit and architecture, and require the OS import to reject a different executable for the same pin.
+
+## source-defect: approve
+
+## consistency: needs-attention
+
+3. **P2 | `docs/specs/2026-11-27-sdk-as-platform-design.md:75` | The exported-header rule has no workable contract for the required `cxx` part.** **Path:** The SDK publishes libc++ headers so the first app can use the runtime required at line 87. **Evidence: traced** In the pinned llvm-mingw package, `include/c++/v1/__new/placement_new_delete.h:23` declares ordinary placement `new` with an unmarked `void*`, which rule 5 rejects. Exempting the whole library would also exempt `__thread/thread.h:263`, where `std::thread::native_handle()` returns the stored thread value. The Windows backend defines that type as `void*` at `__thread/support/windows.h:98`. Define how upstream memory declarations pass and what the SDK-backed thread implementation may expose. Exercise both through the exported `cxx` headers.
+
+## quality: needs-attention
+
+4. **P3 | `docs/specs/2026-11-27-sdk-as-platform-design.md:83` | The fixture list gives its positive controls two opposite expected results.** The marked `base.h`, `ui/host.h` and PNG tables appear inside the list governed by “Each must fail,” immediately after an explicit instruction that they must pass. Split the accepted headers from the rejected fixtures so each has one expected result.
+
+## optimization: approve
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS source-defect: clean  
+LENS consistency: findings  
+LENS quality: findings  
+LENS optimization: clean  
+HIGHEST: P2  
+OVERALL: needs-attention
