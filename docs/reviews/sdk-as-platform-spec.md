@@ -223,3 +223,46 @@ LENS quality: findings
 LENS optimization: clean  
 HIGHEST: P1  
 OVERALL: needs-attention
+
+## Round 6: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-27T09:05:58Z
+- Candidate: c066cfa88cfc4e8d1b385c495e1a7012c4e2c77e
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 32
+- Digest: 25747fcdbd7b77ad
+
+## Adversarial: needs-attention
+
+1. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:75` scopes the public-interface check to `include/impossible/`, but shipping consumers can include SDK headers outside that directory. **Path:** A toolkit uses the public `im_host` callback table initialized by the Windows adapter. **Evidence: traced** `include/impossible/win_host.h:6` only forward-declares the table. Its actual fields and callback signatures live at `ui/host.h:57`, and `cmake/ImpossibleSDK.cmake:69` exports the `ui` include directory. A new SDK-produced pointer in that table would escape the prescribed check even with every object built from source. Check the headers exported by each shipping target and place a rejection fixture in an exported part outside `include/impossible/`.
+
+## Integration: needs-attention
+
+2. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:75` misses two compiled `im_window` callers. **Path:** The SDK publishes its site after making `im_window` opaque. **Evidence: ran** `git grep -n 'im_window window =' c066cfa -- docs/guide` finds by-value initializers at `docs/guide/first-window.md:20` and `docs/guide/drawing.md:26`. `tools/site/build.py:455` compiles the guide programs, so updating all four named C files still leaves the site build trying to instantiate an incomplete type. Include both guide programs in the migration and verify them through the site build.
+
+3. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:75` assigns the dirty-region fixture a native-window accessor, but the fixture also depends on SDK-owned timer state. **Path:** The normal Windows fixture tests that a stale timer message cannot disturb a newly armed frame timer. **Evidence: traced** `tests/fixtures/test_dirty.c:1105` and `:1107` read the old and new SDK tokens, and `:1112` checks both the active flag and the surviving token. An `HWND` accessor supplies none of those values. Preserve that regression through observable timer behavior or test-only timer instrumentation when the layout becomes private.
+
+## Source-defect: needs-attention
+
+4. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:109` transfers Recto’s seam without updating a downstream roadmap section that still requires another implementation. **Path:** The OS lane follows §13 after importing the SDK runtime and Recto seam. **Evidence: traced** At OS commit `180284002`, `todo/11-apps/TODO-05-pdf-viewer.md:222` still instructs the lane to build Recto’s libraries for a separate user-mode target, and `:223` explicitly requires a Linux engine build using the seam’s host implementation. Candidate line 138 schedules changes to §11, §12 and §14 only. Reconcile §13 with the chosen shipping artifact and assign its host tests and sanitizer corpus a supported execution path before retiring the seam it names. The Round 5 C++ subset reference itself is accounted for at candidate lines 92 and 108.
+
+## Consistency: needs-attention
+
+5. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:75` says every other `void *` fails, which rejects the SDK’s own allocation and byte-buffer interfaces. **Path:** The first shipping program runs the mandatory header check against the existing base API. **Evidence: ran** `git grep -n 'void \*' c066cfa -- include/impossible/base.h` finds `im_alloc` at line 11, `im_free` at line 14 and the memory primitives at lines 23 to 26. These pointers are neither forward-declared SDK types nor caller context named `user`. Define how the checker recognizes the permitted buffer and allocation signatures, and require it to accept those existing declarations while rejecting `im_window.native`.
+
+## Quality: needs-attention
+
+6. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:83` lets the new provenance check mask failures in the symbol checks. **Path:** CI runs the prescribed prebuilt fixtures for `CreateFileW`, `GetProcAddress` and a private Windows-layer name. **Evidence: traced** Rule 2 at line 72 rejects each unrecorded object regardless of its contents. All three negative tests can therefore pass with the private-symbol check at line 73 disabled. Keep one prebuilt fixture for provenance. Build the symbol fixtures from admitted source and assert the intended link or ownership diagnostic for each.
+
+## Optimization: approve
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS source-defect: findings  
+LENS consistency: findings  
+LENS quality: findings  
+LENS optimization: clean  
+HIGHEST: P2  
+OVERALL: needs-attention
