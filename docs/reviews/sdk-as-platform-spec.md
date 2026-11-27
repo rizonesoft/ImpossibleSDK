@@ -141,3 +141,46 @@ LENS quality: findings
 LENS optimization: findings  
 HIGHEST: P1  
 OVERALL: needs-attention
+
+## Round 4: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-27T09:01:36Z
+- Candidate: 256a32cae980a25c04bd08897dc92e9ca96be365
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 32
+- Digest: 2795eb830edfa350
+
+## Adversarial: needs-attention
+
+1. **P1** `docs/specs/2026-11-27-sdk-as-platform-design.md:71` Renaming imports does not restrict which object can reference them. **Path:** An app ships a prebuilt dependency compiled against the SDK's Windows-layer declarations. **Evidence: traced** Line 71 puts the alias library on the final app link. The linker resolves the same private symbol for a dependency object as for an SDK object. Line 73 checks portable SDK parts, while `tools/check_imports.py:87` sees only the permitted DLL and export in the finished executable. The planted cases at line 78 never put a private-name reference in an **app dependency**. Require the release build to establish which input objects reference the private imports and reject a dependency containing such a reference. The reported `ExitProcess` experiment proves that the plain name fails, which does not establish caller ownership.
+
+## Integration: needs-attention
+
+2. **P1** `docs/specs/2026-11-27-sdk-as-platform-design.md:72` The public window interface already hands the application a native handle. **Path:** Every window paint callback receives the caller-owned `im_window`. **Evidence: traced** `include/impossible/window.h:59` exposes `native`, `src/window.c:132` stores the live `HWND` there, and `tests/fixtures/test_host.c:275` retrieves it from a callback. The struct also exposes `HCURSOR` at `include/impossible/window.h:60`. Line 72 relies on opacity without assigning the public API migration. Move host state behind the SDK interface and account for existing callers, including the window sample that constructs `im_window` by value at `samples/window/main.c:55`.
+
+3. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:71` Applying the new link rule to the existing program target breaks the SDK's own verification build. **Path:** A developer runs the normal SDK build after removing the system libraries. **Evidence: traced** `CMakeLists.txt:10` builds `test-host` through `impossible_add_program`, but `tests/fixtures/test_host.c:276` calls `GetWindowLongPtrW` directly. Separately, `CMakeLists.txt:34` uses that target for the deliberately forbidden executable. Its `MessageBoxW` call at `tests/fixtures/forbidden.c:5` must link before `tests/test_seed.py:34` can verify the PE checker rejects it. `UNCHECKED` skips only the post-link check at `cmake/ImpossibleSDK.cmake:91`. Give Windows-side test instrumentation and the intentionally invalid PE fixture explicit test-only build paths, while keeping the shipping target subject to the boundary.
+
+## Source-defect: needs-attention
+
+4. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:104` Replacing Recto's source check with the link rule loses a distinct OS-import requirement. **Path:** Recto's imported engine retains a Windows header for a type or constant and calls no imported function. **Evidence: traced** At the pinned OS commit `180284002`, `todo/11-apps/TODO-05-pdf-viewer.md:207` requires the imported libraries to exclude Windows headers outside the adapter, and line 210 specifies a zero-include checkpoint. A type-only include creates no unresolved symbol for candidate line 71 to reject. Keep that source check at import or explicitly revise the upstream portability requirement before retiring it.
+
+## Consistency: needs-attention
+
+5. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:129` The proposed order still makes GPU packaging a prerequisite for Office's first CPU screen. **Path:** Office follows “Everyone first” while the GPU tier is still being built. **Evidence: traced** Line 129 requires all planted cases before *every* app move. Line 78 includes a correctly declared GPU program passing packaging, which requires the GPU part and its tier metadata at line 75. Line 130 explicitly promises Office can start without the GPU work. Put the GPU-specific cases with the first GPU consumer and keep the shared import-ownership checks on the CPU path.
+
+## Quality: needs-attention
+
+6. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:78` The COM fixture can pass for the wrong reason. **Path:** The fixture obtains an interface through an ordinary Windows import and then calls a method. **Evidence: traced** Line 71 requires the link to fail on the acquisition symbol alone. Deleting the COM call leaves the same failure, so the test still passes if the SDK later exposes a live interface through a callback. Exercise the public handle and callback boundary independently of the ordinary-import rejection, including the case where the consumer receives its input without naming a Windows function.
+
+## Optimization: approve
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS source-defect: findings  
+LENS consistency: findings  
+LENS quality: findings  
+LENS optimization: clean  
+HIGHEST: P1  
+OVERALL: needs-attention
