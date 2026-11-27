@@ -346,3 +346,46 @@ LENS quality: findings
 LENS optimization: clean  
 HIGHEST: P2  
 OVERALL: needs-attention
+
+## Round 9: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-27T09:14:26Z
+- Candidate: c523b60edb5e5de82f60c29a9647847ccb9632b3
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 28
+- Digest: d925f4832af2c16b
+
+## adversarial: needs-attention
+
+1. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:88` only specifies how to report device loss from presentation. **Path:** A user moves an open canvas to another monitor during an adapter change. DXGI can report device removal from `ResizeBuffers` before the next frame reaches `Present`. **Evidence: traced** Line 88 lets the implementation report an ordinary resize failure or recreate just the surface. The old device and its textures are already invalid. Exercise loss during resize with a populated canvas and require the next frame to render from recreated device resources or through the CPU path. [Microsoft’s Direct3D 11 device-removal contract](https://learn.microsoft.com/en-us/windows/uwp/gaming/handling-device-lost-scenarios)
+
+## integration: needs-attention
+
+2. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:98` leaves Recto’s executable entry point out of the migration. **Path:** Recto finishes moving the named libraries and builds the desktop application under the SDK release rules. **Evidence: traced** At Recto `274f248`, `src/app/main.cpp:4` includes `pch.h`, which includes `<windows.h>` at `src/app/pch.h:13`. The executable itself calls `CoInitializeEx` at `src/app/main.cpp:44` and `MessageBoxW` at line 27. Rule 4 rejects this source even after every library named at line 98 has moved. Include `src/app` in the Recto migration and assign ownership of UI-thread COM initialization, teardown and startup-error reporting.
+
+## source-defect: needs-attention
+
+3. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:106` defines release verification for one executable, but Recto’s OS import requires two. **Path:** The OS packager verifies `Recto.exe` against its release hash and installs the command-line converter alongside it. **Evidence: traced** Recto `274f248` builds `recto-cli` as a separate executable at `src/cli/CMakeLists.txt:2`. At OS `180284002`, `todo/11-apps/TODO-05-pdf-viewer.md:301` requires that executable, and line 336 checks both filenames on a fresh image. Substituting a stale CLI leaves the specified GUI hash comparison green. Define the comparison per shipped executable and architecture, and require a CLI mismatch to fail the import independently.
+
+## consistency: approve
+
+## quality: needs-attention
+
+4. **P3** `docs/specs/2026-11-27-sdk-as-platform-design.md:88` calls device removal “a third case” immediately after enumerating three startup failures. Counting the scenarios gives four. Call it the runtime device-loss case so the test inventory is unambiguous.
+
+## optimization: approve
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS source-defect: findings  
+LENS consistency: clean  
+LENS quality: findings  
+LENS optimization: clean  
+HIGHEST: P2  
+OVERALL: needs-attention
+
+## Closing note (writer, 2026-11-27)
+
+Round 9's four findings were fixed in the commit after `c523b60`. The review ends here: rounds 8 and 9 raised no `P1`, and their findings were obligation-level detail. Rounds 2 to 4 reopened the boundary check, which was redesigned (the link, the public interface and the source together), and rounds 5 to 7 reopened Recto's OS sections and the header pointer rule, which were replaced by one transfer item and pointer markers. Further obligation detail is carried by the plan items that build this design, each reviewed when it is built.
