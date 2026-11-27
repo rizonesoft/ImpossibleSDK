@@ -94,3 +94,50 @@ LENS quality: findings
 LENS optimization: clean  
 HIGHEST: P1  
 OVERALL: needs-attention
+
+## Round 3: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-27T08:58:02Z
+- Candidate: 8b8e198fe978f6f717bc1ef3c45a193b7eaecac3
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 36
+- Digest: e492ce6ae97491b4
+
+Reviewed `7f3664b1..8b8e198f`. Candidate line numbers below refer to [the design record](/home/derickpayne/impossible/SDK/docs/specs/2026-11-27-sdk-as-platform-design.md) at the tip.
+
+## Adversarial: needs-attention
+
+1. **P1 | `docs/specs/2026-11-27-sdk-as-platform-design.md:72` | The object check cannot establish who made a COM call.** Path: Recto links an optimized external library that invokes a method on a supplied interface. The library can contain an indirect call with no Windows import, interface name or method name. Its source is outside the app CI scan. Evidence: ran `clang++ --target=x86_64-w64-windows-gnu -O2 -S -x c++ - -o -` on a one-method interface and a function calling that method. The call compiled to `movq (%rcx), %rax` and `jmpq *(%rax)`. The proposed `CreateFileW` fixture exercises a named import and cannot expose this failure. Require verifiable source or build provenance for objects admitted by the release check, and cover a dependency that uses a COM method without importing a DLL function.
+
+## Integration: needs-attention
+
+2. **P2 | `docs/specs/2026-11-27-sdk-as-platform-design.md:74` | The GPU tier conflicts with the existing release-tier measurement.** Path: Isotone correctly declares the GPU tier and ships a canvas that loads D3D dynamically. Evidence: traced candidate line 79, which keeps the D3D exports out of the PE import table, to `todo/08-release/TODO-01-parts-and-release.md:83`, which requires `tools/app_build.py` to flag a declaration above or below the tier measured from PE imports. That release therefore passes the proposed part check while failing the planned packaging check. Give both checks the same effective-tier calculation and exercise a correctly declared GPU release through packaging.
+
+3. **P2 | `docs/specs/2026-11-27-sdk-as-platform-design.md:115` | The OS ledger cannot validate the required move record.** Path: the OS lane follows line 129 and transfers the first Recto obligation, recording the old text’s hash as required by line 97. Evidence: traced OS `scripts/imports.py:68`, `:79` and `:118` at `180284002`. A moved row accepts exactly `section`, `source` and `to`. A hash field fails shape validation, and a hash embedded in the free-text destination receives no verification. The commit and tree checks at `:277` cover the imported copy. Assign the compatible ledger and checker change before the first transfer, and prove that changing the recorded old-text hash is detected.
+
+## Source-defect: needs-attention
+
+4. **P2 | `docs/specs/2026-11-27-sdk-as-platform-design.md:100` | Recto §12 loses its on-OS behavioral checkpoint.** Path: the OS lane replaces §12 after Recto creates its migration item and the include check passes on import. Evidence: traced OS `todo/11-apps/TODO-05-pdf-viewer.md:204` and `:210`. The section requires the platform implementation’s unit tests to pass under the user-mode launcher, in addition to the include check. The candidate transfers only the check. A broken atomic-save or memory-mapping implementation could satisfy the replacement checkpoint. Assign the behavioral tests to the OS import item and retain the launcher requirement.
+
+## Consistency: needs-attention
+
+5. **P2 | `docs/specs/2026-11-27-sdk-as-platform-design.md:72` | The release rule grants Windows access to every SDK part.** Path: a builder uses an allowed Windows import in the shared text or drawing implementation. Evidence: traced the exemption for “objects built from SDK parts” and the header ban only “outside SDK parts” at line 72 against `AGENTS.md:13` and candidate line 65, which reserve OS calls for the Windows layer. Such an object meets the proposed release rule while breaking the OS shell’s portable import. Scope the exemption to Windows-layer objects, including the Windows GPU adapter, and require an allowed import in a portable SDK part to fail.
+
+## Quality: needs-attention
+
+6. **P2 | `docs/specs/2026-11-27-sdk-as-platform-design.md:79` | Both GPU failure tests can pass while Recto loses a working canvas after startup.** Path: Recto opens a document successfully, then its presentation thread receives a device-reset or device-removed result. Evidence: traced Recto `todo/02-viewer/TODO-02-document-view.md:92` at `274f248`, which explicitly assigns device-loss recovery to the presentation thread. Both candidate failure cases end during DLL or export loading, before a device exists. Define how the SDK reports loss to that thread and exercise recovery or CPU fallback with the document still open.
+
+## Optimization: needs-attention
+
+7. **P2 | `docs/specs/2026-11-27-sdk-as-platform-design.md:119` | Isotone’s selected benchmark cannot measure its canvas target.** Path: the layered canvas migration adds a full-frame copy during presentation. The named benchmark can return identical timings because it never presents a frame. Evidence: traced Isotone `native/benchmarks/main.cpp:32` and `native/benchmarks/imaging/premultiply_bench.cpp:183` at `ff1a42e`. The suite registers only pixel-premultiplication workloads. Isotone already specifies a relevant target at `docs/parity/gesso-section-design.md:557`: panning a 100-megapixel document at 37 degrees must keep the median frame below 16 ms. Measure that interaction through presentation on the same machine. The candidate supplies no frame measurement from which to judge the move.
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS source-defect: findings  
+LENS consistency: findings  
+LENS quality: findings  
+LENS optimization: findings  
+HIGHEST: P1  
+OVERALL: needs-attention
