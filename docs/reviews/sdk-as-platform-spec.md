@@ -184,3 +184,42 @@ LENS quality: findings
 LENS optimization: clean  
 HIGHEST: P1  
 OVERALL: needs-attention
+
+## Round 5: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-27T09:03:42Z
+- Candidate: efa47c0f27905e07d83dd5fff2cdb6e688585e96
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 28
+- Digest: 18cac2e71ee2cb0d
+
+## Adversarial: needs-attention
+
+1. **P1** `docs/specs/2026-11-27-sdk-as-platform-design.md:74` leaves the source check undefined for prebuilt dependencies. **Path:** An app links a vendor archive built with a Windows header for a structure layout or constant. **Evidence: traced** Lines 71 and 72 admit prebuilt archives and inspect their undefined symbols. Line 74 itself explains why this use leaves no symbol. Scanning the app checkout cannot establish what headers produced the archive, even if a different revision of the vendor source is present. Require each admitted archive to be tied to the checked build inputs, or refuse it when that evidence is unavailable. The planted cases at line 82 test a source include and an archive import separately, so both can pass while this gap remains.
+
+## Integration: needs-attention
+
+2. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:73` omits existing callers whose behavior depends on the public `im_window` layout. **Path:** A developer runs the normal SDK build after making `im_window` opaque. **Evidence: ran** `git grep -n 'w->native' efa47c0 -- tests/fixtures/test_dirty.c` shows that the dirty-region test reads the presented pixels at line 891 and injects window messages at line 918. Separately, `tests/fixtures/reopen.c:11` constructs the window by value and line 16 reuses it after close. Both are ordinary build targets at `CMakeLists.txt:8` and `:11`. Keeping system import libraries for tests fixes linking, but neither caller can compile against the opaque type as written. Include these callers in the migration, retain the reopen behavior, and give the pixel test access to the native window through test instrumentation.
+
+## Source-defect: needs-attention
+
+3. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:107` preserves Recto §11’s runtime tests but loses its SDK documentation obligation. **Path:** The OS lane replaces §11 once the runtime build and OS import items exist, as candidate line 137 permits. **Evidence: traced** At OS commit `180284002`, `todo/11-apps/TODO-05-pdf-viewer.md:189` requires a supported-subset reference and a cross-reference from the on-device compiler roadmap. Neither the transfer at candidate line 107 nor the toolkit guide at line 91 assigns those deliverables. All six tests can pass while an OS compiler user still cannot determine which runtime facilities are supported. Give the subset reference an owner and retain the OS compiler cross-reference before replacing §11.
+
+## Consistency: approve
+
+## Quality: needs-attention
+
+4. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:82` allows the public-header tests to pass while the SDK still exposes a native handle through `void *`. **Path:** A Windows adapter exposes a native value through a generic pointer field or callback. This is the representation the SDK already uses. **Evidence: traced** `include/impossible/window.h:59` declares `native` as `void *`, `src/window.c:132` stores the live window handle there, and `tests/fixtures/test_host.c:275` recovers it. A checker can reject a planted `HWND` field and a typed COM callback exactly as lines 73 and 82 require while accepting that existing declaration. Use the current erased-pointer representation as a regression case and specify how the check distinguishes SDK-owned opaque objects and caller-supplied context from native values returned by the Windows layer.
+
+## Optimization: approve
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS source-defect: findings  
+LENS consistency: clean  
+LENS quality: findings  
+LENS optimization: clean  
+HIGHEST: P1  
+OVERALL: needs-attention
