@@ -266,3 +266,44 @@ LENS quality: findings
 LENS optimization: clean  
 HIGHEST: P2  
 OVERALL: needs-attention
+
+## Round 7: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-27T09:08:31Z
+- Candidate: 3392412ca544b4fb189e48ce1c51e482f97b83f3
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 30
+- Digest: 54773f6df495f4e2
+
+## adversarial: needs-attention
+
+1. **P1** `docs/specs/2026-11-27-sdk-as-platform-design.md:110` leaves Recto’s memory-budget requirement without an owner when OS §13 is rewritten. **Path:** A user opens an oversized PDF received through the browser or mail, an explicit integration path at OS `todo/11-apps/TODO-05-pdf-viewer.md:319`. **Evidence: traced** At OS commit `180284002`, the same file at line 226 requires engine caches to respect the seam’s budget and the engine to return an error before exhausting the process. Candidate line 110 transfers engine tests and fuzzing, while line 129 transfers rendering comparisons. Neither assigns the cache-budget behavior or a test that exercises it. Keep that obligation in the transfer and verify it with an oversized document under a bounded budget.
+
+## integration: needs-attention
+
+2. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:139` stops the Recto roadmap migration at §14, leaving two downstream instructions that require a separate OS build. **Path:** After importing the Windows executable, the OS lane reaches Recto packaging and OCR integration. **Evidence: traced** At OS commit `180284002`, `todo/11-apps/TODO-05-pdf-viewer.md:261` still directs the lane to build the app from `src/app` with the §14 toolkit backend. Lines 281 and 282 require an OS-specific OCR build that excludes the Windows provider. Following those instructions recreates the build that candidate line 110 retires. Update those consumers to import the same executable, select the available OCR provider at runtime, and retain their launch and cancellation checks.
+
+## source-defect: needs-attention
+
+3. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:110` claims Recto’s SDK toolchain already builds its Windows sanitizer corpus. **Path:** The OS lane transfers §13’s fuzz checkpoint to Recto and relies on its existing green Windows CI. **Evidence: traced** At the record’s Recto pin `274f248`, `.github/workflows/build.yml:302` runs `recto-tests` with MSVC AddressSanitizer. `fuzz/CMakeLists.txt:2` builds `fuzz_smoke.cpp`, whose entry point at `fuzz/fuzz_smoke.cpp:11` discards the supplied bytes. OS `todo/11-apps/TODO-05-pdf-viewer.md:224` and `:229` require ASan and UBSan over each real fuzz entry point for ten seconds. Assign that Windows CI work to a destination item and retain the checkpoint until corpus inputs reach the parser.
+
+## consistency: needs-attention
+
+4. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:75` rejects supported public allocator interfaces as soon as the expanded header check runs. **Path:** A shipping target exports `im_host` or the PNG decoder’s allocator table. **Evidence: traced** `ui/host.h:57` declares `void *ctx`, and `src/host.c:76` sets it to the window. `parts/png/png.h:11` through `:15` declare allocation callbacks and another `void *ctx`. Both directories are public at `cmake/ImpossibleSDK.cmake:49` and `:67`. These fields fail the literal `user` naming rule, and the allocator callbacks fall outside the named `base.h` exceptions. Define the accepted context and allocator contracts across exported parts, and test the existing tables alongside the forbidden native-handle field.
+
+## quality: needs-attention
+
+5. **P2** `docs/specs/2026-11-27-sdk-as-platform-design.md:83` still allows the exported-header regression test to pass when the checker scans only `include/impossible/`. **Path:** A maintainer narrows header discovery back to the original directory and runs the prescribed planted cases. **Evidence: traced** Line 75 now explicitly covers `ui/host.h`, but line 83 gives no location for the planted callback or handle field. Its only named field, `im_window.native`, lives in `include/impossible/window.h:59`. All the negative fixtures can therefore live under the original scan root and still produce their intended diagnostics. Place one forbidden field in a second include directory exported by a shipping target and require the diagnostic to identify that header.
+
+## optimization: approve
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS source-defect: findings  
+LENS consistency: findings  
+LENS quality: findings  
+LENS optimization: clean  
+HIGHEST: P1  
+OVERALL: needs-attention
