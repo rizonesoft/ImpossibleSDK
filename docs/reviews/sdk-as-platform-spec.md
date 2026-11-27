@@ -48,3 +48,49 @@ LENS quality: findings
 LENS optimization: findings  
 HIGHEST: P1  
 OVERALL: needs-attention
+
+## Round 2: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-27T08:54:35Z
+- Candidate: fa47317aa7c1703874f66a59d5073b6f4ffc3d53
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 35
+- Digest: fb2f327a01f4f1c5
+
+Reviewed `7f3664b1..fa47317a`. Candidate line references below are to `docs/specs/2026-11-27-sdk-as-platform-design.md`. OS references are pinned to `180284002`.
+
+## Adversarial: needs-attention
+
+1. **P1 | Design record:72 | A linked dependency can bypass the SDK while all three checks pass.** **Path:** An app links a static library built outside the app checkout. One of its objects calls `CreateFileW` directly. **Evidence: traced** Line 72 scopes CI to the app’s own tree. The final executable check at `tools/check_imports.py:85` sees an allowed import (`abi/tiers.json:13`), and line 73 checks only SDK code. None establishes who made the call. Require the release check to account for every linked object, including generated and external inputs, and exercise rejection with a dependency that directly calls an allowed export.
+
+## Integration: needs-attention
+
+2. **P1 | Design record:73 | A GPU executable can pass with a declared tier below GPU.** **Path:** An app adds the SDK GPU part to an existing Desktop target and keeps its old tier declaration. **Evidence: traced** Line 78 resolves the provider dynamically. Its loader functions are already allowed in tier 0 at `abi/tiers.json:30` and `:38`. `cmake/ImpossibleSDK.cmake:95` checks PE imports against the target tier, while line 73 checks whether a method appears anywhere in the SDK inventory. Both checks can pass, leaving the OS with an understated app requirement. Bind the minimum tier of each linked SDK part to the app declaration and require this mismatched target to fail.
+3. **P2 | Design record:78 | The OS roadmap reader cannot distinguish COM methods from DLL exports.** **Path:** The SDK publishes its first GPU method inventory and the OS lane runs its existing needs check. **Evidence: traced** OS `scripts/imports.py:332` recognizes DLL/function pairs, and `scripts/imports.py:371` reads only `tier["functions"]`. A separate methods field is invisible. Putting methods in `functions` instead makes `tools/check_imports.py:21` treat them as allowed DLL exports. Specify distinct records for exports, optional lookups and interface methods, and assign the OS reader update alongside the SDK writer. Verify that an unmapped method is reported under its interface.
+
+## Source-defect: needs-attention
+
+4. **P2 | Design record:98 | Moving Recto’s runtime section can retire OS acceptance obligations prematurely.** **Path:** The OS lane replaces §11 once the SDK runtime item and the OS unwind/import item exist, as line 125 permits. **Evidence: traced** OS `todo/11-apps/TODO-05-pdf-viewer.md:188` requires user-mode thread/mutex and standard-library tests. Line 192 requires all six tests under the launcher on TCG and KVM at one and two CPUs. Candidate line 98 retains the two-frame catch, and line 77 specifies a different Windows sample. Neither destination takes the rest of the OS checkpoint. Preserve the full checkpoint in the OS import item before moving §11.
+5. **P2 | Design record:114 | Moving a whole graphics or text section can remove work only the OS can do.** **Path:** The OS lane applies the new ownership rule to a mixed Phase 8 roadmap section while importing SDK text or drawing. **Evidence: traced** The governing `docs/specs/2026-11-23-interface-and-apps-design.md:74` keeps desktop integration, and line 75 splits portable code from driver, Registry and system-service work within each section. There is a concrete split even in the named font manager: OS `include/font_mgr.h:88` loads system fonts at boot, while `include/font_mgr.h:96` exposes glyph drawing. Make the portable obligation the unit of transfer and retain an OS implementation item for the host services. A ledger hash preserves the old wording but does not assign the remaining work.
+
+## Consistency: needs-attention
+
+6. **P2 | Design record:123 | The prescribed order makes unrelated SDK work a prerequisite for app work.** **Path:** Office follows step 3 to start its first CPU-rendered screen. Step 2 puts the GPU sample and Recto’s ARM64 target ahead of that start. **Evidence: traced** Candidate lines 122 to 124 present a single ordered sequence. The governing `docs/specs/2026-11-23-interface-and-apps-design.md:107` assigns a missing SDK feature to its first consumer, who builds it and advances the app pin. The revision removed that instruction. Express dependencies per consumer so a GPU or ARM64 milestone gates only the surfaces that require it.
+7. **P3 | Design record:114 | The ownership summary assigns the call list to both repositories.** Read the last clause, “what the OS must provide is the list, and only the OS writes it,” against line 110, which assigns `abi/tiers.json` to the SDK. State explicitly that the SDK publishes the list and the OS implements the listed calls.
+
+## Quality: needs-attention
+
+8. **P2 | Design record:78 | Forcing GPU absence can skip the failure path the sample is supposed to prove.** **Path:** The sample implements its test switch by selecting the CPU renderer before `im_gpu_open`. Both image comparisons pass even if startup fails when the provider loads but a required export is unavailable. **Evidence: traced** Line 78 requires the same executable and matching canvas output, but does not specify where absence is forced or require the ordinary initialization path to report the failure. Exercise absence at the loader boundary and a missing required export after load. In both cases, require normal startup to reach the usable CPU canvas.
+
+## Optimization: approve
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS source-defect: findings  
+LENS consistency: findings  
+LENS quality: findings  
+LENS optimization: clean  
+HIGHEST: P1  
+OVERALL: needs-attention
