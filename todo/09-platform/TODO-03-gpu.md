@@ -20,6 +20,8 @@ title: "TODO-03 -- The GPU Tier"
 - -> XREF: D09 T02 §5 -- the `resolved` and `methods` record kinds this tier uses
 - -> XREF: D09 T02 §13 -- the effective tier that makes a Desktop-tier program linking `gpu` fail
 - -> XREF: D09 T05 §6 -- the guide that shows the GPU sample
+- `impossible-os` `todo/10-platform-services/TODO-13-program-needs.md` §7, §8, §9 -- Impossible OS implements this tier's functions, resolved names and methods, shared with Inkeys; it reads them from `abi/tiers.json` and never edits the list
+- Consumers: Recto `todo/00-workspace/TODO-06-impossible-sdk-platform.md` §9 (page tiles), Isotone `todo/01-core/TODO-28-foundation-sdk-platform.md` §2 and §3 (the canvas)
 
 ## Outcome
 

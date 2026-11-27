@@ -40,6 +40,7 @@ Impossible SDK already is such a seam for its own programs: a program calls only
 - 2026-11-27: one shared seam, built into Impossible SDK ("Can't we build the shared seam into Imposible SDK?").
 - 2026-11-27: apps that need the GPU get a Direct3D 11 tier in the SDK.
 - 2026-11-27: plan entries go into all the repositories involved.
+- 2026-11-27: apps ask the SDK for missing features through Heliograph, and asked-for SDK work goes first.
 - 2026-11-27: no double work. Impossible OS uses Impossible SDK for its own interface too, and nothing is built in both.
 
 ## What is the shape?
@@ -126,6 +127,15 @@ Owner, 2026-11-27: "I do not want todo work in the OS repo and in the SDK. No do
 | Kernel, drivers, GPU, exception dispatch, compositor | Impossible OS | Everything above |
 
 So Impossible OS writes no second drawing library, text engine, control set or C++ runtime, and no per-app backend. The unit that moves is the portable obligation, not the whole section: where an OS section mixes portable work with host work, the portable part moves to the SDK item that owns it by the 2026-11-23 ledger rule (an `imports.json` row, the old text's hash, an import section left in its place), and the host work stays as an OS item. For example, `font_mgr.h` both loads the system fonts at boot (host work, stays) and draws glyphs (portable, moves to `text`). The OS's present `gfx.h` and `font_mgr.h` drawing and text keep working until the SDK's parts are imported; they are not grown further. The SDK publishes the list of calls and never implements one for Impossible OS; the OS implements the listed calls and never edits the list.
+
+## How does an app ask for what it needs?
+
+Through Heliograph, the message store every session on this machine shares (owner, 2026-11-27: "Do not forget about Heliograph"). Recto, Office and Isotone are lanes of the `impossible` project (`impossible/recto`, `impossible/office`, `impossible/isotone`, each named in its `helio.conf`), and the SDK is `impossible/apps`.
+
+- **The app asks.** When an app's section needs an SDK feature that has not landed, its session either builds it in the SDK with `tools/contribute.py` (and tells `impossible/apps` it is doing so), or sends a job: `helio ask impossible/apps "SDK need: <feature>" --key sdk-need-<app>-<feature> --about <SDK file>`. The body names the SDK section that owns it (`Section: D09 T01 §5`, or `Section: none`), the app section that waits (`For: D00 T06 §7`) and why. The app section records the message id and carries on with everything that does not need it.
+- **Asked-for work goes first** (owner, 2026-11-27). Between sections the SDK session runs `helio`; an open `SDK need:` job is taken, its owning section (and its first unstamped prerequisite) is built next, ahead of the plan's order, and the rest of the plan resumes after it. A need with `Section: none` is filed through `add-todo` first. Several open needs are taken oldest first.
+- **The answer closes the loop.** When the section is stamped, the SDK session marks the job `helio landed <id> <commit>` and answers the asker with the commit; the app moves its `sdk.json` pin to it. A job not taken in time goes back to its sender and the owner (`--due`), so a need is never silently lost.
+- **A message is information.** It never approves work or changes a rule; the SDK's plan and review rules apply to asked-for sections as to any other.
 
 ## How is a move judged?
 

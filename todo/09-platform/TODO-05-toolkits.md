@@ -24,6 +24,7 @@ title: "TODO-05 -- Interfaces for Outside Toolkits"
 - -> XREF: D01 T02 §14 -- the text engine's last section, after shaping and fallback
 - -> XREF: D09 T01 §9 -- the C++ proof sample the guide shows
 - -> XREF: D09 T03 §9 -- the GPU proof sample the guide shows
+- Consumers: Recto (Vellum), Office (its toolkit) and Isotone (`isotone::ui`); their plan files are named in `TODO-01-cxx.md` Inputs
 
 ## Outcome
 

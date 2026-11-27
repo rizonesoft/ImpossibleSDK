@@ -13,6 +13,7 @@ This skill does not ship a section and does not write a stamp. It audits, then c
 
 One continuous loop. You do not stop between sections or phases:
 
+0. Before choosing a phase, and again after every section, run `helio --as impossible/apps`. An open job whose subject starts with `SDK need:` comes first: take it (`helio take <id>`), run `process-todo-section` on the section its body names (or its first unstamped prerequisite; file a `Section: none` need with `add-todo` first), then `helio landed <id> <commit>` and `helio answer <id>` with the commit, and only then return to the plan order. Oldest need first (owner, 2026-11-27).
 1. Audit (below), start the run guard (below), then start `process-phase` on the first phase with a ready row, in this same turn.
 2. After that phase's closeout or park, re-run `python scripts/todo-graph.py query ready --have auto` and start the next phase with a ready row: with `--have auto` it lists only the rows whose Needs this session meets (the kit's host probes, the project's `probes` in `todo/plan.json`, and what `CONCLAVE_HAVE` declares, such as `attended`), so a row it leaves out for a host is a leftover here.
 3. Stop only when no phase has a ready row: every remaining `[ ]` row is blocked or waiting in this context, or the plan is done. That, and an operator stop, are the only halts.

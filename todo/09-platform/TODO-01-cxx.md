@@ -21,6 +21,8 @@ title: "TODO-01 -- C++ Programs"
 - -> XREF: D09 T02 §6 -- the link step that drops system import libraries; the `cxx` part must pass it
 - -> XREF: D09 T05 §5 -- `docs/guide/cxx.md`, the supported subset, is written from this file's proof
 - -> XREF: D09 T04 §6 -- the `cxx` part and this file's sample on arm64
+- `impossible-os` `todo/11-apps/TODO-15-imported-programs.md` §22 -- imports this part into Impossible OS and keeps what only the OS can do (unwinding on its exception dispatch, the six `user/tests/cxx/` tests under its launcher); it builds no runtime of its own
+- Consumers: Recto `todo/00-workspace/TODO-06-impossible-sdk-platform.md`, Office `todo/03-architecture/TODO-01-tech-stack.md` §2, Isotone `todo/00-workspace/TODO-08-sdk-platform-build.md`
 
 ## Outcome
 

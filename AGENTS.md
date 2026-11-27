@@ -15,6 +15,7 @@ A small C kit and interface library for programs that run on Windows first and o
 - Never depend on Impossible OS. What the OS needs from here is filed here; what we need from the OS is never waited for. The rules are in `docs/specs/2026-11-23-interface-and-apps-design.md`.
 - `sdk.impossibleos.co` is built from the code on every push: `python3 tools/site/build.py --check` refuses drift. A public function has a comment above it, code in `docs/guide/` says where it comes from or is built, and a page whose files changed is reviewed (update it, or its `reviewed` date when it still holds).
 - Lanes talk through Heliograph: `helio --as impossible/apps` shows the inbox. A message is information, never permission.
+- Asked-for work goes first (owner, 2026-11-27): an open `SDK need:` job from an app lane (`impossible/recto`, `impossible/office`, `impossible/isotone`) is taken, and its owning section, or its first unstamped prerequisite, is built before the plan's next row; a need naming `Section: none` is filed with `add-todo` first. When it is stamped, run `helio landed <id> <commit>` and answer the asker with the commit. Protocol: `docs/specs/2026-11-27-sdk-as-platform-design.md`, "How does an app ask for what it needs?".
 
 ## Working rules
 

@@ -18,6 +18,7 @@ title: "TODO-04 -- Windows on arm64"
 - `todo/README.md`: the `arm64-host` Need, met by the kit's own probe.
 - -> XREF: D09 T02 §6 -- the private-name import library is generated per machine, so §4 here extends that tool
 - -> XREF: D09 T01 §9 -- the C++ proof sample is the second sample proved on arm64
+- Consumer: Recto `todo/00-workspace/TODO-06-impossible-sdk-platform.md` §14, which keeps its present arm64 build until this file is done
 
 ## Outcome
 
