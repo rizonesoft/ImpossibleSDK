@@ -106,7 +106,7 @@ Owner, 2026-11-27: "I do not want todo work in the OS repo and in the SDK. No do
 | Piece | Built once in | Used by |
 | --- | --- | --- |
 | Controls, layout, drawing, text, image parts | Impossible SDK | The OS shell, SDK programs, the three apps |
-| C++ runtime (`cxx`: libc++, libc++abi, libunwind) | Impossible SDK | The three apps and any C++ code in the OS |
+| C++ runtime (`cxx`: libc++ and friends) | Impossible SDK | The three apps and any C++ code in the OS |
 | The list of Windows calls (`abi/tiers.json`) | Impossible SDK | Every program; the OS's roadmap reads it |
 | The Windows calls themselves, Direct3D 11 included | Impossible OS | Every program, run unchanged |
 | Kernel, drivers, GPU, exception dispatch, compositor | Impossible OS | Everything above |
@@ -128,7 +128,7 @@ Pixels and timings are compared separately, before and after, on the same machin
 
 | Risk | Answer |
 | --- | --- |
-| SDK drawing or text is slower or worse than Direct2D | Judged per move as above; the GPU tier takes what the CPU cannot |
+| SDK drawing or text is slower than Direct2D | Judged per move as above; the GPU tier takes what the CPU cannot |
 | Modules or exceptions fail on the SDK toolchain | The C++ sample proves them before any app moves |
 | Impossible OS lacks Direct3D 11 for a long time | GPU features have CPU paths; the program still starts |
 | Threads lose vector state on Impossible OS | Filed as an OS need above, before the apps run there |
