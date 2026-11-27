@@ -18,6 +18,7 @@ title: "TODO-01 -- Interface Engine and First Controls"
 - `tools/winui/pin.json`: the WinUI commit (MIT) that every value and behaviour comes from.
 - `abi/tiers.json`: the only Windows functions the Windows layer may call.
 - `todo/01-interface/TODO-02-text.md`: the text engine beyond the first lines of §5.
+- -> XREF: D09 T05 §1 -- the stable draw interface for outside toolkits, over the engine built here
 
 ## Outcome
 

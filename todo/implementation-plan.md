@@ -235,6 +235,61 @@ Sections: 12 | Checklist items: 68
 | [ ]    | D08 T01 §11 | Whole-program proof                  | windows-host, display-session | 6     |
 | [ ]    | D08 T01 §12 | Release archive                      | windows-host                  | 6     |
 
+### Phase 7: Platform for outside toolkits
+
+Sections: 48 | Checklist items: 251
+
+| Status | Reference   | Deliverable                                | Needs                         | Items |
+| ------ | ----------- | ------------------------------------------ | ----------------------------- | ----- |
+| [ ]    | D09 T01 §1  | Public headers compile as C++23            | windows-host                  | 5     |
+| [ ]    | D09 T01 §2  | Pinned LLVM runtime sources                | none                          | 4     |
+| [ ]    | D09 T01 §3  | C library pieces the runtime needs         | windows-host                  | 5     |
+| [ ]    | D09 T01 §4  | Thread primitives for libc++               | windows-host                  | 6     |
+| [ ]    | D09 T01 §5  | The `cxx` part and the LLVM runtimes       | windows-host                  | 5     |
+| [ ]    | D09 T01 §6  | Exceptions, RTTI and emulated TLS          | windows-host                  | 6     |
+| [ ]    | D09 T01 §7  | Constructors, destructors and `atexit`     | windows-host                  | 6     |
+| [ ]    | D09 T01 §8  | The C++ program build in CMake             | windows-host                  | 5     |
+| [ ]    | D09 T01 §9  | C++ proof sample                           | windows-host                  | 6     |
+| [ ]    | D09 T02 §1  | Test-only build path for test programs     | windows-host                  | 5     |
+| [ ]    | D09 T02 §2  | Opaque `im_window` type                    | windows-host                  | 6     |
+| [ ]    | D09 T02 §3  | Callers on the opaque window               | windows-host                  | 6     |
+| [ ]    | D09 T02 §4  | Test accessors for the window and timer    | windows-host                  | 6     |
+| [ ]    | D09 T02 §5  | Functions, resolved and methods records    | windows-host                  | 6     |
+| [ ]    | D09 T02 §6  | Private-name import library                | windows-host                  | 6     |
+| [ ]    | D09 T02 §7  | Link only objects built here               | windows-host                  | 5     |
+| [ ]    | D09 T02 §8  | Private names only in the Windows layer    | windows-host                  | 4     |
+| [ ]    | D09 T02 §9  | Source check for Windows headers           | none                          | 6     |
+| [ ]    | D09 T02 §10 | Markers on untyped pointers in headers     | none                          | 5     |
+| [ ]    | D09 T02 §11 | Exported-header check                      | windows-host                  | 6     |
+| [ ]    | D09 T02 §12 | Portable parts stay portable               | windows-host                  | 4     |
+| [ ]    | D09 T02 §13 | One effective tier for build and packaging | windows-host                  | 5     |
+| [ ]    | D09 T02 §14 | Planted cases and accepted controls        | windows-host                  | 9     |
+| [ ]    | D09 T02 §15 | Boundary checks on the site                | none                          | 4     |
+| [ ]    | D09 T03 §1  | The GPU tier entry in the tier list        | windows-host                  | 5     |
+| [ ]    | D09 T03 §2  | Method list set by the two workloads       | none                          | 5     |
+| [ ]    | D09 T03 §3  | Shader bytecode format and its compiler    | windows-host                  | 5     |
+| [ ]    | D09 T03 §4  | Generated header of the listed methods     | windows-host                  | 4     |
+| [ ]    | D09 T03 §5  | The `gpu` part and its run-time loading    | windows-host                  | 5     |
+| [ ]    | D09 T03 §6  | GPU devices, resources and draw calls      | windows-host, display-session | 6     |
+| [ ]    | D09 T03 §7  | Lost status on every call that can see it  | windows-host                  | 5     |
+| [ ]    | D09 T03 §8  | Test hook for removing the device          | windows-host                  | 4     |
+| [ ]    | D09 T03 §9  | GPU proof sample and start-up failures     | windows-host, display-session | 6     |
+| [ ]    | D09 T03 §10 | Device loss at present and on resize       | windows-host, display-session | 5     |
+| [ ]    | D09 T03 §11 | Effective tier and the GPU planted cases   | windows-host                  | 4     |
+| [ ]    | D09 T03 §12 | GPU tier docs and the OS need              | none                          | 4     |
+| [ ]    | D09 T04 §1  | arm64 compiler selection                   | none                          | 4     |
+| [ ]    | D09 T04 §2  | arm64 start, stack probe and compile flags | windows-host                  | 4     |
+| [ ]    | D09 T04 §3  | The arm64 machine type in the import check | none                          | 5     |
+| [ ]    | D09 T04 §4  | arm64 private-name import library          | windows-host                  | 4     |
+| [ ]    | D09 T04 §5  | A sample proved on Windows arm64           | arm64-host                    | 5     |
+| [ ]    | D09 T04 §6  | The `cxx` part and C++ sample on arm64     | arm64-host                    | 4     |
+| [ ]    | D09 T05 §1  | Stable draw and text interface             | windows-host                  | 7     |
+| [ ]    | D09 T05 §2  | Input method interface for toolkits        | windows-host, display-session | 7     |
+| [ ]    | D09 T05 §3  | Screen reader tree for an outside toolkit  | windows-host, display-session | 7     |
+| [ ]    | D09 T05 §4  | Printing from an outside toolkit           | windows-host                  | 4     |
+| [ ]    | D09 T05 §5  | The supported C++ subset page              | windows-host                  | 5     |
+| [ ]    | D09 T05 §6  | Guide: Bring your own toolkit              | windows-host                  | 6     |
+
 ### Phase 99: Manual, operator only
 
 Sections: 2 | Checklist items: 6
@@ -244,6 +299,6 @@ Sections: 2 | Checklist items: 6
 | [ ]    | D01 T01 §20 | Native 150% DPI fractional layout | windows-host, display-session, operator | 3     |
 | [ ]    | D08 T01 §13 | First public release              | operator                                | 3     |
 
-Progress: 19/189 verified sections, 21 ready to run now.
+Progress: 19/237 verified sections, 29 ready to run now.
 
-Checklist: 99/1547 items completed (includes Commit items).
+Checklist: 99/1798 items completed (includes Commit items).

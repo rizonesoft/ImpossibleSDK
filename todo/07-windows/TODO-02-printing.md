@@ -17,6 +17,7 @@ title: "TODO-02 -- Printing"
 - `abi/tiers.json`: tier 2 Documents gains the print functions, so that a document program does not need tier 5.
 - `todo/05-controls/TODO-03-dialogs.md`: the dialog frame.
 - Microsoft Print to PDF, as the printer the tests use.
+- -> XREF: D09 T05 §4 -- an outside toolkit prints through the job functions of §3
 
 ## Outcome
 

@@ -17,6 +17,7 @@ title: "TODO-02 -- Text Engine"
 - `docs/specs/2026-11-23-interface-and-apps-design.md`: fixed point, Selawik and Cascadia Code, Segoe only where it is installed.
 - `todo/01-interface/TODO-01-first-controls.md` §5: font reading and the rasteriser this file builds on.
 - `todo/06-shared/TODO-01-shared-parts.md` §5: Unicode data.
+- -> XREF: D09 T05 §1 -- the stable text interface for outside toolkits, over the engine built here
 
 ## Outcome
 

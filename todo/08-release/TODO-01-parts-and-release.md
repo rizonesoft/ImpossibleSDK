@@ -16,6 +16,9 @@ title: "TODO-01 -- Parts, Packaging and Release"
 
 - `docs/specs/2026-11-23-interface-and-apps-design.md`: parts, `app.json`, and that the installer tool reads it on Windows.
 - `tools/new_app.py`, `tools/app_build.py`, `tools/contribute.py`.
+- -> XREF: D09 T01 §5 -- the `cxx` part is one more entry in `parts.json`, checked the same way
+- -> XREF: D09 T02 §13 -- the one effective-tier calculation that `tools/app_build.py` calls
+- -> XREF: D09 T05 §1 -- the stable external interface of the `draw` and `text` parts this section publishes
 
 ## Outcome
 

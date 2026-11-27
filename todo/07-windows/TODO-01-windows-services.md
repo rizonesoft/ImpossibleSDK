@@ -16,6 +16,8 @@ title: "TODO-01 -- Windows Services"
 
 - `abi/tiers.json`: each function added here is a deliberate change, and work for Impossible OS.
 - `todo/01-interface/TODO-01-first-controls.md` §8: the callback table these services fill.
+- -> XREF: D09 T05 §2 -- the input method interface an outside toolkit uses, delivered by `src/ime.c`
+- -> XREF: D09 T05 §3 -- the provider an outside toolkit fills, read by the screen reader bridge
 
 ## Outcome
 

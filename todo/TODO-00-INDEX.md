@@ -14,5 +14,10 @@
 - [TODO-01 -- Windows Services](07-windows/TODO-01-windows-services.md)
 - [TODO-02 -- Printing](07-windows/TODO-02-printing.md)
 - [TODO-01 -- Parts, Packaging and Release](08-release/TODO-01-parts-and-release.md)
+- [TODO-01 -- C++ Programs](09-platform/TODO-01-cxx.md)
+- [TODO-02 -- The Windows Boundary](09-platform/TODO-02-boundary.md)
+- [TODO-03 -- The GPU Tier](09-platform/TODO-03-gpu.md)
+- [TODO-04 -- Windows on arm64](09-platform/TODO-04-arm64.md)
+- [TODO-05 -- Interfaces for Outside Toolkits](09-platform/TODO-05-toolkits.md)
 
 ## Completed TODOs
